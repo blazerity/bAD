@@ -9,6 +9,13 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from . import __version__
+from .agent_config import (
+    CONDITION_FIELDS,
+    CONDITION_OPS,
+    DEFAULT_AGENT_SETTINGS,
+    sanitize_conditions,
+    sanitize_settings,
+)
 from .auth import (
     authenticate_web_user,
     current_web_user,
@@ -159,6 +166,41 @@ def devices_page(
     )
 
 
+def _device_config_context(
+    db: Database,
+    device_id: str,
+    *,
+    user: WebUser,
+    message: Optional[str] = None,
+    error: Optional[str] = None,
+) -> Optional[dict]:
+    detail = db.get_device_detail(device_id)
+    if not detail:
+        return None
+    effective = db.compute_device_effective_config(device_id)
+    assert effective is not None
+    override = effective.get("override") or {}
+    override_settings = override.get("settings") if override else {}
+    inventory_pretty = None
+    latest = detail.get("latest_inventory")
+    if latest and latest.get("payload") is not None:
+        inventory_pretty = json.dumps(latest["payload"], indent=2, ensure_ascii=False)
+    return {
+        "device": detail,
+        "inventory_pretty": inventory_pretty,
+        "user": user,
+        "message": message,
+        "error": error,
+        "defaults": dict(DEFAULT_AGENT_SETTINGS),
+        "effective": effective["settings"],
+        "config_version": effective["version"],
+        "matched_policies": effective["matched_policies"],
+        "match_context": effective["context"],
+        "override_settings": override_settings or {},
+        "has_override": effective["has_override"],
+    }
+
+
 @router.get("/devices/{device_id}", response_class=HTMLResponse)
 def device_detail_page(
     device_id: str,
@@ -166,23 +208,89 @@ def device_detail_page(
     user: WebUser = Depends(require_web_user),
     db: Database = Depends(get_db),
 ):
-    detail = db.get_device_detail(device_id)
-    if not detail:
+    ctx = _device_config_context(db, device_id, user=user)
+    if not ctx:
         return templates.TemplateResponse(
             request,
             "device_missing.html",
             {"device_id": device_id, "user": user},
             status_code=404,
         )
-    inventory_pretty = None
-    latest = detail.get("latest_inventory")
-    if latest and latest.get("payload") is not None:
-        inventory_pretty = json.dumps(latest["payload"], indent=2, ensure_ascii=False)
-    return templates.TemplateResponse(
-        request,
-        "device_detail.html",
-        {"device": detail, "inventory_pretty": inventory_pretty, "user": user},
+    return templates.TemplateResponse(request, "device_detail.html", ctx)
+
+
+@router.post("/devices/{device_id}/config-override")
+def device_config_override_save(
+    device_id: str,
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    inventory_interval_hours: str = Form(""),
+    heartbeat_interval_minutes: str = Form(""),
+    update_check_interval_hours: str = Form(""),
+    update_enabled: str = Form(""),
+    clear_override: Optional[str] = Form(None),
+):
+    if clear_override is not None:
+        if not db.get_device_detail(device_id):
+            return templates.TemplateResponse(
+                request,
+                "device_missing.html",
+                {"device_id": device_id, "user": user},
+                status_code=404,
+            )
+        db.delete_device_config_override(device_id)
+        ctx = _device_config_context(
+            db, device_id, user=user, message="Manual override cleared"
+        )
+        assert ctx is not None
+        return templates.TemplateResponse(request, "device_detail.html", ctx)
+
+    raw: dict = {}
+    for key, raw_val in (
+        ("inventory_interval_hours", inventory_interval_hours),
+        ("heartbeat_interval_minutes", heartbeat_interval_minutes),
+        ("update_check_interval_hours", update_check_interval_hours),
+    ):
+        text = (raw_val or "").strip()
+        if text:
+            raw[key] = text
+    ue = (update_enabled or "").strip().lower()
+    if ue in {"true", "false", "1", "0"}:
+        raw["update_enabled"] = ue in {"true", "1"}
+
+    cleaned = sanitize_settings(raw)
+    if not cleaned:
+        ctx = _device_config_context(
+            db,
+            device_id,
+            user=user,
+            error="Set at least one valid override field (or clear)",
+        )
+        if not ctx:
+            return templates.TemplateResponse(
+                request,
+                "device_missing.html",
+                {"device_id": device_id, "user": user},
+                status_code=404,
+            )
+        return templates.TemplateResponse(
+            request, "device_detail.html", ctx, status_code=400
+        )
+    try:
+        db.set_device_config_override(device_id, cleaned)
+    except KeyError:
+        return templates.TemplateResponse(
+            request,
+            "device_missing.html",
+            {"device_id": device_id, "user": user},
+            status_code=404,
+        )
+    ctx = _device_config_context(
+        db, device_id, user=user, message="Manual override saved"
     )
+    assert ctx is not None
+    return templates.TemplateResponse(request, "device_detail.html", ctx)
 
 
 @router.get("/account/password", response_class=HTMLResponse)
@@ -311,6 +419,249 @@ def _parse_ldap_form(form: LdapFormData) -> tuple[dict, Optional[str]]:
         "display_name_attr": (form.display_name_attr or "cn").strip() or "cn",
         "default_role": role,
     }, None
+
+
+def _parse_policy_form(
+    *,
+    name: str,
+    enabled: Optional[str],
+    priority: str,
+    cond_field: str,
+    cond_op: str,
+    cond_value: str,
+    inventory_interval_hours: str,
+    heartbeat_interval_minutes: str,
+    update_check_interval_hours: str,
+    update_enabled: str,
+) -> tuple[Optional[dict], Optional[str]]:
+    name_s = (name or "").strip()
+    if not name_s:
+        return None, "Name is required"
+    try:
+        priority_i = int((priority or "100").strip())
+    except ValueError:
+        return None, "Priority must be an integer"
+    if priority_i < 0 or priority_i > 1_000_000:
+        return None, "Priority out of range"
+
+    conditions = sanitize_conditions(
+        [
+            {
+                "field": (cond_field or "").strip(),
+                "op": (cond_op or "").strip(),
+                "value": (cond_value or "").strip(),
+            }
+        ]
+    )
+    if not conditions:
+        return None, "One valid condition is required (hostname/domain/os_caption)"
+
+    raw: dict = {}
+    for key, raw_val in (
+        ("inventory_interval_hours", inventory_interval_hours),
+        ("heartbeat_interval_minutes", heartbeat_interval_minutes),
+        ("update_check_interval_hours", update_check_interval_hours),
+    ):
+        text = (raw_val or "").strip()
+        if text:
+            raw[key] = text
+    ue = (update_enabled or "").strip().lower()
+    if ue in {"true", "false", "1", "0"}:
+        raw["update_enabled"] = ue in {"true", "1"}
+    settings = sanitize_settings(raw)
+    if not settings:
+        return None, "Set at least one settings field for the policy"
+    return {
+        "name": name_s,
+        "enabled": enabled is not None,
+        "priority": priority_i,
+        "conditions": conditions,
+        "settings": settings,
+    }, None
+
+
+@router.get("/settings/policies", response_class=HTMLResponse)
+def policies_page(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+):
+    return templates.TemplateResponse(
+        request,
+        "policies.html",
+        {
+            "user": user,
+            "policies": db.list_agent_policies(),
+            "defaults": dict(DEFAULT_AGENT_SETTINGS),
+            "condition_fields": sorted(CONDITION_FIELDS),
+            "condition_ops": sorted(CONDITION_OPS),
+            "message": None,
+            "error": None,
+            "edit": None,
+        },
+    )
+
+
+@router.get("/settings/policies/{policy_id}", response_class=HTMLResponse)
+def policy_edit_page(
+    policy_id: int,
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+):
+    policy = db.get_agent_policy(policy_id)
+    if not policy:
+        return RedirectResponse(url="/settings/policies", status_code=303)
+    return templates.TemplateResponse(
+        request,
+        "policies.html",
+        {
+            "user": user,
+            "policies": db.list_agent_policies(),
+            "defaults": dict(DEFAULT_AGENT_SETTINGS),
+            "condition_fields": sorted(CONDITION_FIELDS),
+            "condition_ops": sorted(CONDITION_OPS),
+            "message": None,
+            "error": None,
+            "edit": policy,
+        },
+    )
+
+
+@router.post("/settings/policies")
+def policy_create(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    name: str = Form(""),
+    enabled: Optional[str] = Form(None),
+    priority: str = Form("100"),
+    cond_field: str = Form("hostname"),
+    cond_op: str = Form("contains"),
+    cond_value: str = Form(""),
+    inventory_interval_hours: str = Form(""),
+    heartbeat_interval_minutes: str = Form(""),
+    update_check_interval_hours: str = Form(""),
+    update_enabled: str = Form(""),
+):
+    parsed, err = _parse_policy_form(
+        name=name,
+        enabled=enabled,
+        priority=priority,
+        cond_field=cond_field,
+        cond_op=cond_op,
+        cond_value=cond_value,
+        inventory_interval_hours=inventory_interval_hours,
+        heartbeat_interval_minutes=heartbeat_interval_minutes,
+        update_check_interval_hours=update_check_interval_hours,
+        update_enabled=update_enabled,
+    )
+    if err or not parsed:
+        return templates.TemplateResponse(
+            request,
+            "policies.html",
+            {
+                "user": user,
+                "policies": db.list_agent_policies(),
+                "defaults": dict(DEFAULT_AGENT_SETTINGS),
+                "condition_fields": sorted(CONDITION_FIELDS),
+                "condition_ops": sorted(CONDITION_OPS),
+                "message": None,
+                "error": err,
+                "edit": None,
+            },
+            status_code=400,
+        )
+    db.create_agent_policy(**parsed)
+    return templates.TemplateResponse(
+        request,
+        "policies.html",
+        {
+            "user": user,
+            "policies": db.list_agent_policies(),
+            "defaults": dict(DEFAULT_AGENT_SETTINGS),
+            "condition_fields": sorted(CONDITION_FIELDS),
+            "condition_ops": sorted(CONDITION_OPS),
+            "message": "Policy created",
+            "error": None,
+            "edit": None,
+        },
+    )
+
+
+@router.post("/settings/policies/{policy_id}")
+def policy_update(
+    policy_id: int,
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    name: str = Form(""),
+    enabled: Optional[str] = Form(None),
+    priority: str = Form("100"),
+    cond_field: str = Form("hostname"),
+    cond_op: str = Form("contains"),
+    cond_value: str = Form(""),
+    inventory_interval_hours: str = Form(""),
+    heartbeat_interval_minutes: str = Form(""),
+    update_check_interval_hours: str = Form(""),
+    update_enabled: str = Form(""),
+):
+    parsed, err = _parse_policy_form(
+        name=name,
+        enabled=enabled,
+        priority=priority,
+        cond_field=cond_field,
+        cond_op=cond_op,
+        cond_value=cond_value,
+        inventory_interval_hours=inventory_interval_hours,
+        heartbeat_interval_minutes=heartbeat_interval_minutes,
+        update_check_interval_hours=update_check_interval_hours,
+        update_enabled=update_enabled,
+    )
+    if err or not parsed:
+        policy = db.get_agent_policy(policy_id)
+        return templates.TemplateResponse(
+            request,
+            "policies.html",
+            {
+                "user": user,
+                "policies": db.list_agent_policies(),
+                "defaults": dict(DEFAULT_AGENT_SETTINGS),
+                "condition_fields": sorted(CONDITION_FIELDS),
+                "condition_ops": sorted(CONDITION_OPS),
+                "message": None,
+                "error": err,
+                "edit": policy,
+            },
+            status_code=400,
+        )
+    updated = db.update_agent_policy(policy_id, **parsed)
+    if not updated:
+        return RedirectResponse(url="/settings/policies", status_code=303)
+    return templates.TemplateResponse(
+        request,
+        "policies.html",
+        {
+            "user": user,
+            "policies": db.list_agent_policies(),
+            "defaults": dict(DEFAULT_AGENT_SETTINGS),
+            "condition_fields": sorted(CONDITION_FIELDS),
+            "condition_ops": sorted(CONDITION_OPS),
+            "message": "Policy updated",
+            "error": None,
+            "edit": updated,
+        },
+    )
+
+
+@router.post("/settings/policies/{policy_id}/delete")
+def policy_delete(
+    policy_id: int,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+):
+    db.delete_agent_policy(policy_id)
+    return RedirectResponse(url="/settings/policies", status_code=303)
 
 
 @router.get("/settings/ldap", response_class=HTMLResponse)

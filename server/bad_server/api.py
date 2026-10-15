@@ -7,11 +7,19 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
 
 from . import __version__
+from .agent_config import DEFAULT_AGENT_SETTINGS, sanitize_settings
 from .agent_update import check_update, sync_from_github
 from .auth import get_db, require_admin_token, require_api_key, require_enrollment_token
 from .config import Settings, get_settings
 from .db import Database
-from .schemas import EnrollRequest, EnrollResponse, HeartbeatRequest, InventoryRequest
+from .schemas import (
+    AgentPolicyBody,
+    DeviceConfigOverrideBody,
+    EnrollRequest,
+    EnrollResponse,
+    HeartbeatRequest,
+    InventoryRequest,
+)
 from .security import generate_token, hash_secret
 
 router = APIRouter(prefix="/v1")
@@ -54,7 +62,7 @@ def heartbeat(
     body: HeartbeatRequest,
     device=Depends(require_api_key),
     db: Database = Depends(get_db),
-) -> dict[str, str]:
+) -> dict[str, Any]:
     if body.device_id != device["device_id"]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="device_id mismatch")
     db.update_heartbeat(
@@ -62,7 +70,34 @@ def heartbeat(
         agent_version=body.agent_version,
         last_inventory_at=body.last_inventory_at,
     )
-    return {"status": "ok"}
+    effective = db.compute_device_effective_config(body.device_id)
+    assert effective is not None
+    resp: dict[str, Any] = {
+        "status": "ok",
+        "config_version": effective["version"],
+    }
+    # Piggyback full settings when agent has no version yet or it changed.
+    if not body.config_version or body.config_version != effective["version"]:
+        resp["config"] = {
+            "version": effective["version"],
+            "settings": effective["settings"],
+        }
+    return resp
+
+
+@router.get("/agent/config")
+def agent_config(
+    device=Depends(require_api_key),
+    db: Database = Depends(get_db),
+) -> dict[str, Any]:
+    """Enrolled agent pulls its own effective remote settings (API key scoped)."""
+    effective = db.compute_device_effective_config(device["device_id"])
+    assert effective is not None
+    return {
+        "device_id": device["device_id"],
+        "version": effective["version"],
+        "settings": effective["settings"],
+    }
 
 
 @router.post("/inventory")
@@ -187,3 +222,141 @@ def admin_agent_update_sync(
             detail=f"GitHub sync failed: {exc}",
         ) from exc
     return {"status": "ok", "mirrored": record}
+
+
+@router.get("/admin/agent-config/defaults")
+def admin_agent_config_defaults(
+    _admin: str = Depends(require_admin_token),
+) -> dict[str, Any]:
+    return {"settings": dict(DEFAULT_AGENT_SETTINGS)}
+
+
+@router.get("/admin/policies")
+def admin_list_policies(
+    _admin: str = Depends(require_admin_token),
+    db: Database = Depends(get_db),
+) -> dict[str, Any]:
+    return {"policies": db.list_agent_policies()}
+
+
+@router.post("/admin/policies", status_code=status.HTTP_201_CREATED)
+def admin_create_policy(
+    body: AgentPolicyBody,
+    _admin: str = Depends(require_admin_token),
+    db: Database = Depends(get_db),
+) -> dict[str, Any]:
+    policy = db.create_agent_policy(
+        name=body.name.strip(),
+        enabled=body.enabled,
+        priority=body.priority,
+        conditions=[c.model_dump() for c in body.conditions],
+        settings=body.settings,
+    )
+    return {"policy": policy}
+
+
+@router.get("/admin/policies/{policy_id}")
+def admin_get_policy(
+    policy_id: int,
+    _admin: str = Depends(require_admin_token),
+    db: Database = Depends(get_db),
+) -> dict[str, Any]:
+    policy = db.get_agent_policy(policy_id)
+    if not policy:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Policy not found")
+    return {"policy": policy}
+
+
+@router.put("/admin/policies/{policy_id}")
+def admin_update_policy(
+    policy_id: int,
+    body: AgentPolicyBody,
+    _admin: str = Depends(require_admin_token),
+    db: Database = Depends(get_db),
+) -> dict[str, Any]:
+    policy = db.update_agent_policy(
+        policy_id,
+        name=body.name.strip(),
+        enabled=body.enabled,
+        priority=body.priority,
+        conditions=[c.model_dump() for c in body.conditions],
+        settings=body.settings,
+    )
+    if not policy:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Policy not found")
+    return {"policy": policy}
+
+
+@router.delete("/admin/policies/{policy_id}")
+def admin_delete_policy(
+    policy_id: int,
+    _admin: str = Depends(require_admin_token),
+    db: Database = Depends(get_db),
+) -> dict[str, str]:
+    if not db.delete_agent_policy(policy_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Policy not found")
+    return {"status": "ok"}
+
+
+@router.get("/admin/devices/{device_id}/config")
+def admin_device_config(
+    device_id: str,
+    _admin: str = Depends(require_admin_token),
+    db: Database = Depends(get_db),
+) -> dict[str, Any]:
+    effective = db.compute_device_effective_config(device_id)
+    if not effective:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+    return {
+        "device_id": device_id,
+        "defaults": dict(DEFAULT_AGENT_SETTINGS),
+        "effective": effective["settings"],
+        "version": effective["version"],
+        "matched_policies": effective["matched_policies"],
+        "context": effective["context"],
+        "override": effective.get("override"),
+        "has_override": effective["has_override"],
+    }
+
+
+@router.put("/admin/devices/{device_id}/config-override")
+def admin_set_device_override(
+    device_id: str,
+    body: DeviceConfigOverrideBody,
+    _admin: str = Depends(require_admin_token),
+    db: Database = Depends(get_db),
+) -> dict[str, Any]:
+    cleaned = sanitize_settings(body.settings)
+    try:
+        override = db.set_device_config_override(device_id, cleaned)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Device not found"
+        ) from exc
+    effective = db.compute_device_effective_config(device_id)
+    assert effective is not None
+    return {
+        "override": override,
+        "effective": effective["settings"],
+        "version": effective["version"],
+    }
+
+
+@router.delete("/admin/devices/{device_id}/config-override")
+def admin_delete_device_override(
+    device_id: str,
+    _admin: str = Depends(require_admin_token),
+    db: Database = Depends(get_db),
+) -> dict[str, Any]:
+    detail = db.get_device_detail(device_id)
+    if not detail:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+    db.delete_device_config_override(device_id)
+    effective = db.compute_device_effective_config(device_id)
+    assert effective is not None
+    return {
+        "status": "ok",
+        "effective": effective["settings"],
+        "version": effective["version"],
+    }
+

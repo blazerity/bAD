@@ -83,10 +83,11 @@ public sealed class BadApiClient : IDisposable
         return (apiKey, returnedId);
     }
 
-    public async Task SendHeartbeatAsync(
+    public async Task<RemoteAgentConfigResponse?> SendHeartbeatAsync(
         string apiKey,
         string deviceId,
         string? lastInventoryAt,
+        string? configVersion,
         CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/heartbeat");
@@ -95,15 +96,48 @@ public sealed class BadApiClient : IDisposable
         {
             device_id = deviceId,
             agent_version = _agentVersion,
-            last_inventory_at = lastInventoryAt
+            last_inventory_at = lastInventoryAt,
+            config_version = configVersion
         });
 
         using var resp = await _http.SendAsync(req, ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
         if (!resp.IsSuccessStatusCode)
         {
-            var body = await resp.Content.ReadAsStringAsync(ct);
             throw new HttpRequestException($"Heartbeat failed: {(int)resp.StatusCode} {body}");
         }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.TryGetProperty("config", out var configEl)
+                && configEl.ValueKind == JsonValueKind.Object)
+            {
+                return JsonSerializer.Deserialize<RemoteAgentConfigResponse>(configEl.GetRawText());
+            }
+        }
+        catch (JsonException)
+        {
+            // Heartbeat succeeded; config parse is best-effort.
+        }
+
+        return null;
+    }
+
+    public async Task<RemoteAgentConfigResponse> FetchConfigAsync(string apiKey, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"{_baseUrl}/v1/agent/config");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+
+        using var resp = await _http.SendAsync(req, ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            throw new HttpRequestException($"Config fetch failed: {(int)resp.StatusCode} {body}");
+        }
+
+        return RemoteAgentConfigResponse.FromJson(body)
+               ?? throw new InvalidOperationException("config response missing body");
     }
 
     public async Task SendInventoryAsync(string apiKey, InventorySnapshot snapshot, CancellationToken ct)
