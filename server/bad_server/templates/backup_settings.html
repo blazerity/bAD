@@ -42,5 +42,18 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button type="submit">Сделать бэкап сейчас</button>
   </form>
+  <h2>Site bundle</h2>
+  <p class="muted">
+    Архив для disaster recovery: снимок SQLite, файлы ключей
+    (<span class="mono">data_key</span>, <span class="mono">session_secret</span>,
+    <span class="mono">site.env</span> / enrollment при наличии) и метаданные/MSI зеркала.
+    Содержимое секретно — не публикуйте файл. Восстановление:
+    <span class="mono">sudo bash deploy/debian/restore-site-bundle.sh /path/bundle.tar.gz</span>
+    (сервис будет остановлен).
+  </p>
+  <p class="form-actions">
+    <a href="/settings/backups/site-bundle">Скачать site bundle (.tar.gz)</a>
+  </p>
+
 </section>
 {% endblock %}

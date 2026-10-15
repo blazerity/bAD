@@ -24,7 +24,7 @@ BAD_TLS_KEY=/etc/ssl/private/bad.privkey.pem \
 
 ```bash
 curl -fsS https://bad.example.com/v1/health
-# → {"status":"ok","version":"0.9.1"}
+# → {"status":"ok","version":"0.10.0"}
 ```
 
 ### Вход в web (локальный)
@@ -54,7 +54,7 @@ Bind password хранится в SQLite зашифрованным и посл�
 На Windows build-хосте соберите MSI (см. `installer/msi/README.md`), затем установите:
 
 ```powershell
-msiexec /i bad-agent-0.9.1.msi `
+msiexec /i bad-agent-0.10.0.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=<enrollment-token-from-install> `
   /qn
@@ -63,7 +63,7 @@ msiexec /i bad-agent-0.9.1.msi `
 Опциональный PATH для локального CLI `bad` (по умолчанию выкл.):
 
 ```powershell
-msiexec /i bad-agent-0.9.1.msi `
+msiexec /i bad-agent-0.10.0.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=<enrollment-token-from-install> `
   ADDPATH=1 `
@@ -83,7 +83,7 @@ msiexec /i bad-agent-0.9.1.msi `
 
 Теги: правка на странице устройства (через запятую). Фильтр списка устройств по тегу. Политики тоже могут матчить `tag equals/contains`.
 
-Master-ключи (`/etc/bad/data_key`, `/etc/bad/session_secret`) не входят в daily SQLite backup — храните escrow отдельно. Порог stale по умолчанию 1 час (`BAD_DEVICE_STALE_AFTER_SECONDS`); поставьте ≈2× heartbeat, если удобнее (напр. `1800` при heartbeat 15 мин). Версия продукта **0.9.1**.
+Master-ключи (`/etc/bad/data_key`, `/etc/bad/session_secret`) не входят в daily SQLite backup — храните escrow отдельно. Порог stale по умолчанию 1 час (`BAD_DEVICE_STALE_AFTER_SECONDS`); поставьте ≈2× heartbeat, если удобнее (напр. `1800` при heartbeat 15 мин). Версия продукта **0.10.0**.
 
 Альтернатива (автоматизация — admin API token):
 

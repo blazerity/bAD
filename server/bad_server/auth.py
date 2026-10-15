@@ -64,16 +64,17 @@ def require_enrollment_token(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing enrollment token"
         )
 
-    expected = settings.enrollment_token
-    if expected:
-        if not constant_time_equals(expected, token):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid enrollment token"
-            )
-        return token
-
+    # Prefer DB hash so UI rotate takes effect without process restart (0.10).
     hashed = db.get_site_secret("enrollment_token_hash")
-    if hashed and verify_secret(hashed, token):
+    if hashed:
+        if verify_secret(hashed, token):
+            return token
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid enrollment token"
+        )
+
+    expected = settings.enrollment_token
+    if expected and constant_time_equals(expected, token):
         return token
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid enrollment token"

@@ -137,6 +137,7 @@
     <div><dt>heartbeat_interval_minutes</dt><dd class="mono">{{ effective.heartbeat_interval_minutes }}</dd></div>
     <div><dt>update_check_interval_hours</dt><dd class="mono">{{ effective.update_check_interval_hours }}</dd></div>
     <div><dt>update_enabled</dt><dd class="mono">{{ effective.update_enabled }}</dd></div>
+    <div><dt>update_target</dt><dd class="mono">{{ effective.update_target }}</dd></div>
     <div><dt>collect_hardware</dt><dd class="mono">{{ effective.collect_hardware }}</dd></div>
     <div><dt>collect_users</dt><dd class="mono">{{ effective.collect_users }}</dd></div>
     <div><dt>collect_software</dt><dd class="mono">{{ effective.collect_software }}</dd></div>
@@ -185,6 +186,15 @@
       <option value="false" {% if override_settings.update_enabled is defined and not override_settings.update_enabled %}selected{% endif %}>false</option>
     </select>
 
+
+    <label for="update_target">update_target</label>
+    <select id="update_target" name="update_target">
+      <option value="" {% if override_settings.update_target is not defined %}selected{% endif %}>(не задавать)</option>
+      <option value="latest" {% if override_settings.update_target is defined and override_settings.update_target == 'latest' %}selected{% endif %}>latest</option>
+      {% for v in msi_versions or [] %}
+      <option value="{{ v.version }}" {% if override_settings.update_target is defined and override_settings.update_target == v.version %}selected{% endif %}>{{ v.version }}</option>
+      {% endfor %}
+    </select>
     <label for="collect_hardware">collect_hardware</label>
     <select id="collect_hardware" name="collect_hardware">
       <option value="" {% if override_settings.collect_hardware is not defined %}selected{% endif %}>(не задавать)</option>
