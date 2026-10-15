@@ -37,7 +37,7 @@ INT_SETTING_KEYS = frozenset(
     }
 )
 
-CONDITION_FIELDS = frozenset({"hostname", "domain", "os_caption"})
+CONDITION_FIELDS = frozenset({"hostname", "domain", "os_caption", "tag"})
 CONDITION_OPS = frozenset({"equals", "contains"})
 
 _TRUE_STRINGS = frozenset({"1", "true", "yes"})
@@ -108,8 +108,9 @@ def device_match_context(
     hostname: Optional[str] = None,
     meta: Optional[dict[str, Any]] = None,
     inventory_payload: Optional[dict[str, Any]] = None,
+    tags: Optional[list[str]] = None,
 ) -> dict[str, str]:
-    """Build lowercase match fields from device row + latest inventory."""
+    """Build match fields from device row + latest inventory + tags."""
     meta = meta or {}
     host: dict[str, Any] = {}
     if inventory_payload and isinstance(inventory_payload.get("host"), dict):
@@ -127,11 +128,14 @@ def device_match_context(
         domain = str(host.get("domain") or "")
 
     hn = hostname or (str(host.get("hostname") or "") if host else "") or ""
+    tag_list = [str(t).strip() for t in (tags or []) if str(t).strip()]
 
     return {
         "hostname": hn,
         "domain": domain,
         "os_caption": os_caption,
+        # Comma-separated for display / contains; equals matches membership.
+        "tag": ",".join(tag_list),
     }
 
 
@@ -140,6 +144,13 @@ def condition_matches(condition: dict[str, str], context: dict[str, str]) -> boo
     op = condition["op"]
     expected = condition["value"]
     actual = context.get(field, "") or ""
+    if field == "tag":
+        tags = [t.strip() for t in actual.split(",") if t.strip()]
+        if op == "equals":
+            return any(t.casefold() == expected.casefold() for t in tags)
+        if op == "contains":
+            return any(expected.casefold() in t.casefold() for t in tags)
+        return False
     if op == "equals":
         return actual.casefold() == expected.casefold()
     if op == "contains":
@@ -164,6 +175,7 @@ def compute_effective_config(
     hostname: Optional[str] = None,
     meta: Optional[dict[str, Any]] = None,
     inventory_payload: Optional[dict[str, Any]] = None,
+    tags: Optional[list[str]] = None,
     policies: list[dict[str, Any]],
     override: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
@@ -174,7 +186,10 @@ def compute_effective_config(
     """
     effective = dict(DEFAULT_AGENT_SETTINGS)
     context = device_match_context(
-        hostname=hostname, meta=meta, inventory_payload=inventory_payload
+        hostname=hostname,
+        meta=meta,
+        inventory_payload=inventory_payload,
+        tags=tags,
     )
 
     ordered = sorted(

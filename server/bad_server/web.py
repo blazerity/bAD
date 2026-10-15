@@ -29,6 +29,11 @@ from .auth import (
 from .config import Settings, get_settings
 from .crypto_util import encrypt_secret
 from .db import Database
+from .device_health import (
+    device_silence_status,
+    health_snippet,
+    normalize_tags,
+)
 from .ldap_client import settings_from_row, test_connection
 from .security import hash_secret, verify_secret
 from .sessions import SESSION_COOKIE, SESSION_MAX_AGE, WebUser, dump_session
@@ -145,14 +150,29 @@ def logout():
     return resp
 
 
+def _enrich_device_row(device: dict, settings: Settings) -> dict:
+    silence = device_silence_status(
+        device.get("last_seen_at"),
+        stale_after_seconds=settings.device_stale_after_seconds,
+    )
+    device = dict(device)
+    device["silence"] = silence
+    device["health_snippet"] = health_snippet(device.get("meta"))
+    return device
+
+
 @router.get("/devices", response_class=HTMLResponse)
 def devices_page(
     request: Request,
+    tag: Optional[str] = None,
     user: WebUser = Depends(require_web_user),
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    devices = db.list_devices()
+    tag_filter = (tag or "").strip() or None
+    devices = [
+        _enrich_device_row(d, settings) for d in db.list_devices(tag=tag_filter)
+    ]
     agent_update = db.get_agent_update()
     return templates.TemplateResponse(
         request,
@@ -162,6 +182,30 @@ def devices_page(
             "user": user,
             "agent_update": agent_update,
             "github_repo": settings.github_repo,
+            "tag_filter": tag_filter or "",
+            "all_tags": db.list_all_tags(),
+            "stale_after_seconds": settings.device_stale_after_seconds,
+        },
+    )
+
+
+@router.get("/events", response_class=HTMLResponse)
+def events_page(
+    request: Request,
+    device_id: Optional[str] = None,
+    user: WebUser = Depends(require_web_user),
+    db: Database = Depends(get_db),
+):
+    device_filter = (device_id or "").strip() or None
+    events = db.list_device_events(device_id=device_filter, limit=200)
+    return templates.TemplateResponse(
+        request,
+        "events.html",
+        {
+            "events": events,
+            "user": user,
+            "device_filter": device_filter or "",
+            "devices": db.list_devices(),
         },
     )
 
@@ -171,6 +215,7 @@ def _device_config_context(
     device_id: str,
     *,
     user: WebUser,
+    settings: Settings,
     message: Optional[str] = None,
     error: Optional[str] = None,
 ) -> Optional[dict]:
@@ -185,6 +230,11 @@ def _device_config_context(
     latest = detail.get("latest_inventory")
     if latest and latest.get("payload") is not None:
         inventory_pretty = json.dumps(latest["payload"], indent=2, ensure_ascii=False)
+    silence = device_silence_status(
+        detail.get("last_seen_at"),
+        stale_after_seconds=settings.device_stale_after_seconds,
+    )
+    recent_events = db.list_device_events(device_id=device_id, limit=20)
     return {
         "device": detail,
         "inventory_pretty": inventory_pretty,
@@ -198,6 +248,11 @@ def _device_config_context(
         "match_context": effective["context"],
         "override_settings": override_settings or {},
         "has_override": effective["has_override"],
+        "silence": silence,
+        "health_snippet": health_snippet(detail.get("meta")),
+        "recent_events": recent_events,
+        "tags_text": ", ".join(detail.get("tags") or []),
+        "stale_after_seconds": settings.device_stale_after_seconds,
     }
 
 
@@ -207,8 +262,9 @@ def device_detail_page(
     request: Request,
     user: WebUser = Depends(require_web_user),
     db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ):
-    ctx = _device_config_context(db, device_id, user=user)
+    ctx = _device_config_context(db, device_id, user=user, settings=settings)
     if not ctx:
         return templates.TemplateResponse(
             request,
@@ -219,12 +275,50 @@ def device_detail_page(
     return templates.TemplateResponse(request, "device_detail.html", ctx)
 
 
+@router.post("/devices/{device_id}/tags")
+def device_tags_save(
+    device_id: str,
+    request: Request,
+    user: WebUser = Depends(require_web_user),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    tags: str = Form(""),
+):
+    if not db.get_device_detail(device_id):
+        return templates.TemplateResponse(
+            request,
+            "device_missing.html",
+            {"device_id": device_id, "user": user},
+            status_code=404,
+        )
+    try:
+        db.set_device_tags(device_id, normalize_tags(tags))
+        message = "Tags saved"
+        error = None
+    except KeyError:
+        return templates.TemplateResponse(
+            request,
+            "device_missing.html",
+            {"device_id": device_id, "user": user},
+            status_code=404,
+        )
+    except Exception as exc:  # noqa: BLE001 — surface to form
+        message = None
+        error = f"Could not save tags: {exc}"
+    ctx = _device_config_context(
+        db, device_id, user=user, settings=settings, message=message, error=error
+    )
+    assert ctx is not None
+    return templates.TemplateResponse(request, "device_detail.html", ctx)
+
+
 @router.post("/devices/{device_id}/config-override")
 def device_config_override_save(
     device_id: str,
     request: Request,
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
     inventory_interval_hours: str = Form(""),
     heartbeat_interval_minutes: str = Form(""),
     update_check_interval_hours: str = Form(""),
@@ -244,7 +338,11 @@ def device_config_override_save(
             )
         db.delete_device_config_override(device_id)
         ctx = _device_config_context(
-            db, device_id, user=user, message="Manual override cleared"
+            db,
+            device_id,
+            user=user,
+            settings=settings,
+            message="Manual override cleared",
         )
         assert ctx is not None
         return templates.TemplateResponse(request, "device_detail.html", ctx)
@@ -274,6 +372,7 @@ def device_config_override_save(
             db,
             device_id,
             user=user,
+            settings=settings,
             error="Set at least one valid override field (or clear)",
         )
         if not ctx:
@@ -296,7 +395,11 @@ def device_config_override_save(
             status_code=404,
         )
     ctx = _device_config_context(
-        db, device_id, user=user, message="Manual override saved"
+        db,
+        device_id,
+        user=user,
+        settings=settings,
+        message="Manual override saved",
     )
     assert ctx is not None
     return templates.TemplateResponse(request, "device_detail.html", ctx)
@@ -473,7 +576,7 @@ def _parse_policy_form(
         ]
     )
     if not conditions:
-        return None, "One valid condition is required (hostname/domain/os_caption)"
+        return None, "One valid condition is required (hostname/domain/os_caption/tag)"
 
     raw: dict = {}
     for key, raw_val in (

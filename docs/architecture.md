@@ -56,10 +56,11 @@ flowchart LR
 ```
 
 - SQLite: `agent_policies` (name, priority, conditions JSON, settings JSON), `device_config_overrides` (per `device_id`).
-- Условия: `hostname` / `domain` / `os_caption` × `equals` / `contains` (AND внутри политики).
+- Условия: `hostname` / `domain` / `os_caption` / `tag` × `equals` / `contains` (AND внутри политики).
 - Safe knobs: `inventory_interval_hours`, `heartbeat_interval_minutes`, `update_check_interval_hours`, `update_enabled`, `collect_hardware` (default true), `collect_users` (default true), `collect_software` (default false, opt-in).
 - Software inventory (когда `collect_software`): лёгкий список name/version/publisher из Uninstall registry (64+32), cap 500.
 - Web: `/settings/policies`; на странице устройства — effective + manual override.
+- Теги устройства: JSON-массив `tags_json` на `devices`; правка в web / `PUT /v1/devices/{id}/tags`; фильтр списка `?tag=`.
 
 ## Поток обновления агента
 
@@ -103,10 +104,12 @@ flowchart LR
 | `GET` | `/v1/health` | нет | liveness + `version` |
 | `POST` | `/v1/enroll` | enrollment Bearer | обмен на per-agent API key |
 | `POST` | `/v1/heartbeat` | API key | `last_seen` + optional health → meta; piggyback `config` если `config_version` устарел |
-| `POST` | `/v1/inventory` | API key | upsert снимка по `device_id` (host/network + optional hardware/users/software) |
+| `POST` | `/v1/inventory` | API key | upsert снимка по `device_id` (host/network + optional hardware/users/software); diff → `device_events` |
 | `GET` | `/v1/agent/config` | API key | effective settings только для своего устройства |
-| `GET` | `/v1/devices` | admin Bearer | список устройств |
-| `GET` | `/v1/devices/{device_id}` | admin Bearer | meta + последний inventory |
+| `GET` | `/v1/devices` | admin Bearer | список устройств (`?tag=` опционально) |
+| `GET` | `/v1/devices/{device_id}` | admin Bearer | meta + tags + последний inventory |
+| `PUT` | `/v1/devices/{device_id}/tags` | admin Bearer | заменить теги устройства |
+| `GET` | `/v1/events` | admin Bearer | события изменений inventory (`?device_id=`) |
 | `GET` | `/v1/agent/update/check` | API key | `{update_available, version, sha256, url}` |
 | `GET` | `/v1/agent/update/msi` | API key | байты зеркалированного MSI |
 | `GET` | `/v1/admin/agent-update` | admin | статус зеркала |
@@ -132,7 +135,8 @@ flowchart LR
 |------|------------|
 | `/login` | username/password (local, затем LDAP если включён) |
 | `/logout` | сброс cookie сессии |
-| `/devices`, `/devices/{id}` | просмотр inventory; admin может задать config override |
+| `/devices`, `/devices/{id}` | inventory; badge OK/stale по `last_seen_at`; теги; recent events; admin override |
+| `/events` | список событий изменений inventory (фильтр по устройству) |
 | `/settings/policies` | CRUD условных политик remote config (admin) |
 | `/settings/ldap` | CRUD LDAP + Test connection; только role `admin` |
 | `/account/password` | смена пароля локального пользователя |
@@ -155,12 +159,16 @@ flowchart LR
 - Подписанный cookie `bad_session` (itsdangerous, 12h); секрет из `BAD_SESSION_SECRET` или `site_secrets.session_secret`.
 
 - На `/devices` дополнительно показывается mirrored agent MSI version (из `agent_update`).
+- Silence/health: badge **OK** / **stale** если `last_seen_at` старше `BAD_DEVICE_STALE_AFTER_SECONDS` (default 3600 ≈ 1h; можно выставить ~2× heartbeat). На карточке устройства — last seen + опциональный health snippet из `meta` (`health` / `last_health`, если агент их пришлёт).
 
+### События inventory
+
+При каждом upsert сравнивается предыдущий и новый snapshot. Пишутся только осмысленные изменения: hostname/domain, logged-on / last_interactive, диск добавлен/удалён, сильное падение free space тома, смена набора IPv4 NIC. Таблица `device_events` (`device_id`, `type`, `summary`, `detail_json`, `created_at`). Первый снимок событий не создаёт.
 
 ### Данные
 
 - SQLite: `/var/lib/bad/bad.db` (prod), владелец `bad:bad`, WAL.
-- Таблицы: `devices`, `inventory_snapshots`, `site_secrets`, `local_users`, `ldap_settings`, `agent_update` (singleton зеркала).
+- Таблицы: `devices` (+ `tags_json`), `inventory_snapshots`, `device_events`, `site_secrets`, `local_users`, `ldap_settings`, `agent_update`, `agent_policies`, `device_config_overrides`.
 - Каталог MSI: `/var/lib/bad/agent-updates/` (конфиг).
 
 ## Enrollment и inventory
