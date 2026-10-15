@@ -1,0 +1,254 @@
+{
+  "agent/BadAgent.sln": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164024,
+    "ast_hash": "91081480e40a6e2961a89a33623d4f47",
+    "semantic_hash": "91081480e40a6e2961a89a33623d4f47"
+  },
+  "agent/src/BadAgent/AgentConfig.cs": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.316407,
+    "ast_hash": "1099ab296a6a0ed136a2f1ec47b5c346",
+    "semantic_hash": "1099ab296a6a0ed136a2f1ec47b5c346"
+  },
+  "agent/src/BadAgent/AgentUpdater.cs": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.316409,
+    "ast_hash": "341185fdd67acf3822fa04fab377f2c5",
+    "semantic_hash": "341185fdd67acf3822fa04fab377f2c5"
+  },
+  "agent/src/BadAgent/BadAgent.csproj": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164103,
+    "ast_hash": "9819535d17fe0548a59864f306703450",
+    "semantic_hash": "9819535d17fe0548a59864f306703450"
+  },
+  "agent/src/BadAgent/BadApiClient.cs": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164115,
+    "ast_hash": "50b87e1a36ed4598efe33135541eb778",
+    "semantic_hash": "50b87e1a36ed4598efe33135541eb778"
+  },
+  "agent/src/BadAgent/DeviceIdentity.cs": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164127,
+    "ast_hash": "668b47f3b3081d5280a7095fac600be6",
+    "semantic_hash": "668b47f3b3081d5280a7095fac600be6"
+  },
+  "agent/src/BadAgent/InventoryCollector.cs": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164136,
+    "ast_hash": "fd3c45ac04c958dd36b5cabc09ebf313",
+    "semantic_hash": "fd3c45ac04c958dd36b5cabc09ebf313"
+  },
+  "agent/src/BadAgent/InventoryModels.cs": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164144,
+    "ast_hash": "b601485fb8e56087ca57c64e908b2d3e",
+    "semantic_hash": "b601485fb8e56087ca57c64e908b2d3e"
+  },
+  "agent/src/BadAgent/Program.cs": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164155,
+    "ast_hash": "1c9797000c74d1a9b264a0bdf6b792e5",
+    "semantic_hash": "1c9797000c74d1a9b264a0bdf6b792e5"
+  },
+  "agent/src/BadAgent/Properties/launchSettings.json": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164163,
+    "ast_hash": "cb0d848e63a82ff935271bdad20a885d",
+    "semantic_hash": "cb0d848e63a82ff935271bdad20a885d"
+  },
+  "agent/src/BadAgent/ServiceCli.cs": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164172,
+    "ast_hash": "92547bb17e6fdc4b3c622f4b359c17b0",
+    "semantic_hash": "92547bb17e6fdc4b3c622f4b359c17b0"
+  },
+  "agent/src/BadAgent/VersionUtil.cs": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164184,
+    "ast_hash": "a2a6e458bcd1720eb503d5fe0af72e6b",
+    "semantic_hash": "a2a6e458bcd1720eb503d5fe0af72e6b"
+  },
+  "agent/src/BadAgent/WmiHelper.cs": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164191,
+    "ast_hash": "380c74679593a17ce04a2fd071cf08a2",
+    "semantic_hash": "380c74679593a17ce04a2fd071cf08a2"
+  },
+  "agent/src/BadAgent/Worker.cs": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164196,
+    "ast_hash": "4b972fb620969f0636021c7e3eb0f0b1",
+    "semantic_hash": "4b972fb620969f0636021c7e3eb0f0b1"
+  },
+  "agent/src/BadAgent/appsettings.Development.json": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164206,
+    "ast_hash": "efb942c8788e089b2e52cbbff0b04b7e",
+    "semantic_hash": "efb942c8788e089b2e52cbbff0b04b7e"
+  },
+  "agent/src/BadAgent/appsettings.json": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164213,
+    "ast_hash": "efb942c8788e089b2e52cbbff0b04b7e",
+    "semantic_hash": "efb942c8788e089b2e52cbbff0b04b7e"
+  },
+  "agent/tests/BadAgent.Tests/BadAgent.Tests.csproj": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164225,
+    "ast_hash": "0221bffd3d8d1ccd8c1682cdffce4b3f",
+    "semantic_hash": "0221bffd3d8d1ccd8c1682cdffce4b3f"
+  },
+  "agent/tests/BadAgent.Tests/CollectorTests.cs": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164232,
+    "ast_hash": "f2ac37d1934369ac45ca56992f4276b7",
+    "semantic_hash": "f2ac37d1934369ac45ca56992f4276b7"
+  },
+  "agent/tests/BadAgent.Tests/UpdateAndServiceTests.cs": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.316424,
+    "ast_hash": "26f01e39fd6420ef5289f2cb631e3ef2",
+    "semantic_hash": "26f01e39fd6420ef5289f2cb631e3ef2"
+  },
+  "deploy/debian/install.sh": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164246,
+    "ast_hash": "35d428ab5d4e1f271470df1733d73db7",
+    "semantic_hash": "35d428ab5d4e1f271470df1733d73db7"
+  },
+  "installer/msi/write-config.ps1": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164256,
+    "ast_hash": "c413fd9ead1d426522f770199935c3f4",
+    "semantic_hash": "c413fd9ead1d426522f770199935c3f4"
+  },
+  "server/bad_server/__init__.py": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164263,
+    "ast_hash": "17f8c7270a78d0b43cc46db472b93c96",
+    "semantic_hash": "17f8c7270a78d0b43cc46db472b93c96"
+  },
+  "server/bad_server/agent_update.py": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.316427,
+    "ast_hash": "9415a98d3ca21bd03f24223b6702f73b",
+    "semantic_hash": "9415a98d3ca21bd03f24223b6702f73b"
+  },
+  "server/bad_server/api.py": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164277,
+    "ast_hash": "7ac32da0fa3f813e87b3f4319a13126a",
+    "semantic_hash": "7ac32da0fa3f813e87b3f4319a13126a"
+  },
+  "server/bad_server/app.py": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164287,
+    "ast_hash": "11bbee68f99b6615ec3f630f12eb4a49",
+    "semantic_hash": "11bbee68f99b6615ec3f630f12eb4a49"
+  },
+  "server/bad_server/auth.py": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164294,
+    "ast_hash": "1c9a02430fecb086d7620c1d6052dd0e",
+    "semantic_hash": "1c9a02430fecb086d7620c1d6052dd0e"
+  },
+  "server/bad_server/config.py": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164303,
+    "ast_hash": "8cc17b4b881030dd2a48fa11373d4372",
+    "semantic_hash": "8cc17b4b881030dd2a48fa11373d4372"
+  },
+  "server/bad_server/crypto_util.py": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.316431,
+    "ast_hash": "f77671c6467090e05eb1d6ff2cbdb9ea",
+    "semantic_hash": "f77671c6467090e05eb1d6ff2cbdb9ea"
+  },
+  "server/bad_server/db.py": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164318,
+    "ast_hash": "d1b504a36f1ed253b788361bdc44bd1e",
+    "semantic_hash": "d1b504a36f1ed253b788361bdc44bd1e"
+  },
+  "server/bad_server/github_release.py": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164327,
+    "ast_hash": "7817e170cb1fa789ac4af5a6ce60a9a5",
+    "semantic_hash": "7817e170cb1fa789ac4af5a6ce60a9a5"
+  },
+  "server/bad_server/ldap_client.py": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164334,
+    "ast_hash": "172a69be691af1799b63e71efd82a6e9",
+    "semantic_hash": "172a69be691af1799b63e71efd82a6e9"
+  },
+  "server/bad_server/rate_limit.py": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164341,
+    "ast_hash": "73e5d48010176e18832b3206683058ee",
+    "semantic_hash": "73e5d48010176e18832b3206683058ee"
+  },
+  "server/bad_server/schemas.py": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164349,
+    "ast_hash": "635806ee2d45f0ededfc2729315df90c",
+    "semantic_hash": "635806ee2d45f0ededfc2729315df90c"
+  },
+  "server/bad_server/security.py": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164358,
+    "ast_hash": "78333fdf4226f1f3192223fe04f3cba5",
+    "semantic_hash": "78333fdf4226f1f3192223fe04f3cba5"
+  },
+  "server/bad_server/sessions.py": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164365,
+    "ast_hash": "b93a07c309bc3f956d0fc610e0a4b333",
+    "semantic_hash": "b93a07c309bc3f956d0fc610e0a4b333"
+  },
+  "server/bad_server/web.py": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164372,
+    "ast_hash": "e9a8b69d54ed1b6f861ba83540c38e97",
+    "semantic_hash": "e9a8b69d54ed1b6f861ba83540c38e97"
+  },
+  "server/pyproject.toml": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.316438,
+    "ast_hash": "e045671c1f9af9425328295082d16e1f",
+    "semantic_hash": "e045671c1f9af9425328295082d16e1f"
+  },
+  "server/tests/conftest.py": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164392,
+    "ast_hash": "5769bd3bf9741d523f0ae2466cea5f17",
+    "semantic_hash": "5769bd3bf9741d523f0ae2466cea5f17"
+  },
+  "server/tests/helpers.py": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164399,
+    "ast_hash": "036a3887c98089372fc7f273b02fb710",
+    "semantic_hash": "036a3887c98089372fc7f273b02fb710"
+  },
+  "server/tests/test_agent_update.py": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164406,
+    "ast_hash": "f2f9368778e88e7ad8c09936256e0321",
+    "semantic_hash": "f2f9368778e88e7ad8c09936256e0321"
+  },
+  "server/tests/test_enroll_inventory.py": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164413,
+    "ast_hash": "eddf5ea5a64707da06212ff8eeff5590",
+    "semantic_hash": "eddf5ea5a64707da06212ff8eeff5590"
+  },
+  "server/tests/test_web_auth.py": {
+    "mtime": 1792085494.468822,
+    "seen": 1792085495.3164423,
+    "ast_hash": "618d519ce1d7224fe59a4a0dd348f6ff",
+    "semantic_hash": "618d519ce1d7224fe59a4a0dd348f6ff"
+  }
+}
