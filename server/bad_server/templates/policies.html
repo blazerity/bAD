@@ -6,147 +6,176 @@
 <section class="settings">
   <h1 class="with-icon">{{ icon('policies') }}Политики агента</h1>
   <p class="muted">
-    Именованные правила применяют безопасные настройки агента при совпадении условий.
-    Меньший priority применяется раньше; более поздние совпадения перекрывают предыдущие.
-    Ручное переопределение на устройстве всегда побеждает. По умолчанию:
-    inventory {{ defaults.inventory_interval_hours }}ч /
-    heartbeat {{ defaults.heartbeat_interval_minutes }}м /
-    проверка обновлений {{ defaults.update_check_interval_hours }}ч /
-    update_enabled {{ defaults.update_enabled }} / update_target {{ defaults.update_target }} /
-    collect_hardware {{ defaults.collect_hardware }} /
-    collect_users {{ defaults.collect_users }} /
-    collect_software {{ defaults.collect_software }}.
+    Правила remote-config: при совпадении условия настройки применяются к агенту.
+    Меньший priority — раньше; ручной override на устройстве всегда побеждает.
   </p>
   {% if message %}<p class="ok">{{ message }}</p>{% endif %}
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
 
   {% if policies %}
-  <table class="devices">
-    <thead>
-      <tr>
-        <th>Имя</th>
-        <th>Priority</th>
-        <th>Вкл.</th>
-        <th>Условие</th>
-        <th>Settings</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for p in policies %}
-      <tr>
-        <td><a href="/settings/policies/{{ p.id }}">{{ p.name }}</a></td>
-        <td class="mono">{{ p.priority }}</td>
-        <td>{{ "да" if p.enabled else "нет" }}</td>
-        <td class="mono">
+  <ul class="policy-list">
+    {% for p in policies %}
+    <li class="policy-row">
+      <div class="policy-row-main">
+        <a class="policy-name" href="/settings/policies/{{ p.id }}">{{ p.name }}</a>
+        <p class="policy-meta">
+          priority <span class="mono">{{ p.priority }}</span>
+          · {% if p.enabled %}вкл{% else %}выкл{% endif %}
+          {% if p.conditions %}
+          ·
           {% for c in p.conditions %}
-            {{ c.field }} {{ c.op }} "{{ c.value }}"{% if not loop.last %}; {% endif %}
+            <span class="mono">{{ c.field }} {{ c.op }} "{{ c.value }}"</span>{% if not loop.last %}; {% endif %}
           {% endfor %}
-        </td>
-        <td class="mono">{{ p.settings }}</td>
-        <td>
-          <form method="post" action="/settings/policies/{{ p.id }}/delete" style="display:inline">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button type="submit" class="secondary">Удалить</button>
-          </form>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+          {% endif %}
+        </p>
+        {% if p.settings %}
+        <p class="policy-meta">
+          {% for k, v in p.settings.items() %}
+            {{ k }}=<span class="mono">{{ v }}</span>{% if not loop.last %}, {% endif %}
+          {% endfor %}
+        </p>
+        {% endif %}
+      </div>
+      <div class="policy-actions">
+        <a class="secondary" href="/settings/policies/{{ p.id }}">Изменить</a>
+        <form method="post" action="/settings/policies/{{ p.id }}/delete"
+          onsubmit="return confirm('Удалить политику «{{ p.name }}»?');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="subtle">Удалить</button>
+        </form>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
   {% else %}
-  <p class="muted">Политик пока нет.</p>
+  <p class="muted">Политик пока нет — создайте первую ниже.</p>
   {% endif %}
 
-  <h2>{% if edit %}Редактирование #{{ edit.id }}{% else %}Новая политика{% endif %}</h2>
+  <h2>{% if edit %}Редактирование: {{ edit.name }}{% else %}Новая политика{% endif %}</h2>
   <form method="post"
     action="{% if edit %}/settings/policies/{{ edit.id }}{% else %}/settings/policies{% endif %}"
     class="settings-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <label for="name">Имя</label>
-    <input id="name" name="name" type="text" required maxlength="128"
-      value="{{ edit.name if edit else '' }}" autocomplete="off">
 
-    <label class="check">
-      <input type="checkbox" name="enabled" value="1"
-        {% if not edit or edit.enabled %}checked{% endif %}>
-      Включена
-    </label>
+    <fieldset class="fieldset-soft">
+      <legend>Основные</legend>
+      <div class="policy-form-grid">
+        <div class="full">
+          <label for="name">Имя</label>
+          <input id="name" name="name" type="text" required maxlength="128"
+            value="{{ edit.name if edit else '' }}" autocomplete="off" placeholder="Например: Ноутбуки finance">
+        </div>
+        <div>
+          <label for="priority">Priority (меньше — раньше)</label>
+          <input id="priority" name="priority" type="number" min="0" max="1000000"
+            value="{{ edit.priority if edit else 100 }}">
+        </div>
+        <div>
+          <label class="check" style="margin-top:1.75rem">
+            <input type="checkbox" name="enabled" value="1"
+              {% if not edit or edit.enabled %}checked{% endif %}>
+            Включена
+          </label>
+        </div>
+      </div>
+    </fieldset>
 
-    <label for="priority">Priority (меньше — раньше)</label>
-    <input id="priority" name="priority" type="number" min="0" max="1000000"
-      value="{{ edit.priority if edit else 100 }}">
-
-    <label for="cond_field">Поле условия</label>
-    <select id="cond_field" name="cond_field">
-      {% set cur_field = (edit.conditions[0].field if edit and edit.conditions else 'hostname') %}
-      {% for f in condition_fields %}
-      <option value="{{ f }}" {% if f == cur_field %}selected{% endif %}>{{ f }}</option>
-      {% endfor %}
-    </select>
-
-    <label for="cond_op">Оператор</label>
-    <select id="cond_op" name="cond_op">
-      {% set cur_op = (edit.conditions[0].op if edit and edit.conditions else 'contains') %}
-      {% for o in condition_ops %}
-      <option value="{{ o }}" {% if o == cur_op %}selected{% endif %}>{{ o }}</option>
-      {% endfor %}
-    </select>
-
-    <label for="cond_value">Значение</label>
-    <input id="cond_value" name="cond_value" type="text" required
-      value="{{ edit.conditions[0].value if edit and edit.conditions else '' }}"
-      placeholder="например CORP или Windows 11" autocomplete="off">
+    <fieldset class="fieldset-soft">
+      <legend>Когда применять</legend>
+      <div class="policy-form-grid">
+        <div>
+          <label for="cond_field">Поле</label>
+          <select id="cond_field" name="cond_field">
+            {% set cur_field = (edit.conditions[0].field if edit and edit.conditions else 'hostname') %}
+            {% for f in condition_fields %}
+            <option value="{{ f }}" {% if f == cur_field %}selected{% endif %}>{{ f }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="cond_op">Оператор</label>
+          <select id="cond_op" name="cond_op">
+            {% set cur_op = (edit.conditions[0].op if edit and edit.conditions else 'contains') %}
+            {% for o in condition_ops %}
+            <option value="{{ o }}" {% if o == cur_op %}selected{% endif %}>{{ o }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="full">
+          <label for="cond_value">Значение</label>
+          <input id="cond_value" name="cond_value" type="text" required
+            value="{{ edit.conditions[0].value if edit and edit.conditions else '' }}"
+            placeholder="например CORP или Windows 11" autocomplete="off">
+        </div>
+      </div>
+    </fieldset>
 
     {% set s = edit.settings if edit else {} %}
-    <label for="inventory_interval_hours">inventory_interval_hours</label>
-    <input id="inventory_interval_hours" name="inventory_interval_hours" type="number" min="1"
-      value="{{ s.inventory_interval_hours if s.inventory_interval_hours is defined else '' }}">
-
-    <label for="heartbeat_interval_minutes">heartbeat_interval_minutes</label>
-    <input id="heartbeat_interval_minutes" name="heartbeat_interval_minutes" type="number" min="1"
-      value="{{ s.heartbeat_interval_minutes if s.heartbeat_interval_minutes is defined else '' }}">
-
-    <label for="update_check_interval_hours">update_check_interval_hours</label>
-    <input id="update_check_interval_hours" name="update_check_interval_hours" type="number" min="1"
-      value="{{ s.update_check_interval_hours if s.update_check_interval_hours is defined else '' }}">
-
-    <label for="update_enabled">update_enabled</label>
-    <select id="update_enabled" name="update_enabled">
-      <option value="" {% if s.update_enabled is not defined %}selected{% endif %}>(не задавать)</option>
-      <option value="true" {% if s.update_enabled is defined and s.update_enabled %}selected{% endif %}>true</option>
-      <option value="false" {% if s.update_enabled is defined and not s.update_enabled %}selected{% endif %}>false</option>
-    </select>
-
-
-    <label for="update_target">update_target</label>
-    <select id="update_target" name="update_target">
-      <option value="" {% if s.update_target is not defined %}selected{% endif %}>(не задавать)</option>
-      <option value="latest" {% if s.update_target is defined and s.update_target == 'latest' %}selected{% endif %}>latest (последняя в зеркале)</option>
-      {% for v in msi_versions or [] %}
-      <option value="{{ v.version }}" {% if s.update_target is defined and s.update_target == v.version %}selected{% endif %}>{{ v.version }}{% if v.source %} · {{ v.source }}{% endif %}</option>
-      {% endfor %}
-    </select>
-    <label for="collect_hardware">collect_hardware</label>
-    <select id="collect_hardware" name="collect_hardware">
-      <option value="" {% if s.collect_hardware is not defined %}selected{% endif %}>(не задавать)</option>
-      <option value="true" {% if s.collect_hardware is defined and s.collect_hardware %}selected{% endif %}>true</option>
-      <option value="false" {% if s.collect_hardware is defined and not s.collect_hardware %}selected{% endif %}>false</option>
-    </select>
-
-    <label for="collect_users">collect_users</label>
-    <select id="collect_users" name="collect_users">
-      <option value="" {% if s.collect_users is not defined %}selected{% endif %}>(не задавать)</option>
-      <option value="true" {% if s.collect_users is defined and s.collect_users %}selected{% endif %}>true</option>
-      <option value="false" {% if s.collect_users is defined and not s.collect_users %}selected{% endif %}>false</option>
-    </select>
-
-    <label for="collect_software">collect_software</label>
-    <select id="collect_software" name="collect_software">
-      <option value="" {% if s.collect_software is not defined %}selected{% endif %}>(не задавать)</option>
-      <option value="true" {% if s.collect_software is defined and s.collect_software %}selected{% endif %}>true</option>
-      <option value="false" {% if s.collect_software is defined and not s.collect_software %}selected{% endif %}>false</option>
-    </select>
+    <fieldset class="fieldset-soft">
+      <legend>Что задать (пусто = не менять)</legend>
+      <div class="policy-form-grid">
+        <div>
+          <label for="inventory_interval_hours">Интервал inventory (часы)</label>
+          <input id="inventory_interval_hours" name="inventory_interval_hours" type="number" min="1"
+            value="{{ s.inventory_interval_hours if s.inventory_interval_hours is defined else '' }}"
+            placeholder="по умолчанию {{ defaults.inventory_interval_hours }}">
+        </div>
+        <div>
+          <label for="heartbeat_interval_minutes">Heartbeat (минуты)</label>
+          <input id="heartbeat_interval_minutes" name="heartbeat_interval_minutes" type="number" min="1"
+            value="{{ s.heartbeat_interval_minutes if s.heartbeat_interval_minutes is defined else '' }}"
+            placeholder="по умолчанию {{ defaults.heartbeat_interval_minutes }}">
+        </div>
+        <div>
+          <label for="update_check_interval_hours">Проверка обновлений (часы)</label>
+          <input id="update_check_interval_hours" name="update_check_interval_hours" type="number" min="1"
+            value="{{ s.update_check_interval_hours if s.update_check_interval_hours is defined else '' }}"
+            placeholder="по умолчанию {{ defaults.update_check_interval_hours }}">
+        </div>
+        <div>
+          <label for="update_enabled">Обновления агента</label>
+          <select id="update_enabled" name="update_enabled">
+            <option value="" {% if s.update_enabled is not defined %}selected{% endif %}>(не задавать)</option>
+            <option value="true" {% if s.update_enabled is defined and s.update_enabled %}selected{% endif %}>включены</option>
+            <option value="false" {% if s.update_enabled is defined and not s.update_enabled %}selected{% endif %}>выключены</option>
+          </select>
+        </div>
+        <div class="full">
+          <label for="update_target">Цель обновления</label>
+          <select id="update_target" name="update_target">
+            <option value="" {% if s.update_target is not defined %}selected{% endif %}>(не задавать)</option>
+            <option value="latest" {% if s.update_target is defined and s.update_target == 'latest' %}selected{% endif %}>latest (последняя в зеркале)</option>
+            {% for v in msi_versions or [] %}
+            <option value="{{ v.version }}" {% if s.update_target is defined and s.update_target == v.version %}selected{% endif %}>{{ v.version }}{% if v.source %} · {{ v.source }}{% endif %}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="collect_hardware">Собирать железо</label>
+          <select id="collect_hardware" name="collect_hardware">
+            <option value="" {% if s.collect_hardware is not defined %}selected{% endif %}>(не задавать)</option>
+            <option value="true" {% if s.collect_hardware is defined and s.collect_hardware %}selected{% endif %}>да</option>
+            <option value="false" {% if s.collect_hardware is defined and not s.collect_hardware %}selected{% endif %}>нет</option>
+          </select>
+        </div>
+        <div>
+          <label for="collect_users">Собирать пользователей</label>
+          <select id="collect_users" name="collect_users">
+            <option value="" {% if s.collect_users is not defined %}selected{% endif %}>(не задавать)</option>
+            <option value="true" {% if s.collect_users is defined and s.collect_users %}selected{% endif %}>да</option>
+            <option value="false" {% if s.collect_users is defined and not s.collect_users %}selected{% endif %}>нет</option>
+          </select>
+        </div>
+        <div>
+          <label for="collect_software">Собирать ПО</label>
+          <select id="collect_software" name="collect_software">
+            <option value="" {% if s.collect_software is not defined %}selected{% endif %}>(не задавать)</option>
+            <option value="true" {% if s.collect_software is defined and s.collect_software %}selected{% endif %}>да</option>
+            <option value="false" {% if s.collect_software is defined and not s.collect_software %}selected{% endif %}>нет</option>
+          </select>
+        </div>
+      </div>
+    </fieldset>
 
     <div class="form-actions">
       <button type="submit">{% if edit %}Сохранить политику{% else %}Создать политику{% endif %}</button>

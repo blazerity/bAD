@@ -102,6 +102,168 @@ router = APIRouter(tags=["web"], dependencies=[Depends(ensure_csrf)])
 DEVICES_PAGE_SIZE = 50
 EVENTS_PAGE_SIZE = 50
 
+# Панели карточки: overview/config/admin/events + inventory ids при наличии данных.
+DEVICE_FIXED_VIEWS = frozenset({"overview", "config", "admin", "events"})
+
+
+def _device_inventory_nav(
+    *,
+    host_info: Optional[dict],
+    hardware_summary: Optional[dict],
+    network_info: Optional[dict],
+    users_info: Optional[dict],
+    software_info: Optional[dict],
+    minidumps_info: Optional[dict],
+    collector_errors: Optional[list],
+) -> list[dict]:
+    """Пункты Speccy-навигации + краткие строки для Обзора (макс. ~2)."""
+    hw = hardware_summary if isinstance(hardware_summary, dict) else None
+    items: list[dict] = []
+
+    def add(view_id: str, icon: str, title: str, lines: list[str]) -> None:
+        items.append(
+            {
+                "id": view_id,
+                "icon": icon,
+                "title": title,
+                "lines": [ln for ln in lines if ln][:2],
+            }
+        )
+
+    if host_info:
+        os_line = _format_os(host_info.get("os"))
+        domain = host_info.get("domain") or host_info.get("hostname") or ""
+        add(
+            "os",
+            "host",
+            "Операционная система",
+            [os_line, str(domain) if domain else ""],
+        )
+
+    if hw and hw.get("cpu"):
+        cpu = hw["cpu"] if isinstance(hw["cpu"], dict) else {}
+        cores = cpu.get("cores")
+        logical = cpu.get("logical")
+        cores_line = ""
+        if cores is not None or logical is not None:
+            cores_line = f"{cores or '—'} ядер / {logical or '—'} потоков"
+        add(
+            "cpu",
+            "cpu",
+            "Процессор",
+            [str(cpu.get("name") or "—"), cores_line],
+        )
+
+    if hw and (
+        hw.get("manufacturer")
+        or hw.get("model")
+        or hw.get("serial_number")
+        or hw.get("bios_version")
+        or hw.get("bios_manufacturer")
+        or hw.get("bios_release_date")
+    ):
+        model_line = " · ".join(
+            str(x) for x in (hw.get("manufacturer"), hw.get("model")) if x
+        )
+        bios = hw.get("bios_version")
+        add(
+            "mb",
+            "model",
+            "Материнская плата",
+            [model_line or (hw.get("serial_number") or "—"), f"BIOS {bios}" if bios else ""],
+        )
+
+    if hw and (
+        hw.get("ram_bytes") is not None
+        or hw.get("ram_memory_type")
+        or hw.get("ram_modules")
+    ):
+        ram = _format_bytes(hw.get("ram_bytes"))
+        dtype = hw.get("ram_memory_type") or ""
+        modules = hw.get("ram_modules") or []
+        line1 = " · ".join(x for x in (ram if ram != "—" else "", str(dtype)) if x) or "—"
+        line2 = f"{len(modules)} планок" if modules else ""
+        add("memory", "ram", "Память", [line1, line2])
+
+    if hw and hw.get("gpus"):
+        gpus = hw["gpus"]
+        first = gpus[0] if isinstance(gpus[0], dict) else {}
+        name = first.get("name") or "—"
+        extra = f"+{len(gpus) - 1}" if len(gpus) > 1 else (first.get("vendor") or "")
+        add("gpu", "gpu", "Видео", [str(name), str(extra)])
+
+    if hw and (hw.get("disks") or hw.get("volumes")):
+        disks = hw.get("disks") or []
+        volumes = hw.get("volumes") or []
+        if disks and isinstance(disks[0], dict):
+            d0 = disks[0]
+            line1 = f"{d0.get('model') or 'диск'} · {_format_bytes(d0.get('size_bytes'))}"
+        else:
+            line1 = f"{len(disks)} диск(ов)" if disks else "тома"
+        line2 = f"{len(volumes)} том(ов)" if volumes else (f"{len(disks)} диск(ов)" if len(disks) > 1 else "")
+        add("storage", "disk", "Накопители", [line1, line2])
+
+    if hw and hw.get("monitors"):
+        mons = hw["monitors"]
+        m0 = mons[0] if isinstance(mons[0], dict) else {}
+        res = ""
+        if m0.get("width") and m0.get("height"):
+            res = f"{m0['width']}×{m0['height']}"
+        add(
+            "monitors",
+            "monitor",
+            "Мониторы",
+            [str(m0.get("name") or m0.get("manufacturer") or "монитор"), res or f"{len(mons)} шт."],
+        )
+
+    if hw and hw.get("battery"):
+        bat = hw["battery"] if isinstance(hw["battery"], dict) else {}
+        charge = bat.get("charge_percent")
+        line1 = f"{charge}%" if charge is not None else (bat.get("status") or "батарея")
+        line2 = str(bat.get("status") or "") if charge is not None else ""
+        add("battery", "battery", "Батарея", [str(line1), line2])
+
+    if network_info and network_info.get("nics"):
+        nics = network_info["nics"]
+        n0 = nics[0] if isinstance(nics[0], dict) else {}
+        ipv4 = n0.get("ipv4") or []
+        ip = ipv4[0] if ipv4 else (n0.get("mac") or "")
+        add(
+            "network",
+            "network",
+            "Сеть",
+            [str(n0.get("name") or "NIC"), str(ip)],
+        )
+
+    if users_info:
+        add(
+            "users",
+            "users",
+            "Пользователи",
+            [
+                str(users_info.get("last_interactive") or "—"),
+                ", ".join(users_info.get("logged_on") or [])[:80],
+            ],
+        )
+
+    if software_info is not None:
+        programs = software_info.get("programs")
+        if programs is None:
+            line1 = "недоступно"
+        else:
+            line1 = f"{len(programs)} программ"
+        add("software", "software", "ПО", [line1])
+
+    if minidumps_info is not None:
+        count = minidumps_info.get("count", "—")
+        mem = "Memory.dmp есть" if minidumps_info.get("memory_dmp_present") else "Memory.dmp нет"
+        add("minidumps", "events", "Минидампы BSOD", [f"{count} файлов", mem])
+
+    if collector_errors:
+        add("errors", "events", "Ошибки сбора", [f"{len(collector_errors)} ошибок"])
+
+    return items
+
 
 def _set_session_cookie(
     resp: RedirectResponse,
@@ -519,6 +681,7 @@ def _device_config_context(
     settings: Settings,
     message: Optional[str] = None,
     error: Optional[str] = None,
+    active_view: Optional[str] = None,
 ) -> Optional[dict]:
     detail = db.get_device_detail(device_id)
     if not detail:
@@ -567,6 +730,19 @@ def _device_config_context(
     )
     recent_events = db.list_device_events(device_id=device_id, limit=20)
     duplicates = db.find_duplicate_devices(device_id)
+    inventory_nav = _device_inventory_nav(
+        host_info=host_info,
+        hardware_summary=hardware_summary,
+        network_info=network_info,
+        users_info=users_info,
+        software_info=software_info,
+        minidumps_info=minidumps_info,
+        collector_errors=collector_errors,
+    )
+    inventory_ids = {item["id"] for item in inventory_nav}
+    view = (active_view or "").strip()
+    if view not in DEVICE_FIXED_VIEWS and view not in inventory_ids:
+        view = "overview"
     return {
         "device": detail,
         "inventory_pretty": inventory_pretty,
@@ -577,6 +753,8 @@ def _device_config_context(
         "software_info": software_info,
         "minidumps_info": minidumps_info,
         "collector_errors": collector_errors,
+        "inventory_nav": inventory_nav,
+        "active_view": view or "overview",
         "user": user,
         "message": message,
         "error": error,
@@ -584,14 +762,12 @@ def _device_config_context(
         "effective": effective["settings"],
         "config_version": effective["version"],
         "matched_policies": effective["matched_policies"],
-        "match_context": effective["context"],
         "override_settings": override_settings or {},
         "has_override": effective["has_override"],
         "silence": silence,
         "health_snippet": health_snippet(detail.get("meta")),
         "recent_events": recent_events,
         "tags_text": ", ".join(detail.get("tags") or []),
-        "stale_after_seconds": settings.device_stale_after_seconds,
         "duplicates": duplicates,
         "new_api_key": None,
         "msi_versions": db.list_agent_msi_versions(),
@@ -605,8 +781,11 @@ def device_detail_page(
     user: WebUser = Depends(require_web_user),
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
+    view: Optional[str] = None,
 ):
-    ctx = _device_config_context(db, device_id, user=user, settings=settings)
+    ctx = _device_config_context(
+        db, device_id, user=user, settings=settings, active_view=view
+    )
     if not ctx:
         return _html(
             request,
@@ -638,6 +817,7 @@ def device_revoke(
         user=user,
         settings=settings,
         message="Доступ отозван: агент получит 403 до повторной регистрации или выпуска нового ключа",
+        active_view="admin",
     )
     assert ctx is not None
     return _html(request, "device_detail.html", ctx)
@@ -670,6 +850,7 @@ def device_rotate_key(
         user=user,
         settings=settings,
         message="Выпущен новый API-ключ. Сохраните его — повторно показать нельзя.",
+        active_view="admin",
     )
     assert ctx is not None
     ctx["new_api_key"] = api_key
@@ -684,7 +865,7 @@ def device_archive(
 ):
     if not db.set_device_archived(device_id, True):
         return RedirectResponse(url="/devices", status_code=303)
-    return RedirectResponse(url=f"/devices/{device_id}", status_code=303)
+    return RedirectResponse(url=f"/devices/{device_id}?view=admin", status_code=303)
 
 
 @router.post("/devices/{device_id}/restore")
@@ -695,7 +876,7 @@ def device_restore(
 ):
     if not db.set_device_archived(device_id, False):
         return RedirectResponse(url="/devices", status_code=303)
-    return RedirectResponse(url=f"/devices/{device_id}", status_code=303)
+    return RedirectResponse(url=f"/devices/{device_id}?view=admin", status_code=303)
 
 
 @router.post("/devices/{device_id}/delete")
@@ -732,7 +913,12 @@ def device_tags_save(
             status_code=404,
         )
     ctx = _device_config_context(
-        db, device_id, user=user, settings=settings, message="Теги сохранены"
+        db,
+        device_id,
+        user=user,
+        settings=settings,
+        message="Теги сохранены",
+        active_view="admin",
     )
     assert ctx is not None
     return _html(request, "device_detail.html", ctx)
@@ -770,6 +956,7 @@ def device_config_override_save(
             user=user,
             settings=settings,
             message="Ручное переопределение очищено",
+            active_view="config",
         )
         assert ctx is not None
         return _html(request, "device_detail.html", ctx)
@@ -793,6 +980,7 @@ def device_config_override_save(
             user=user,
             settings=settings,
             error="Укажите хотя бы одно поле override (или очистите)",
+            active_view="config",
         )
         if not ctx:
             return _html(
@@ -807,7 +995,12 @@ def device_config_override_save(
     pin_err = _validate_update_target_pin(db, cleaned)
     if pin_err:
         ctx = _device_config_context(
-            db, device_id, user=user, settings=settings, error=pin_err
+            db,
+            device_id,
+            user=user,
+            settings=settings,
+            error=pin_err,
+            active_view="config",
         )
         assert ctx is not None
         return _html(request, "device_detail.html", ctx, status_code=400)
@@ -826,6 +1019,7 @@ def device_config_override_save(
         user=user,
         settings=settings,
         message="Ручное переопределение сохранено",
+        active_view="config",
     )
     assert ctx is not None
     return _html(request, "device_detail.html", ctx)

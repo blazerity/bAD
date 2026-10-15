@@ -2,6 +2,8 @@
 {% from "macros/icons.html" import icon, silence_label %}
 {% block title %}{{ device.hostname or device.device_id }} — bAD{% endblock %}
 {% block content %}
+{% set hw = hardware_summary %}
+{% set view = active_view or 'overview' %}
 <section class="device-card">
   <p class="crumb"><a href="/devices">Устройства</a> / {{ device.hostname or device.device_id }}</p>
   <h1 class="with-icon">{{ icon('host') }}{{ device.hostname or "(неизвестный узел)" }}</h1>
@@ -11,11 +13,9 @@
   <p class="ok warn-box">Новый API-ключ (покажите один раз): <code class="mono">{{ new_api_key }}</code></p>
   {% endif %}
 
-  {# —— Идентичность устройства (первый экран) —— #}
   <dl class="meta identity-meta">
     <div><dt>device_id</dt><dd class="mono">{{ device.device_id }}</dd></div>
     <div><dt>Агент</dt><dd>{{ device.agent_version or "—" }}</dd></div>
-    <div><dt>Зарегистрирован</dt><dd>{{ device.enrolled_at or "—" }}</dd></div>
     <div>
       <dt>Последний контакт</dt>
       <dd>
@@ -25,22 +25,14 @@
         {% if device.archived %}<span class="badge badge-stale">архив</span>{% endif %}
       </dd>
     </div>
-    <div>
-      <dt>Состояние</dt>
-      <dd class="mono">{{ health_snippet or "—" }}</dd>
-    </div>
+    <div><dt>Состояние</dt><dd class="mono">{{ health_snippet or "—" }}</dd></div>
     {% if device.tags %}
     <div>
       <dt>Теги</dt>
-      <dd>
-        {% for t in device.tags %}
-        <span class="tag-chip">{{ t }}</span>
-        {% endfor %}
-      </dd>
+      <dd>{% for t in device.tags %}<span class="tag-chip">{{ t }}</span>{% endfor %}</dd>
     </div>
     {% endif %}
   </dl>
-  <p class="muted">Порог устаревания: {{ stale_after_seconds }} с после последнего контакта.</p>
 
   {% if duplicates and (duplicates.hostname or duplicates.serial_number) %}
   <div class="warn-box">
@@ -62,445 +54,514 @@
   </div>
   {% endif %}
 
-  {# —— Speccy-канон: OS → CPU → MB → Memory → GPU → Storage → Monitors → Battery → Network → … —— #}
-  {% if inventory_pretty %}
-  <p class="muted inventory-meta">
-    Inventory {{ device.latest_inventory.received_at }}
-    · schema {{ device.latest_inventory.schema_version }}
-  </p>
+  <div class="settings-shell device-shell" id="device-shell">
+    <aside class="settings-nav" aria-label="Разделы устройства">
+      <p class="muted settings-nav-hint">Как в Параметрах Windows 11: раздел слева.</p>
+      <nav class="settings-nav-list">
+        <a href="?view=overview" class="settings-nav-item {% if view == 'overview' %}active{% endif %}"
+           data-device-nav="overview">
+          <span class="settings-nav-icon">{{ icon('overview') }}</span>
+          <span>
+            <span class="settings-nav-label">Обзор</span>
+            <span class="settings-nav-desc">Краткая выжимка</span>
+          </span>
+        </a>
 
-  <div class="speccy">
-    {% if host_info %}
-    <section class="speccy-section">
-      <h2 class="with-icon">{{ icon('host') }}Операционная система</h2>
-      <dl class="speccy-kv">
-        <div><dt>Имя узла</dt><dd>{{ host_info.hostname or "—" }}</dd></div>
-        <div><dt>Домен</dt><dd>{{ host_info.domain or "—" }}</dd></div>
-        <div><dt>ОС</dt><dd>{{ host_info.os|format_os }}</dd></div>
-        {% if host_info.os and host_info.os.build %}
-        <div><dt>Сборка</dt><dd>{{ host_info.os.build }}</dd></div>
-        {% endif %}
-        {% if host_info.os and host_info.os.install_date %}
-        <div><dt>Установлена</dt><dd>{{ host_info.os.install_date }}</dd></div>
-        {% endif %}
-        {% if host_info.ad_ou %}
-        <div><dt>AD OU</dt><dd>{{ host_info.ad_ou }}</dd></div>
-        {% endif %}
-        {% if host_info.ad_distinguished_name %}
-        <div><dt>AD DN</dt><dd>{{ host_info.ad_distinguished_name }}</dd></div>
-        {% endif %}
-      </dl>
-    </section>
-    {% endif %}
+        {% for item in inventory_nav %}
+        <a href="?view={{ item.id }}" class="settings-nav-item {% if view == item.id %}active{% endif %}"
+           data-device-nav="{{ item.id }}">
+          <span class="settings-nav-icon">{{ icon(item.icon) }}</span>
+          <span>
+            <span class="settings-nav-label">{{ item.title }}</span>
+            {% if item.lines %}
+            <span class="settings-nav-desc">{{ item.lines[0] }}</span>
+            {% endif %}
+          </span>
+        </a>
+        {% endfor %}
 
-    {% set hw = hardware_summary %}
-    {% if hw %}
-    {% if hw.cpu %}
-    <section class="speccy-section">
-      <h2 class="with-icon">{{ icon('cpu') }}Процессор</h2>
-      <dl class="speccy-kv">
-        {% if hw.cpu.name %}<div><dt>Имя</dt><dd>{{ hw.cpu.name }}</dd></div>{% endif %}
-        {% if hw.cpu.cores is defined and hw.cpu.cores is not none %}
-        <div><dt>Ядра</dt><dd>{{ hw.cpu.cores }}</dd></div>
-        {% endif %}
-        {% if hw.cpu.logical is defined and hw.cpu.logical is not none %}
-        <div><dt>Логических</dt><dd>{{ hw.cpu.logical }}</dd></div>
-        {% endif %}
-      </dl>
-    </section>
-    {% endif %}
+        <a href="?view=events" class="settings-nav-item {% if view == 'events' %}active{% endif %}"
+           data-device-nav="events">
+          <span class="settings-nav-icon">{{ icon('events') }}</span>
+          <span>
+            <span class="settings-nav-label">События</span>
+            <span class="settings-nav-desc">Недавние изменения</span>
+          </span>
+        </a>
 
-    {% if hw.manufacturer or hw.model or hw.serial_number or hw.bios_version or hw.bios_manufacturer or hw.bios_release_date %}
-    <section class="speccy-section">
-      <h2 class="with-icon">{{ icon('model') }}Материнская плата</h2>
-      <dl class="speccy-kv">
-        {% if hw.manufacturer %}<div><dt>Производитель</dt><dd>{{ hw.manufacturer }}</dd></div>{% endif %}
-        {% if hw.model %}<div><dt>Модель</dt><dd>{{ hw.model }}</dd></div>{% endif %}
-        {% if hw.serial_number %}<div><dt>Серийный номер</dt><dd>{{ hw.serial_number }}</dd></div>{% endif %}
-        {% if hw.bios_version %}<div><dt>Версия BIOS</dt><dd>{{ hw.bios_version }}</dd></div>{% endif %}
-        {% if hw.bios_manufacturer %}<div><dt>Производитель BIOS</dt><dd>{{ hw.bios_manufacturer }}</dd></div>{% endif %}
-        {% if hw.bios_release_date %}<div><dt>Дата BIOS</dt><dd>{{ hw.bios_release_date }}</dd></div>{% endif %}
-      </dl>
-    </section>
-    {% endif %}
+        <a href="?view=config" class="settings-nav-item {% if view == 'config' %}active{% endif %}"
+           data-device-nav="config">
+          <span class="settings-nav-icon">{{ icon('settings') }}</span>
+          <span>
+            <span class="settings-nav-label">Параметры агента</span>
+            <span class="settings-nav-desc">Политика и override</span>
+          </span>
+        </a>
 
-    {% if hw.ram_bytes is defined and hw.ram_bytes is not none or hw.ram_memory_type or hw.ram_modules %}
-    <section class="speccy-section">
-      <h2 class="with-icon">{{ icon('ram') }}Память</h2>
-      <dl class="speccy-kv">
-        {% if hw.ram_bytes is defined and hw.ram_bytes is not none %}
-        <div><dt>ОЗУ</dt><dd>{{ hw.ram_bytes|format_bytes }}</dd></div>
-        {% endif %}
-        {% if hw.ram_memory_type %}<div><dt>Тип ОЗУ</dt><dd>{{ hw.ram_memory_type }}</dd></div>{% endif %}
-        {% if hw.ram_modules %}
-        <div><dt>Планки</dt><dd>{{ hw.ram_modules|length }}</dd></div>
-        {% endif %}
-      </dl>
-      {% if hw.ram_modules %}
-      {% for m in hw.ram_modules %}
-      <p class="speccy-group">Планка {{ loop.index }}</p>
-      <dl class="speccy-kv">
-        <div><dt>Part</dt><dd>{{ m.part_number or m.manufacturer or "—" }}</dd></div>
-        {% if m.manufacturer and m.part_number %}<div><dt>Производитель</dt><dd>{{ m.manufacturer }}</dd></div>{% endif %}
-        <div><dt>Тип</dt><dd>{{ m.memory_type or "—" }}</dd></div>
-        <div><dt>Ёмкость</dt><dd>{{ m.capacity_bytes|format_bytes }}</dd></div>
-        <div><dt>Частота</dt><dd>{% if m.speed_mhz %}{{ m.speed_mhz }} MHz{% else %}—{% endif %}</dd></div>
-        {% if m.channel %}<div><dt>Канал</dt><dd>{{ m.channel }}</dd></div>{% endif %}
-        <div><dt>Locator</dt><dd>{{ m.device_locator or m.bank_label or "—" }}</dd></div>
-        {% if m.serial_number %}<div><dt>Серийный №</dt><dd>{{ m.serial_number }}</dd></div>{% endif %}
-        {% if m.form_factor %}<div><dt>Форм-фактор</dt><dd>{{ m.form_factor }}</dd></div>{% endif %}
-      </dl>
-      {% endfor %}
-      {% endif %}
-    </section>
-    {% endif %}
+        <a href="?view=admin" class="settings-nav-item nav-secondary {% if view == 'admin' %}active{% endif %}"
+           data-device-nav="admin">
+          <span class="settings-nav-icon">{{ icon('serial') }}</span>
+          <span>
+            <span class="settings-nav-label">Управление записью</span>
+            <span class="settings-nav-desc">Теги, доступ, удаление</span>
+          </span>
+        </a>
+      </nav>
+    </aside>
 
-    {% if hw.gpus %}
-    <section class="speccy-section">
-      <h2 class="with-icon">{{ icon('gpu') }}Видео</h2>
-      {% for g in hw.gpus %}
-      <p class="speccy-group">GPU {{ loop.index }}</p>
-      <dl class="speccy-kv">
-        <div><dt>Имя</dt><dd>{{ g.name or "—" }}</dd></div>
-        <div><dt>Вендор</dt><dd>{{ g.vendor or "—" }}</dd></div>
-        <div><dt>Драйвер</dt><dd>{{ g.driver_version or "—" }}</dd></div>
-        {% if g.adapter_ram_bytes is defined and g.adapter_ram_bytes is not none %}
-        <div><dt>Память адаптера</dt><dd>{{ g.adapter_ram_bytes|format_bytes }}</dd></div>
-        {% endif %}
-      </dl>
-      {% endfor %}
-    </section>
-    {% endif %}
-
-    {% if hw.disks or hw.volumes %}
-    <section class="speccy-section">
-      <h2 class="with-icon">{{ icon('disk') }}Накопители</h2>
-      {% if hw.disks %}
-      {% for d in hw.disks %}
-      <p class="speccy-group">Диск {{ loop.index }}</p>
-      <dl class="speccy-kv">
-        <div><dt>Модель</dt><dd>{{ d.model or "—" }}</dd></div>
-        <div><dt>Размер</dt><dd>{{ d.size_bytes|format_bytes }}</dd></div>
-        <div><dt>Носитель</dt><dd>{{ d.media_type or "—" }}</dd></div>
-      </dl>
-      {% endfor %}
-      {% endif %}
-      {% if hw.volumes %}
-      <p class="speccy-group">Тома</p>
-      {% for v in hw.volumes %}
-      <dl class="speccy-kv">
-        <div><dt>Буква</dt><dd>{{ v.letter or "—" }}</dd></div>
-        <div><dt>Размер</dt><dd>{{ v.size_bytes|format_bytes }}</dd></div>
-        <div><dt>Свободно</dt><dd>{{ v.free_bytes|format_bytes }}</dd></div>
-      </dl>
-      {% endfor %}
-      {% endif %}
-    </section>
-    {% endif %}
-
-    {% if hw.monitors %}
-    <section class="speccy-section">
-      <h2 class="with-icon">{{ icon('monitor') }}Мониторы</h2>
-      {% for m in hw.monitors %}
-      <p class="speccy-group">Монитор {{ loop.index }}</p>
-      <dl class="speccy-kv">
-        <div><dt>Имя</dt><dd>{{ m.name or "—" }}</dd></div>
-        <div><dt>Производитель</dt><dd>{{ m.manufacturer or "—" }}</dd></div>
-        <div><dt>Серийный №</dt><dd>{{ m.serial_number or "—" }}</dd></div>
-        <div><dt>Разрешение</dt><dd>{% if m.width and m.height %}{{ m.width }}×{{ m.height }}{% else %}—{% endif %}</dd></div>
-        {% if m.year %}<div><dt>Год</dt><dd>{{ m.year }}{% if m.week %} · нед. {{ m.week }}{% endif %}</dd></div>{% endif %}
-      </dl>
-      {% endfor %}
-    </section>
-    {% endif %}
-
-    {% if hw.battery %}
-    <section class="speccy-section">
-      <h2 class="with-icon">{{ icon('battery') }}Батарея</h2>
-      <dl class="speccy-kv">
-        {% if hw.battery.name %}<div><dt>Имя</dt><dd>{{ hw.battery.name }}</dd></div>{% endif %}
-        <div><dt>Заряд</dt><dd>{% if hw.battery.charge_percent is not none %}{{ hw.battery.charge_percent }}%{% else %}—{% endif %}</dd></div>
-        <div><dt>Статус</dt><dd>{{ hw.battery.status or "—" }}</dd></div>
-        {% if hw.battery.estimated_runtime_minutes is not none %}
-        <div><dt>Осталось</dt><dd>{{ hw.battery.estimated_runtime_minutes }} мин</dd></div>
-        {% endif %}
-      </dl>
-    </section>
-    {% endif %}
-    {% else %}
-    <section class="speccy-section">
-      <h2 class="with-icon">{{ icon('cpu') }}Оборудование</h2>
-      <p class="muted">пропущено (collect_hardware=false) или нет данных hardware в снимке</p>
-    </section>
-    {% endif %}
-
-    {% if network_info and network_info.nics %}
-    <section class="speccy-section">
-      <h2 class="with-icon">{{ icon('network') }}Сеть</h2>
-      {% for n in network_info.nics %}
-      <p class="speccy-group">{{ n.name or ("NIC " ~ loop.index) }}</p>
-      <dl class="speccy-kv">
-        <div><dt>MAC</dt><dd>{{ n.mac or "—" }}</dd></div>
-        <div><dt>IPv4</dt><dd>{% if n.ipv4 %}{{ n.ipv4|join(", ") }}{% else %}—{% endif %}</dd></div>
-        {% if n.ipv6 %}<div><dt>IPv6</dt><dd>{{ n.ipv6|join(", ") }}</dd></div>{% endif %}
-        <div><dt>DHCP</dt><dd>{% if n.dhcp is none %}—{% elif n.dhcp %}да{% else %}нет{% endif %}</dd></div>
-      </dl>
-      {% endfor %}
-    </section>
-    {% endif %}
-
-    {% if users_info %}
-    <section class="speccy-section">
-      <h2 class="with-icon">{{ icon('users') }}Пользователи</h2>
-      <dl class="speccy-kv">
-        <div><dt>Последний интерактивный</dt><dd>{{ users_info.last_interactive or "—" }}</dd></div>
-        <div><dt>В системе</dt><dd>{% if users_info.logged_on %}{{ users_info.logged_on|join(", ") }}{% else %}—{% endif %}</dd></div>
-      </dl>
-    </section>
-    {% endif %}
-
-    {% if software_info %}
-    <section class="speccy-section">
-      <h2 class="with-icon">{{ icon('software') }}ПО</h2>
-      {% if software_info.programs is none %}
-      <p class="muted">недоступно на этой платформе</p>
-      {% elif software_info.programs|length == 0 %}
-      <p class="muted">пусто</p>
-      {% else %}
-      <p class="muted">{{ software_info.programs|length }} программ</p>
-      <table class="devices speccy-table">
-        <thead><tr><th>Имя</th><th>Version</th><th>Издатель</th></tr></thead>
-        <tbody>
-          {% for p in software_info.programs[:40] %}
-          <tr>
-            <td>{{ p.name or "—" }}</td>
-            <td class="mono">{{ p.version or "—" }}</td>
-            <td>{{ p.publisher or "—" }}</td>
-          </tr>
+    <div class="settings-pane">
+      {# —— Обзор —— #}
+      <div class="device-panel {% if view == 'overview' %}is-active{% endif %}" data-device-panel="overview">
+        <h2 class="with-icon">{{ icon('overview') }}Обзор</h2>
+        {% if inventory_pretty %}
+        <p class="muted inventory-meta">
+          Inventory {{ device.latest_inventory.received_at }}
+          · schema {{ device.latest_inventory.schema_version }}
+        </p>
+        {% if inventory_nav %}
+        <ul class="overview-list">
+          {% for item in inventory_nav %}
+          <li>
+            <a href="?view={{ item.id }}" class="overview-row" data-device-nav="{{ item.id }}">
+              <span class="overview-icon">{{ icon(item.icon) }}</span>
+              <span class="overview-body">
+                <span class="overview-title">{{ item.title }}</span>
+                {% for line in item.lines %}
+                <span class="overview-line mono">{{ line }}</span>
+                {% endfor %}
+              </span>
+            </a>
+          </li>
           {% endfor %}
-        </tbody>
-      </table>
-      {% if software_info.programs|length > 40 %}
-      <p class="muted">Показаны первые 40; полный список — в JSON ниже.</p>
-      {% endif %}
-      {% endif %}
-    </section>
-    {% endif %}
-
-    {% if minidumps_info %}
-    <section class="speccy-section">
-      <h2 class="with-icon">{{ icon('events') }}Минидампы BSOD</h2>
-      <dl class="speccy-kv">
-        <div><dt>Файлов</dt><dd>{{ minidumps_info.count if minidumps_info.count is defined else "—" }}</dd></div>
-        <div><dt>Memory.dmp</dt><dd>{% if minidumps_info.memory_dmp_present %}есть{% else %}нет{% endif %}</dd></div>
-        {% if minidumps_info.memory_dmp_path %}
-        <div><dt>Путь</dt><dd>{{ minidumps_info.memory_dmp_path }}</dd></div>
+        </ul>
+        {% else %}
+        <p class="muted">В снимке нет секций для обзора.</p>
         {% endif %}
-        {% if minidumps_info.memory_dmp_modified_at %}
-        <div><dt>Изменён</dt><dd>{{ minidumps_info.memory_dmp_modified_at }}</dd></div>
+        {% else %}
+        <p class="muted">Снимка inventory пока нет.</p>
         {% endif %}
-      </dl>
-    </section>
-    {% endif %}
-
-    {% if collector_errors %}
-    <section class="speccy-section">
-      <h2 class="with-icon">{{ icon('events') }}Ошибки сбора</h2>
-      <ul class="collector-errors">
-        {% for e in collector_errors %}
-        <li><strong>{{ e.section }}</strong>: {{ e.error }}</li>
-        {% endfor %}
-      </ul>
-    </section>
-    {% endif %}
-  </div>
-
-  <details class="raw-inventory">
-    <summary>Сырой inventory (JSON)</summary>
-    <pre class="inventory">{{ inventory_pretty }}</pre>
-  </details>
-  {% else %}
-  <p class="muted">Снимка inventory пока нет.</p>
-  {% endif %}
-
-  {# —— Операционные блоки (после железа) —— #}
-  <h2 class="with-icon">{{ icon('events') }}Недавние события</h2>
-  {% if recent_events %}
-  <table class="devices">
-    <thead>
-      <tr>
-        <th>Когда</th>
-        <th>Тип</th>
-        <th>Кратко</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for e in recent_events %}
-      <tr>
-        <td class="mono">{{ e.created_at }}</td>
-        <td class="mono">{{ e.type }}</td>
-        <td>{{ e.summary }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  <p class="muted"><a href="/events?device_id={{ device.device_id }}">Все события этого устройства</a></p>
-  {% else %}
-  <p class="muted">Событий изменений пока нет.</p>
-  {% endif %}
-
-  <h2>Эффективная конфигурация агента</h2>
-  <p class="muted">
-    Порядок: defaults &lt; совпавшие политики (по priority) &lt; ручное переопределение.
-    Version <span class="mono">{{ config_version }}</span>
-  </p>
-  <dl class="meta">
-    <div><dt>inventory_interval_hours</dt><dd class="mono">{{ effective.inventory_interval_hours }}</dd></div>
-    <div><dt>heartbeat_interval_minutes</dt><dd class="mono">{{ effective.heartbeat_interval_minutes }}</dd></div>
-    <div><dt>update_check_interval_hours</dt><dd class="mono">{{ effective.update_check_interval_hours }}</dd></div>
-    <div><dt>update_enabled</dt><dd class="mono">{{ effective.update_enabled }}</dd></div>
-    <div><dt>update_target</dt><dd class="mono">{{ effective.update_target }}</dd></div>
-    <div><dt>collect_hardware</dt><dd class="mono">{{ effective.collect_hardware }}</dd></div>
-    <div><dt>collect_users</dt><dd class="mono">{{ effective.collect_users }}</dd></div>
-    <div><dt>collect_software</dt><dd class="mono">{{ effective.collect_software }}</dd></div>
-  </dl>
-  <p class="muted">
-    Контекст совпадения:
-    hostname=<span class="mono">{{ match_context.hostname or "—" }}</span>
-    · domain=<span class="mono">{{ match_context.domain or "—" }}</span>
-    · os_caption=<span class="mono">{{ match_context.os_caption or "—" }}</span>
-    · tag=<span class="mono">{% if match_context.tag %}{{ match_context.tag | join(", ") }}{% else %}—{% endif %}</span>
-  </p>
-  {% if matched_policies %}
-  <p class="muted">Совпавшие политики:
-    {% for p in matched_policies %}
-      <a href="/settings/policies/{{ p.id }}">{{ p.name }}</a>{% if not loop.last %}, {% endif %}
-    {% endfor %}
-  </p>
-  {% else %}
-  <p class="muted">Политики не совпали.</p>
-  {% endif %}
-
-  {# —— Запись в БД: вторичный раскрываемый блок —— #}
-  <details class="record-admin">
-    <summary>Управление записью</summary>
-    <p class="muted">Действия, которые меняют запись устройства в БД. Не часть инвентаря железа.</p>
-
-    <h3>Теги</h3>
-    <p class="muted">Метки через запятую. Используются в фильтре списка и в условии политики <span class="mono">tag</span>.</p>
-    <form method="post" action="/devices/{{ device.device_id }}/tags" class="settings-form compact-form">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <label for="tags">Теги</label>
-      <input id="tags" name="tags" type="text" maxlength="512"
-        value="{{ tags_text }}" placeholder="prod, finance" autocomplete="off">
-      <div class="form-actions">
-        <button type="submit" class="subtle">Сохранить теги</button>
       </div>
-    </form>
 
-    <h3>Доступ агента</h3>
-    <p class="muted">Отзыв блокирует heartbeat/inventory (403). Новый ключ снимает отзыв — пропишите его в конфиг агента или перерегистрируйте устройство.</p>
-    <div class="form-actions">
-      {% if user.is_admin %}
-      <form method="post" action="/devices/{{ device.device_id }}/revoke" onsubmit="return confirm('Отозвать доступ этого агента?');">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button type="submit" class="subtle">Отозвать доступ</button>
-      </form>
-      <form method="post" action="/devices/{{ device.device_id }}/rotate-key" onsubmit="return confirm('Выпустить новый API-ключ? Старый перестанет работать.');">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button type="submit" class="subtle">Выпустить новый ключ</button>
-      </form>
+      {# —— Speccy-панели —— #}
+      {% if host_info %}
+      <div class="device-panel {% if view == 'os' %}is-active{% endif %}" data-device-panel="os">
+        <h2 class="with-icon">{{ icon('host') }}Операционная система</h2>
+        <dl class="speccy-kv">
+          <div><dt>Имя узла</dt><dd>{{ host_info.hostname or "—" }}</dd></div>
+          <div><dt>Домен</dt><dd>{{ host_info.domain or "—" }}</dd></div>
+          <div><dt>ОС</dt><dd>{{ host_info.os|format_os }}</dd></div>
+          {% if host_info.os and host_info.os.build %}
+          <div><dt>Сборка</dt><dd>{{ host_info.os.build }}</dd></div>
+          {% endif %}
+          {% if host_info.os and host_info.os.install_date %}
+          <div><dt>Установлена</dt><dd>{{ host_info.os.install_date }}</dd></div>
+          {% endif %}
+          {% if host_info.ad_ou %}
+          <div><dt>AD OU</dt><dd>{{ host_info.ad_ou }}</dd></div>
+          {% endif %}
+          {% if host_info.ad_distinguished_name %}
+          <div><dt>AD DN</dt><dd>{{ host_info.ad_distinguished_name }}</dd></div>
+          {% endif %}
+        </dl>
+      </div>
       {% endif %}
-      {% if device.archived %}
-      <form method="post" action="/devices/{{ device.device_id }}/restore">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button type="submit" class="subtle">Вернуть из архива</button>
-      </form>
-      {% else %}
-      <form method="post" action="/devices/{{ device.device_id }}/archive">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button type="submit" class="subtle">В архив</button>
-      </form>
+
+      {% if hw and hw.cpu %}
+      <div class="device-panel {% if view == 'cpu' %}is-active{% endif %}" data-device-panel="cpu">
+        <h2 class="with-icon">{{ icon('cpu') }}Процессор</h2>
+        <dl class="speccy-kv">
+          {% if hw.cpu.name %}<div><dt>Имя</dt><dd>{{ hw.cpu.name }}</dd></div>{% endif %}
+          {% if hw.cpu.cores is defined and hw.cpu.cores is not none %}
+          <div><dt>Ядра</dt><dd>{{ hw.cpu.cores }}</dd></div>
+          {% endif %}
+          {% if hw.cpu.logical is defined and hw.cpu.logical is not none %}
+          <div><dt>Логических</dt><dd>{{ hw.cpu.logical }}</dd></div>
+          {% endif %}
+        </dl>
+      </div>
       {% endif %}
+
+      {% if hw and (hw.manufacturer or hw.model or hw.serial_number or hw.bios_version or hw.bios_manufacturer or hw.bios_release_date) %}
+      <div class="device-panel {% if view == 'mb' %}is-active{% endif %}" data-device-panel="mb">
+        <h2 class="with-icon">{{ icon('model') }}Материнская плата</h2>
+        <dl class="speccy-kv">
+          {% if hw.manufacturer %}<div><dt>Производитель</dt><dd>{{ hw.manufacturer }}</dd></div>{% endif %}
+          {% if hw.model %}<div><dt>Модель</dt><dd>{{ hw.model }}</dd></div>{% endif %}
+          {% if hw.serial_number %}<div><dt>Серийный номер</dt><dd>{{ hw.serial_number }}</dd></div>{% endif %}
+          {% if hw.bios_version %}<div><dt>Версия BIOS</dt><dd>{{ hw.bios_version }}</dd></div>{% endif %}
+          {% if hw.bios_manufacturer %}<div><dt>Производитель BIOS</dt><dd>{{ hw.bios_manufacturer }}</dd></div>{% endif %}
+          {% if hw.bios_release_date %}<div><dt>Дата BIOS</dt><dd>{{ hw.bios_release_date }}</dd></div>{% endif %}
+        </dl>
+      </div>
+      {% endif %}
+
+      {% if hw and (hw.ram_bytes is defined and hw.ram_bytes is not none or hw.ram_memory_type or hw.ram_modules) %}
+      <div class="device-panel {% if view == 'memory' %}is-active{% endif %}" data-device-panel="memory">
+        <h2 class="with-icon">{{ icon('ram') }}Память</h2>
+        <dl class="speccy-kv">
+          {% if hw.ram_bytes is defined and hw.ram_bytes is not none %}
+          <div><dt>ОЗУ</dt><dd>{{ hw.ram_bytes|format_bytes }}</dd></div>
+          {% endif %}
+          {% if hw.ram_memory_type %}<div><dt>Тип ОЗУ</dt><dd>{{ hw.ram_memory_type }}</dd></div>{% endif %}
+          {% if hw.ram_modules %}<div><dt>Планки</dt><dd>{{ hw.ram_modules|length }}</dd></div>{% endif %}
+        </dl>
+        {% if hw.ram_modules %}
+        {% for m in hw.ram_modules %}
+        <p class="speccy-group">Планка {{ loop.index }}</p>
+        <dl class="speccy-kv">
+          <div><dt>Part</dt><dd>{{ m.part_number or m.manufacturer or "—" }}</dd></div>
+          {% if m.manufacturer and m.part_number %}<div><dt>Производитель</dt><dd>{{ m.manufacturer }}</dd></div>{% endif %}
+          <div><dt>Тип</dt><dd>{{ m.memory_type or "—" }}</dd></div>
+          <div><dt>Ёмкость</dt><dd>{{ m.capacity_bytes|format_bytes }}</dd></div>
+          <div><dt>Частота</dt><dd>{% if m.speed_mhz %}{{ m.speed_mhz }} MHz{% else %}—{% endif %}</dd></div>
+          {% if m.channel %}<div><dt>Канал</dt><dd>{{ m.channel }}</dd></div>{% endif %}
+          <div><dt>Locator</dt><dd>{{ m.device_locator or m.bank_label or "—" }}</dd></div>
+        </dl>
+        {% endfor %}
+        {% endif %}
+      </div>
+      {% endif %}
+
+      {% if hw and hw.gpus %}
+      <div class="device-panel {% if view == 'gpu' %}is-active{% endif %}" data-device-panel="gpu">
+        <h2 class="with-icon">{{ icon('gpu') }}Видео</h2>
+        {% for g in hw.gpus %}
+        <p class="speccy-group">GPU {{ loop.index }}</p>
+        <dl class="speccy-kv">
+          <div><dt>Имя</dt><dd>{{ g.name or "—" }}</dd></div>
+          <div><dt>Вендор</dt><dd>{{ g.vendor or "—" }}</dd></div>
+          <div><dt>Драйвер</dt><dd>{{ g.driver_version or "—" }}</dd></div>
+          {% if g.adapter_ram_bytes is defined and g.adapter_ram_bytes is not none %}
+          <div><dt>Память адаптера</dt><dd>{{ g.adapter_ram_bytes|format_bytes }}</dd></div>
+          {% endif %}
+        </dl>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if hw and (hw.disks or hw.volumes) %}
+      <div class="device-panel {% if view == 'storage' %}is-active{% endif %}" data-device-panel="storage">
+        <h2 class="with-icon">{{ icon('disk') }}Накопители</h2>
+        {% if hw.disks %}
+        {% for d in hw.disks %}
+        <p class="speccy-group">Диск {{ loop.index }}</p>
+        <dl class="speccy-kv">
+          <div><dt>Модель</dt><dd>{{ d.model or "—" }}</dd></div>
+          <div><dt>Размер</dt><dd>{{ d.size_bytes|format_bytes }}</dd></div>
+          <div><dt>Носитель</dt><dd>{{ d.media_type or "—" }}</dd></div>
+        </dl>
+        {% endfor %}
+        {% endif %}
+        {% if hw.volumes %}
+        <p class="speccy-group">Тома</p>
+        {% for v in hw.volumes %}
+        <dl class="speccy-kv">
+          <div><dt>Буква</dt><dd>{{ v.letter or "—" }}</dd></div>
+          <div><dt>Размер</dt><dd>{{ v.size_bytes|format_bytes }}</dd></div>
+          <div><dt>Свободно</dt><dd>{{ v.free_bytes|format_bytes }}</dd></div>
+        </dl>
+        {% endfor %}
+        {% endif %}
+      </div>
+      {% endif %}
+
+      {% if hw and hw.monitors %}
+      <div class="device-panel {% if view == 'monitors' %}is-active{% endif %}" data-device-panel="monitors">
+        <h2 class="with-icon">{{ icon('monitor') }}Мониторы</h2>
+        {% for m in hw.monitors %}
+        <p class="speccy-group">Монитор {{ loop.index }}</p>
+        <dl class="speccy-kv">
+          <div><dt>Имя</dt><dd>{{ m.name or "—" }}</dd></div>
+          <div><dt>Производитель</dt><dd>{{ m.manufacturer or "—" }}</dd></div>
+          <div><dt>Серийный №</dt><dd>{{ m.serial_number or "—" }}</dd></div>
+          <div><dt>Разрешение</dt><dd>{% if m.width and m.height %}{{ m.width }}×{{ m.height }}{% else %}—{% endif %}</dd></div>
+        </dl>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if hw and hw.battery %}
+      <div class="device-panel {% if view == 'battery' %}is-active{% endif %}" data-device-panel="battery">
+        <h2 class="with-icon">{{ icon('battery') }}Батарея</h2>
+        <dl class="speccy-kv">
+          {% if hw.battery.name %}<div><dt>Имя</dt><dd>{{ hw.battery.name }}</dd></div>{% endif %}
+          <div><dt>Заряд</dt><dd>{% if hw.battery.charge_percent is not none %}{{ hw.battery.charge_percent }}%{% else %}—{% endif %}</dd></div>
+          <div><dt>Статус</dt><dd>{{ hw.battery.status or "—" }}</dd></div>
+          {% if hw.battery.estimated_runtime_minutes is not none %}
+          <div><dt>Осталось</dt><dd>{{ hw.battery.estimated_runtime_minutes }} мин</dd></div>
+          {% endif %}
+        </dl>
+      </div>
+      {% endif %}
+
+      {% if network_info and network_info.nics %}
+      <div class="device-panel {% if view == 'network' %}is-active{% endif %}" data-device-panel="network">
+        <h2 class="with-icon">{{ icon('network') }}Сеть</h2>
+        {% for n in network_info.nics %}
+        <p class="speccy-group">{{ n.name or ("NIC " ~ loop.index) }}</p>
+        <dl class="speccy-kv">
+          <div><dt>MAC</dt><dd>{{ n.mac or "—" }}</dd></div>
+          <div><dt>IPv4</dt><dd>{% if n.ipv4 %}{{ n.ipv4|join(", ") }}{% else %}—{% endif %}</dd></div>
+          {% if n.ipv6 %}<div><dt>IPv6</dt><dd>{{ n.ipv6|join(", ") }}</dd></div>{% endif %}
+          <div><dt>DHCP</dt><dd>{% if n.dhcp is none %}—{% elif n.dhcp %}да{% else %}нет{% endif %}</dd></div>
+        </dl>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if users_info %}
+      <div class="device-panel {% if view == 'users' %}is-active{% endif %}" data-device-panel="users">
+        <h2 class="with-icon">{{ icon('users') }}Пользователи</h2>
+        <dl class="speccy-kv">
+          <div><dt>Последний интерактивный</dt><dd>{{ users_info.last_interactive or "—" }}</dd></div>
+          <div><dt>В системе</dt><dd>{% if users_info.logged_on %}{{ users_info.logged_on|join(", ") }}{% else %}—{% endif %}</dd></div>
+        </dl>
+      </div>
+      {% endif %}
+
+      {% if software_info %}
+      <div class="device-panel {% if view == 'software' %}is-active{% endif %}" data-device-panel="software">
+        <h2 class="with-icon">{{ icon('software') }}ПО</h2>
+        {% if software_info.programs is none %}
+        <p class="muted">недоступно на этой платформе</p>
+        {% elif software_info.programs|length == 0 %}
+        <p class="muted">пусто</p>
+        {% else %}
+        <p class="muted">{{ software_info.programs|length }} программ</p>
+        <table class="devices speccy-table">
+          <thead><tr><th>Имя</th><th>Version</th><th>Издатель</th></tr></thead>
+          <tbody>
+            {% for p in software_info.programs[:40] %}
+            <tr>
+              <td>{{ p.name or "—" }}</td>
+              <td class="mono">{{ p.version or "—" }}</td>
+              <td>{{ p.publisher or "—" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% if software_info.programs|length > 40 %}
+        <p class="muted">Показаны первые 40.</p>
+        {% endif %}
+        {% endif %}
+      </div>
+      {% endif %}
+
+      {% if minidumps_info %}
+      <div class="device-panel {% if view == 'minidumps' %}is-active{% endif %}" data-device-panel="minidumps">
+        <h2 class="with-icon">{{ icon('events') }}Минидампы BSOD</h2>
+        <dl class="speccy-kv">
+          <div><dt>Файлов</dt><dd>{{ minidumps_info.count if minidumps_info.count is defined else "—" }}</dd></div>
+          <div><dt>Memory.dmp</dt><dd>{% if minidumps_info.memory_dmp_present %}есть{% else %}нет{% endif %}</dd></div>
+          {% if minidumps_info.memory_dmp_path %}
+          <div><dt>Путь</dt><dd>{{ minidumps_info.memory_dmp_path }}</dd></div>
+          {% endif %}
+        </dl>
+      </div>
+      {% endif %}
+
+      {% if collector_errors %}
+      <div class="device-panel {% if view == 'errors' %}is-active{% endif %}" data-device-panel="errors">
+        <h2 class="with-icon">{{ icon('events') }}Ошибки сбора</h2>
+        <ul class="collector-errors">
+          {% for e in collector_errors %}
+          <li><strong>{{ e.section }}</strong>: {{ e.error }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      {# —— События —— #}
+      <div class="device-panel {% if view == 'events' %}is-active{% endif %}" data-device-panel="events">
+        <h2 class="with-icon">{{ icon('events') }}Недавние события</h2>
+        {% if recent_events %}
+        <table class="devices">
+          <thead><tr><th>Когда</th><th>Тип</th><th>Кратко</th></tr></thead>
+          <tbody>
+            {% for e in recent_events %}
+            <tr>
+              <td class="mono">{{ e.created_at }}</td>
+              <td class="mono">{{ e.type }}</td>
+              <td>{{ e.summary }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <p class="muted"><a href="/events?device_id={{ device.device_id }}">Все события этого устройства</a></p>
+        {% else %}
+        <p class="muted">Событий изменений пока нет.</p>
+        {% endif %}
+      </div>
+
+      {# —— Параметры агента (упрощённо) —— #}
+      <div class="device-panel {% if view == 'config' %}is-active{% endif %}" data-device-panel="config">
+        <h2 class="with-icon">{{ icon('settings') }}Параметры агента</h2>
+        <p class="muted">
+          Эффективный конфиг (v<span class="mono">{{ config_version }}</span>):
+          defaults → политики → ручной override.
+        </p>
+
+        <h3 class="with-icon">{{ icon('policies') }}Политика</h3>
+        {% if matched_policies %}
+        <p>
+          Применена:
+          {% for p in matched_policies %}
+            <a href="/settings/policies/{{ p.id }}">{{ p.name }}</a>{% if not loop.last %}, {% endif %}
+          {% endfor %}
+        </p>
+        <p class="muted">Редактирование условий и настроек — в
+          <a href="/settings/policies">Параметры → Политики агента</a>.</p>
+        {% else %}
+        <p class="muted">Ни одна политика не совпала.
+          <a href="/settings/policies">Создать или изменить политики</a>.</p>
+        {% endif %}
+
+        <h3>Эффективные значения</h3>
+        <dl class="speccy-kv">
+          <div><dt>Inventory</dt><dd>{{ effective.inventory_interval_hours }} ч</dd></div>
+          <div><dt>Heartbeat</dt><dd>{{ effective.heartbeat_interval_minutes }} мин</dd></div>
+          <div><dt>Проверка обновлений</dt><dd>{{ effective.update_check_interval_hours }} ч</dd></div>
+          <div><dt>Обновления</dt><dd>{% if effective.update_enabled %}вкл{% else %}выкл{% endif %} · цель {{ effective.update_target }}</dd></div>
+          <div><dt>Сбор</dt><dd>
+            железо {% if effective.collect_hardware %}да{% else %}нет{% endif %} ·
+            пользователи {% if effective.collect_users %}да{% else %}нет{% endif %} ·
+            ПО {% if effective.collect_software %}да{% else %}нет{% endif %}
+          </dd></div>
+        </dl>
+
+        {% if user.is_admin %}
+        <h3>Ручной override</h3>
+        <p class="muted">Пустое поле не попадает в override. Перекрывает политики для этого устройства.</p>
+        <form method="post" action="/devices/{{ device.device_id }}/config-override" class="settings-form compact-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+          <label for="inventory_interval_hours">Интервал inventory (часы)</label>
+          <input id="inventory_interval_hours" name="inventory_interval_hours" type="number" min="1"
+            value="{{ override_settings.inventory_interval_hours if override_settings.inventory_interval_hours is defined else '' }}"
+            placeholder="по умолчанию {{ defaults.inventory_interval_hours }}">
+
+          <label for="heartbeat_interval_minutes">Heartbeat (минуты)</label>
+          <input id="heartbeat_interval_minutes" name="heartbeat_interval_minutes" type="number" min="1"
+            value="{{ override_settings.heartbeat_interval_minutes if override_settings.heartbeat_interval_minutes is defined else '' }}"
+            placeholder="по умолчанию {{ defaults.heartbeat_interval_minutes }}">
+
+          <label for="update_check_interval_hours">Проверка обновлений (часы)</label>
+          <input id="update_check_interval_hours" name="update_check_interval_hours" type="number" min="1"
+            value="{{ override_settings.update_check_interval_hours if override_settings.update_check_interval_hours is defined else '' }}"
+            placeholder="по умолчанию {{ defaults.update_check_interval_hours }}">
+
+          <label for="update_enabled">Обновления агента</label>
+          <select id="update_enabled" name="update_enabled">
+            <option value="" {% if override_settings.update_enabled is not defined %}selected{% endif %}>(не задавать)</option>
+            <option value="true" {% if override_settings.update_enabled is defined and override_settings.update_enabled %}selected{% endif %}>включены</option>
+            <option value="false" {% if override_settings.update_enabled is defined and not override_settings.update_enabled %}selected{% endif %}>выключены</option>
+          </select>
+
+          <label for="update_target">Цель обновления</label>
+          <select id="update_target" name="update_target">
+            <option value="" {% if override_settings.update_target is not defined %}selected{% endif %}>(не задавать)</option>
+            <option value="latest" {% if override_settings.update_target is defined and override_settings.update_target == 'latest' %}selected{% endif %}>latest</option>
+            {% for v in msi_versions or [] %}
+            <option value="{{ v.version }}" {% if override_settings.update_target is defined and override_settings.update_target == v.version %}selected{% endif %}>{{ v.version }}</option>
+            {% endfor %}
+          </select>
+
+          <label for="collect_hardware">Собирать железо</label>
+          <select id="collect_hardware" name="collect_hardware">
+            <option value="" {% if override_settings.collect_hardware is not defined %}selected{% endif %}>(не задавать)</option>
+            <option value="true" {% if override_settings.collect_hardware is defined and override_settings.collect_hardware %}selected{% endif %}>да</option>
+            <option value="false" {% if override_settings.collect_hardware is defined and not override_settings.collect_hardware %}selected{% endif %}>нет</option>
+          </select>
+
+          <label for="collect_users">Собирать пользователей</label>
+          <select id="collect_users" name="collect_users">
+            <option value="" {% if override_settings.collect_users is not defined %}selected{% endif %}>(не задавать)</option>
+            <option value="true" {% if override_settings.collect_users is defined and override_settings.collect_users %}selected{% endif %}>да</option>
+            <option value="false" {% if override_settings.collect_users is defined and not override_settings.collect_users %}selected{% endif %}>нет</option>
+          </select>
+
+          <label for="collect_software">Собирать ПО</label>
+          <select id="collect_software" name="collect_software">
+            <option value="" {% if override_settings.collect_software is not defined %}selected{% endif %}>(не задавать)</option>
+            <option value="true" {% if override_settings.collect_software is defined and override_settings.collect_software %}selected{% endif %}>да</option>
+            <option value="false" {% if override_settings.collect_software is defined and not override_settings.collect_software %}selected{% endif %}>нет</option>
+          </select>
+
+          <div class="form-actions">
+            <button type="submit" class="subtle">Сохранить override</button>
+            {% if has_override %}
+            <button type="submit" name="clear_override" value="1" class="subtle">Очистить override</button>
+            {% endif %}
+          </div>
+        </form>
+        {% endif %}
+      </div>
+
+      {# —— Управление записью —— #}
+      <div class="device-panel {% if view == 'admin' %}is-active{% endif %}" data-device-panel="admin">
+        <h2>Управление записью</h2>
+        <p class="muted">Действия, которые меняют запись устройства в БД.</p>
+
+        <h3>Теги</h3>
+        <form method="post" action="/devices/{{ device.device_id }}/tags" class="settings-form compact-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <label for="tags">Теги (через запятую)</label>
+          <input id="tags" name="tags" type="text" maxlength="512"
+            value="{{ tags_text }}" placeholder="prod, finance" autocomplete="off">
+          <div class="form-actions">
+            <button type="submit" class="subtle">Сохранить теги</button>
+          </div>
+        </form>
+
+        <h3>Доступ агента</h3>
+        <p class="muted">Отзыв блокирует heartbeat/inventory (403).</p>
+        <div class="form-actions">
+          {% if user.is_admin %}
+          <form method="post" action="/devices/{{ device.device_id }}/revoke" onsubmit="return confirm('Отозвать доступ этого агента?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="subtle">Отозвать доступ</button>
+          </form>
+          <form method="post" action="/devices/{{ device.device_id }}/rotate-key" onsubmit="return confirm('Выпустить новый API-ключ? Старый перестанет работать.');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="subtle">Выпустить новый ключ</button>
+          </form>
+          {% endif %}
+          {% if device.archived %}
+          <form method="post" action="/devices/{{ device.device_id }}/restore">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="subtle">Вернуть из архива</button>
+          </form>
+          {% else %}
+          <form method="post" action="/devices/{{ device.device_id }}/archive">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="subtle">В архив</button>
+          </form>
+          {% endif %}
+        </div>
+
+        {% if user.is_admin %}
+        <h3>Удаление</h3>
+        <p class="muted">Для подтверждения введите <span class="mono">{{ device.device_id }}</span>.</p>
+        <form method="post" action="/devices/{{ device.device_id }}/delete" class="settings-form compact-form"
+          onsubmit="return confirm('Удалить устройство навсегда?');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <label for="confirm">Подтверждение</label>
+          <input id="confirm" name="confirm" type="text" autocomplete="off" placeholder="{{ device.device_id }}">
+          <div class="form-actions">
+            <button type="submit" class="danger subtle-danger">Удалить устройство</button>
+          </div>
+        </form>
+        {% endif %}
+
+        {% if inventory_pretty %}
+        <details class="raw-inventory">
+          <summary>Сырой inventory (JSON)</summary>
+          <pre class="inventory">{{ inventory_pretty }}</pre>
+        </details>
+        {% endif %}
+      </div>
     </div>
-
-    {% if user.is_admin %}
-    <h3>Ручное переопределение</h3>
-    <p class="muted">Пустое поле не попадает в override. «Очистить» удаляет весь override.</p>
-    <form method="post" action="/devices/{{ device.device_id }}/config-override" class="settings-form compact-form">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <label for="inventory_interval_hours">inventory_interval_hours</label>
-      <input id="inventory_interval_hours" name="inventory_interval_hours" type="number" min="1"
-        value="{{ override_settings.inventory_interval_hours if override_settings.inventory_interval_hours is defined else '' }}"
-        placeholder="default {{ defaults.inventory_interval_hours }}">
-
-      <label for="heartbeat_interval_minutes">heartbeat_interval_minutes</label>
-      <input id="heartbeat_interval_minutes" name="heartbeat_interval_minutes" type="number" min="1"
-        value="{{ override_settings.heartbeat_interval_minutes if override_settings.heartbeat_interval_minutes is defined else '' }}"
-        placeholder="default {{ defaults.heartbeat_interval_minutes }}">
-
-      <label for="update_check_interval_hours">update_check_interval_hours</label>
-      <input id="update_check_interval_hours" name="update_check_interval_hours" type="number" min="1"
-        value="{{ override_settings.update_check_interval_hours if override_settings.update_check_interval_hours is defined else '' }}"
-        placeholder="default {{ defaults.update_check_interval_hours }}">
-
-      <label for="update_enabled">update_enabled</label>
-      <select id="update_enabled" name="update_enabled">
-        <option value="" {% if override_settings.update_enabled is not defined %}selected{% endif %}>(не задавать)</option>
-        <option value="true" {% if override_settings.update_enabled is defined and override_settings.update_enabled %}selected{% endif %}>true</option>
-        <option value="false" {% if override_settings.update_enabled is defined and not override_settings.update_enabled %}selected{% endif %}>false</option>
-      </select>
-
-      <label for="update_target">update_target</label>
-      <select id="update_target" name="update_target">
-        <option value="" {% if override_settings.update_target is not defined %}selected{% endif %}>(не задавать)</option>
-        <option value="latest" {% if override_settings.update_target is defined and override_settings.update_target == 'latest' %}selected{% endif %}>latest</option>
-        {% for v in msi_versions or [] %}
-        <option value="{{ v.version }}" {% if override_settings.update_target is defined and override_settings.update_target == v.version %}selected{% endif %}>{{ v.version }}</option>
-        {% endfor %}
-      </select>
-
-      <label for="collect_hardware">collect_hardware</label>
-      <select id="collect_hardware" name="collect_hardware">
-        <option value="" {% if override_settings.collect_hardware is not defined %}selected{% endif %}>(не задавать)</option>
-        <option value="true" {% if override_settings.collect_hardware is defined and override_settings.collect_hardware %}selected{% endif %}>true</option>
-        <option value="false" {% if override_settings.collect_hardware is defined and not override_settings.collect_hardware %}selected{% endif %}>false</option>
-      </select>
-
-      <label for="collect_users">collect_users</label>
-      <select id="collect_users" name="collect_users">
-        <option value="" {% if override_settings.collect_users is not defined %}selected{% endif %}>(не задавать)</option>
-        <option value="true" {% if override_settings.collect_users is defined and override_settings.collect_users %}selected{% endif %}>true</option>
-        <option value="false" {% if override_settings.collect_users is defined and not override_settings.collect_users %}selected{% endif %}>false</option>
-      </select>
-
-      <label for="collect_software">collect_software</label>
-      <select id="collect_software" name="collect_software">
-        <option value="" {% if override_settings.collect_software is not defined %}selected{% endif %}>(не задавать)</option>
-        <option value="true" {% if override_settings.collect_software is defined and override_settings.collect_software %}selected{% endif %}>true</option>
-        <option value="false" {% if override_settings.collect_software is defined and not override_settings.collect_software %}selected{% endif %}>false</option>
-      </select>
-
-      <div class="form-actions">
-        <button type="submit" class="subtle">Сохранить override</button>
-        {% if has_override %}
-        <button type="submit" name="clear_override" value="1" class="subtle">Очистить override</button>
-        {% endif %}
-      </div>
-    </form>
-
-    <h3>Удаление</h3>
-    <p class="muted">Безвозвратно удаляет устройство, inventory, события и override. Для подтверждения введите <span class="mono">{{ device.device_id }}</span>.</p>
-    <form method="post" action="/devices/{{ device.device_id }}/delete" class="settings-form compact-form"
-      onsubmit="return confirm('Удалить устройство навсегда?');">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <label for="confirm">Подтверждение</label>
-      <input id="confirm" name="confirm" type="text" autocomplete="off" placeholder="{{ device.device_id }}">
-      <div class="form-actions">
-        <button type="submit" class="danger subtle-danger">Удалить устройство</button>
-      </div>
-    </form>
-    {% endif %}
-  </details>
+  </div>
 </section>
+<script src="/static/device-card.js" defer></script>
 {% endblock %}
