@@ -63,6 +63,17 @@ CREATE TABLE IF NOT EXISTS ldap_settings (
   default_role TEXT NOT NULL DEFAULT 'operator',
   updated_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS agent_update (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  version TEXT NOT NULL,
+  msi_name TEXT NOT NULL,
+  sha256 TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  source_tag TEXT,
+  release_url TEXT,
+  synced_at TEXT NOT NULL
+);
 """
 
 
@@ -490,3 +501,61 @@ class Database:
                     ),
                 )
 
+    # --- agent update mirror ---
+
+    def get_agent_update(self) -> Optional[dict[str, Any]]:
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT version, msi_name, sha256, file_path, source_tag, "
+                "release_url, synced_at FROM agent_update WHERE id = 1"
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "version": row["version"],
+            "msi_name": row["msi_name"],
+            "sha256": row["sha256"],
+            "file_path": row["file_path"],
+            "source_tag": row["source_tag"],
+            "release_url": row["release_url"],
+            "synced_at": row["synced_at"],
+        }
+
+    def set_agent_update(
+        self,
+        *,
+        version: str,
+        msi_name: str,
+        sha256: str,
+        file_path: str,
+        source_tag: Optional[str] = None,
+        release_url: Optional[str] = None,
+    ) -> dict[str, Any]:
+        now = utc_now()
+        with self.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO agent_update(
+                  id, version, msi_name, sha256, file_path,
+                  source_tag, release_url, synced_at
+                ) VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                  version = excluded.version,
+                  msi_name = excluded.msi_name,
+                  sha256 = excluded.sha256,
+                  file_path = excluded.file_path,
+                  source_tag = excluded.source_tag,
+                  release_url = excluded.release_url,
+                  synced_at = excluded.synced_at
+                """,
+                (version, msi_name, sha256, file_path, source_tag, release_url, now),
+            )
+        return {
+            "version": version,
+            "msi_name": msi_name,
+            "sha256": sha256,
+            "file_path": file_path,
+            "source_tag": source_tag,
+            "release_url": release_url,
+            "synced_at": now,
+        }

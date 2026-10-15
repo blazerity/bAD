@@ -11,12 +11,13 @@ Lightweight Windows inventory agent + on-prem accumulation server.
 ## Repository layout
 
 ```
-agent/            # C# Worker Service + unit tests
-server/           # FastAPI app, web UI, pytest
-installer/msi/    # WiX sources (build on Windows)
+agent/            # C# Worker Service + unit tests + service CLI
+server/           # FastAPI app, web UI, agent-update mirror, pytest
+installer/msi/    # WiX sources (MSI built on Windows / GHA release-msi)
 deploy/debian/    # install.sh, systemd, nginx template
 docs/             # architecture, guidelines, agent notes, operator guide
 VERSION           # product semver (0.2.0)
+.github/workflows # ci.yml (Linux) + release-msi.yml (Windows tags)
 ```
 
 ## Quick start (server on Linux)
@@ -58,15 +59,28 @@ export BAD_ALLOW_HTTP=1
 dotnet run --project src/BadAgent -c Release
 ```
 
+
 On Windows, install as a service via the MSI (`installer/msi/`) with public properties `SERVERURL` and `ENROLLMENTTOKEN`.
+
+Service control (elevated):
+
+```powershell
+BadAgent.exe service status|start|stop|restart
+```
+
+Self-update: agents poll the **server** (not GitHub) for a newer mirrored MSI; see [docs/architecture.md](docs/architecture.md).
+
+## Releases (agent MSI)
+
+Tag `v0.2.0` (or run `release-msi` manually) → Windows GHA builds MSI + `agent-release.json` → GitHub Release → server sync → agents upgrade. Linux CI does **not** build MSI. Details: [docs/guideline.md](docs/guideline.md).
 
 ## Docs
 
 | Document | Description |
 |----------|-------------|
-| [docs/architecture.md](docs/architecture.md) | Архитектура сервиса (клиент/сервер, TLS, enroll, web UI, deploy) |
-| [docs/guideline.md](docs/guideline.md) | Инженерные правила (API, security, logging, UI, PR hygiene) |
-| [docs/agents.md](docs/agents.md) | Практика для coding agents: layout, тесты, version bump, инварианты |
+| [docs/architecture.md](docs/architecture.md) | Архитектура + web LDAP auth + pipeline обновления агента |
+| [docs/guideline.md](docs/guideline.md) | Инженерные правила + как релизить MSI |
+| [docs/agents.md](docs/agents.md) | Агент, service CLI, version bump, LDAP/web auth map, инварианты |
 | [docs/operator-guide.md](docs/operator-guide.md) | Операторский путь: Debian install → MSI → web UI |
 | [docs/architecture-plan.md](docs/architecture-plan.md) | Locked plan v1 (решения не переоткрывать для MVP) |
 

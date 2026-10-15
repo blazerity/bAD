@@ -123,5 +123,42 @@ public sealed class BadApiClient : IDisposable
         }
     }
 
+    public async Task<UpdateCheckResponse> CheckUpdateAsync(string apiKey, string currentVersion, CancellationToken ct)
+    {
+        var url = $"{_baseUrl}/v1/agent/update/check?current={Uri.EscapeDataString(currentVersion)}";
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+
+        using var resp = await _http.SendAsync(req, ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            throw new HttpRequestException($"Update check failed: {(int)resp.StatusCode} {body}");
+        }
+
+        return UpdateCheckResponse.FromJson(body);
+    }
+
+    public async Task DownloadUpdateMsiAsync(string apiKey, string relativeOrAbsoluteUrl, string destPath, CancellationToken ct)
+    {
+        var url = relativeOrAbsoluteUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+            ? relativeOrAbsoluteUrl
+            : $"{_baseUrl}/{relativeOrAbsoluteUrl.TrimStart('/')}";
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+
+        using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException($"Update download failed: {(int)resp.StatusCode} {body}");
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
+        await using var fs = File.Create(destPath);
+        await resp.Content.CopyToAsync(fs, ct);
+    }
+
     public void Dispose() => _http.Dispose();
 }

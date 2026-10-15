@@ -17,6 +17,7 @@ from .auth import (
     get_session_secret,
     load_ldap_view,
 )
+from .config import Settings, get_settings
 from .crypto_util import encrypt_secret
 from .db import Database
 from .ldap_client import LdapSettingsView, test_connection
@@ -116,14 +117,21 @@ def devices_page(
     request: Request,
     user: Optional[WebUser] = Depends(current_web_user),
     db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ):
     if not user:
         return _login_redirect()
     devices = db.list_devices()
+    agent_update = db.get_agent_update()
     return templates.TemplateResponse(
         request,
         "devices.html",
-        {"devices": devices, "user": user},
+        {
+            "devices": devices,
+            "user": user,
+            "agent_update": agent_update,
+            "github_repo": settings.github_repo,
+        },
     )
 
 

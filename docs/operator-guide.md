@@ -62,6 +62,8 @@ msiexec /i bad-agent-0.2.0.msi `
 
 The service `BlazerityAssetDiscovery` starts automatically, enrolls once, stores the API key under `%ProgramData%\blazerity\bAD\config.json`, and sends inventory on start (then every 6 hours) with heartbeats every 15 minutes.
 
+The service `BlazerityAssetDiscovery` starts automatically, enrolls once, stores the API key under `%ProgramData%\blazerity\bAD\config.json`, and sends inventory on start (then every 6 hours) with heartbeats every 15 minutes. It also checks the server for MSI updates (never GitHub directly). Service CLI: `BadAgent.exe service status|start|stop|restart` (elevated). See [agents.md](./agents.md).
+
 ## 3. Confirm in the web UI
 
 1. Open `https://bad.example.com/devices` (after signing in)

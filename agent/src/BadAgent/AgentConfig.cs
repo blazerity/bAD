@@ -22,6 +22,13 @@ public sealed class AgentConfig
 
     [JsonPropertyName("heartbeat_interval_minutes")]
     public int HeartbeatIntervalMinutes { get; set; } = 15;
+
+    /// <summary>How often to ask the server for a newer MSI (hours). Default 24.</summary>
+    [JsonPropertyName("update_check_interval_hours")]
+    public int UpdateCheckIntervalHours { get; set; } = 24;
+
+    [JsonPropertyName("update_enabled")]
+    public bool UpdateEnabled { get; set; } = true;
 }
 
 public static class ConfigStore
@@ -102,6 +109,18 @@ public static class ConfigStore
         if (!string.IsNullOrWhiteSpace(apiKey))
         {
             cfg.ApiKey = apiKey.Trim();
+        }
+
+        var updateHours = Environment.GetEnvironmentVariable("BAD_UPDATE_CHECK_INTERVAL_HOURS");
+        if (int.TryParse(updateHours, out var hours) && hours > 0)
+        {
+            cfg.UpdateCheckIntervalHours = hours;
+        }
+
+        var updateEnabled = Environment.GetEnvironmentVariable("BAD_UPDATE_ENABLED");
+        if (!string.IsNullOrWhiteSpace(updateEnabled))
+        {
+            cfg.UpdateEnabled = updateEnabled is "1" or "true" or "TRUE" or "yes";
         }
 
         return cfg;

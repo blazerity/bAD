@@ -22,6 +22,17 @@ class Settings(BaseSettings):
     default_admin_password: str = "admin"
 
 
+    # Agent update mirror (GitHub Release → local store). Agents never talk to GitHub.
+    github_repo: str = "blazerity/bAD"
+    github_token: str = ""  # optional; needed if the repo becomes private
+    github_api_base: str = "https://api.github.com"
+    agent_updates_dir: Path = Path(
+        os.environ.get("BAD_AGENT_UPDATES_DIR", "/var/lib/bad/agent-updates")
+    )
+    agent_update_sync_interval_seconds: int = 3600  # 0 disables background sync
+    agent_update_sync_on_startup: bool = True
+
+
 @lru_cache
 def get_settings() -> Settings:
     return Settings()

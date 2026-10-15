@@ -6,10 +6,11 @@
 
 | Компонент | Путь | Роль |
 |-----------|------|------|
-| **Agent** | `agent/` | .NET 8 Worker Service (`BlazerityAssetDiscovery`): collect → enroll/heartbeat/inventory по HTTPS |
-| **Server** | `server/` | FastAPI + SQLite: API `/v1/*`, web UI (session login), uvicorn на `127.0.0.1:8000` |
-| **MSI** | `installer/msi/` | WiX: Program Files, служба, public properties `SERVERURL` / `ENROLLMENTTOKEN` |
-| **Deploy** | `deploy/debian/` | one-line `install.sh` для Debian 12: venv, systemd, nginx TLS, ufw |
+| **Agent** | `agent/` | .NET 8 Worker Service (`BlazerityAssetDiscovery`): collect → enroll/heartbeat/inventory; self-update через сервер; CLI `service …` |
+| **Server** | `server/` | FastAPI + SQLite: API `/v1/*`, web UI (session login + LDAP), зеркало MSI с GitHub Release, uvicorn на `127.0.0.1:8000` |
+| **MSI** | `installer/msi/` | WiX: Program Files, служба, public properties `SERVERURL` / `ENROLLMENTTOKEN`; MajorUpgrade сохраняет ProgramData |
+| **Deploy** | `deploy/debian/` | one-line `install.sh` для Debian 12: venv, systemd, nginx TLS, ufw, `agent-updates/` |
+| **GitHub Release** | `.github/workflows/release-msi.yml` | Источник `bad-agent-<ver>.msi` + `agent-release.json`; агенты к GitHub **не** ходят |
 
 ```mermaid
 flowchart LR
@@ -22,20 +23,56 @@ flowchart LR
     NGX["nginx TLS :443"]
     API["uvicorn FastAPI :8000"]
     DB[("SQLite /var/lib/bad/bad.db")]
+    STORE["/var/lib/bad/agent-updates/"]
     NGX --> API --> DB
+    API --> STORE
   end
-  SVC -->|"HTTPS JSON"| NGX
+  SVC -->|"HTTPS JSON + update check"| NGX
 ```
 
 ## Клиент (агент)
 
 - Установка: MSI → `%ProgramFiles%\blazerity\bAD\`, служба auto-start под LocalSystem.
-- Конфиг: `%ProgramData%\blazerity\bAD\config.json` (`server_url`, `enrollment_token` временно, `api_key`, `device_id`, интервалы).
-- Жизненный цикл: при старте enroll (если нет API key) → полный inventory → heartbeat каждые 15 мин, inventory каждые 6 ч.
+- Конфиг: `%ProgramData%\blazerity\bAD\config.json` (`server_url`, `enrollment_token` временно, `api_key`, `device_id`, интервалы, `update_*`).
+- Жизненный цикл: при старте enroll (если нет API key) → check update → полный inventory → heartbeat каждые 15 мин, inventory каждые 6 ч, update check каждые 24 ч (конфиг).
 - `device_id`: MachineGuid (registry), fallback SMBIOS UUID.
 - Collectors: WMI/CIM + .NET; сбой секции → `null` + запись в `collector_errors[]`.
 - HTTPS only; cleartext `http://` отклоняется (кроме явного `BAD_ALLOW_HTTP=1` для локальной разработки).
 - `User-Agent: bad-agent/<semver>`; в payload поле `agent_version`.
+- Service CLI: `BadAgent.exe service status|start|stop|restart` (elevated); без подкоманды — host службы. См. [agents.md](agents.md).
+
+## Поток обновления агента
+
+```mermaid
+flowchart LR
+  subgraph GH["GitHub"]
+    TAG["tag v*"]
+    GHA["windows-latest\nrelease-msi.yml"]
+    REL["Release\nMSI + agent-release.json"]
+    TAG --> GHA --> REL
+  end
+  subgraph Deb2["On-prem server"]
+    SYNC["background / admin sync"]
+    STORE2["agent-updates/"]
+    DB2[("SQLite agent_update")]
+    UAPI["/v1/agent/update/*"]
+    REL --> SYNC --> STORE2
+    SYNC --> DB2
+    STORE2 --> UAPI
+    DB2 --> UAPI
+  end
+  subgraph Win2["Windows"]
+    AG["BadAgent"]
+    MSI["msiexec /qn"]
+    AG -->|API key| UAPI
+    UAPI -->|MSI| AG
+    AG -->|sha256| MSI
+  end
+```
+
+1. **GitHub → MSI** — workflow `release-msi.yml` на тег `v*` / `workflow_dispatch`: `dotnet publish` win-x64 self-contained → WiX v5 (`dotnet tool wix`) → upload MSI + `agent-release.json` (`version`, `msi_name`, `sha256`). Linux CI MSI **не** собирает.
+2. **Server mirrors** — `BAD_GITHUB_REPO` (default `blazerity/bAD`), опционально `BAD_GITHUB_TOKEN`, интервал sync. Job / `POST /v1/admin/agent-update/sync` кладёт файлы в `BAD_AGENT_UPDATES_DIR` и метаданные в SQLite.
+3. **Agent applies** — check на старте и по расписанию → download → verify sha256 → `msiexec /i … /qn` → выход процесса; WiX `ServiceControl` / MajorUpgrade останавливает службу, меняет файлы, стартует снова. ProgramData сохраняется. Токены не логируются.
 
 ## Сервер
 
@@ -47,12 +84,15 @@ flowchart LR
 | `POST` | `/v1/enroll` | enrollment Bearer | обмен на per-agent API key |
 | `POST` | `/v1/heartbeat` | API key | `last_seen`, `agent_version` |
 | `POST` | `/v1/inventory` | API key | upsert снимка по `device_id` |
-| `GET` | `/v1/devices` | **admin Bearer only** | список устройств |
-| `GET` | `/v1/devices/{device_id}` | **admin Bearer only** | meta + последний inventory |
+| `GET` | `/v1/devices` | admin Bearer | список устройств |
+| `GET` | `/v1/devices/{device_id}` | admin Bearer | meta + последний inventory |
+| `GET` | `/v1/agent/update/check` | API key | `{update_available, version, sha256, url}` |
+| `GET` | `/v1/agent/update/msi` | API key | байты зеркалированного MSI |
+| `GET` | `/v1/admin/agent-update` | admin | статус зеркала |
+| `POST` | `/v1/admin/agent-update/sync` | admin | sync с GitHub сейчас |
 
 - `schema_version` сейчас `1`; неизвестные версии → `400`.
 - Секреты сайта: enrollment и admin tokens (разные); в БД хранятся hash (argon2).
-- Admin API token — только `Authorization: Bearer` (автоматизация). Web-сессия на `/v1/*` не действует.
 - Rate limit на `/v1/enroll` (sliding window).
 - Retention: последние 30 снимков на устройство.
 
@@ -89,11 +129,14 @@ flowchart LR
 
 - Подписанный cookie `bad_session` (itsdangerous, 12h); секрет из `BAD_SESSION_SECRET` или `site_secrets.session_secret`.
 
+- На `/devices` дополнительно показывается mirrored agent MSI version (из `agent_update`).
+
+
 ### Данные
 
-- SQLite: `/var/lib/bad/bad.db` (prod), владелец `bad:bad`, режим ideally `0600`, WAL.
-- Таблицы: `devices`, `inventory_snapshots`, `site_secrets`, `local_users`, `ldap_settings`.
-- Миграции: `server/bad_server/migrations/` (`001_initial.sql`, `002_web_auth.sql`); runtime применяет schema в `Database._init_schema`.
+- SQLite: `/var/lib/bad/bad.db` (prod), владелец `bad:bad`, WAL.
+- Таблицы: `devices`, `inventory_snapshots`, `site_secrets`, `local_users`, `ldap_settings`, `agent_update` (singleton зеркала).
+- Каталог MSI: `/var/lib/bad/agent-updates/` (конфиг).
 
 ## Enrollment и inventory
 
@@ -108,10 +151,10 @@ flowchart LR
 BAD_DOMAIN=… BAD_TLS_CERT=… BAD_TLS_KEY=… sudo -E bash deploy/debian/install.sh
 ```
 
-Скрипт: пакеты, user `bad`, `/opt/bad` + venv, `bad-api.service`, nginx site, ufw 22/80/443, печать enrollment/admin tokens один раз. Web UI после install: `admin`/`admin` (сменить сразу); admin Bearer token — для API/автоматизации.
+Скрипт: пакеты, user `bad`, `/opt/bad` + venv, `bad-api.service`, nginx site, ufw 22/80/443, `agent-updates/`, печать enrollment/admin tokens один раз. Web UI: `admin`/`admin` (сменить сразу); admin Bearer — для API. В `site.env` также `BAD_GITHUB_REPO` и параметры sync.
 
-Артефакты релиза (имена): `bad-agent-<semver>.msi`, `bad-server-<semver>.tar.gz`, `install.sh`.
+Артефакты релиза агента: `bad-agent-<semver>.msi`, `agent-release.json` (через GitHub Release). Как вырезать релиз: [guideline.md](guideline.md).
 
-## Вне scope v1 / ещё не сделано
+## Вне scope v1
 
-macOS/Linux агенты, software inventory, полноценный RBAC/SSO/группы AD, HA SQLite, push-команды на агент, Let’s Encrypt как основной путь, product dashboard.
+macOS/Linux агенты, software inventory, RBAC/SSO, HA SQLite, push-команды на агент, Let’s Encrypt как основной путь, полноценный product dashboard. Прямой доступ агентов к GitHub — вне модели (только server mirror).
