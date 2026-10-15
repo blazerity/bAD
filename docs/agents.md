@@ -116,7 +116,7 @@ Heartbeat health (опционально → meta устройства): `last_i
 ### Offline queue / revoke (0.9.0)
 
 - Недоступный сервер → `%ProgramData%\blazerity\bAD\queue\` + backoff (`OfflineQueue`).
-- 401/403 → очистить `api_key`, оставить `device_id`, Event Log, не постить до re-enroll/reinstall (`Worker.HandleAuthFailureAsync`).
+- 401/403 → очистить `api_key`, оставить `device_id`, Event Log, не постить до re-enroll/reinstall (`Worker.HandleAuthFailure`).
 - Крупные сбои enroll/update/revoke → Application log, source `bAD Agent`.
 
 ## Где живёт версия (bump checklist)

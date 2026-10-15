@@ -100,7 +100,7 @@ public sealed class Worker : BackgroundService
                     }
                     catch (AgentApiException ex) when (ex.IsAuthFailure)
                     {
-                        await HandleAuthFailureAsync(config, "update", ex);
+                        HandleAuthFailure(config, "update", ex);
                         continue;
                     }
 
@@ -221,7 +221,7 @@ public sealed class Worker : BackgroundService
         var result = await OfflineQueue.FlushAsync(client, config.ApiKey!, ct);
         if (result.AuthFailed)
         {
-            await HandleAuthFailureAsync(config, "queue", result.AuthException);
+            HandleAuthFailure(config, "queue", result.AuthException);
             return;
         }
 
@@ -242,6 +242,7 @@ public sealed class Worker : BackgroundService
         }
 
         _logger.LogWarning(
+            result.Error,
             "Offline queue flush failed; next retry in {Delay}, failures={Failures}",
             result.RetryAfter,
             result.Failures);
@@ -268,7 +269,7 @@ public sealed class Worker : BackgroundService
         {
             _lastInventoryOk = false;
             _lastInventoryError = Truncate("auth_failed", 200);
-            await HandleAuthFailureAsync(config, "inventory", ex);
+            HandleAuthFailure(config, "inventory", ex);
         }
         catch (Exception ex)
         {
@@ -307,16 +308,7 @@ public sealed class Worker : BackgroundService
 
         try
         {
-            var remote = await client.SendHeartbeatAsync(
-                config.ApiKey!,
-                payload.DeviceId,
-                payload.LastInventoryAt,
-                payload.ConfigVersion,
-                payload.LastInventoryOk,
-                payload.LastInventoryError,
-                payload.AgentUptimeSeconds,
-                payload.SystemDriveFreeBytes,
-                ct);
+            var remote = await client.SendHeartbeatAsync(config.ApiKey!, payload, ct);
             _logger.LogDebug("Heartbeat sent");
             if (remote?.Settings != null)
             {
@@ -325,7 +317,7 @@ public sealed class Worker : BackgroundService
         }
         catch (AgentApiException ex) when (ex.IsAuthFailure)
         {
-            await HandleAuthFailureAsync(config, "heartbeat", ex);
+            HandleAuthFailure(config, "heartbeat", ex);
         }
         catch (Exception ex)
         {
@@ -378,9 +370,10 @@ public sealed class Worker : BackgroundService
     }
 
     /// <summary>
-    /// 401/403: очистить api_key (device_id оставить), не долбить сервер, ждать re-enroll/reinstall.
+    /// 401/403: очистить api_key (device_id оставить), очередь не трогаем (после re-enroll flush).
+    /// Не долбить сервер, ждать re-enroll/reinstall.
     /// </summary>
-    private Task HandleAuthFailureAsync(AgentConfig config, string operation, Exception? ex = null)
+    private void HandleAuthFailure(AgentConfig config, string operation, Exception? ex = null)
     {
         _logger.LogError(
             ex,
@@ -398,7 +391,6 @@ public sealed class Worker : BackgroundService
         _authBackoffUntil = DateTime.UtcNow.AddHours(1);
 
         // Если MSI снова дал enrollment_token — попробуем на следующем витке EnsureEnrolled.
-        return Task.CompletedTask;
     }
 
     /// <summary>Свободные байты системного диска через DriveInfo (без WMI).</summary>

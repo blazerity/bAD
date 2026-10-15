@@ -6,6 +6,7 @@
     dotnet publish ..\..\agent\src\BadAgent\BadAgent.csproj -c Release -r win-x64 --self-contained true -o .\publish
     Copy-Item .\write-config.ps1 .\publish\
     Copy-Item .\cleanup-uninstall.ps1 .\publish\
+    Copy-Item .\bad-paths.ps1 .\publish\
     Copy-Item .\bad.cmd .\publish\
     wix build Product.wxs -d AgentPublishDir=publish -d ProductVersion=0.9.0 -o bad-agent-0.9.0.msi
 
@@ -67,7 +68,7 @@
       </Directory>
     </StandardDirectory>
 
-    <!-- Собрать все publish-артефакты (exe + deps + write-config.ps1 + cleanup-uninstall.ps1 + bad.cmd). -->
+    <!-- Собрать все publish-артефакты (exe + deps + write-config/cleanup/bad-paths.ps1 + bad.cmd). -->
     <ComponentGroup Id="AgentFiles" Directory="INSTALLFOLDER">
       <Files Include="$(AgentPublishDir)\**" />
     </ComponentGroup>

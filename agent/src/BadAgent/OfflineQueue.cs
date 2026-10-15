@@ -37,7 +37,6 @@ public static class OfflineQueue
     public static void Enqueue(string kind, string jsonBody)
     {
         Directory.CreateDirectory(QueueDir);
-        PruneUnlocked();
 
         var id = $"{DateTime.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}"[..40];
         var item = new QueueItem
@@ -53,6 +52,7 @@ public static class OfflineQueue
         var tmp = path + ".tmp";
         File.WriteAllText(tmp, JsonSerializer.Serialize(item, JsonOptions));
         File.Move(tmp, path, overwrite: true);
+        // Один prune после записи: возраст + cap MaxItems.
         PruneUnlocked();
     }
 
@@ -116,16 +116,7 @@ public static class OfflineQueue
                 {
                     var hb = JsonSerializer.Deserialize<HeartbeatQueuePayload>(item.Body)
                              ?? throw new InvalidOperationException("bad heartbeat payload");
-                    await client.SendHeartbeatAsync(
-                        apiKey,
-                        hb.DeviceId,
-                        hb.LastInventoryAt,
-                        hb.ConfigVersion,
-                        hb.LastInventoryOk,
-                        hb.LastInventoryError,
-                        hb.AgentUptimeSeconds,
-                        hb.SystemDriveFreeBytes,
-                        ct);
+                    await client.SendHeartbeatAsync(apiKey, hb, ct);
                 }
                 else
                 {
@@ -145,7 +136,11 @@ public static class OfflineQueue
                 SaveItem(file, item);
                 return OfflineFlushResult.CreateAuthFailed(ex);
             }
-            catch (Exception)
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
             {
                 item.Attempts++;
                 SaveItem(file, item);
@@ -153,7 +148,7 @@ public static class OfflineQueue
                 var delay = BackoffDelay(meta.ConsecutiveFailures);
                 meta.NextRetryUtc = DateTime.UtcNow.Add(delay);
                 SaveMeta(meta);
-                return OfflineFlushResult.CreateFailed(delay, meta.ConsecutiveFailures);
+                return OfflineFlushResult.CreateFailed(delay, meta.ConsecutiveFailures, ex);
             }
         }
 
@@ -174,27 +169,9 @@ public static class OfflineQueue
             .Count(f => !string.Equals(Path.GetFileName(f), "meta.json", StringComparison.OrdinalIgnoreCase));
     }
 
-    /// <summary>Удалить очередь (uninstall / revoke — payloads без валидного ключа всё равно бесполезны для auth).</summary>
-    public static void ClearAll()
-    {
-        if (!Directory.Exists(QueueDir))
-        {
-            return;
-        }
-
-        try
-        {
-            Directory.Delete(QueueDir, recursive: true);
-        }
-        catch
-        {
-            // best-effort
-        }
-    }
-
     private static TimeSpan BackoffDelay(int failures)
     {
-                // 1m, 2m, 4m … cap 6h
+        // 1m, 2m, 4m … cap 6h
         var minutes = Math.Min(360.0, Math.Pow(2, Math.Min(failures, 10)));
         return TimeSpan.FromMinutes(Math.Max(1.0, minutes));
     }
@@ -204,7 +181,8 @@ public static class OfflineQueue
         if (!DateTime.TryParse(item.CreatedAtUtc, null,
                 System.Globalization.DateTimeStyles.RoundtripKind, out var created))
         {
-            return false;
+            // Битая метка времени — выбросить (иначе живёт до MaxItems prune).
+            return true;
         }
 
         return DateTime.UtcNow - created.ToUniversalTime() > TimeSpan.FromDays(MaxAgeDays);
@@ -355,14 +333,15 @@ public sealed class OfflineFlushResult
     public DateTime? NextRetryUtc { get; private init; }
     public int Failures { get; private init; }
     public AgentApiException? AuthException { get; private init; }
+    public Exception? Error { get; private init; }
 
     public static OfflineFlushResult CreateOk(int sent) => new() { Success = true, Sent = sent };
 
     public static OfflineFlushResult CreateDeferred(DateTime next) =>
         new() { Deferred = true, NextRetryUtc = next };
 
-    public static OfflineFlushResult CreateFailed(TimeSpan retryAfter, int failures) =>
-        new() { RetryAfter = retryAfter, Failures = failures };
+    public static OfflineFlushResult CreateFailed(TimeSpan retryAfter, int failures, Exception? error = null) =>
+        new() { RetryAfter = retryAfter, Failures = failures, Error = error };
 
     public static OfflineFlushResult CreateAuthFailed(AgentApiException ex) =>
         new() { AuthFailed = true, AuthException = ex };

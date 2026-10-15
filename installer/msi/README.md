@@ -51,6 +51,7 @@ dotnet publish ..\..\agent\src\BadAgent\BadAgent.csproj `
 # 3. Скопировать scripts + shim bad.cmd рядом с опубликованным exe
 Copy-Item .\write-config.ps1 .\publish\
 Copy-Item .\cleanup-uninstall.ps1 .\publish\
+Copy-Item .\bad-paths.ps1 .\publish\
 Copy-Item .\bad.cmd .\publish\
 
 # 4. Собрать MSI (Product.wxs harvest'ит publish\** через <Files>;

@@ -44,6 +44,7 @@ public static class AsciiReportWriter
             Row(sb, "Модель", snap.Hardware.Model);
             Row(sb, "Серийный №", snap.Hardware.SerialNumber);
             Row(sb, "BIOS", snap.Hardware.BiosVersion);
+            Row(sb, "Произв. BIOS", snap.Hardware.BiosManufacturer);
             Row(sb, "Процессор", cpu?.Name);
             Row(sb, "Ядра", ReportFormat.FormatCores(cpu));
             Row(sb, "ОЗУ", ReportFormat.FormatBytes(snap.Hardware.RamBytes));
@@ -185,6 +186,8 @@ public static class AsciiReportWriter
             sb.AppendLine(BoxMid("Минидампы BSOD"));
             Row(sb, "Файлов", snap.Minidumps.Count.ToString(CultureInfo.InvariantCulture));
             Row(sb, "Memory.dmp", snap.Minidumps.MemoryDmpPresent ? "есть" : "нет");
+            Row(sb, "Путь Memory.dmp", snap.Minidumps.MemoryDmpPath);
+            Row(sb, "Изменён", snap.Minidumps.MemoryDmpModifiedAt);
             if (snap.Minidumps.Files is { Count: > 0 })
             {
                 foreach (var f in snap.Minidumps.Files.Take(5))

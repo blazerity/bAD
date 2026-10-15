@@ -94,7 +94,8 @@ public sealed class InventoryCollector : IInventoryCollector
         {
             if (OperatingSystem.IsWindows())
             {
-                using var searcher = new ManagementObjectSearcher("SELECT * FROM Win32_OperatingSystem");
+                using var searcher = new ManagementObjectSearcher(
+                    "SELECT Caption, Version, BuildNumber, OSArchitecture, InstallDate, CSName FROM Win32_OperatingSystem");
                 foreach (ManagementObject obj in searcher.Get())
                 {
                     using (obj)
@@ -115,14 +116,28 @@ public sealed class InventoryCollector : IInventoryCollector
                     }
                 }
 
-                var dnsDomain = WmiHelper.QueryFirst(
-                    "SELECT Domain FROM Win32_ComputerSystem", "Domain");
+                string? dnsDomain = null;
+                string? partOfDomain = null;
+                using (var cs = new ManagementObjectSearcher(
+                           "SELECT Domain, PartOfDomain FROM Win32_ComputerSystem"))
+                {
+                    foreach (ManagementObject obj in cs.Get())
+                    {
+                        using (obj)
+                        {
+                            dnsDomain = obj["Domain"]?.ToString();
+                            partOfDomain = obj["PartOfDomain"]?.ToString();
+                            break;
+                        }
+                    }
+                }
+
                 if (!string.IsNullOrWhiteSpace(dnsDomain))
                 {
                     host.Domain = dnsDomain;
                 }
 
-                CollectAdComputerOu(host, errors);
+                CollectAdComputerOu(host, errors, partOfDomain);
             }
             else
             {
@@ -145,12 +160,10 @@ public sealed class InventoryCollector : IInventoryCollector
 
     /// <summary>AD distinguishedName / OU path; soft-fail для workgroup.</summary>
     [SupportedOSPlatform("windows")]
-    private static void CollectAdComputerOu(HostInfo host, List<CollectorError> errors)
+    private static void CollectAdComputerOu(HostInfo host, List<CollectorError> errors, string? partOfDomain)
     {
         try
         {
-            var partOfDomain = WmiHelper.QueryFirst(
-                "SELECT PartOfDomain FROM Win32_ComputerSystem", "PartOfDomain");
             if (!string.Equals(partOfDomain, "True", StringComparison.OrdinalIgnoreCase)
                 && partOfDomain != "1")
             {
@@ -256,8 +269,6 @@ public sealed class InventoryCollector : IInventoryCollector
         WmiHelper.YieldBriefly();
         CollectHardwareSystemIdentity(hw, errors);
         WmiHelper.YieldBriefly();
-        CollectHardwareBios(hw, errors);
-        WmiHelper.YieldBriefly();
         CollectHardwareBattery(hw, errors);
         WmiHelper.YieldBriefly();
         CollectHardwareMonitors(hw, errors);
@@ -333,13 +344,19 @@ public sealed class InventoryCollector : IInventoryCollector
             string? csManufacturer = null;
             string? boardSerial = null;
 
-            using (var bios = new ManagementObjectSearcher("SELECT SerialNumber FROM Win32_BIOS"))
+            using (var bios = new ManagementObjectSearcher(
+                       "SELECT SerialNumber, SMBIOSBIOSVersion, Version, Manufacturer, ReleaseDate FROM Win32_BIOS"))
             {
                 foreach (ManagementObject obj in bios.Get())
                 {
                     using (obj)
                     {
                         biosSerial = obj["SerialNumber"]?.ToString();
+                        hw.BiosVersion = HardwareMaps.PreferFirst(
+                            HardwareMaps.CleanWmiString(obj["SMBIOSBIOSVersion"]?.ToString()),
+                            HardwareMaps.CleanWmiString(obj["Version"]?.ToString()));
+                        hw.BiosManufacturer = HardwareMaps.CleanWmiString(obj["Manufacturer"]?.ToString());
+                        hw.BiosReleaseDate = HardwareMaps.CleanWmiString(obj["ReleaseDate"]?.ToString());
                         break;
                     }
                 }
@@ -396,36 +413,6 @@ public sealed class InventoryCollector : IInventoryCollector
             errors.Add(new CollectorError
             {
                 Section = "hardware.system",
-                Error = Truncate(ex.Message, 200)
-            });
-        }
-    }
-
-    [SupportedOSPlatform("windows")]
-    private static void CollectHardwareBios(HardwareInfo hw, List<CollectorError> errors)
-    {
-        try
-        {
-            using var bios = new ManagementObjectSearcher(
-                "SELECT SMBIOSBIOSVersion, Version, Manufacturer, ReleaseDate FROM Win32_BIOS");
-            foreach (ManagementObject obj in bios.Get())
-            {
-                using (obj)
-                {
-                    hw.BiosVersion = HardwareMaps.PreferFirst(
-                        HardwareMaps.CleanWmiString(obj["SMBIOSBIOSVersion"]?.ToString()),
-                        HardwareMaps.CleanWmiString(obj["Version"]?.ToString()));
-                    hw.BiosManufacturer = HardwareMaps.CleanWmiString(obj["Manufacturer"]?.ToString());
-                    hw.BiosReleaseDate = HardwareMaps.CleanWmiString(obj["ReleaseDate"]?.ToString());
-                    break;
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            errors.Add(new CollectorError
-            {
-                Section = "hardware.bios",
                 Error = Truncate(ex.Message, 200)
             });
         }
@@ -664,19 +651,64 @@ public sealed class InventoryCollector : IInventoryCollector
             var minidumpDir = Path.Combine(windowsDir, "Minidump");
             if (Directory.Exists(minidumpDir))
             {
-                var files = Directory.EnumerateFiles(minidumpDir, "*.dmp")
-                    .Select(p => new FileInfo(p))
-                    .OrderByDescending(f => f.LastWriteTimeUtc)
-                    .ToList();
-                info.Count = files.Count;
-                foreach (var f in files.Take(MaxMinidumpFiles))
+                // Top-N по mtime без полной материализации всех FileInfo.
+                var top = new List<(DateTime Mtime, string Path)>(MaxMinidumpFiles);
+                var count = 0;
+                foreach (var path in Directory.EnumerateFiles(minidumpDir, "*.dmp"))
                 {
-                    info.Files.Add(new MinidumpFileInfo
+                    count++;
+                    DateTime mtime;
+                    try
                     {
-                        Name = f.Name,
-                        SizeBytes = f.Exists ? f.Length : null,
-                        ModifiedAt = f.LastWriteTimeUtc.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
-                    });
+                        mtime = File.GetLastWriteTimeUtc(path);
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+
+                    if (top.Count < MaxMinidumpFiles)
+                    {
+                        top.Add((mtime, path));
+                        if (top.Count == MaxMinidumpFiles)
+                        {
+                            top.Sort((a, b) => b.Mtime.CompareTo(a.Mtime));
+                        }
+
+                        continue;
+                    }
+
+                    if (mtime <= top[^1].Mtime)
+                    {
+                        continue;
+                    }
+
+                    top[^1] = (mtime, path);
+                    top.Sort((a, b) => b.Mtime.CompareTo(a.Mtime));
+                }
+
+                info.Count = count;
+                if (top.Count > 0 && top.Count < MaxMinidumpFiles)
+                {
+                    top.Sort((a, b) => b.Mtime.CompareTo(a.Mtime));
+                }
+
+                foreach (var (_, path) in top)
+                {
+                    try
+                    {
+                        var f = new FileInfo(path);
+                        info.Files.Add(new MinidumpFileInfo
+                        {
+                            Name = f.Name,
+                            SizeBytes = f.Exists ? f.Length : null,
+                            ModifiedAt = f.LastWriteTimeUtc.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                        });
+                    }
+                    catch
+                    {
+                        // skip unreadable entry
+                    }
                 }
             }
 
@@ -854,7 +886,7 @@ public sealed class InventoryCollector : IInventoryCollector
             if (OperatingSystem.IsWindows())
             {
                 using var nics = new ManagementObjectSearcher(
-                    "SELECT * FROM Win32_NetworkAdapterConfiguration WHERE IPEnabled=True");
+                    "SELECT Description, MACAddress, IPAddress, DHCPEnabled FROM Win32_NetworkAdapterConfiguration WHERE IPEnabled=True");
                 foreach (ManagementObject obj in nics.Get())
                 {
                     using (obj)

@@ -83,6 +83,21 @@ public sealed class BadApiClient : IDisposable
         return (apiKey, returnedId);
     }
 
+    public Task<RemoteAgentConfigResponse?> SendHeartbeatAsync(
+        string apiKey,
+        HeartbeatQueuePayload payload,
+        CancellationToken ct) =>
+        SendHeartbeatAsync(
+            apiKey,
+            payload.DeviceId,
+            payload.LastInventoryAt,
+            payload.ConfigVersion,
+            payload.LastInventoryOk,
+            payload.LastInventoryError,
+            payload.AgentUptimeSeconds,
+            payload.SystemDriveFreeBytes,
+            ct);
+
     public async Task<RemoteAgentConfigResponse?> SendHeartbeatAsync(
         string apiKey,
         string deviceId,
@@ -130,22 +145,6 @@ public sealed class BadApiClient : IDisposable
         }
 
         return null;
-    }
-
-    public async Task<RemoteAgentConfigResponse> FetchConfigAsync(string apiKey, CancellationToken ct)
-    {
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"{_baseUrl}/v1/agent/config");
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-
-        using var resp = await _http.SendAsync(req, ct);
-        var body = await resp.Content.ReadAsStringAsync(ct);
-        if (!resp.IsSuccessStatusCode)
-        {
-            throw new AgentApiException(resp.StatusCode, $"Config fetch failed: {(int)resp.StatusCode} {body}");
-        }
-
-        return RemoteAgentConfigResponse.FromJson(body)
-               ?? throw new InvalidOperationException("config response missing body");
     }
 
     public async Task SendInventoryAsync(string apiKey, InventorySnapshot snapshot, CancellationToken ct)

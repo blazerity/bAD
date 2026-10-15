@@ -1,5 +1,5 @@
 # Build Windows agent MSI with WiX and publish to a GitHub Release.
-# Triggers: tag v* (e.g. v0.2.0) or manual workflow_dispatch.
+# Triggers: tag v* (e.g. v0.9.0) or manual workflow_dispatch.
 #
 # Required permissions: contents: write (create/update Release + upload assets).
 # Secrets: GITHUB_TOKEN is sufficient for a public repo.
@@ -22,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Semver without leading v (e.g. 0.2.0). Defaults to tag or csproj Version."
+        description: "Semver without leading v (e.g. 0.9.0). Defaults to tag or csproj Version."
         required: false
         type: string
 
@@ -56,7 +56,7 @@ jobs:
           } else {
             [xml]$csproj = Get-Content agent/src/BadAgent/BadAgent.csproj
             $version = $csproj.Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
-            if (-not $version) { $version = "0.2.0" }
+            if (-not $version) { $version = "0.9.0" }
           }
           if ($version -notmatch '^\d+\.\d+\.\d+') {
             throw "Version must look like major.minor.patch, got: $version"
@@ -78,6 +78,7 @@ jobs:
             -o $out
           Copy-Item installer/msi/write-config.ps1 $out -Force
           Copy-Item installer/msi/cleanup-uninstall.ps1 $out -Force
+          Copy-Item installer/msi/bad-paths.ps1 $out -Force
           Copy-Item installer/msi/bad.cmd $out -Force
 
       - name: Install WiX toolset (dotnet tool)
