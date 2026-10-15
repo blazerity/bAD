@@ -24,7 +24,9 @@ uvicorn bad_server.app:app --host 127.0.0.1 --port 8000
 
 ## Tests
 
+Unit tests live under `server/tests/` **locally only** (gitignored, not on GitHub). CI does not run pytest.
+
 ```bash
 cd server
-pytest -q
+pytest -q   # requires a local untracked tests/ tree
 ```

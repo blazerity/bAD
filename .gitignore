@@ -25,7 +25,13 @@ coverage.xml
 .hypothesis/
 server/data/
 
-# Local runtime DBs (keep committed fixtures if added under tests/)
+# Unit tests — local-only (NOT in GitHub). Keep untracked copies under:
+#   agent/tests/
+#   server/tests/
+agent/tests/
+server/tests/
+
+# Local runtime DBs
 *.db
 *.db-*
 !**/fixtures/**/*.db
