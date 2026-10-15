@@ -4,6 +4,9 @@ namespace BadAgent;
 
 internal static class WmiHelper
 {
+    /// <summary>Короткая уступка CPU между WMI-запросами (low-impact collect).</summary>
+    public static void YieldBriefly() => Thread.Sleep(0);
+
     public static string? QueryFirst(string wql, string property)
     {
         if (!OperatingSystem.IsWindows())

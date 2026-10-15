@@ -73,7 +73,7 @@ public sealed class BadApiClient : IDisposable
         var body = await resp.Content.ReadAsStringAsync(ct);
         if (!resp.IsSuccessStatusCode)
         {
-            throw new HttpRequestException($"Enroll failed: {(int)resp.StatusCode} {body}");
+            throw new AgentApiException(resp.StatusCode, $"Enroll failed: {(int)resp.StatusCode} {body}");
         }
 
         using var doc = JsonDocument.Parse(body);
@@ -82,6 +82,21 @@ public sealed class BadApiClient : IDisposable
         var returnedId = doc.RootElement.GetProperty("device_id").GetString() ?? deviceId;
         return (apiKey, returnedId);
     }
+
+    public Task<RemoteAgentConfigResponse?> SendHeartbeatAsync(
+        string apiKey,
+        HeartbeatQueuePayload payload,
+        CancellationToken ct) =>
+        SendHeartbeatAsync(
+            apiKey,
+            payload.DeviceId,
+            payload.LastInventoryAt,
+            payload.ConfigVersion,
+            payload.LastInventoryOk,
+            payload.LastInventoryError,
+            payload.AgentUptimeSeconds,
+            payload.SystemDriveFreeBytes,
+            ct);
 
     public async Task<RemoteAgentConfigResponse?> SendHeartbeatAsync(
         string apiKey,
@@ -112,7 +127,7 @@ public sealed class BadApiClient : IDisposable
         var body = await resp.Content.ReadAsStringAsync(ct);
         if (!resp.IsSuccessStatusCode)
         {
-            throw new HttpRequestException($"Heartbeat failed: {(int)resp.StatusCode} {body}");
+            throw new AgentApiException(resp.StatusCode, $"Heartbeat failed: {(int)resp.StatusCode} {body}");
         }
 
         try
@@ -132,22 +147,6 @@ public sealed class BadApiClient : IDisposable
         return null;
     }
 
-    public async Task<RemoteAgentConfigResponse> FetchConfigAsync(string apiKey, CancellationToken ct)
-    {
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"{_baseUrl}/v1/agent/config");
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-
-        using var resp = await _http.SendAsync(req, ct);
-        var body = await resp.Content.ReadAsStringAsync(ct);
-        if (!resp.IsSuccessStatusCode)
-        {
-            throw new HttpRequestException($"Config fetch failed: {(int)resp.StatusCode} {body}");
-        }
-
-        return RemoteAgentConfigResponse.FromJson(body)
-               ?? throw new InvalidOperationException("config response missing body");
-    }
-
     public async Task SendInventoryAsync(string apiKey, InventorySnapshot snapshot, CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/inventory");
@@ -161,7 +160,7 @@ public sealed class BadApiClient : IDisposable
         if (!resp.IsSuccessStatusCode)
         {
             var body = await resp.Content.ReadAsStringAsync(ct);
-            throw new HttpRequestException($"Inventory failed: {(int)resp.StatusCode} {body}");
+            throw new AgentApiException(resp.StatusCode, $"Inventory failed: {(int)resp.StatusCode} {body}");
         }
     }
 
@@ -175,7 +174,7 @@ public sealed class BadApiClient : IDisposable
         var body = await resp.Content.ReadAsStringAsync(ct);
         if (!resp.IsSuccessStatusCode)
         {
-            throw new HttpRequestException($"Update check failed: {(int)resp.StatusCode} {body}");
+            throw new AgentApiException(resp.StatusCode, $"Update check failed: {(int)resp.StatusCode} {body}");
         }
 
         return UpdateCheckResponse.FromJson(body);
@@ -194,7 +193,7 @@ public sealed class BadApiClient : IDisposable
         if (!resp.IsSuccessStatusCode)
         {
             var body = await resp.Content.ReadAsStringAsync(ct);
-            throw new HttpRequestException($"Update download failed: {(int)resp.StatusCode} {body}");
+            throw new AgentApiException(resp.StatusCode, $"Update download failed: {(int)resp.StatusCode} {body}");
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);

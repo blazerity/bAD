@@ -12,6 +12,8 @@ public sealed class Worker : BackgroundService
     private string? _lastInventoryError;
     private DateTime _authBackoffUntil = DateTime.MinValue;
     private DateTime _nextUpdateCheck = DateTime.MinValue;
+    /// <summary>Ключ отозван/отклонён — не долбить API до re-enroll / reinstall.</summary>
+    private bool _apiKeyRevoked;
 
     public Worker(
         ILogger<Worker> logger,
@@ -62,6 +64,15 @@ public sealed class Worker : BackgroundService
                 await EnsureEnrolledAsync(config, stoppingToken);
                 config = ConfigStore.LoadOrCreate();
 
+                if (_apiKeyRevoked && string.IsNullOrWhiteSpace(config.ApiKey))
+                {
+                    _logger.LogWarning(
+                        "API key revoked/cleared; waiting for re-enroll or reinstall (device_id={DeviceId})",
+                        config.DeviceId);
+                    await Task.Delay(TimeSpan.FromMinutes(30), stoppingToken);
+                    continue;
+                }
+
                 if (string.IsNullOrWhiteSpace(config.ApiKey) || string.IsNullOrWhiteSpace(config.DeviceId))
                 {
                     _logger.LogError("Missing api_key or device_id after enroll attempt");
@@ -71,10 +82,28 @@ public sealed class Worker : BackgroundService
 
                 using var client = new BadApiClient(config.ServerUrl, _agentVersion);
 
+                // Сначала слить offline queue (если сервер снова доступен).
+                await FlushOfflineQueueAsync(client, config, stoppingToken);
+                config = ConfigStore.LoadOrCreate();
+                if (string.IsNullOrWhiteSpace(config.ApiKey))
+                {
+                    continue;
+                }
+
                 if (DateTime.UtcNow >= _nextUpdateCheck)
                 {
                     var updater = new AgentUpdater(_logger, _agentVersion);
-                    var applying = await updater.CheckAndApplyAsync(client, config, stoppingToken);
+                    bool applying;
+                    try
+                    {
+                        applying = await updater.CheckAndApplyAsync(client, config, stoppingToken);
+                    }
+                    catch (AgentApiException ex) when (ex.IsAuthFailure)
+                    {
+                        HandleAuthFailure(config, "update", ex);
+                        continue;
+                    }
+
                     var updateEvery = TimeSpan.FromHours(Math.Max(1, config.UpdateCheckIntervalHours));
                     _nextUpdateCheck = DateTime.UtcNow + updateEvery;
                     if (applying)
@@ -126,6 +155,7 @@ public sealed class Worker : BackgroundService
     {
         if (!string.IsNullOrWhiteSpace(config.ApiKey))
         {
+            _apiKeyRevoked = false;
             return;
         }
 
@@ -137,6 +167,8 @@ public sealed class Worker : BackgroundService
         if (string.IsNullOrWhiteSpace(config.EnrollmentToken))
         {
             _logger.LogError("No api_key and no enrollment_token; cannot enroll");
+            WindowsEventLog.WriteError(
+                "bAD: нет api_key и enrollment_token — требуется re-enroll или переустановка MSI.");
             _authBackoffUntil = DateTime.UtcNow.AddHours(1);
             return;
         }
@@ -159,14 +191,61 @@ public sealed class Worker : BackgroundService
             config.DeviceId = deviceId;
             config.EnrollmentToken = null; // очищаем после успеха
             ConfigStore.Save(config);
+            _apiKeyRevoked = false;
             _logger.LogInformation("Enrollment succeeded; enrollment token cleared from config");
+            WindowsEventLog.WriteInfo($"bAD: устройство {deviceId} успешно зарегистрировано.");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Enrollment failed");
+            WindowsEventLog.WriteError("bAD: ошибка enroll", ex);
             _authBackoffUntil = DateTime.UtcNow.AddMinutes(15);
             throw;
         }
+    }
+
+    private async Task FlushOfflineQueueAsync(BadApiClient client, AgentConfig config, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(config.ApiKey))
+        {
+            return;
+        }
+
+        var pending = OfflineQueue.CountPending();
+        if (pending == 0)
+        {
+            return;
+        }
+
+        _logger.LogInformation("Flushing offline queue ({Count} pending)", pending);
+        var result = await OfflineQueue.FlushAsync(client, config.ApiKey!, ct);
+        if (result.AuthFailed)
+        {
+            HandleAuthFailure(config, "queue", result.AuthException);
+            return;
+        }
+
+        if (result.Deferred)
+        {
+            _logger.LogDebug("Offline queue backoff until {Until}", result.NextRetryUtc);
+            return;
+        }
+
+        if (result.Success)
+        {
+            if (result.Sent > 0)
+            {
+                _logger.LogInformation("Offline queue sent {Sent} item(s)", result.Sent);
+            }
+
+            return;
+        }
+
+        _logger.LogWarning(
+            result.Error,
+            "Offline queue flush failed; next retry in {Delay}, failures={Failures}",
+            result.RetryAfter,
+            result.Failures);
     }
 
     private async Task RunInventoryAsync(BadApiClient client, AgentConfig config, CancellationToken ct)
@@ -186,18 +265,28 @@ public sealed class Worker : BackgroundService
             _lastInventoryError = null;
             _logger.LogInformation("Inventory uploaded ({Errors} collector errors)", snap.CollectorErrors.Count);
         }
-        catch (HttpRequestException ex) when (ex.Message.Contains("401") || ex.Message.Contains("403"))
+        catch (AgentApiException ex) when (ex.IsAuthFailure)
         {
             _lastInventoryOk = false;
             _lastInventoryError = Truncate("auth_failed", 200);
-            await HandleAuthFailureAsync(config, ct);
-            throw;
+            HandleAuthFailure(config, "inventory", ex);
         }
         catch (Exception ex)
         {
             _lastInventoryOk = false;
             _lastInventoryError = Truncate(ex.Message, 200);
-            throw;
+            try
+            {
+                OfflineQueue.EnqueueInventory(snap);
+                _logger.LogWarning(
+                    ex,
+                    "Inventory upload failed; queued locally ({Pending} pending)",
+                    OfflineQueue.CountPending());
+            }
+            catch (Exception qex)
+            {
+                _logger.LogError(qex, "Failed to persist inventory to offline queue");
+            }
         }
     }
 
@@ -206,28 +295,44 @@ public sealed class Worker : BackgroundService
         var last = _lastInventoryAt?.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'");
         var uptime = (long)Math.Max(0, (DateTime.UtcNow - _startedAtUtc).TotalSeconds);
         var freeBytes = TrySystemDriveFreeBytes();
+        var payload = new HeartbeatQueuePayload
+        {
+            DeviceId = config.DeviceId!,
+            LastInventoryAt = last,
+            ConfigVersion = config.RemoteConfigVersion,
+            LastInventoryOk = _lastInventoryOk,
+            LastInventoryError = _lastInventoryError,
+            AgentUptimeSeconds = uptime,
+            SystemDriveFreeBytes = freeBytes
+        };
+
         try
         {
-            var remote = await client.SendHeartbeatAsync(
-                config.ApiKey!,
-                config.DeviceId!,
-                last,
-                config.RemoteConfigVersion,
-                _lastInventoryOk,
-                _lastInventoryError,
-                uptime,
-                freeBytes,
-                ct);
+            var remote = await client.SendHeartbeatAsync(config.ApiKey!, payload, ct);
             _logger.LogDebug("Heartbeat sent");
             if (remote?.Settings != null)
             {
                 ApplyRemoteConfig(config, remote);
             }
         }
-        catch (HttpRequestException ex) when (ex.Message.Contains("401") || ex.Message.Contains("403"))
+        catch (AgentApiException ex) when (ex.IsAuthFailure)
         {
-            await HandleAuthFailureAsync(config, ct);
-            throw;
+            HandleAuthFailure(config, "heartbeat", ex);
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                OfflineQueue.EnqueueHeartbeat(payload);
+                _logger.LogWarning(
+                    ex,
+                    "Heartbeat failed; queued locally ({Pending} pending)",
+                    OfflineQueue.CountPending());
+            }
+            catch (Exception qex)
+            {
+                _logger.LogError(qex, "Failed to persist heartbeat to offline queue");
+            }
         }
     }
 
@@ -264,20 +369,28 @@ public sealed class Worker : BackgroundService
             config.CollectSoftware);
     }
 
-    private async Task HandleAuthFailureAsync(AgentConfig config, CancellationToken ct)
+    /// <summary>
+    /// 401/403: очистить api_key (device_id оставить), очередь не трогаем (после re-enroll flush).
+    /// Не долбить сервер, ждать re-enroll/reinstall.
+    /// </summary>
+    private void HandleAuthFailure(AgentConfig config, string operation, Exception? ex = null)
     {
-        _logger.LogWarning("Auth failure from server");
-        if (!string.IsNullOrWhiteSpace(config.EnrollmentToken))
-        {
-            config.ApiKey = null;
-            ConfigStore.Save(config);
-            await EnsureEnrolledAsync(config, ct);
-        }
-        else
-        {
-            _authBackoffUntil = DateTime.UtcNow.AddHours(1);
-            _logger.LogError("Auth failed and no enrollment token available; backing off 1h");
-        }
+        _logger.LogError(
+            ex,
+            "Auth failure ({Operation}): clearing api_key, keeping device_id={DeviceId}; stop posting until re-enroll",
+            operation,
+            config.DeviceId);
+        WindowsEventLog.WriteError(
+            $"bAD: API key отклонён ({operation}, 401/403). Ключ очищен, device_id сохранён. " +
+            "Нужен re-enroll (enrollment token) или переустановка MSI.",
+            ex);
+
+        config.ApiKey = null;
+        ConfigStore.Save(config);
+        _apiKeyRevoked = true;
+        _authBackoffUntil = DateTime.UtcNow.AddHours(1);
+
+        // Если MSI снова дал enrollment_token — попробуем на следующем витке EnsureEnrolled.
     }
 
     /// <summary>Свободные байты системного диска через DriveInfo (без WMI).</summary>

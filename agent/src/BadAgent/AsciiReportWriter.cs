@@ -32,6 +32,8 @@ public static class AsciiReportWriter
         sb.AppendLine(BoxMid("Система"));
         Row(sb, "Имя узла", snap.Host?.Hostname);
         Row(sb, "Домен", snap.Host?.Domain);
+        Row(sb, "AD OU", snap.Host?.AdOu);
+        Row(sb, "AD DN", snap.Host?.AdDistinguishedName);
         Row(sb, "ОС", ReportFormat.FormatOs(snap.Host?.Os));
 
         if (snap.Hardware is not null)
@@ -41,10 +43,34 @@ public static class AsciiReportWriter
             Row(sb, "Производитель", snap.Hardware.Manufacturer);
             Row(sb, "Модель", snap.Hardware.Model);
             Row(sb, "Серийный №", snap.Hardware.SerialNumber);
+            Row(sb, "BIOS", snap.Hardware.BiosVersion);
+            Row(sb, "Произв. BIOS", snap.Hardware.BiosManufacturer);
             Row(sb, "Процессор", cpu?.Name);
             Row(sb, "Ядра", ReportFormat.FormatCores(cpu));
             Row(sb, "ОЗУ", ReportFormat.FormatBytes(snap.Hardware.RamBytes));
             Row(sb, "Тип ОЗУ", snap.Hardware.RamMemoryType);
+
+            if (snap.Hardware.Battery is not null)
+            {
+                sb.AppendLine(BoxMid("Батарея"));
+                var bat = snap.Hardware.Battery;
+                Row(sb, "Заряд", bat.ChargePercent is null ? null : $"{bat.ChargePercent}%");
+                Row(sb, "Статус", bat.Status);
+                Row(sb, "Осталось", bat.EstimatedRuntimeMinutes is null
+                    ? null
+                    : $"{bat.EstimatedRuntimeMinutes} мин");
+            }
+
+            if (snap.Hardware.Monitors is { Count: > 0 })
+            {
+                sb.AppendLine(BoxMid("Мониторы"));
+                foreach (var m in snap.Hardware.Monitors)
+                {
+                    var res = m.Width is null || m.Height is null ? "" : $" {m.Width}x{m.Height}";
+                    Row(sb, Trunc(m.Name ?? m.Manufacturer ?? "monitor", 28),
+                        $"{m.SerialNumber ?? "-"}{res}".Trim());
+                }
+            }
 
             if (snap.Hardware.Gpus is { Count: > 0 })
             {
@@ -153,6 +179,22 @@ public static class AsciiReportWriter
         {
             sb.AppendLine(BoxMid("ПО"));
             Row(sb, "Статус", "пропущено (collect_software=false)");
+        }
+
+        if (snap.Minidumps is not null)
+        {
+            sb.AppendLine(BoxMid("Минидампы BSOD"));
+            Row(sb, "Файлов", snap.Minidumps.Count.ToString(CultureInfo.InvariantCulture));
+            Row(sb, "Memory.dmp", snap.Minidumps.MemoryDmpPresent ? "есть" : "нет");
+            Row(sb, "Путь Memory.dmp", snap.Minidumps.MemoryDmpPath);
+            Row(sb, "Изменён", snap.Minidumps.MemoryDmpModifiedAt);
+            if (snap.Minidumps.Files is { Count: > 0 })
+            {
+                foreach (var f in snap.Minidumps.Files.Take(5))
+                {
+                    Row(sb, Trunc(f.Name ?? "?", 28), f.ModifiedAt ?? "-");
+                }
+            }
         }
 
         if (snap.CollectorErrors.Count > 0)

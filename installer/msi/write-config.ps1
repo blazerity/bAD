@@ -4,11 +4,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$dir = Join-Path $env:ProgramData "blazerity\bAD"
+. (Join-Path $PSScriptRoot "bad-paths.ps1")
+$dir = $BadProgramData
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
-New-Item -ItemType Directory -Force -Path (Join-Path $dir "logs") | Out-Null
+New-Item -ItemType Directory -Force -Path $BadLogsDir | Out-Null
 
-$configPath = Join-Path $dir "config.json"
+$configPath = $BadConfigPath
 $existing = $null
 if (Test-Path $configPath) {
     try {

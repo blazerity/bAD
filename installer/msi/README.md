@@ -15,7 +15,26 @@ Workflow GitHub Actions [`.github/workflows/release-msi.yml`](../../.github/work
 |-----|---------|
 | `contents: write` | право workflow создавать/обновлять Release и грузить assets |
 | `GITHUB_TOKEN` | стандартного токена Actions достаточно для этого public repo |
-| Опционально `BAD_GITHUB_TOKEN` на **сервере** | только если репозиторий GitHub позже станет private |
+| **Authenticode (рекомендуется)** | см. ниже — без сертификата MSI собирается **unsigned** |
+
+### Подпись MSI (Authenticode)
+
+Для нормального релиза нужен **код-сайнинг сертификат владельца** (не генерируется в CI). Workflow подписывает MSI через `signtool`, если заданы secrets:
+
+| Secret | Описание |
+|--------|----------|
+| `CODE_SIGN_PFX_BASE64` | PFX (PKCS#12) в Base64 |
+| `CODE_SIGN_PFX_PASSWORD` | пароль PFX |
+| `CODE_SIGN_TIMESTAMP_URL` | опционально; default `http://timestamp.digicert.com` |
+
+Если `CODE_SIGN_PFX_BASE64` пуст — шаг подписи пропускается, артефакт остаётся unsigned (сборка не падает). **Нельзя** подкладывать self-signed «заглушку» вместо боевого cert.
+
+Локально (после сборки MSI):
+
+```powershell
+signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+  /f .\codesign.pfx /p <password> .\bad-agent-0.9.0.msi
+```
 
 ## Локальная сборка (Windows)
 
@@ -26,25 +45,27 @@ dotnet tool install --global wix --version 5.0.2
 # 2. Publish агента
 dotnet publish ..\..\agent\src\BadAgent\BadAgent.csproj `
   -c Release -r win-x64 --self-contained true `
-  -p:Version=0.8.0 `
+  -p:Version=0.9.0 `
   -o .\publish
 
-# 3. Скопировать write-config.ps1 + shim bad.cmd рядом с опубликованным exe
+# 3. Скопировать scripts + shim bad.cmd рядом с опубликованным exe
 Copy-Item .\write-config.ps1 .\publish\
+Copy-Item .\cleanup-uninstall.ps1 .\publish\
+Copy-Item .\bad-paths.ps1 .\publish\
 Copy-Item .\bad.cmd .\publish\
 
 # 4. Собрать MSI (Product.wxs harvest'ит publish\** через <Files>;
 #    bad.ico рядом с Product.wxs → ARPPRODUCTICON; иконка exe из ApplicationIcon)
 wix build Product.wxs `
   -d AgentPublishDir=publish `
-  -d ProductVersion=0.8.0 `
-  -o bad-agent-0.8.0.msi
+  -d ProductVersion=0.9.0 `
+  -o bad-agent-0.9.0.msi
 ```
 
 ## Установка / апгрейд
 
 ```powershell
-msiexec /i bad-agent-0.8.0.msi `
+msiexec /i bad-agent-0.9.0.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=your-enrollment-token `
   /qn
@@ -53,7 +74,7 @@ msiexec /i bad-agent-0.8.0.msi `
 Опционально: добавить каталог установки в **Machine PATH**, чтобы команда `bad` работала из cmd.exe / Win+R (`bad.cmd` → `BadAgent.exe`). По умолчанию **выключено** (`ADDPATH=0` / не указано).
 
 ```powershell
-msiexec /i bad-agent-0.8.0.msi `
+msiexec /i bad-agent-0.9.0.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=your-enrollment-token `
   ADDPATH=1 `
@@ -62,14 +83,22 @@ msiexec /i bad-agent-0.8.0.msi `
 
 Public properties: `SERVERURL`, `ENROLLMENTTOKEN`, `ADDPATH` (опционально).
 
-Тихий self-update агента идёт тем же путём MajorUpgrade. WiX `ServiceControl` останавливает `BlazerityAssetDiscovery` перед заменой файлов и запускает после install. `%ProgramData%\blazerity\bAD\config.json` (API key + device_id) сохраняется (компонент ProgramData с `Permanent`). Запись PATH от `ADDPATH=1` снимается при uninstall.
+Тихий self-update агента идёт тем же путём MajorUpgrade. WiX `ServiceControl` останавливает `BlazerityAssetDiscovery` перед заменой файлов и запускает после install. `%ProgramData%\blazerity\bAD\config.json` (API key + device_id) сохраняется при **upgrade** (компонент ProgramData с `Permanent`).
+
+### Uninstall
+
+```powershell
+msiexec /x bad-agent-0.9.0.msi /qn
+```
+
+При полном uninstall (не upgrade): служба Stop+Remove, файлы Program Files снимаются, `cleanup-uninstall.ps1` удаляет `config.json`, `queue\`, `logs\` (enrollment leftovers). Запись PATH от `ADDPATH=1` снимается.
 
 ## Вырезать релиз
 
 ```bash
-git tag v0.8.0
-git push origin v0.8.0
-# → workflow release-msi публикует MSI + agent-release.json
+git tag v0.9.0
+git push origin v0.9.0
+# → workflow release-msi публикует MSI (+ Authenticode, если secrets) + agent-release.json
 # → on-prem сервер sync'ит с GitHub Release (admin sync или фоновый job)
 # → агенты опрашивают GET /v1/agent/update/check и ставят через msiexec
 ```
