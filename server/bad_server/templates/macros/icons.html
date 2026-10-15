@@ -67,11 +67,23 @@
 {%- elif name == 'updates' %}
   <path d="M10 3.5a6.5 6.5 0 1 0 6.1 4.1"/>
   <path d="M16.5 3.5v4h-4"/>
+{%- elif name == 'overview' %}
+  <rect x="3" y="3" width="6.25" height="6.25" rx="1.25"/>
+  <rect x="10.75" y="3" width="6.25" height="6.25" rx="1.25"/>
+  <rect x="3" y="10.75" width="6.25" height="6.25" rx="1.25"/>
+  <rect x="10.75" y="10.75" width="6.25" height="6.25" rx="1.25"/>
+{%- elif name == 'password' %}
+  <circle cx="7.25" cy="10" r="3.25"/>
+  <path d="M10.25 10h6.25M14 10v2.75M16.5 10v2"/>
+{%- elif name == 'signout' %}
+  <path d="M8.5 3.5H5.25A1.75 1.75 0 0 0 3.5 5.25v9.5c0 .97.78 1.75 1.75 1.75H8.5"/>
+  <path d="M12 10h5M14.75 7.25 17.5 10l-2.75 2.75"/>
 {%- else %}
   <circle cx="10" cy="10" r="6"/>
 {%- endif %}
 </svg>
 {%- endmacro %}
+
 
 {% macro silence_label(status) -%}
 {%- if status == 'ok' -%}ОК
