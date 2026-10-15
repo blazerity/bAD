@@ -13,10 +13,11 @@ public static class ReportPathResolver
     /// <paramref name="pathArg"/> null/empty → Desktop + default filename;
     /// existing directory (or trailing slash) → that dir + default filename;
     /// otherwise treat as file path (append <c>.html</c> if missing/wrong).
+    /// <paramref name="now"/> is used only for the default timestamp filename (local or UTC — caller chooses).
     /// </summary>
-    public static string ResolveHtmlPath(string? pathArg, DateTime utcNow, Func<string>? getDesktop = null)
+    public static string ResolveHtmlPath(string? pathArg, DateTime now, Func<string>? getDesktop = null)
     {
-        var fileName = $"{DefaultFilePrefix}{utcNow:yyyyMMdd_HHmmss}.html";
+        var fileName = $"{DefaultFilePrefix}{now:yyyyMMdd_HHmmss}.html";
         if (string.IsNullOrWhiteSpace(pathArg))
         {
             var desktop = getDesktop?.Invoke() ?? GetDesktopDirectory();
@@ -57,7 +58,7 @@ public static class ReportPathResolver
         }
         catch
         {
-            // fall through
+            // fall through to UserProfile
         }
 
         return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);

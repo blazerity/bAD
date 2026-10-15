@@ -7,6 +7,7 @@ namespace BadAgent;
 public static class AsciiReportWriter
 {
     private const int Width = 72;
+    private const int SoftwarePreviewCount = 20;
 
     public static string Write(InventorySnapshot snap, AgentConfig? config = null)
     {
@@ -31,32 +32,32 @@ public static class AsciiReportWriter
         sb.AppendLine(BoxMid("Host"));
         Row(sb, "Hostname", snap.Host?.Hostname);
         Row(sb, "Domain", snap.Host?.Domain);
-        Row(sb, "OS", FormatOs(snap.Host?.Os));
+        Row(sb, "OS", ReportFormat.FormatOs(snap.Host?.Os));
 
         if (snap.Hardware is not null)
         {
             sb.AppendLine(BoxMid("Hardware"));
             var cpu = snap.Hardware.Cpu;
             Row(sb, "CPU", cpu?.Name);
-            Row(sb, "Cores", FormatCores(cpu));
-            Row(sb, "RAM", FormatBytes(snap.Hardware.RamBytes));
+            Row(sb, "Cores", ReportFormat.FormatCores(cpu));
+            Row(sb, "RAM", ReportFormat.FormatBytes(snap.Hardware.RamBytes));
 
             if (snap.Hardware.Disks is { Count: > 0 })
             {
                 sb.AppendLine(BoxMid("Disks"));
                 foreach (var d in snap.Hardware.Disks)
                 {
-                    Row(sb, Trunc(d.Model ?? "disk", 28), $"{FormatBytes(d.SizeBytes)}  {d.MediaType}");
+                    Row(sb, Trunc(d.Model ?? "disk", 28), $"{ReportFormat.FormatBytes(d.SizeBytes)}  {d.MediaType}");
                 }
             }
 
             if (snap.Hardware.Volumes is { Count: > 0 })
             {
                 sb.AppendLine(BoxMid("Volumes"));
-                Header(sb, "Letter", "Size", "Free");
+                Col(sb, "Letter", "Size", "Free");
                 foreach (var v in snap.Hardware.Volumes)
                 {
-                    Col(sb, v.Letter ?? "?", FormatBytes(v.SizeBytes), FormatBytes(v.FreeBytes));
+                    Col(sb, v.Letter ?? "?", ReportFormat.FormatBytes(v.SizeBytes), ReportFormat.FormatBytes(v.FreeBytes));
                 }
             }
         }
@@ -110,8 +111,8 @@ public static class AsciiReportWriter
             }
             else
             {
-                Row(sb, "Programs", $"{programs.Count} (showing up to 20)");
-                foreach (var p in programs.Take(20))
+                Row(sb, "Programs", $"{programs.Count} (showing up to {SoftwarePreviewCount})");
+                foreach (var p in programs.Take(SoftwarePreviewCount))
                 {
                     Row(sb, Trunc(p.Name ?? "?", 36), p.Version ?? "-");
                 }
@@ -136,52 +137,12 @@ public static class AsciiReportWriter
         return sb.ToString();
     }
 
-    private static string FormatOs(OsInfo? os)
-    {
-        if (os is null) return "-";
-        var parts = new[] { os.Caption, os.Version, os.Arch }
-            .Where(s => !string.IsNullOrWhiteSpace(s));
-        var text = string.Join(" / ", parts);
-        return string.IsNullOrEmpty(text) ? "-" : text;
-    }
-
-    private static string FormatCores(CpuInfo? cpu)
-    {
-        if (cpu is null) return "-";
-        return $"{cpu.Cores ?? 0} cores / {cpu.Logical ?? 0} logical";
-    }
-
-    private static string FormatBytes(long? bytes)
-    {
-        if (bytes is null or < 0) return "-";
-        double v = bytes.Value;
-        string[] units = ["B", "KiB", "MiB", "GiB", "TiB"];
-        var i = 0;
-        while (v >= 1024 && i < units.Length - 1)
-        {
-            v /= 1024;
-            i++;
-        }
-
-        return i == 0
-            ? $"{bytes.Value} {units[i]}"
-            : string.Format(CultureInfo.InvariantCulture, "{0:0.##} {1}", v, units[i]);
-    }
-
     private static void Row(StringBuilder sb, string key, string? value)
     {
         var v = string.IsNullOrWhiteSpace(value) ? "-" : value;
         var line = $"│ {Pad(key, 18)} {Trunc(v, Width - 24)}";
         sb.Append(line);
-        sb.Append(' ', Math.Max(0, Width - 1 - VisibleLen(line)));
-        sb.AppendLine("│");
-    }
-
-    private static void Header(StringBuilder sb, string a, string b, string c)
-    {
-        var line = $"│ {Pad(a, 10)} {Pad(b, 14)} {Pad(c, 14)}";
-        sb.Append(line);
-        sb.Append(' ', Math.Max(0, Width - 1 - VisibleLen(line)));
+        sb.Append(' ', Math.Max(0, Width - 1 - line.Length));
         sb.AppendLine("│");
     }
 
@@ -189,7 +150,7 @@ public static class AsciiReportWriter
     {
         var line = $"│ {Pad(a, 10)} {Pad(b, 14)} {Pad(c, 14)}";
         sb.Append(line);
-        sb.Append(' ', Math.Max(0, Width - 1 - VisibleLen(line)));
+        sb.Append(' ', Math.Max(0, Width - 1 - line.Length));
         sb.AppendLine("│");
     }
 
@@ -204,12 +165,10 @@ public static class AsciiReportWriter
 
     private static string BoxMid(string title)
     {
-        title = " " + title + " ";
-        title = Trunc(title, Width - 4);
+        title = Trunc(" " + title + " ", Width - 4);
         var side = Width - 2 - title.Length;
         var left = Math.Max(1, side / 2);
         var right = Math.Max(1, side - left);
-        // Adjust if overflow
         while (2 + left + title.Length + right > Width)
         {
             if (right > left) right--;
@@ -221,13 +180,11 @@ public static class AsciiReportWriter
 
     private static string BoxBottom() => "└" + new string('─', Width - 2) + "┘";
 
-    private static string Pad(string s, int w) => (s ?? "").PadRight(w);
+    private static string Pad(string s, int w) => s.PadRight(w);
 
     private static string Trunc(string s, int max)
     {
-        if (string.IsNullOrEmpty(s) || s.Length <= max) return s ?? "";
+        if (string.IsNullOrEmpty(s) || s.Length <= max) return s;
         return max <= 1 ? s[..1] : s[..(max - 1)] + "…";
     }
-
-    private static int VisibleLen(string s) => s.Length;
 }

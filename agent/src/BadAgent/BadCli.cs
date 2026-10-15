@@ -1,5 +1,3 @@
-using System.Reflection;
-
 namespace BadAgent;
 
 /// <summary>
@@ -23,7 +21,6 @@ public static class BadCli
                 return RunHtml(htmlPathArg, collector);
             }
 
-            // no args | report | info → ASCII
             if (args.Length == 0 || IsAsciiCommand(args[0]))
             {
                 return RunAscii(collector);
@@ -39,6 +36,12 @@ public static class BadCli
             return 1;
         }
     }
+
+    /// <summary>First-arg verbs/flags that always take the local report CLI path (not the service host).</summary>
+    public static bool IsExplicitCliArg(string arg) =>
+        arg is "-?" or "--help" or "help" or "/?"
+            or "-h" or "--html" or "html"
+            or "report" or "info" or "ascii";
 
     private static bool IsHelp(string[] args) =>
         args.Length > 0 && args[0] is "-?" or "--help" or "help" or "/?";
@@ -90,15 +93,15 @@ public static class BadCli
     private static (InventorySnapshot Snap, AgentConfig Config) Collect(IInventoryCollector? collector)
     {
         var config = ConfigStore.LoadOrCreate();
-        if (string.IsNullOrWhiteSpace(config.DeviceId))
-        {
-            config.DeviceId = DeviceIdentity.ResolveDeviceId();
-        }
+        var deviceId = string.IsNullOrWhiteSpace(config.DeviceId)
+            ? DeviceIdentity.ResolveDeviceId()
+            : config.DeviceId;
+        config.DeviceId = deviceId;
 
-        var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.4.0";
+        var version = VersionUtil.GetAgentVersion();
         var options = CollectorOptions.FromConfig(config);
         var c = collector ?? new InventoryCollector();
-        var snap = c.Collect(config.DeviceId!, version, options);
+        var snap = c.Collect(deviceId, version, options);
         return (snap, config);
     }
 

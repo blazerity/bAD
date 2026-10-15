@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Net;
 using System.Text;
 
@@ -46,7 +45,7 @@ public static class HtmlReportWriter
         sb.AppendLine("<dl class=\"grid\">");
         Kv(sb, "Hostname", snap.Host?.Hostname);
         Kv(sb, "Domain", snap.Host?.Domain);
-        Kv(sb, "OS", FormatOs(snap.Host?.Os));
+        Kv(sb, "OS", ReportFormat.FormatOs(snap.Host?.Os, "—"));
         sb.AppendLine("</dl>");
 
         Section(sb, "Hardware");
@@ -58,8 +57,10 @@ public static class HtmlReportWriter
         {
             sb.AppendLine("<dl class=\"grid\">");
             Kv(sb, "CPU", snap.Hardware.Cpu?.Name);
-            Kv(sb, "Cores", snap.Hardware.Cpu is null ? null : $"{snap.Hardware.Cpu.Cores} / {snap.Hardware.Cpu.Logical} logical");
-            Kv(sb, "RAM", FormatBytes(snap.Hardware.RamBytes));
+            Kv(sb, "Cores", snap.Hardware.Cpu is null
+                ? null
+                : $"{snap.Hardware.Cpu.Cores} / {snap.Hardware.Cpu.Logical} logical");
+            Kv(sb, "RAM", ReportFormat.FormatBytes(snap.Hardware.RamBytes, "—"));
             sb.AppendLine("</dl>");
 
             if (snap.Hardware.Disks is { Count: > 0 })
@@ -68,7 +69,7 @@ public static class HtmlReportWriter
                 sb.AppendLine("<table><thead><tr><th>Model</th><th>Size</th><th>Media</th></tr></thead><tbody>");
                 foreach (var d in snap.Hardware.Disks)
                 {
-                    sb.AppendLine($"<tr><td>{Enc(d.Model)}</td><td>{Enc(FormatBytes(d.SizeBytes))}</td><td>{Enc(d.MediaType)}</td></tr>");
+                    sb.AppendLine($"<tr><td>{Enc(d.Model)}</td><td>{Enc(ReportFormat.FormatBytes(d.SizeBytes, "—"))}</td><td>{Enc(d.MediaType)}</td></tr>");
                 }
 
                 sb.AppendLine("</tbody></table>");
@@ -80,7 +81,7 @@ public static class HtmlReportWriter
                 sb.AppendLine("<table><thead><tr><th>Letter</th><th>Size</th><th>Free</th></tr></thead><tbody>");
                 foreach (var v in snap.Hardware.Volumes)
                 {
-                    sb.AppendLine($"<tr><td>{Enc(v.Letter)}</td><td>{Enc(FormatBytes(v.SizeBytes))}</td><td>{Enc(FormatBytes(v.FreeBytes))}</td></tr>");
+                    sb.AppendLine($"<tr><td>{Enc(v.Letter)}</td><td>{Enc(ReportFormat.FormatBytes(v.SizeBytes, "—"))}</td><td>{Enc(ReportFormat.FormatBytes(v.FreeBytes, "—"))}</td></tr>");
                 }
 
                 sb.AppendLine("</tbody></table>");
@@ -168,32 +169,6 @@ public static class HtmlReportWriter
         sb.AppendLine($"<div><dt>{Enc(key)}</dt><dd>{Enc(string.IsNullOrWhiteSpace(value) ? "—" : value)}</dd></div>");
 
     private static string Enc(string? s) => WebUtility.HtmlEncode(s ?? "");
-
-    private static string FormatOs(OsInfo? os)
-    {
-        if (os is null) return "—";
-        var parts = new[] { os.Caption, os.Version, os.Arch }
-            .Where(x => !string.IsNullOrWhiteSpace(x));
-        var text = string.Join(" / ", parts);
-        return string.IsNullOrEmpty(text) ? "—" : text;
-    }
-
-    private static string FormatBytes(long? bytes)
-    {
-        if (bytes is null or < 0) return "—";
-        double v = bytes.Value;
-        string[] units = ["B", "KiB", "MiB", "GiB", "TiB"];
-        var i = 0;
-        while (v >= 1024 && i < units.Length - 1)
-        {
-            v /= 1024;
-            i++;
-        }
-
-        return i == 0
-            ? $"{bytes.Value} {units[i]}"
-            : string.Format(CultureInfo.InvariantCulture, "{0:0.##} {1}", v, units[i]);
-    }
 
     private static string EmbeddedCss() => """
 :root {

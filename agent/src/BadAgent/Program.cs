@@ -57,13 +57,9 @@ finally
 /// </summary>
 static bool ShouldRunCli(string[] args)
 {
-    // Explicit CLI verbs/flags always take the report path.
     if (args.Length > 0)
     {
-        var a0 = args[0];
-        if (a0 is "-?" or "--help" or "help" or "/?"
-            or "-h" or "--html" or "html"
-            or "report" or "info" or "ascii")
+        if (BadCli.IsExplicitCliArg(args[0]))
         {
             return true;
         }

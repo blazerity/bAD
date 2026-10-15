@@ -21,7 +21,7 @@ public sealed class Worker : BackgroundService
         _logger = logger;
         _collector = collector;
         _lifetime = lifetime;
-        _agentVersion = typeof(Worker).Assembly.GetName().Version?.ToString(3) ?? "0.4.0";
+        _agentVersion = VersionUtil.GetAgentVersion();
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

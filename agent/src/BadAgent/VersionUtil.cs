@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 
@@ -9,6 +10,10 @@ public static class VersionUtil
     private static readonly Regex SemVerPrefix = new(
         @"^\s*v?(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>Assembly version as major.minor.patch, or <paramref name="fallback"/>.</summary>
+    public static string GetAgentVersion(string fallback = "0.4.0") =>
+        Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? fallback;
 
     public static bool TryParseSemVer(string? value, out Version version)
     {
