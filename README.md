@@ -20,8 +20,6 @@ VERSION           # semver продукта (0.8.0)
 .github/workflows # ci.yml (Linux build/import) + release-msi.yml (Windows, теги)
 ```
 
-Unit tests (`agent/tests/`, `server/tests/`) — **только локально**: gitignored, в GitHub их нет. CI их не запускает.
-
 ## Быстрый старт (сервер на Linux)
 
 ```bash
