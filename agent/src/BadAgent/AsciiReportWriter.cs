@@ -3,7 +3,7 @@ using System.Text;
 
 namespace BadAgent;
 
-/// <summary>Pretty ASCII inventory report for terminal (boxes/columns, no emojis).</summary>
+/// <summary>Pretty ASCII inventory report for terminal (boxes/columns, no emojis). Russian labels.</summary>
 public static class AsciiReportWriter
 {
     private const int Width = 72;
@@ -12,43 +12,43 @@ public static class AsciiReportWriter
     public static string Write(InventorySnapshot snap, AgentConfig? config = null)
     {
         var sb = new StringBuilder();
-        var hostname = snap.Host?.Hostname ?? "(unknown)";
+        var hostname = snap.Host?.Hostname ?? "(неизвестно)";
         var title = $" bAD inventory — {hostname} ";
 
         sb.AppendLine(BoxTop(title));
-        Row(sb, "Device ID", snap.DeviceId);
-        Row(sb, "Collected", snap.CollectedAt);
-        Row(sb, "Agent", snap.AgentVersion);
+        Row(sb, "device_id", snap.DeviceId);
+        Row(sb, "Собрано", snap.CollectedAt);
+        Row(sb, "Агент", snap.AgentVersion);
         Row(sb, "Schema", snap.SchemaVersion.ToString(CultureInfo.InvariantCulture));
         if (config is not null && !string.IsNullOrWhiteSpace(config.ServerUrl))
         {
-            Row(sb, "Server URL", config.ServerUrl + " (local report; server not contacted)");
+            Row(sb, "server_url", config.ServerUrl + " (локальный отчёт; сервер не вызывался)");
         }
         else
         {
-            Row(sb, "Server URL", "(not configured — local-only)");
+            Row(sb, "server_url", "(не задан — только локально)");
         }
 
-        sb.AppendLine(BoxMid("Host"));
-        Row(sb, "Hostname", snap.Host?.Hostname);
-        Row(sb, "Domain", snap.Host?.Domain);
-        Row(sb, "OS", ReportFormat.FormatOs(snap.Host?.Os));
+        sb.AppendLine(BoxMid("Система"));
+        Row(sb, "Имя узла", snap.Host?.Hostname);
+        Row(sb, "Домен", snap.Host?.Domain);
+        Row(sb, "ОС", ReportFormat.FormatOs(snap.Host?.Os));
 
         if (snap.Hardware is not null)
         {
-            sb.AppendLine(BoxMid("Hardware"));
+            sb.AppendLine(BoxMid("Оборудование"));
             var cpu = snap.Hardware.Cpu;
-            Row(sb, "Manufacturer", snap.Hardware.Manufacturer);
-            Row(sb, "Model", snap.Hardware.Model);
-            Row(sb, "Serial", snap.Hardware.SerialNumber);
-            Row(sb, "CPU", cpu?.Name);
-            Row(sb, "Cores", ReportFormat.FormatCores(cpu));
-            Row(sb, "RAM", ReportFormat.FormatBytes(snap.Hardware.RamBytes));
-            Row(sb, "RAM type", snap.Hardware.RamMemoryType);
+            Row(sb, "Производитель", snap.Hardware.Manufacturer);
+            Row(sb, "Модель", snap.Hardware.Model);
+            Row(sb, "Серийный №", snap.Hardware.SerialNumber);
+            Row(sb, "Процессор", cpu?.Name);
+            Row(sb, "Ядра", ReportFormat.FormatCores(cpu));
+            Row(sb, "ОЗУ", ReportFormat.FormatBytes(snap.Hardware.RamBytes));
+            Row(sb, "Тип ОЗУ", snap.Hardware.RamMemoryType);
 
             if (snap.Hardware.Gpus is { Count: > 0 })
             {
-                sb.AppendLine(BoxMid("GPUs"));
+                sb.AppendLine(BoxMid("Видеоадаптеры"));
                 foreach (var g in snap.Hardware.Gpus)
                 {
                     var vendor = string.IsNullOrWhiteSpace(g.Vendor) ? "" : $"  ({g.Vendor})";
@@ -58,8 +58,8 @@ public static class AsciiReportWriter
 
             if (snap.Hardware.RamModules is { Count: > 0 })
             {
-                sb.AppendLine(BoxMid("RAM modules"));
-                Row(sb, "Sticks", snap.Hardware.RamModules.Count.ToString(CultureInfo.InvariantCulture));
+                sb.AppendLine(BoxMid("Модули ОЗУ"));
+                Row(sb, "Планки", snap.Hardware.RamModules.Count.ToString(CultureInfo.InvariantCulture));
                 foreach (var m in snap.Hardware.RamModules)
                 {
                     var part = m.PartNumber ?? m.Manufacturer ?? "module";
@@ -75,7 +75,7 @@ public static class AsciiReportWriter
 
             if (snap.Hardware.Disks is { Count: > 0 })
             {
-                sb.AppendLine(BoxMid("Disks"));
+                sb.AppendLine(BoxMid("Диски"));
                 foreach (var d in snap.Hardware.Disks)
                 {
                     Row(sb, Trunc(d.Model ?? "disk", 28), $"{ReportFormat.FormatBytes(d.SizeBytes)}  {d.MediaType}");
@@ -84,8 +84,8 @@ public static class AsciiReportWriter
 
             if (snap.Hardware.Volumes is { Count: > 0 })
             {
-                sb.AppendLine(BoxMid("Volumes"));
-                Col(sb, "Letter", "Size", "Free");
+                sb.AppendLine(BoxMid("Тома"));
+                Col(sb, "Буква", "Размер", "Свободно");
                 foreach (var v in snap.Hardware.Volumes)
                 {
                     Col(sb, v.Letter ?? "?", ReportFormat.FormatBytes(v.SizeBytes), ReportFormat.FormatBytes(v.FreeBytes));
@@ -94,11 +94,11 @@ public static class AsciiReportWriter
         }
         else
         {
-            sb.AppendLine(BoxMid("Hardware"));
-            Row(sb, "Status", "skipped (collect_hardware=false)");
+            sb.AppendLine(BoxMid("Оборудование"));
+            Row(sb, "Статус", "пропущено (collect_hardware=false)");
         }
 
-        sb.AppendLine(BoxMid("Network"));
+        sb.AppendLine(BoxMid("Сеть"));
         if (snap.Network?.Nics is { Count: > 0 })
         {
             foreach (var nic in snap.Network.Nics)
@@ -110,39 +110,39 @@ public static class AsciiReportWriter
         }
         else
         {
-            Row(sb, "NICs", "(none)");
+            Row(sb, "NIC", "(нет)");
         }
 
         if (snap.Users is not null)
         {
-            sb.AppendLine(BoxMid("Users"));
-            Row(sb, "Last interactive", snap.Users.LastInteractive);
+            sb.AppendLine(BoxMid("Пользователи"));
+            Row(sb, "Посл. интерак.", snap.Users.LastInteractive);
             var logged = snap.Users.LoggedOn is { Count: > 0 }
                 ? string.Join(", ", snap.Users.LoggedOn)
                 : "-";
-            Row(sb, "Logged on", logged);
+            Row(sb, "В системе", logged);
         }
         else
         {
-            sb.AppendLine(BoxMid("Users"));
-            Row(sb, "Status", "skipped (collect_users=false)");
+            sb.AppendLine(BoxMid("Пользователи"));
+            Row(sb, "Статус", "пропущено (collect_users=false)");
         }
 
         if (snap.Software is not null)
         {
-            sb.AppendLine(BoxMid("Software"));
+            sb.AppendLine(BoxMid("ПО"));
             var programs = snap.Software.Programs;
             if (programs is null)
             {
-                Row(sb, "Programs", "(unavailable on this platform)");
+                Row(sb, "Программы", "(недоступно на платформе)");
             }
             else if (programs.Count == 0)
             {
-                Row(sb, "Programs", "(empty)");
+                Row(sb, "Программы", "(пусто)");
             }
             else
             {
-                Row(sb, "Programs", $"{programs.Count} (showing up to {SoftwarePreviewCount})");
+                Row(sb, "Программы", $"{programs.Count} (до {SoftwarePreviewCount})");
                 foreach (var p in programs.Take(SoftwarePreviewCount))
                 {
                     Row(sb, Trunc(p.Name ?? "?", 36), p.Version ?? "-");
@@ -151,13 +151,13 @@ public static class AsciiReportWriter
         }
         else
         {
-            sb.AppendLine(BoxMid("Software"));
-            Row(sb, "Status", "skipped (collect_software=false)");
+            sb.AppendLine(BoxMid("ПО"));
+            Row(sb, "Статус", "пропущено (collect_software=false)");
         }
 
         if (snap.CollectorErrors.Count > 0)
         {
-            sb.AppendLine(BoxMid("Collector errors"));
+            sb.AppendLine(BoxMid("Ошибки сбора"));
             foreach (var err in snap.CollectorErrors)
             {
                 Row(sb, err.Section, Trunc(err.Error, 48));

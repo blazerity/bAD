@@ -1,61 +1,62 @@
 {% extends "base.html" %}
-{% block title %}Devices — bAD{% endblock %}
+{% from "macros/icons.html" import icon, silence_label %}
+{% block title %}Устройства — bAD{% endblock %}
 {% block content %}
 <section>
-  <h1>Devices</h1>
-  <p class="muted">Read-only inventory view. {{ devices|length }} enrolled.</p>
+  <h1 class="with-icon">{{ icon('devices') }}Устройства</h1>
+  <p class="muted">Просмотр inventory только для чтения. Зарегистрировано: {{ devices|length }}.</p>
   <p class="muted">
-    Mirrored agent MSI:
+    Зеркало MSI агента:
     {% if agent_update %}
       <strong>{{ agent_update.version }}</strong>
-      ({{ agent_update.msi_name }}, synced {{ agent_update.synced_at }})
+      ({{ agent_update.msi_name }}, синхр. {{ agent_update.synced_at }})
     {% else %}
-      <em>none yet</em> — sync from GitHub
+      <em>пока нет</em> — синхронизация с GitHub
       (<code>POST /v1/admin/agent-update/sync</code>, repo {{ github_repo }})
     {% endif %}
   </p>
   <p class="muted">
-    Health badge: OK if last seen within {{ stale_after_seconds }}s
-    (<code>BAD_DEVICE_STALE_AFTER_SECONDS</code>); otherwise stale.
+    Бейдж состояния: ОК, если устройство виделось за последние {{ stale_after_seconds }} с
+    (<code>BAD_DEVICE_STALE_AFTER_SECONDS</code>); иначе — устарел.
   </p>
 
   <form method="get" action="/devices" class="filter-bar">
-    <label for="tag">Tag</label>
+    <label for="tag">Тег</label>
     <select id="tag" name="tag">
-      <option value="">All tags</option>
+      <option value="">Все теги</option>
       {% for t in all_tags %}
       <option value="{{ t }}" {% if tag_filter == t %}selected{% endif %}>{{ t }}</option>
       {% endfor %}
     </select>
-    <button type="submit">Filter</button>
+    <button type="submit">Фильтр</button>
     {% if tag_filter %}
-    <a class="muted" href="/devices">Clear</a>
+    <a class="muted" href="/devices">Сбросить</a>
     {% endif %}
   </form>
 
   {% if not devices %}
-  <p>No devices yet{% if tag_filter %} with tag <span class="mono">{{ tag_filter }}</span>{% endif %}.
-    {% if not tag_filter %}Install the Windows agent with SERVERURL and ENROLLMENTTOKEN.{% endif %}
+  <p>Пока нет устройств{% if tag_filter %} с тегом <span class="mono">{{ tag_filter }}</span>{% endif %}.
+    {% if not tag_filter %}Установите Windows-агент с SERVERURL и ENROLLMENTTOKEN.{% endif %}
   </p>
   {% else %}
   <table class="devices">
     <thead>
       <tr>
-        <th>Hostname</th>
-        <th>Device ID</th>
-        <th>Health</th>
-        <th>Tags</th>
-        <th>Agent</th>
-        <th>Last seen</th>
+        <th>Имя узла</th>
+        <th>device_id</th>
+        <th>Состояние</th>
+        <th>Теги</th>
+        <th>Агент</th>
+        <th>Последний контакт</th>
       </tr>
     </thead>
     <tbody>
       {% for d in devices %}
       <tr>
-        <td><a href="/devices/{{ d.device_id }}">{{ d.hostname or "(unknown)" }}</a></td>
+        <td><a href="/devices/{{ d.device_id }}">{{ d.hostname or "(неизвестно)" }}</a></td>
         <td class="mono">{{ d.device_id }}</td>
         <td>
-          <span class="badge badge-{{ d.silence.status }}">{% if d.silence.status == "ok" %}OK{% else %}{{ d.silence.status }}{% endif %}</span>
+          <span class="badge badge-{{ d.silence.status }}">{{ silence_label(d.silence.status) }}</span>
         </td>
         <td>
           {% if d.tags %}

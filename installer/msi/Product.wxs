@@ -35,6 +35,10 @@
 
     <MediaTemplate EmbedCab="yes" />
 
+    <!-- Add/Remove Programs + Start menu family mark (same as ApplicationIcon / favicon). -->
+    <Icon Id="BadAgentIcon" SourceFile="bad.ico" />
+    <Property Id="ARPPRODUCTICON" Value="BadAgentIcon" />
+
     <Property Id="SERVERURL" Secure="yes" />
     <Property Id="ENROLLMENTTOKEN" Secure="yes" Hidden="yes" />
     <!-- Optional PATH: default absent/0 = do not modify Machine PATH. Pass ADDPATH=1 to enable. -->

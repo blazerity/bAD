@@ -42,7 +42,7 @@ pytest -q
 - Web: `/login` с `admin` / `admin` (первый boot) → `/devices` (mirrored MSI version в UI)
 - Policies UI: `/settings/policies` (admin) — условия + settings; на `/devices/{id}` — effective + override
 - LDAP UI: `/settings/ldap` (после входа как local admin)
-- UI look (0.7.0): Win11/Fluent light — `bad_server/static/style.css`; CLI HTML report (`HtmlReportWriter`) shares the same token family
+- UI look (0.7.0): Win11/Fluent light + русский UI — `bad_server/static/style.css`, `favicon.svg`/`favicon.ico`; CLI HTML report (`HtmlReportWriter`) — те же токены/иконки; агент `agent/assets/bad.ico` (Task Manager / MSI ARP)
 
 ## Как собрать / тестировать агент
 

@@ -24,7 +24,7 @@ def test_local_login_success(client: TestClient):
 def test_local_login_failure(client: TestClient):
     r = _login(client, password="wrong")
     assert r.status_code == 401
-    assert "Invalid username or password" in r.text
+    assert "Неверное имя пользователя или пароль" in r.text
     assert "bad_session" not in r.cookies
 
 
@@ -56,7 +56,7 @@ def test_ldap_settings_crud_and_test_mocked(client: TestClient):
 
     page = client.get("/settings/ldap")
     assert page.status_code == 200
-    assert "LDAP settings" in page.text
+    assert "Настройки LDAP" in page.text
 
     save = client.post(
         "/settings/ldap",
@@ -73,8 +73,8 @@ def test_ldap_settings_crud_and_test_mocked(client: TestClient):
         },
     )
     assert save.status_code == 200
-    assert "LDAP settings saved" in save.text
-    assert "unchanged" in save.text
+    assert "Настройки LDAP сохранены" in save.text
+    assert "без изменений" in save.text
     assert "s3cret-bind" not in save.text
 
     # Update without password keeps previous secret
@@ -97,7 +97,7 @@ def test_ldap_settings_crud_and_test_mocked(client: TestClient):
     assert 'value="636"' in save2.text
     assert "sAMAccountName" in save2.text
 
-    with patch("bad_server.web.test_connection", return_value=(True, "Connection and bind succeeded")):
+    with patch("bad_server.web.test_connection", return_value=(True, "Соединение и bind успешны")):
         test = client.post(
             "/settings/ldap/test",
             data={
@@ -114,7 +114,7 @@ def test_ldap_settings_crud_and_test_mocked(client: TestClient):
             },
         )
     assert test.status_code == 200
-    assert "OK: Connection and bind succeeded" in test.text
+    assert "ОК: Соединение и bind успешны" in test.text
 
 
 def test_ldap_settings_requires_admin_session(client: TestClient):

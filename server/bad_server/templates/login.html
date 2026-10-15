@@ -1,22 +1,22 @@
 {% extends "base.html" %}
-{% block title %}Sign in — bAD{% endblock %}
+{% block title %}Вход — bAD{% endblock %}
 {% block content %}
 <section class="login">
-  <h1>Operator sign-in</h1>
+  <h1>Вход оператора</h1>
   <p class="muted">
-    Sign in with a local account{% if ldap_enabled %} or LDAP{% endif %}.
-    Default local admin on first boot: <span class="mono">admin</span> / <span class="mono">admin</span>
-    — change this password immediately.
+    Войдите с локальной учётной записью{% if ldap_enabled %} или через LDAP{% endif %}.
+    Локальный admin при первом запуске: <span class="mono">admin</span> / <span class="mono">admin</span>
+    — сразу смените пароль.
   </p>
   {% if error %}
   <p class="error">{{ error }}</p>
   {% endif %}
   <form method="post" action="/login">
-    <label for="username">Username</label>
+    <label for="username">Имя пользователя</label>
     <input id="username" name="username" type="text" autocomplete="username" required autofocus>
-    <label for="password">Password</label>
+    <label for="password">Пароль</label>
     <input id="password" name="password" type="password" autocomplete="current-password" required>
-    <button type="submit">Sign in</button>
+    <button type="submit">Войти</button>
   </form>
 </section>
 {% endblock %}

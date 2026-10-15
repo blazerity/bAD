@@ -75,7 +75,7 @@ BAD_AGENT_UPDATE_SYNC_ON_STARTUP=true
 
 - Просмотр парка / inventory (+ статус mirrored MSI).
 - Редактирование: LDAP settings, agent policies, per-device config override — без «дашборд-шума» и без произвольных команд.
-- Визуальный язык: Windows 11 / Fluent light (`static/style.css` + согласованный `HtmlReportWriter`); не превращать в marketing landing.
+- Визуальный язык: Windows 11 / Fluent light, русский UI (`static/style.css` + favicon + согласованный `HtmlReportWriter` с иконками секций); не превращать в marketing landing.
 
 ## Агент
 

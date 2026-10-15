@@ -63,15 +63,15 @@ def _open_bound(settings: LdapSettingsView, user: Optional[str], password: Optio
 def test_connection(settings: LdapSettingsView) -> tuple[bool, str]:
     """Bind with the service account. Returns (ok, message)."""
     if not settings.host:
-        return False, "Host is required"
+        return False, "Укажите хост"
     try:
         conn = _open_bound(settings, settings.bind_dn or None, settings.bind_password or None)
         conn.unbind()
-        return True, "Connection and bind succeeded"
+        return True, "Соединение и bind успешны"
     except LDAPException as exc:
-        return False, f"LDAP error: {exc}"
+        return False, f"Ошибка LDAP: {exc}"
     except Exception as exc:  # noqa: BLE001 — surface to operator UI
-        return False, f"Error: {exc}"
+        return False, f"Ошибка: {exc}"
 
 
 def authenticate_user(

@@ -133,7 +133,7 @@ flowchart LR
 
 ### Web UI и аутентификация
 
-Визуальный язык (с **0.7.0**): светлая оболочка в духе Windows 11 / Fluent — Segoe UI Variable, слоистые полупрозрачные поверхности, радиусы 4px (controls) / 8px (surfaces), акцент Fluent blue (`#0067C0`). Стили: `server/bad_server/static/style.css`; локальный HTML-отчёт агента (`HtmlReportWriter`) использует ту же семью токенов (self-contained CSS).
+Визуальный язык (с **0.7.0**): светлая оболочка в духе Windows 11 / Fluent — Segoe UI Variable, слоистые полупрозрачные поверхности, радиусы 4px (controls) / 8px (surfaces), акцент Fluent blue (`#0067C0`), UI copy на русском, stroke-иконки секций (без emoji). Стили: `server/bad_server/static/style.css` + `favicon.svg`/`favicon.ico`; локальный HTML-отчёт (`HtmlReportWriter`) — та же семья токенов/иконок. Иконка агента: `agent/assets/bad.ico` (`ApplicationIcon` + WiX `ARPPRODUCTICON`).
 
 | Path | Назначение |
 |------|------------|

@@ -4,13 +4,13 @@ using System.Text;
 namespace BadAgent;
 
 /// <summary>
-/// Self-contained HTML inventory report — same Win11/Fluent light family as the web panel.
+/// Self-contained HTML inventory report — Win11/Fluent light family, Russian labels, section icons.
 /// </summary>
 public static class HtmlReportWriter
 {
     public static string Write(InventorySnapshot snap, AgentConfig? config = null)
     {
-        var hostname = WebUtility.HtmlEncode(snap.Host?.Hostname ?? "(unknown)");
+        var hostname = WebUtility.HtmlEncode(snap.Host?.Hostname ?? "(неизвестно)");
         var sb = new StringBuilder();
         sb.AppendLine("<!DOCTYPE html>");
         sb.AppendLine("<html lang=\"ru\">");
@@ -29,7 +29,7 @@ public static class HtmlReportWriter
         sb.AppendLine("</header>");
         sb.AppendLine("<main>");
         sb.AppendLine("<section class=\"hero\">");
-        sb.AppendLine($"<h1>{hostname}</h1>");
+        sb.AppendLine($"<h1 class=\"with-icon\">{Icon("host")}{hostname}</h1>");
         sb.AppendLine($"<p class=\"muted\">device_id: <code>{Enc(snap.DeviceId)}</code> · agent {Enc(snap.AgentVersion)} · schema {snap.SchemaVersion}</p>");
         sb.AppendLine($"<p class=\"muted\">собрано: {Enc(snap.CollectedAt)}</p>");
 
@@ -44,14 +44,14 @@ public static class HtmlReportWriter
 
         sb.AppendLine("</section>");
 
-        Section(sb, "Host");
+        Section(sb, "host", "Система");
         sb.AppendLine("<dl class=\"grid\">");
-        Kv(sb, "Hostname", snap.Host?.Hostname);
-        Kv(sb, "Domain", snap.Host?.Domain);
-        Kv(sb, "OS", ReportFormat.FormatOs(snap.Host?.Os, "—"));
+        Kv(sb, "Имя узла", snap.Host?.Hostname);
+        Kv(sb, "Домен", snap.Host?.Domain);
+        Kv(sb, "ОС", ReportFormat.FormatOs(snap.Host?.Os, "—"));
         sb.AppendLine("</dl>");
 
-        Section(sb, "Hardware");
+        Section(sb, "cpu", "Оборудование");
         if (snap.Hardware is null)
         {
             sb.AppendLine("<p class=\"muted\">пропущено (collect_hardware=false)</p>");
@@ -59,26 +59,26 @@ public static class HtmlReportWriter
         else
         {
             sb.AppendLine("<dl class=\"grid\">");
-            Kv(sb, "Manufacturer", snap.Hardware.Manufacturer);
-            Kv(sb, "Model", snap.Hardware.Model);
-            Kv(sb, "Serial", snap.Hardware.SerialNumber);
-            Kv(sb, "CPU", snap.Hardware.Cpu?.Name);
-            Kv(sb, "Cores", snap.Hardware.Cpu is null
+            Kv(sb, "Производитель", snap.Hardware.Manufacturer, "model");
+            Kv(sb, "Модель", snap.Hardware.Model, "model");
+            Kv(sb, "Серийный номер", snap.Hardware.SerialNumber, "serial");
+            Kv(sb, "Процессор", snap.Hardware.Cpu?.Name, "cpu");
+            Kv(sb, "Ядра", snap.Hardware.Cpu is null
                 ? null
-                : $"{snap.Hardware.Cpu.Cores} / {snap.Hardware.Cpu.Logical} logical");
-            Kv(sb, "RAM", ReportFormat.FormatBytes(snap.Hardware.RamBytes, "—"));
-            Kv(sb, "RAM type", snap.Hardware.RamMemoryType);
+                : $"{snap.Hardware.Cpu.Cores} / {snap.Hardware.Cpu.Logical} логических", "cpu");
+            Kv(sb, "ОЗУ", ReportFormat.FormatBytes(snap.Hardware.RamBytes, "—"), "ram");
+            Kv(sb, "Тип ОЗУ", snap.Hardware.RamMemoryType, "ram");
             if (snap.Hardware.RamModules is { Count: > 0 })
             {
-                Kv(sb, "RAM sticks", snap.Hardware.RamModules.Count.ToString());
+                Kv(sb, "Планки ОЗУ", snap.Hardware.RamModules.Count.ToString(), "ram");
             }
 
             sb.AppendLine("</dl>");
 
             if (snap.Hardware.Gpus is { Count: > 0 })
             {
-                sb.AppendLine("<h3>GPUs</h3>");
-                sb.AppendLine("<table><thead><tr><th>Name</th><th>Vendor</th><th>Driver</th><th>Adapter RAM</th></tr></thead><tbody>");
+                SubHead(sb, "gpu", "Видеоадаптеры");
+                sb.AppendLine("<table><thead><tr><th>Имя</th><th>Вендор</th><th>Драйвер</th><th>Память адаптера</th></tr></thead><tbody>");
                 foreach (var g in snap.Hardware.Gpus)
                 {
                     sb.AppendLine(
@@ -91,10 +91,10 @@ public static class HtmlReportWriter
 
             if (snap.Hardware.RamModules is { Count: > 0 })
             {
-                sb.AppendLine("<h3>RAM modules</h3>");
+                SubHead(sb, "ram", "Модули ОЗУ");
                 sb.AppendLine(
-                    "<table><thead><tr><th>Part</th><th>Type</th><th>Capacity</th><th>Speed</th>" +
-                    "<th>Channel</th><th>Locator</th></tr></thead><tbody>");
+                    "<table><thead><tr><th>Part</th><th>Тип</th><th>Ёмкость</th><th>Частота</th>" +
+                    "<th>Канал</th><th>Locator</th></tr></thead><tbody>");
                 foreach (var m in snap.Hardware.RamModules)
                 {
                     var speed = m.SpeedMhz is null ? "—" : $"{m.SpeedMhz} MHz";
@@ -111,8 +111,8 @@ public static class HtmlReportWriter
 
             if (snap.Hardware.Disks is { Count: > 0 })
             {
-                sb.AppendLine("<h3>Disks</h3>");
-                sb.AppendLine("<table><thead><tr><th>Model</th><th>Size</th><th>Media</th></tr></thead><tbody>");
+                SubHead(sb, "disk", "Диски");
+                sb.AppendLine("<table><thead><tr><th>Модель</th><th>Размер</th><th>Носитель</th></tr></thead><tbody>");
                 foreach (var d in snap.Hardware.Disks)
                 {
                     sb.AppendLine($"<tr><td>{Enc(d.Model)}</td><td>{Enc(ReportFormat.FormatBytes(d.SizeBytes, "—"))}</td><td>{Enc(d.MediaType)}</td></tr>");
@@ -123,8 +123,8 @@ public static class HtmlReportWriter
 
             if (snap.Hardware.Volumes is { Count: > 0 })
             {
-                sb.AppendLine("<h3>Volumes</h3>");
-                sb.AppendLine("<table><thead><tr><th>Letter</th><th>Size</th><th>Free</th></tr></thead><tbody>");
+                SubHead(sb, "volume", "Тома");
+                sb.AppendLine("<table><thead><tr><th>Буква</th><th>Размер</th><th>Свободно</th></tr></thead><tbody>");
                 foreach (var v in snap.Hardware.Volumes)
                 {
                     sb.AppendLine($"<tr><td>{Enc(v.Letter)}</td><td>{Enc(ReportFormat.FormatBytes(v.SizeBytes, "—"))}</td><td>{Enc(ReportFormat.FormatBytes(v.FreeBytes, "—"))}</td></tr>");
@@ -134,14 +134,14 @@ public static class HtmlReportWriter
             }
         }
 
-        Section(sb, "Network");
+        Section(sb, "network", "Сеть");
         if (snap.Network?.Nics is { Count: > 0 })
         {
-            sb.AppendLine("<table><thead><tr><th>Name</th><th>MAC</th><th>IPv4</th><th>DHCP</th></tr></thead><tbody>");
+            sb.AppendLine("<table><thead><tr><th>Имя</th><th>MAC</th><th>IPv4</th><th>DHCP</th></tr></thead><tbody>");
             foreach (var n in snap.Network.Nics)
             {
                 var ipv4 = n.Ipv4 is { Count: > 0 } ? string.Join(", ", n.Ipv4) : "-";
-                var dhcp = n.Dhcp is null ? "-" : (n.Dhcp.Value ? "yes" : "no");
+                var dhcp = n.Dhcp is null ? "-" : (n.Dhcp.Value ? "да" : "нет");
                 sb.AppendLine($"<tr><td>{Enc(n.Name)}</td><td>{Enc(n.Mac)}</td><td>{Enc(ipv4)}</td><td>{Enc(dhcp)}</td></tr>");
             }
 
@@ -152,7 +152,7 @@ public static class HtmlReportWriter
             sb.AppendLine("<p class=\"muted\">нет активных NIC</p>");
         }
 
-        Section(sb, "Users");
+        Section(sb, "users", "Пользователи");
         if (snap.Users is null)
         {
             sb.AppendLine("<p class=\"muted\">пропущено (collect_users=false)</p>");
@@ -160,12 +160,12 @@ public static class HtmlReportWriter
         else
         {
             sb.AppendLine("<dl class=\"grid\">");
-            Kv(sb, "Last interactive", snap.Users.LastInteractive);
-            Kv(sb, "Logged on", snap.Users.LoggedOn is { Count: > 0 } ? string.Join(", ", snap.Users.LoggedOn) : null);
+            Kv(sb, "Последний интерактивный", snap.Users.LastInteractive, "users");
+            Kv(sb, "В системе", snap.Users.LoggedOn is { Count: > 0 } ? string.Join(", ", snap.Users.LoggedOn) : null, "users");
             sb.AppendLine("</dl>");
         }
 
-        Section(sb, "Software");
+        Section(sb, "software", "ПО");
         if (snap.Software is null)
         {
             sb.AppendLine("<p class=\"muted\">пропущено (collect_software=false)</p>");
@@ -181,7 +181,7 @@ public static class HtmlReportWriter
         else
         {
             sb.AppendLine($"<p class=\"muted\">{snap.Software.Programs.Count} программ (cap {InventoryCollector.MaxSoftwarePrograms})</p>");
-            sb.AppendLine("<table><thead><tr><th>Name</th><th>Version</th><th>Publisher</th></tr></thead><tbody>");
+            sb.AppendLine("<table><thead><tr><th>Имя</th><th>Version</th><th>Издатель</th></tr></thead><tbody>");
             foreach (var p in snap.Software.Programs)
             {
                 sb.AppendLine($"<tr><td>{Enc(p.Name)}</td><td>{Enc(p.Version)}</td><td>{Enc(p.Publisher)}</td></tr>");
@@ -192,7 +192,7 @@ public static class HtmlReportWriter
 
         if (snap.CollectorErrors.Count > 0)
         {
-            Section(sb, "Collector errors");
+            Section(sb, "events", "Ошибки сбора");
             sb.AppendLine("<ul class=\"errors\">");
             foreach (var e in snap.CollectorErrors)
             {
@@ -203,18 +203,47 @@ public static class HtmlReportWriter
         }
 
         sb.AppendLine("</main>");
-        sb.AppendLine("<footer class=\"foot\">bAD local report · generated offline</footer>");
+        sb.AppendLine("<footer class=\"foot\">bAD · локальный отчёт · offline</footer>");
         sb.AppendLine("</body></html>");
         return sb.ToString();
     }
 
-    private static void Section(StringBuilder sb, string title) =>
-        sb.AppendLine($"<h2>{WebUtility.HtmlEncode(title)}</h2>");
+    private static void Section(StringBuilder sb, string icon, string title) =>
+        sb.AppendLine($"<h2 class=\"with-icon\">{Icon(icon)}{WebUtility.HtmlEncode(title)}</h2>");
 
-    private static void Kv(StringBuilder sb, string key, string? value) =>
-        sb.AppendLine($"<div><dt>{Enc(key)}</dt><dd>{Enc(string.IsNullOrWhiteSpace(value) ? "—" : value)}</dd></div>");
+    private static void SubHead(StringBuilder sb, string icon, string title) =>
+        sb.AppendLine($"<h3 class=\"with-icon\">{Icon(icon)}{WebUtility.HtmlEncode(title)}</h3>");
+
+    private static void Kv(StringBuilder sb, string key, string? value, string? icon = null)
+    {
+        var label = icon is null
+            ? Enc(key)
+            : $"<span class=\"lbl-icon\">{Icon(icon)}{Enc(key)}</span>";
+        sb.AppendLine($"<div><dt>{label}</dt><dd>{Enc(string.IsNullOrWhiteSpace(value) ? "—" : value)}</dd></div>");
+    }
 
     private static string Enc(string? s) => WebUtility.HtmlEncode(s ?? "");
+
+    private static string Icon(string name)
+    {
+        var path = name switch
+        {
+            "host" => "<rect x=\"2.5\" y=\"3.5\" width=\"15\" height=\"10\" rx=\"1.75\"/><path d=\"M7 16.5h6M10 13.5v3\"/>",
+            "cpu" => "<rect x=\"5\" y=\"5\" width=\"10\" height=\"10\" rx=\"1.5\"/><rect x=\"7.5\" y=\"7.5\" width=\"5\" height=\"5\" rx=\"0.75\"/><path d=\"M8 2.75v2.25M12 2.75v2.25M8 15v2.25M12 15v2.25M2.75 8h2.25M2.75 12h2.25M15 8h2.25M15 12h2.25\"/>",
+            "ram" => "<rect x=\"2.5\" y=\"6\" width=\"15\" height=\"8\" rx=\"1.25\"/><path d=\"M5.5 6V4.25M8.5 6V4.25M11.5 6V4.25M14.5 6V4.25M6.5 10.25h2M11.5 10.25h2\"/>",
+            "disk" => "<ellipse cx=\"10\" cy=\"5.5\" rx=\"6.5\" ry=\"2.4\"/><path d=\"M3.5 5.5v8.5c0 1.35 2.9 2.45 6.5 2.45s6.5-1.1 6.5-2.45V5.5\"/><path d=\"M3.5 10c0 1.35 2.9 2.45 6.5 2.45s6.5-1.1 6.5-2.45\"/>",
+            "gpu" => "<rect x=\"2.5\" y=\"5\" width=\"15\" height=\"10\" rx=\"1.5\"/><rect x=\"5\" y=\"7.5\" width=\"6\" height=\"5\" rx=\"0.75\"/><path d=\"M13.5 8.5h2M13.5 11.5h2\"/>",
+            "network" => "<circle cx=\"10\" cy=\"10\" r=\"6.5\"/><path d=\"M3.5 10h13M10 3.5c2.2 2.2 2.2 10.8 0 13M10 3.5c-2.2 2.2-2.2 10.8 0 13\"/>",
+            "users" => "<circle cx=\"10\" cy=\"6.5\" r=\"2.75\"/><path d=\"M4.25 16.25c.7-2.85 2.7-4.25 5.75-4.25s5.05 1.4 5.75 4.25\"/>",
+            "software" => "<rect x=\"3.5\" y=\"3.5\" width=\"13\" height=\"13\" rx=\"2\"/><path d=\"M3.5 7.5h13M7.5 3.5v4\"/>",
+            "serial" => "<rect x=\"3.5\" y=\"5\" width=\"13\" height=\"10\" rx=\"1.5\"/><path d=\"M6.5 8v4M9 8v4M11.5 8v4M14 8v4\"/>",
+            "model" => "<rect x=\"2.5\" y=\"4.5\" width=\"15\" height=\"10\" rx=\"1.75\"/><path d=\"M8 14.5h4\"/>",
+            "volume" => "<path d=\"M3.5 6.5 10 3.5l6.5 3v7L10 16.5 3.5 13.5v-7z\"/><path d=\"M3.5 6.5 10 9.5l6.5-3M10 9.5v7\"/>",
+            "events" => "<path d=\"M10 3.5v2M10 14.5v2M3.5 10h2M14.5 10h2\"/><circle cx=\"10\" cy=\"10\" r=\"3.25\"/>",
+            _ => "<circle cx=\"10\" cy=\"10\" r=\"6\"/>",
+        };
+        return $"<svg class=\"icon\" viewBox=\"0 0 20 20\" aria-hidden=\"true\" focusable=\"false\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\">{path}</svg>";
+    }
 
     private static string EmbeddedCss() => """
 :root {
@@ -270,6 +299,13 @@ h2 {
   border-bottom: 1px solid var(--border); padding-bottom: 0.35rem;
 }
 h3 { margin: 1.25rem 0 0.5rem; font-size: 1rem; color: var(--muted); font-weight: 600; }
+.with-icon { display: flex; align-items: center; }
+.icon {
+  width: 1.15em; height: 1.15em; display: inline-block; vertical-align: -0.2em;
+  margin-right: 0.45rem; color: var(--accent); flex-shrink: 0;
+}
+.lbl-icon { display: inline-flex; align-items: center; gap: 0.3rem; }
+.lbl-icon .icon { margin-right: 0; width: 1em; height: 1em; }
 .muted { color: var(--muted); margin-top: 0; }
 .note {
   background: var(--bg-solid); border: 1px solid var(--border-strong);

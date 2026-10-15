@@ -245,6 +245,34 @@ h3 {
   color: var(--muted);
 }
 
+/* Fluent-like stroke icons (sparse) */
+.icon {
+  width: 1.15em;
+  height: 1.15em;
+  display: inline-block;
+  vertical-align: -0.2em;
+  margin-right: 0.4rem;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.with-icon {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+.with-icon .icon { margin-right: 0.45rem; }
+.lbl-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.lbl-icon .icon {
+  margin-right: 0;
+  width: 1em;
+  height: 1em;
+  vertical-align: 0;
+}
+
 .muted { color: var(--muted); margin-top: 0; }
 .error {
   color: var(--error);

@@ -33,7 +33,8 @@ dotnet publish ..\..\agent\src\BadAgent\BadAgent.csproj `
 Copy-Item .\write-config.ps1 .\publish\
 Copy-Item .\bad.cmd .\publish\
 
-# 4. Build MSI (Product.wxs harvests publish\** via <Files>)
+# 4. Build MSI (Product.wxs harvests publish\** via <Files>;
+#    bad.ico next to Product.wxs → ARPPRODUCTICON; exe icon from ApplicationIcon)
 wix build Product.wxs `
   -d AgentPublishDir=publish `
   -d ProductVersion=0.7.0 `
