@@ -1,6 +1,6 @@
 # Заметки для coding agents (bAD)
 
-Практическая карта репозитория: где что лежит, как гонять тесты, что нельзя сломать. Версия продукта: **0.2.0**.
+Практическая карта репозитория: где что лежит, как гонять тесты, что нельзя сломать. Версия продукта: **0.3.0**.
 
 ## Layout
 
@@ -14,7 +14,7 @@ server/                # FastAPI app + agent-update mirror
 installer/msi/         # WiX Product.wxs, write-config.ps1
 deploy/debian/         # install.sh, systemd/, nginx/
 docs/                  # операторские и архитектурные документы
-VERSION                # канонический semver продукта (сейчас 0.2.0)
+VERSION                # канонический semver продукта (сейчас 0.3.0)
 .github/workflows/     # ci.yml + release-msi.yml
 ```
 
@@ -38,8 +38,9 @@ uvicorn bad_server.app:app --host 127.0.0.1 --port 8000
 pytest -q
 ```
 
-- Health: `GET /v1/health` → `{"status":"ok","version":"0.2.0"}`
+- Health: `GET /v1/health` → `{"status":"ok","version":"0.3.0"}`
 - Web: `/login` с `admin` / `admin` (первый boot) → `/devices` (mirrored MSI version в UI)
+- Policies UI: `/settings/policies` (admin) — условия + settings; на `/devices/{id}` — effective + override
 - LDAP UI: `/settings/ldap` (после входа как local admin)
 
 ## Как собрать / тестировать агент
@@ -87,9 +88,23 @@ BadAgent.exe service restart
 
 Ключевые файлы: `AgentUpdater.cs`, `VersionUtil.cs`, `server/bad_server/agent_update.py`, `github_release.py`.
 
+## Remote agent config
+
+Effective settings: **defaults &lt; matching policies (priority asc) &lt; per-device override**.
+
+| Endpoint | Auth |
+|----------|------|
+| `GET /v1/agent/config` | agent API key (только своё устройство) |
+| `POST /v1/heartbeat` (+ optional `config_version`) | agent API key; ответ может содержать `config` |
+| `GET/POST/PUT/DELETE /v1/admin/policies*` | admin Bearer |
+| `GET /v1/admin/devices/{id}/config` | admin Bearer |
+| `PUT/DELETE /v1/admin/devices/{id}/config-override` | admin Bearer |
+
+Safe knobs only: intervals + `update_enabled`. Код: `server/bad_server/agent_config.py`, `ConfigStore.ApplyRemoteSettings`.
+
 ## Где живёт версия (bump checklist)
 
-Канон: корневой файл **`VERSION`** (`0.2.0`). Bump: patch +0.0.1 / minor +0.1.0 / major только по решению владельца. При релизе синхронизировать:
+Канон: корневой файл **`VERSION`** (`0.3.0`). Bump: patch +0.0.1 / minor +0.1.0 / major только по решению владельца. При релизе синхронизировать:
 
 | Место | Поле |
 |-------|------|
@@ -128,7 +143,7 @@ BadAgent.exe service restart
 - Сборка **только на Windows** (локально или GHA `release-msi`): см. `installer/msi/README.md`.
 - Public properties: `SERVERURL`, `ENROLLMENTTOKEN` → пишутся в ProgramData custom action’ом.
 - UpgradeCode фиксирован; major upgrade, ProgramData не сносить (`Permanent`).
-- Артефакт: `bad-agent-0.2.0.msi` + `agent-release.json`.
+- Артефакт: `bad-agent-0.3.0.msi` + `agent-release.json`.
 
 ## Debian install
 
@@ -144,6 +159,7 @@ BadAgent.exe service restart
 | Задача | Файл |
 |--------|------|
 | Маршруты API | `server/bad_server/api.py` |
+| Remote config / policies | `server/bad_server/agent_config.py` |
 | Agent update mirror | `server/bad_server/agent_update.py`, `github_release.py` |
 | Web routes | `server/bad_server/web.py` |
 | Схема/settings | `server/bad_server/schemas.py`, `config.py` |
@@ -167,8 +183,8 @@ BadAgent.exe service restart
 | Механизм | Где | Назначение |
 |----------|-----|------------|
 | Enrollment Bearer | `POST /v1/enroll` | одноразовый обмен на API key агента |
-| Agent API key | heartbeat / inventory | per-device |
-| Admin Bearer | `GET /v1/devices*` | автоматизация / curl |
+| Agent API key | heartbeat / inventory / `GET /v1/agent/config` | per-device |
+| Admin Bearer | `GET /v1/devices*`, policies, overrides | автоматизация / curl |
 | Local user session | web cookie `bad_session` | операторы в браузере |
 | LDAP (optional) | web login fallback | directory users → session |
 
@@ -194,7 +210,7 @@ Seed default admin только если `COUNT(local_users)=0`.
 - Сборка **только на Windows** (WiX): см. `installer/msi/README.md`.
 - Public properties: `SERVERURL`, `ENROLLMENTTOKEN` → пишутся в ProgramData custom action’ом.
 - UpgradeCode фиксирован; major upgrade, ProgramData не сносить.
-- Артефакт: `bad-agent-0.2.0.msi` (имя по semver).
+- Артефакт: `bad-agent-0.3.0.msi` (имя по semver).
 
 ## Debian install
 

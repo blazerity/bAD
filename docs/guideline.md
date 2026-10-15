@@ -19,6 +19,7 @@
 - Не включать OpenAPI UI в production (`docs_url=None` уже так).
 - Новые поля в inventory — обратно совместимо внутри `schema_version=1` или новый integer schema с явной поддержкой на сервере.
 - Update endpoints: agent key на `/v1/agent/update/*`; admin на `/v1/admin/agent-update*`.
+- Remote config: agent key только на `GET /v1/agent/config` (и piggyback в heartbeat); мутации policies/overrides — admin session/token. Только allowlisted knobs, без shell/команд.
 
 ## Безопасность
 
@@ -36,18 +37,18 @@
 
 ## Версионирование продукта
 
-- Semver продукта: сейчас **`0.2.0`** (см. корневой `VERSION` и [agents.md](agents.md)).
+- Semver продукта: сейчас **`0.3.0`** (см. корневой `VERSION` и [agents.md](agents.md)).
 - Правило bump: **patch +0.0.1** для hotfix; **minor +0.1.0** для feature; **major** только по явному решению владельца.
 - `schema_version` протокола inventory — отдельный integer, не путать с semver агента/сервера.
 - Агент шлёт `agent_version`; сервер отдаёт `version` в `/v1/health`.
 
 ## Как вырезать релиз агента (MSI)
 
-1. Версия на `main` = нужному semver (сейчас **0.2.0**); checklist в [agents.md](agents.md).
+1. Версия на `main` = нужному semver (сейчас **0.3.0**); checklist в [agents.md](agents.md).
 2. Тег и push:
    ```bash
-   git tag v0.2.0
-   git push origin v0.2.0
+   git tag v0.3.0
+   git push origin v0.3.0
    ```
 3. Workflow **`release-msi`** (`windows-latest`): publish agent → WiX v5 → GitHub Release assets `bad-agent-<ver>.msi` + `agent-release.json`.
 4. Права: `contents: write`. Для public repo достаточно `GITHUB_TOKEN`. Private позже — `BAD_GITHUB_TOKEN` на сервере.
@@ -70,11 +71,10 @@ BAD_AGENT_UPDATE_SYNC_ON_STARTUP=true
 # BAD_GITHUB_TOKEN=...   # только если repo private
 ```
 
-## Web UI (admin, read-only)
+## Web UI (admin)
 
-- Одна задача: просмотр парка и последнего inventory (+ статус mirrored MSI).
-- Без редактирования активов, графиков, ролей, «дашборд-шума».
-- Простой login по admin token; остальное — список + деталь.
+- Просмотр парка / inventory (+ статус mirrored MSI).
+- Редактирование: LDAP settings, agent policies, per-device config override — без «дашборд-шума» и без произвольных команд.
 - Сохранять существующий визуальный язык (`static/style.css`), не превращать в marketing landing.
 
 ## Агент
@@ -82,7 +82,8 @@ BAD_AGENT_UPDATE_SYNC_ON_STARTUP=true
 - Не добавлять UI в v1.
 - Сбой одного collector не валит весь снимок.
 - Atomic replace при записи `config.json`.
-- Интервалы по умолчанию: inventory 6h, heartbeat 15m, update check 24h.
+- Интервалы по умолчанию: inventory 6h, heartbeat 15m, update check 24h (могут быть переопределены remote config).
+- Remote settings применяются только к safe knobs; `server_url` / secrets не трогать.
 - Service CLI elevated: `BadAgent.exe service status|start|stop|restart` ([agents.md](agents.md)).
 - Self-update: download → sha256 → msiexec → exit (файлы разблокируются для MajorUpgrade).
 
@@ -95,13 +96,13 @@ BAD_AGENT_UPDATE_SYNC_ON_STARTUP=true
 
 ## Тесты
 
-- Сервер: pytest enroll → inventory → admin get + web login + agent-update check/sync fixtures.
-- Агент: xUnit на collector/schema, cleartext reject, semver/sha256, service CLI help/unknown.
-- Предпочитать узкие регрессии инвариантов (auth, schema, upsert, update compare), а не хрупкие snapshot-гиганты.
+- Сервер: pytest enroll → inventory → admin get + web login + agent-update + policy/override precedence.
+- Агент: xUnit на collector/schema, cleartext reject, semver/sha256, service CLI, ApplyRemoteSettings.
+- Предпочитать узкие регрессии инвариантов (auth, schema, upsert, update compare, config precedence), а не хрупкие snapshot-гиганты.
 
 ## Web UI
 
-- Задачи: просмотр парка/inventory + login + LDAP settings (admin).
+- Задачи: просмотр парка/inventory + login + LDAP + policies/overrides (admin).
 - Login: username/password (local first, optional LDAP). Не возвращать paste-admin-token gate.
 - Без редактирования активов, графиков, «дашборд-шума».
 - Сохранять существующий визуальный язык (`static/style.css`).

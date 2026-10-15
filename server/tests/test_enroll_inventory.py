@@ -10,7 +10,7 @@ def test_health(client: TestClient):
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "ok"
-    assert body["version"] == "0.2.0"
+    assert body["version"] == "0.3.0"
 
 
 def test_enroll_inventory_get_flow(client: TestClient):
@@ -137,7 +137,7 @@ def test_web_login_and_devices(client: TestClient):
         client,
         device_id="web-device",
         hostname="WEB-HOST",
-        agent_version="0.2.0",
+        agent_version="0.3.0",
     )
 
     denied = client.get("/devices", follow_redirects=False)

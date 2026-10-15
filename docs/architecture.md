@@ -1,6 +1,6 @@
 # Архитектура bAD
 
-**blazerity Asset Discovery** — Windows-агент инвентаризации и on-prem сервер накопления снимков. Документ описывает фактическую архитектуру репозитория в согласовании с [architecture-plan.md](architecture-plan.md). Версия продукта: **0.2.0**.
+**blazerity Asset Discovery** — Windows-агент инвентаризации и on-prem сервер накопления снимков. Документ описывает фактическую архитектуру репозитория в согласовании с [architecture-plan.md](architecture-plan.md). Версия продукта: **0.3.0**.
 
 ## Компоненты
 
@@ -33,13 +33,30 @@ flowchart LR
 ## Клиент (агент)
 
 - Установка: MSI → `%ProgramFiles%\blazerity\bAD\`, служба auto-start под LocalSystem.
-- Конфиг: `%ProgramData%\blazerity\bAD\config.json` (`server_url`, `enrollment_token` временно, `api_key`, `device_id`, интервалы, `update_*`).
-- Жизненный цикл: при старте enroll (если нет API key) → check update → полный inventory → heartbeat каждые 15 мин, inventory каждые 6 ч, update check каждые 24 ч (конфиг).
+- Конфиг: `%ProgramData%\blazerity\bAD\config.json` (`server_url`, `enrollment_token` временно, `api_key`, `device_id`, интервалы, `update_*`, `remote_config_version`).
+- Жизненный цикл: при старте enroll (если нет API key) → check update → полный inventory → heartbeat (с подтягиванием remote config) → циклы по эффективным интервалам.
+- Remote config: сервер считает effective settings (defaults &lt; matching policies &lt; per-device override); агент применяет только safe knobs, сохраняет в `config.json`. Секреты / `server_url` / `device_id` с сервера не принимаются.
 - `device_id`: MachineGuid (registry), fallback SMBIOS UUID.
 - Collectors: WMI/CIM + .NET; сбой секции → `null` + запись в `collector_errors[]`.
 - HTTPS only; cleartext `http://` отклоняется (кроме явного `BAD_ALLOW_HTTP=1` для локальной разработки).
 - `User-Agent: bad-agent/<semver>`; в payload поле `agent_version`.
 - Service CLI: `BadAgent.exe service status|start|stop|restart` (elevated); без подкоманды — host службы. См. [agents.md](agents.md).
+
+## Удалённые настройки агента
+
+```mermaid
+flowchart LR
+  DEF["defaults"] --> POL["matching policies\n(by priority)"]
+  POL --> OV["device override"]
+  OV --> EFF["effective settings"]
+  EFF --> API["GET /v1/agent/config\nor heartbeat.config"]
+  API --> AG["BadAgent config.json"]
+```
+
+- SQLite: `agent_policies` (name, priority, conditions JSON, settings JSON), `device_config_overrides` (per `device_id`).
+- Условия: `hostname` / `domain` / `os_caption` × `equals` / `contains` (AND внутри политики).
+- Safe knobs: `inventory_interval_hours`, `heartbeat_interval_minutes`, `update_check_interval_hours`, `update_enabled`.
+- Web: `/settings/policies`; на странице устройства — effective + manual override.
 
 ## Поток обновления агента
 
@@ -82,14 +99,18 @@ flowchart LR
 |--------|------|------|------------|
 | `GET` | `/v1/health` | нет | liveness + `version` |
 | `POST` | `/v1/enroll` | enrollment Bearer | обмен на per-agent API key |
-| `POST` | `/v1/heartbeat` | API key | `last_seen`, `agent_version` |
+| `POST` | `/v1/heartbeat` | API key | `last_seen`; piggyback `config` если `config_version` устарел |
 | `POST` | `/v1/inventory` | API key | upsert снимка по `device_id` |
+| `GET` | `/v1/agent/config` | API key | effective settings только для своего устройства |
 | `GET` | `/v1/devices` | admin Bearer | список устройств |
 | `GET` | `/v1/devices/{device_id}` | admin Bearer | meta + последний inventory |
 | `GET` | `/v1/agent/update/check` | API key | `{update_available, version, sha256, url}` |
 | `GET` | `/v1/agent/update/msi` | API key | байты зеркалированного MSI |
 | `GET` | `/v1/admin/agent-update` | admin | статус зеркала |
 | `POST` | `/v1/admin/agent-update/sync` | admin | sync с GitHub сейчас |
+| `GET/POST/PUT/DELETE` | `/v1/admin/policies*` | admin | CRUD условных политик |
+| `GET` | `/v1/admin/devices/{id}/config` | admin | effective + override + matched |
+| `PUT/DELETE` | `/v1/admin/devices/{id}/config-override` | admin | ручной override |
 
 - `schema_version` сейчас `1`; неизвестные версии → `400`.
 - Секреты сайта: enrollment и admin tokens (разные); в БД хранятся hash (argon2).
@@ -108,7 +129,8 @@ flowchart LR
 |------|------------|
 | `/login` | username/password (local, затем LDAP если включён) |
 | `/logout` | сброс cookie сессии |
-| `/devices`, `/devices/{id}` | read-only просмотр; требуют session cookie `bad_session` |
+| `/devices`, `/devices/{id}` | просмотр inventory; admin может задать config override |
+| `/settings/policies` | CRUD условных политик remote config (admin) |
 | `/settings/ldap` | CRUD LDAP + Test connection; только role `admin` |
 | `/account/password` | смена пароля локального пользователя |
 
