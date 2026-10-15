@@ -26,7 +26,7 @@
 - Агент отклоняет `http://` без явного opt-in для dev.
 - На сервере: hash секретов (argon2), файл БД `0600`, site.env `640` root:bad; каталог бэкапов — как секреты (`700` / файлы `600`).
 - **SEC-005:** `data_key` / `session_secret` по умолчанию в той же SQLite → копия БД или daily backup = полный компромисс SMTP/LDAP bind и session cookies. Вынос master key в `BAD_DATA_KEY` (файл вне БД, права `440`/`400` root:bad) — единственный способ разорвать эту связку; пока ключ в БД — не шарить бэкапы. Операторский чеклист: [operator-guide.md](operator-guide.md#безопасность-для-операторов).
-- **SEC-011:** MSI write-config не кладёт token в argv PowerShell (HKLM Setup); residual — родительский `msiexec … ENROLLMENTTOKEN=` / verbose logs — не пересылать; после волны ротировать site enrollment token.
+- **SEC-011:** MSI write-config не кладёт token в argv PowerShell (HKLM Setup); residual — родительский `msiexec … ENROLLMENTTOKEN=` / verbose logs — не пересылать; после волны ротировать site enrollment token (UI в **0.10**, runbook: [operator-guide.md](operator-guide.md#ротация-enrollment-token-после-волны-msi)).
 - **SEC-003:** LDAP TLS — по умолчанию `CERT_REQUIRED`; lab opt-in `tls_insecure` только для лаборатории, не для боя.
 - После install **сразу** сменить `admin`/`admin` (`/account/password`); до смены UI пускает только `/account/password` и `/logout` (навигация скрыта).
 - Cookie `bad_session` — только за HTTPS (nginx TLS + Secure в prod); uvicorn не наружу.
@@ -90,10 +90,12 @@ BAD_BACKUP_DIR=/var/lib/bad/backups
   - Доступ / LDAP (`allowed_group` = sAMAccountName группы AD)
   - Почта и уведомления (SMTP + чекбоксы событий; без webhooks)
   - Хранение и очистка (retention days + фоновый prune)
-  - Резервные копии (ежедневный SQLite backup, today+yesterday)
-  - Политики агента
-  - Обновления агента (зеркало MSI)
+  - Резервные копии (daily SQLite + **Скачать site bundle**; restore `restore-site-bundle.sh`)
+  - Политики агента (`update_target`: latest / pin)
+  - Обновления агента (каталог MSI, «Подгрузить в зеркало», Latest; секция Enrollment + «Сменить enrollment token»)
+- **Обзор** (0.10): empty mirror, version drift, broken pin, revoked active.
 - Login: local first, optional LDAP; local admin — break-glass. Не возвращать paste-admin-token gate.
+- Операторский runbook 0.10: [operator-guide.md](operator-guide.md).
 
 ## Агент
 
