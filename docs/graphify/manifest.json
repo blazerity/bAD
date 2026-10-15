@@ -1,6 +1,0 @@
-{
-  "built_from_commit": "65f44f2aacad11fda89f72fd1b1ea084439825af",
-  "tool": "graphifyy",
-  "mode": "code-only + cluster-only --no-label",
-  "note": "After CLI bad reports (BadCli, writers, ADDPATH docs)"
-}
