@@ -78,3 +78,6 @@ Desktop.ini
 *.swp
 *.swo
 *~
+
+# Graphify local build
+graphify-out/
