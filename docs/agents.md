@@ -116,8 +116,14 @@ Heartbeat health (опционально → meta устройства): `last_i
 ### Offline queue / revoke (0.9.1)
 
 - Недоступный сервер → `%ProgramData%\blazerity\bAD\queue\` + backoff (`OfflineQueue`).
-- 401/403 → очистить `api_key`, оставить `device_id`, Event Log, не постить до re-enroll/reinstall (`Worker.HandleAuthFailure`).
+- 401/403 → очистить `api_key`, оставить `device_id`, Event Log, не постить до re-enroll/reinstall (`Worker.HandleAuthFailureAsync`).
 - Крупные сбои enroll/update/revoke → Application log, source `bAD Agent`.
+
+### Security harden (0.9.1)
+
+- **SEC-002:** `msi_name` из update/check — только safe basename; путь обязан остаться в temp (`UpdatePathUtil.ResolveSafeMsiPath`).
+- **SEC-009:** download MSI — только relative / same-origin к `server_url`; чужой absolute URL отвергается (`UpdatePathUtil.ResolveSameOriginUpdateUrl`).
+- **SEC-011:** MSI write-config читает enrollment token из HKLM `…\Setup` (не argv PowerShell); residual risk родителя `msiexec … ENROLLMENTTOKEN=` — в `installer/msi/README.md`.
 
 ## Где живёт версия (bump checklist)
 

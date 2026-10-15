@@ -8,13 +8,16 @@
     Copy-Item .\cleanup-uninstall.ps1 .\publish\
     Copy-Item .\bad-paths.ps1 .\publish\
     Copy-Item .\bad.cmd .\publish\
-    wix build Product.wxs -d AgentPublishDir=publish -d ProductVersion=0.9.0 -o bad-agent-0.9.0.msi
+    wix build Product.wxs -d AgentPublishDir=publish -d ProductVersion=0.9.1 -o bad-agent-0.9.1.msi
 
   Публичные свойства (msiexec):
     SERVERURL=https://bad.example.com
     ENROLLMENTTOKEN=<site enrollment token>
     ADDPATH=1   (опционально; по умолчанию 0 / отсутствует = не менять PATH)
                 При 1: добавить INSTALLFOLDER в Machine PATH, чтобы `bad` (shim bad.cmd) работал из cmd.exe / Win+R.
+
+  SEC-011: ENROLLMENTTOKEN / SERVERURL пишутся в HKLM\SOFTWARE\blazerity\bAD\Setup через RegistryValue
+  (не в argv deferred PowerShell). write-config.ps1 читает Setup и сразу удаляет ключ.
 
   Upgrade сохраняет %ProgramData%\blazerity\bAD\ (API key / device_id) — Permanent CreateFolder.
   Полный uninstall: ServiceControl Stop+Remove; Program Files; cleanup-uninstall.ps1 чистит
@@ -23,7 +26,7 @@
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <?ifndef ProductVersion?>
-    <?define ProductVersion = "0.9.0" ?>
+    <?define ProductVersion = "0.9.1" ?>
   <?endif?>
 
   <Package
@@ -107,7 +110,10 @@
           KeyPath="yes" />
     </Component>
 
-    <!-- Custom action пишет конфиг в ProgramData из публичных свойств, не вшивая секреты в бинарник MSI -->
+    <!--
+      WriteConfig: маркер + временный Setup (SERVERURL / ENROLLMENTTOKEN) через RegistryValue.
+      Не передаём token в argv PowerShell (SEC-011). write-config.ps1 удаляет Setup после чтения.
+    -->
     <Component Id="WriteConfig" Directory="BADDATA" Guid="BADA0005-BADA-4B01-8BAD-BLAZERITY0BAD">
       <RegistryValue
           Root="HKLM"
@@ -116,6 +122,18 @@
           Type="integer"
           Value="1"
           KeyPath="yes" />
+      <RegistryValue
+          Root="HKLM"
+          Key="SOFTWARE\blazerity\bAD\Setup"
+          Name="ServerUrl"
+          Type="string"
+          Value="[SERVERURL]" />
+      <RegistryValue
+          Root="HKLM"
+          Key="SOFTWARE\blazerity\bAD\Setup"
+          Name="EnrollmentToken"
+          Type="string"
+          Value="[ENROLLMENTTOKEN]" />
     </Component>
 
     <!--
@@ -141,8 +159,9 @@
           KeyPath="yes" />
     </Component>
 
+    <!-- Без SERVERURL/ENROLLMENTTOKEN в командной строке — только путь к скрипту. -->
     <SetProperty Id="WriteConfigCmd"
-                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]write-config.ps1&quot; -ServerUrl &quot;[SERVERURL]&quot; -EnrollmentToken &quot;[ENROLLMENTTOKEN]&quot;"
+                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]write-config.ps1&quot;"
                  Sequence="execute"
                  Before="WriteConfigAction" />
 
@@ -169,7 +188,8 @@
         Return="ignore" />
 
     <InstallExecuteSequence>
-      <Custom Action="WriteConfigAction" After="InstallFiles">NOT REMOVE</Custom>
+      <!-- После WriteRegistryValues, чтобы Setup\EnrollmentToken уже был в HKLM. -->
+      <Custom Action="WriteConfigAction" After="WriteRegistryValues">NOT REMOVE</Custom>
       <!-- После StopServices / до RemoveFiles, пока cleanup-uninstall.ps1 ещё на диске. -->
       <Custom Action="CleanupUninstallAction" Before="RemoveFiles">REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE</Custom>
     </InstallExecuteSequence>
