@@ -11,7 +11,7 @@ agent/                 # .NET 8 Worker + tests + service CLI
 server/                # FastAPI app + agent-update mirror
   bad_server/          # пакет приложения
   tests/               # pytest (не игнорировать в git — только кэши)
-installer/msi/         # WiX Product.wxs, write-config.ps1
+installer/msi/         # WiX Product.wxs, write-config.ps1, bad.cmd
 deploy/debian/         # install.sh, systemd/, nginx/
 docs/                  # операторские и архитектурные документы
 VERSION                # канонический semver продукта (сейчас 0.4.0)
@@ -63,18 +63,26 @@ dotnet run --project src/BadAgent -c Release
 
 На Windows в проде — только MSI + HTTPS.
 
-## Service CLI
+## Local CLI (`bad`) и Service CLI
 
-Тот же `BadAgent.exe`. Если первый аргумент `service` — CLI (нужен elevated / Administrator), иначе — host Windows Service.
+Тот же `BadAgent.exe` (shim `bad.cmd` рядом в MSI). Режим:
+
+1. `service …` — управление службой (elevated).
+2. Интерактивный запуск (консоль / Win+R) — локальные отчёты inventory (**без** обращения к серверу).
+3. Запуск SCM — Windows Service host (без изменений).
 
 ```powershell
-BadAgent.exe service status    # name=BlazerityAssetDiscovery + running/stopped
-BadAgent.exe service start
-BadAgent.exe service stop
-BadAgent.exe service restart
+bad                     # ASCII-отчёт (то же: bad report | bad info)
+bad -h [path]           # HTML на Desktop или в path (то же: --html)
+bad -?                  # справка (--help)
+BadAgent.exe service status|start|stop|restart
 ```
 
-Реализация: `System.ServiceProcess.ServiceController`. На Linux команды управления возвращают ошибку (unit-тесты покрывают help/unknown/non-Windows).
+Учитываются `collect_*` из `%ProgramData%\blazerity\bAD\config.json`. Код: `BadCli`, `AsciiReportWriter`, `HtmlReportWriter`, `ReportPathResolver`.
+
+Опционально MSI `ADDPATH=1` добавляет каталог установки в Machine PATH (по умолчанию PATH не трогаем).
+
+Реализация service: `System.ServiceProcess.ServiceController`. На Linux команды управления возвращают ошибку (unit-тесты покрывают help/unknown/non-Windows).
 
 ## Self-update (агент ← сервер ← GitHub)
 
@@ -143,7 +151,7 @@ Heartbeat health (optional → device meta): `last_inventory_ok`, `last_inventor
 
 - Источники: `installer/msi/Product.wxs`, `write-config.ps1`.
 - Сборка **только на Windows** (локально или GHA `release-msi`): см. `installer/msi/README.md`.
-- Public properties: `SERVERURL`, `ENROLLMENTTOKEN` → пишутся в ProgramData custom action’ом.
+- Public properties: `SERVERURL`, `ENROLLMENTTOKEN` → ProgramData; optional `ADDPATH=1` → Machine PATH + `bad.cmd`.
 - UpgradeCode фиксирован; major upgrade, ProgramData не сносить (`Permanent`).
 - Артефакт: `bad-agent-0.4.0.msi` + `agent-release.json`.
 
@@ -169,8 +177,10 @@ Heartbeat health (optional → device meta): `last_inventory_ok`, `last_inventor
 | Worker loop | `agent/src/BadAgent/Worker.cs` |
 | Self-update | `agent/src/BadAgent/AgentUpdater.cs` |
 | Service CLI | `agent/src/BadAgent/ServiceCli.cs` |
+| Local CLI / reports | `BadCli.cs`, `AsciiReportWriter.cs`, `HtmlReportWriter.cs` |
 | HTTP client | `agent/src/BadAgent/BadApiClient.cs` |
 | Collectors | `agent/src/BadAgent/InventoryCollector.cs` |
+| MSI PATH shim | `installer/msi/bad.cmd`, `ADDPATH` in `Product.wxs` |
 | Release MSI | `.github/workflows/release-msi.yml` |
 | План (locked) | `docs/architecture-plan.md` |
 | Оператор | `docs/operator-guide.md` |
@@ -210,7 +220,7 @@ Seed default admin только если `COUNT(local_users)=0`.
 
 - Источники: `installer/msi/Product.wxs`, `write-config.ps1`.
 - Сборка **только на Windows** (WiX): см. `installer/msi/README.md`.
-- Public properties: `SERVERURL`, `ENROLLMENTTOKEN` → пишутся в ProgramData custom action’ом.
+- Public properties: `SERVERURL`, `ENROLLMENTTOKEN`; optional `ADDPATH=1` for Machine PATH + `bad.cmd`.
 - UpgradeCode фиксирован; major upgrade, ProgramData не сносить.
 - Артефакт: `bad-agent-0.4.0.msi` (имя по semver).
 

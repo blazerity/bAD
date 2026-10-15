@@ -29,8 +29,9 @@ dotnet publish ..\..\agent\src\BadAgent\BadAgent.csproj `
   -p:Version=0.4.0 `
   -o .\publish
 
-# 3. Copy write-config.ps1 next to the published exe
+# 3. Copy write-config.ps1 + bad.cmd shim next to the published exe
 Copy-Item .\write-config.ps1 .\publish\
+Copy-Item .\bad.cmd .\publish\
 
 # 4. Build MSI (Product.wxs harvests publish\** via <Files>)
 wix build Product.wxs `
@@ -48,7 +49,19 @@ msiexec /i bad-agent-0.4.0.msi `
   /qn
 ```
 
-Silent self-update from the agent uses the same MajorUpgrade path. WiX `ServiceControl` stops `BlazerityAssetDiscovery` before file replace and starts it after install. `%ProgramData%\blazerity\bAD\config.json` (API key + device_id) is preserved (`Permanent` ProgramData component).
+Optional: add install dir to **Machine PATH** so the `bad` command works from cmd.exe / Win+R (`bad.cmd` shim → `BadAgent.exe`). Default is **off** (`ADDPATH=0` / omitted).
+
+```powershell
+msiexec /i bad-agent-0.4.0.msi `
+  SERVERURL=https://bad.example.com `
+  ENROLLMENTTOKEN=your-enrollment-token `
+  ADDPATH=1 `
+  /qn
+```
+
+Public properties: `SERVERURL`, `ENROLLMENTTOKEN`, `ADDPATH` (optional).
+
+Silent self-update from the agent uses the same MajorUpgrade path. WiX `ServiceControl` stops `BlazerityAssetDiscovery` before file replace and starts it after install. `%ProgramData%\blazerity\bAD\config.json` (API key + device_id) is preserved (`Permanent` ProgramData component). PATH entry from `ADDPATH=1` is removed on uninstall.
 
 ## Cut a release
 

@@ -60,9 +60,17 @@ msiexec /i bad-agent-0.4.0.msi `
   /qn
 ```
 
-The service `BlazerityAssetDiscovery` starts automatically, enrolls once, stores the API key under `%ProgramData%\blazerity\bAD\config.json`, and sends inventory on start (then every 6 hours) with heartbeats every 15 minutes.
+Optional PATH for local `bad` CLI (default off):
 
-The service `BlazerityAssetDiscovery` starts automatically, enrolls once, stores the API key under `%ProgramData%\blazerity\bAD\config.json`, and sends inventory on start (then every 6 hours) with heartbeats every 15 minutes. It also checks the server for MSI updates (never GitHub directly). Service CLI: `BadAgent.exe service status|start|stop|restart` (elevated). See [agents.md](./agents.md).
+```powershell
+msiexec /i bad-agent-0.4.0.msi `
+  SERVERURL=https://bad.example.com `
+  ENROLLMENTTOKEN=<enrollment-token-from-install> `
+  ADDPATH=1 `
+  /qn
+```
+
+The service `BlazerityAssetDiscovery` starts automatically, enrolls once, stores the API key under `%ProgramData%\blazerity\bAD\config.json`, and sends inventory on start (then every 6 hours) with heartbeats every 15 minutes. It also checks the server for MSI updates (never GitHub directly). Local CLI (no server needed): `bad` / `bad -h` / `bad -?`. Service CLI: `BadAgent.exe service status|start|stop|restart` (elevated). See [agents.md](./agents.md).
 
 ## 3. Confirm in the web UI
 

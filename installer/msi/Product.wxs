@@ -5,11 +5,14 @@
 
     dotnet publish ..\..\agent\src\BadAgent\BadAgent.csproj -c Release -r win-x64 --self-contained true -o .\publish
     Copy-Item .\write-config.ps1 .\publish\
+    Copy-Item .\bad.cmd .\publish\
     wix build Product.wxs -d AgentPublishDir=publish -d ProductVersion=0.4.0 -o bad-agent-0.4.0.msi
 
   Public properties (msiexec):
     SERVERURL=https://bad.example.com
     ENROLLMENTTOKEN=<site enrollment token>
+    ADDPATH=1   (optional; default 0 / absent = do not modify PATH)
+                When 1: append INSTALLFOLDER to Machine PATH so `bad` (bad.cmd shim) works from cmd.exe / Win+R.
 
   Upgrade preserves %ProgramData%\blazerity\bAD\ (API key / device_id).
   ServiceControl stops BlazerityAssetDiscovery before replacing files and starts it after install.
@@ -34,12 +37,15 @@
 
     <Property Id="SERVERURL" Secure="yes" />
     <Property Id="ENROLLMENTTOKEN" Secure="yes" Hidden="yes" />
+    <!-- Optional PATH: default absent/0 = do not modify Machine PATH. Pass ADDPATH=1 to enable. -->
+    <Property Id="ADDPATH" Secure="yes" Value="0" />
 
     <Feature Id="Main" Title="bAD Agent" Level="1">
       <ComponentGroupRef Id="AgentFiles" />
       <ComponentRef Id="AgentService" />
       <ComponentRef Id="ProgramDataDir" />
       <ComponentRef Id="WriteConfig" />
+      <ComponentRef Id="AddPath" />
     </Feature>
 
     <StandardDirectory Id="ProgramFiles64Folder">
@@ -54,7 +60,7 @@
       </Directory>
     </StandardDirectory>
 
-    <!-- Harvest all published artifacts (exe + deps + write-config.ps1). -->
+    <!-- Harvest all published artifacts (exe + deps + write-config.ps1 + bad.cmd). -->
     <ComponentGroup Id="AgentFiles" Directory="INSTALLFOLDER">
       <Files Include="$(AgentPublishDir)\**" />
     </ComponentGroup>
@@ -98,6 +104,29 @@
           Root="HKLM"
           Key="SOFTWARE\blazerity\bAD"
           Name="Configured"
+          Type="integer"
+          Value="1"
+          KeyPath="yes" />
+    </Component>
+
+    <!--
+      Optional Machine PATH: only when msiexec … ADDPATH=1.
+      Appends INSTALLFOLDER so bad.cmd (shim → BadAgent.exe) is found as `bad`.
+      Permanent="no" removes the PATH entry on uninstall.
+    -->
+    <Component Id="AddPath" Directory="INSTALLFOLDER" Guid="BADA0006-BADA-4B01-8BAD-BLAZERITY0BAD" Condition="ADDPATH=&quot;1&quot;">
+      <Environment
+          Id="BadPath"
+          Name="PATH"
+          Value="[INSTALLFOLDER]"
+          Permanent="no"
+          Part="last"
+          Action="set"
+          System="yes" />
+      <RegistryValue
+          Root="HKLM"
+          Key="SOFTWARE\blazerity\bAD"
+          Name="AddPath"
           Type="integer"
           Value="1"
           KeyPath="yes" />
