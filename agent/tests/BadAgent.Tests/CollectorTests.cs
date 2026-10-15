@@ -8,11 +8,11 @@ public class CollectorTests
     public void InventoryCollector_ProducesSchemaVersion2()
     {
         var collector = new InventoryCollector();
-        var snap = collector.Collect("test-device-id", "0.4.0");
+        var snap = collector.Collect("test-device-id", "0.5.0");
 
         Assert.Equal(2, snap.SchemaVersion);
         Assert.Equal("test-device-id", snap.DeviceId);
-        Assert.Equal("0.4.0", snap.AgentVersion);
+        Assert.Equal("0.5.0", snap.AgentVersion);
         Assert.False(string.IsNullOrWhiteSpace(snap.CollectedAt));
         Assert.NotNull(snap.Host);
         Assert.False(string.IsNullOrWhiteSpace(snap.Host!.Hostname));
@@ -29,7 +29,7 @@ public class CollectorTests
         var collector = new InventoryCollector();
         var snap = collector.Collect(
             "dev-skip",
-            "0.4.0",
+            "0.5.0",
             new CollectorOptions
             {
                 CollectHardware = false,
@@ -54,7 +54,7 @@ public class CollectorTests
             var collector = new InventoryCollector();
             var snap = collector.Collect(
                 "dev-sw",
-                "0.4.0",
+                "0.5.0",
                 new CollectorOptions { CollectSoftware = true });
             // On Windows we may get a list (or empty after filters); must not crash.
             Assert.NotNull(snap.Software);
@@ -68,7 +68,7 @@ public class CollectorTests
 
         var linuxSnap = new InventoryCollector().Collect(
             "dev-sw",
-            "0.4.0",
+            "0.5.0",
             new CollectorOptions { CollectSoftware = true });
         Assert.NotNull(linuxSnap.Software);
         Assert.Null(linuxSnap.Software!.Programs);
@@ -88,7 +88,7 @@ public class CollectorTests
     [Fact]
     public void BadApiClient_RejectsCleartextHttp()
     {
-        Assert.Throws<InvalidOperationException>(() => new BadApiClient("http://evil.example.com", "0.4.0"));
+        Assert.Throws<InvalidOperationException>(() => new BadApiClient("http://evil.example.com", "0.5.0"));
     }
 
     [Fact]

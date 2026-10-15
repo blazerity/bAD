@@ -161,7 +161,7 @@ public class CliReportTests
     {
         SchemaVersion = 2,
         DeviceId = "dev-sample",
-        AgentVersion = "0.4.0",
+        AgentVersion = "0.5.0",
         CollectedAt = "2026-10-15T17:00:00Z",
         Host = new HostInfo
         {

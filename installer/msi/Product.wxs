@@ -6,7 +6,7 @@
     dotnet publish ..\..\agent\src\BadAgent\BadAgent.csproj -c Release -r win-x64 --self-contained true -o .\publish
     Copy-Item .\write-config.ps1 .\publish\
     Copy-Item .\bad.cmd .\publish\
-    wix build Product.wxs -d AgentPublishDir=publish -d ProductVersion=0.4.0 -o bad-agent-0.4.0.msi
+    wix build Product.wxs -d AgentPublishDir=publish -d ProductVersion=0.5.0 -o bad-agent-0.5.0.msi
 
   Public properties (msiexec):
     SERVERURL=https://bad.example.com
@@ -19,7 +19,7 @@
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <?ifndef ProductVersion?>
-    <?define ProductVersion = "0.4.0" ?>
+    <?define ProductVersion = "0.5.0" ?>
   <?endif?>
 
   <Package
