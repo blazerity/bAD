@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import FileResponse
 
 from . import __version__
+from .agent_update import check_update, sync_from_github
 from .auth import get_db, require_admin_token, require_api_key, require_enrollment_token
 from .config import Settings, get_settings
 from .db import Database
@@ -118,3 +121,69 @@ def get_device(
     if not detail:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
     return detail
+
+
+@router.get("/agent/update/check")
+def agent_update_check(
+    current: str = Query(default="", max_length=64),
+    _device=Depends(require_api_key),
+    db: Database = Depends(get_db),
+) -> dict[str, Any]:
+    """Agents ask whether a newer MSI is mirrored on this server."""
+    return check_update(db, current=current or "0.0.0")
+
+
+@router.get("/agent/update/msi")
+def agent_update_msi(
+    _device=Depends(require_api_key),
+    db: Database = Depends(get_db),
+) -> FileResponse:
+    """Download the mirrored MSI bytes (auth: agent API key)."""
+    mirrored = db.get_agent_update()
+    if not mirrored:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No agent update mirrored yet",
+        )
+    path = Path(mirrored["file_path"])
+    if not path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Mirrored MSI file missing on disk",
+        )
+    return FileResponse(
+        path,
+        media_type="application/octet-stream",
+        filename=mirrored["msi_name"],
+    )
+
+
+@router.get("/admin/agent-update")
+def admin_agent_update_status(
+    _admin: str = Depends(require_admin_token),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    mirrored = db.get_agent_update()
+    return {
+        "github_repo": settings.github_repo,
+        "updates_dir": str(settings.agent_updates_dir),
+        "sync_interval_seconds": settings.agent_update_sync_interval_seconds,
+        "mirrored": mirrored,
+    }
+
+
+@router.post("/admin/agent-update/sync")
+def admin_agent_update_sync(
+    _admin: str = Depends(require_admin_token),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    try:
+        record = sync_from_github(db, settings)
+    except Exception as exc:  # noqa: BLE001 — surface sync errors to admin
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"GitHub sync failed: {exc}",
+        ) from exc
+    return {"status": "ok", "mirrored": record}

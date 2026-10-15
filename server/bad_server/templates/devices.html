@@ -4,6 +4,16 @@
 <section>
   <h1>Devices</h1>
   <p class="muted">Read-only inventory view. {{ devices|length }} enrolled.</p>
+  <p class="muted">
+    Mirrored agent MSI:
+    {% if agent_update %}
+      <strong>{{ agent_update.version }}</strong>
+      ({{ agent_update.msi_name }}, synced {{ agent_update.synced_at }})
+    {% else %}
+      <em>none yet</em> — sync from GitHub
+      (<code>POST /v1/admin/agent-update/sync</code>, repo {{ github_repo }})
+    {% endif %}
+  </p>
   {% if not devices %}
   <p>No devices yet. Install the Windows agent with SERVERURL and ENROLLMENTTOKEN.</p>
   {% else %}

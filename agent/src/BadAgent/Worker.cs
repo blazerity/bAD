@@ -4,14 +4,20 @@ public sealed class Worker : BackgroundService
 {
     private readonly ILogger<Worker> _logger;
     private readonly IInventoryCollector _collector;
+    private readonly IHostApplicationLifetime _lifetime;
     private readonly string _agentVersion;
     private DateTime? _lastInventoryAt;
     private DateTime _authBackoffUntil = DateTime.MinValue;
+    private DateTime _nextUpdateCheck = DateTime.MinValue;
 
-    public Worker(ILogger<Worker> logger, IInventoryCollector collector)
+    public Worker(
+        ILogger<Worker> logger,
+        IInventoryCollector collector,
+        IHostApplicationLifetime lifetime)
     {
         _logger = logger;
         _collector = collector;
+        _lifetime = lifetime;
         _agentVersion = typeof(Worker).Assembly.GetName().Version?.ToString(3) ?? "0.2.0";
     }
 
@@ -26,7 +32,9 @@ public sealed class Worker : BackgroundService
             ConfigStore.Save(config);
         }
 
-        // Startup inventory + heartbeat loop
+        // Check for updates on start (then per update_check_interval_hours).
+        _nextUpdateCheck = DateTime.UtcNow;
+
         var inventoryEvery = TimeSpan.FromHours(Math.Max(1, config.InventoryIntervalHours));
         var heartbeatEvery = TimeSpan.FromMinutes(Math.Max(1, config.HeartbeatIntervalMinutes));
 
@@ -56,6 +64,20 @@ public sealed class Worker : BackgroundService
                 }
 
                 using var client = new BadApiClient(config.ServerUrl, _agentVersion);
+
+                if (DateTime.UtcNow >= _nextUpdateCheck)
+                {
+                    var updater = new AgentUpdater(_logger, _agentVersion);
+                    var applying = await updater.CheckAndApplyAsync(client, config, stoppingToken);
+                    var updateEvery = TimeSpan.FromHours(Math.Max(1, config.UpdateCheckIntervalHours));
+                    _nextUpdateCheck = DateTime.UtcNow + updateEvery;
+                    if (applying)
+                    {
+                        _logger.LogInformation("Exiting so MSI upgrade can replace agent files");
+                        _lifetime.StopApplication();
+                        return;
+                    }
+                }
 
                 if (DateTime.UtcNow >= nextInventory)
                 {

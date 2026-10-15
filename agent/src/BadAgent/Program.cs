@@ -1,6 +1,12 @@
 using BadAgent;
 using Serilog;
 
+// CLI: BadAgent.exe service status|start|stop|restart (elevated). Otherwise run Windows Service host.
+if (args.Length > 0 && string.Equals(args[0], "service", StringComparison.OrdinalIgnoreCase))
+{
+    return ServiceCli.Run(args.AsSpan(1).ToArray());
+}
+
 Directory.CreateDirectory(ConfigStore.LogsDir);
 
 Log.Logger = new LoggerConfiguration()
@@ -17,7 +23,7 @@ try
     var builder = Host.CreateApplicationBuilder(args);
     builder.Services.AddWindowsService(options =>
     {
-        options.ServiceName = "BlazerityAssetDiscovery";
+        options.ServiceName = ServiceCli.ServiceName;
     });
     builder.Services.AddSerilog();
     builder.Services.AddSingleton<IInventoryCollector, InventoryCollector>();
@@ -25,6 +31,7 @@ try
 
     var host = builder.Build();
     host.Run();
+    return 0;
 }
 catch (Exception ex)
 {

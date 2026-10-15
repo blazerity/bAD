@@ -1,0 +1,143 @@
+# Build Windows agent MSI with WiX and publish to a GitHub Release.
+# Triggers: tag v* (e.g. v0.2.0) or manual workflow_dispatch.
+#
+# Required permissions: contents: write (create/update Release + upload assets).
+# Secrets: none for a public repo — GITHUB_TOKEN is sufficient.
+# Optional later: signing cert secrets (not wired yet).
+#
+# Bootstrap notes (WiX v5 via .NET tool):
+#   - Runs on windows-latest
+#   - `dotnet tool install --global wix --version 5.0.2`
+#   - Harvests published agent files via Product.wxs <Files Include=...>
+#   - First successful tag build produces the first downloadable MSI
+
+name: release-msi
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Semver without leading v (e.g. 0.2.0). Defaults to tag or csproj Version."
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-msi:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Resolve version
+        id: ver
+        run: |
+          $input = "${{ github.event.inputs.version }}".Trim()
+          if ($input) {
+            $version = $input.TrimStart('v', 'V')
+          } elseif ($env:GITHUB_REF_TYPE -eq "tag" -and $env:GITHUB_REF_NAME -match '^v(.+)$') {
+            $version = $Matches[1]
+          } else {
+            [xml]$csproj = Get-Content agent/src/BadAgent/BadAgent.csproj
+            $version = $csproj.Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+            if (-not $version) { $version = "0.2.0" }
+          }
+          if ($version -notmatch '^\d+\.\d+\.\d+') {
+            throw "Version must look like major.minor.patch, got: $version"
+          }
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "tag=v$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "msi_name=bad-agent-$version.msi" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Resolved version=$version"
+
+      - name: Publish agent (win-x64 self-contained)
+        run: |
+          $out = "installer/msi/publish"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          dotnet publish agent/src/BadAgent/BadAgent.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:Version=${{ steps.ver.outputs.version }} `
+            -o $out
+          Copy-Item installer/msi/write-config.ps1 $out -Force
+
+      - name: Install WiX toolset (dotnet tool)
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          echo "$env:USERPROFILE\.dotnet\tools" | Out-File -FilePath $env:GITHUB_PATH -Append
+          wix --version
+
+      - name: Build MSI
+        working-directory: installer/msi
+        run: |
+          $msi = "${{ steps.ver.outputs.msi_name }}"
+          wix build Product.wxs `
+            -d AgentPublishDir=publish `
+            -d ProductVersion=${{ steps.ver.outputs.version }} `
+            -o $msi
+          if (-not (Test-Path $msi)) { throw "MSI not produced: $msi" }
+
+      - name: Write agent-release.json + SHA256
+        working-directory: installer/msi
+        run: |
+          $msi = "${{ steps.ver.outputs.msi_name }}"
+          $hash = (Get-FileHash -Algorithm SHA256 -Path $msi).Hash.ToLowerInvariant()
+          $manifest = [ordered]@{
+            version  = "${{ steps.ver.outputs.version }}"
+            msi_name = $msi
+            sha256   = $hash
+          }
+          $manifest | ConvertTo-Json -Compress | Set-Content -Path agent-release.json -Encoding utf8
+          Get-Content agent-release.json
+          Write-Host "sha256=$hash"
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bad-agent-msi-${{ steps.ver.outputs.version }}
+          path: |
+            installer/msi/${{ steps.ver.outputs.msi_name }}
+            installer/msi/agent-release.json
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ steps.ver.outputs.tag }}"
+          $version = "${{ steps.ver.outputs.version }}"
+          $msi = "installer/msi/${{ steps.ver.outputs.msi_name }}"
+          $json = "installer/msi/agent-release.json"
+          $title = "bAD agent $version"
+          $notes = @"
+          ## bAD agent $version
+
+          - MSI: ``${{ steps.ver.outputs.msi_name }}``
+          - Manifest: ``agent-release.json`` (version, msi_name, sha256)
+
+          Install (elevated):
+          ``````powershell
+          msiexec /i ${{ steps.ver.outputs.msi_name }} SERVERURL=https://bad.example.com ENROLLMENTTOKEN=<token> /qn
+          ``````
+
+          The on-prem server mirrors these assets; agents download updates from the server, not from GitHub.
+          "@
+          if (gh release view $tag 2>$null) {
+            gh release upload $tag $msi $json --clobber
+          } else {
+            gh release create $tag $msi $json --title $title --notes $notes
+          }

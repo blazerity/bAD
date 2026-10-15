@@ -64,9 +64,9 @@ apt-get install -y python3 python3-venv python3-pip nginx sqlite3 ufw openssl ca
 
 id -u bad >/dev/null 2>&1 || useradd --system --home /var/lib/bad --shell /usr/sbin/nologin bad
 
-mkdir -p /opt/bad /var/lib/bad /etc/bad /etc/bad/tls /var/log/bad
-chown bad:bad /var/lib/bad /var/log/bad
-chmod 750 /var/lib/bad /var/log/bad
+mkdir -p /opt/bad /var/lib/bad /var/lib/bad/agent-updates /etc/bad /etc/bad/tls /var/log/bad
+chown bad:bad /var/lib/bad /var/lib/bad/agent-updates /var/log/bad
+chmod 750 /var/lib/bad /var/lib/bad/agent-updates /var/log/bad
 chmod 750 /etc/bad
 
 # Symlink customer cert/key into /etc/bad/tls
@@ -95,6 +95,10 @@ if [[ ! -f "${SITE_ENV}" ]]; then
 BAD_DB_PATH=/var/lib/bad/bad.db
 BAD_ENROLLMENT_TOKEN=${ENROLLMENT_TOKEN}
 BAD_ADMIN_TOKEN=${ADMIN_TOKEN}
+BAD_GITHUB_REPO=${BAD_GITHUB_REPO:-blazerity/bAD}
+BAD_AGENT_UPDATES_DIR=/var/lib/bad/agent-updates
+BAD_AGENT_UPDATE_SYNC_INTERVAL_SECONDS=${BAD_AGENT_UPDATE_SYNC_INTERVAL_SECONDS:-3600}
+BAD_AGENT_UPDATE_SYNC_ON_STARTUP=${BAD_AGENT_UPDATE_SYNC_ON_STARTUP:-true}
 EOF
   chown root:bad "${SITE_ENV}"
   chmod 640 "${SITE_ENV}"

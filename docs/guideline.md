@@ -1,47 +1,103 @@
 # Руководства по разработке bAD
 
-Краткие инженерные правила для этого репозитория. Стек и границы v1 зафиксированы в [architecture-plan.md](architecture-plan.md).
+Краткие инженерные правила для этого репозитория. Стек и границы v1 зафиксированы в [architecture-plan.md](architecture-plan.md). Архитектура и update pipeline: [architecture.md](architecture.md).
 
 ## Общие принципы
 
 - **Thin agent**: агент только собирает и POST’ит; бизнес-логика и хранение — на сервере.
 - **Idempotent upsert**: стабильный `device_id`; повторная отправка безопасна.
-- **Least privilege / secrets**: TLS везде; секреты не вшивать в MSI binary; не логировать tokens/API keys/пароли.
-- **MVP scope**: не раздувать web UI, плагины, cloud control plane; LDAP — optional и настраивается из UI.
+- **Least privilege / secrets**: TLS везде; секреты не вшивать в MSI binary; не логировать tokens/API keys.
+- **MVP scope**: не раздувать web UI, роли, плагины, cloud control plane.
+- **Updates via server**: агенты качают MSI только с on-prem API; GitHub — источник для серверного зеркала.
 
 ## API
 
 - Префикс версионирования пути: `/v1/...`.
 - JSON, `Content-Type: application/json`, `Authorization: Bearer <token>`.
-- Разделять enrollment token, agent API key, admin API token и web-аккаунты.
-- Admin API (`/v1/devices*`) — **только Bearer admin token**; session cookie браузера туда не подходит.
+- Разделять enrollment token, agent API key и admin token.
 - Ошибки: осмысленный HTTP status + краткий `detail`; неизвестный `schema_version` → `400`.
 - Не включать OpenAPI UI в production (`docs_url=None` уже так).
 - Новые поля в inventory — обратно совместимо внутри `schema_version=1` или новый integer schema с явной поддержкой на сервере.
+- Update endpoints: agent key на `/v1/agent/update/*`; admin на `/v1/admin/agent-update*`.
 
 ## Безопасность
 
 - Агент отклоняет `http://` без явного opt-in для dev.
-- На сервере: hash секретов и паролей (argon2), файл БД `0600`, site.env `640` root:bad.
-- LDAP bind password — Fernet (`site_secrets.data_key`); никогда не отдавать plaintext обратно в HTML-форму (placeholder «unchanged»).
-- Дефолт `admin`/`admin` только при отсутствии local users; форсировать/подталкивать смену пароля.
+- На сервере: hash секретов (argon2), файл БД `0600`, site.env `640` root:bad.
 - nginx rate-limit / app enroll limiter — сохранять и ужесточать осторожно.
 - ProgramData ACL: Administrators + SYSTEM; не world-readable.
-- Логи (Serilog / journald): без plaintext tokens, API keys и паролей.
+- Логи (Serilog / journald): без plaintext tokens и API keys (включая `BAD_GITHUB_TOKEN`).
 
 ## Логирование
 
 - Сервер: структурированно через стандартный logging / journalctl unit `bad-api`.
-- Агент: Serilog file sink под `%ProgramData%\blazerity\bAD\logs\` (ротация ~7 дней).
-- Сообщения — actionable (enroll failed, backoff, collector section null), без секретов.
+- Агент: Serilog file sink под `%ProgramData%\blazerity\bAD\logs\` (ротация ~7 дней); msiexec log рядом при upgrade.
+- Сообщения — actionable (enroll failed, backoff, update sha mismatch), без секретов.
 
 ## Версионирование продукта
 
 - Semver продукта: сейчас **`0.2.0`** (см. корневой `VERSION` и [agents.md](agents.md)).
-- Правила владельца: patch `+0.0.1` hotfix; minor `+0.1.0` feature; major — только по явному указанию.
-- Один minor bump на feature-set, попадающий в `main`; не двойной bump, если соседний PR уже поднял ту же minor.
+- Правило bump: **patch +0.0.1** для hotfix; **minor +0.1.0** для feature; **major** только по явному решению владельца.
 - `schema_version` протокола inventory — отдельный integer, не путать с semver агента/сервера.
 - Агент шлёт `agent_version`; сервер отдаёт `version` в `/v1/health`.
+
+## Как вырезать релиз агента (MSI)
+
+1. Версия на `main` = нужному semver (сейчас **0.2.0**); checklist в [agents.md](agents.md).
+2. Тег и push:
+   ```bash
+   git tag v0.2.0
+   git push origin v0.2.0
+   ```
+3. Workflow **`release-msi`** (`windows-latest`): publish agent → WiX v5 → GitHub Release assets `bad-agent-<ver>.msi` + `agent-release.json`.
+4. Права: `contents: write`. Для public repo достаточно `GITHUB_TOKEN`. Private позже — `BAD_GITHUB_TOKEN` на сервере.
+5. На сервере: background sync или `POST /v1/admin/agent-update/sync`.
+6. Агенты подтянут на check (старт / раз в сутки) или после `BadAgent.exe service restart`.
+
+**Не обещать**: что MSI уже собирается в Linux CI — нет. Первый downloadable MSI появляется после успешного Windows GHA (или локальной Windows-сборки).
+
+Ручной запуск: Actions → `release-msi` → `workflow_dispatch`.
+
+## Зеркало на сервере
+
+В `/etc/bad/site.env`:
+
+```bash
+BAD_GITHUB_REPO=blazerity/bAD
+BAD_AGENT_UPDATES_DIR=/var/lib/bad/agent-updates
+BAD_AGENT_UPDATE_SYNC_INTERVAL_SECONDS=3600
+BAD_AGENT_UPDATE_SYNC_ON_STARTUP=true
+# BAD_GITHUB_TOKEN=...   # только если repo private
+```
+
+## Web UI (admin, read-only)
+
+- Одна задача: просмотр парка и последнего inventory (+ статус mirrored MSI).
+- Без редактирования активов, графиков, ролей, «дашборд-шума».
+- Простой login по admin token; остальное — список + деталь.
+- Сохранять существующий визуальный язык (`static/style.css`), не превращать в marketing landing.
+
+## Агент
+
+- Не добавлять UI в v1.
+- Сбой одного collector не валит весь снимок.
+- Atomic replace при записи `config.json`.
+- Интервалы по умолчанию: inventory 6h, heartbeat 15m, update check 24h.
+- Service CLI elevated: `BadAgent.exe service status|start|stop|restart` ([agents.md](agents.md)).
+- Self-update: download → sha256 → msiexec → exit (файлы разблокируются для MajorUpgrade).
+
+## Коммиты и PR
+
+- Ветки по задаче; PR в `main` с ясным описанием «что / зачем».
+- Не коммитить `.env`, `site.env`, локальные `*.db`, `bin/`/`obj/`, MSI build outputs.
+- Менять locked-решения плана только осознанно и с обновлением docs.
+- После изменения публичного контракта API — обновить тесты и `docs/architecture.md` (+ `agents.md` / `guideline.md` при update/CLI).
+
+## Тесты
+
+- Сервер: pytest enroll → inventory → admin get + web login + agent-update check/sync fixtures.
+- Агент: xUnit на collector/schema, cleartext reject, semver/sha256, service CLI help/unknown.
+- Предпочитать узкие регрессии инвариантов (auth, schema, upsert, update compare), а не хрупкие snapshot-гиганты.
 
 ## Web UI
 
@@ -49,23 +105,3 @@
 - Login: username/password (local first, optional LDAP). Не возвращать paste-admin-token gate.
 - Без редактирования активов, графиков, «дашборд-шума».
 - Сохранять существующий визуальный язык (`static/style.css`).
-
-## Агент
-
-- Не добавлять UI в v1.
-- Сбой одного collector не валит весь снимок.
-- Atomic replace при записи `config.json`.
-- Интервалы по умолчанию: inventory 6h, heartbeat 15m (конфиг может переопределить).
-
-## Коммиты и PR
-
-- Ветки по задаче; PR в `main` с ясным описанием «что / зачем».
-- Не коммитить `.env`, `site.env`, локальные `*.db`, `bin/`/`obj/`, MSI build outputs.
-- Менять locked-решения плана только осознанно и с обновлением docs.
-- После изменения публичного контракта API или auth — обновить тесты и `docs/architecture.md` / `docs/guideline.md` / `docs/agents.md`.
-
-## Тесты
-
-- Сервер: pytest — enroll → inventory → admin get; local login success/fail; LDAP settings CRUD с mock ldap3; devices требуют session.
-- Агент: xUnit на collector/schema и отказ от cleartext HTTP.
-- Предпочитать узкие регрессии инвариантов (auth, schema, upsert), а не хрупкие snapshot-гиганты.

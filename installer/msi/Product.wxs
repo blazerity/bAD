@@ -1,22 +1,28 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  bAD Windows agent MSI (WiX v4/v5 style sources).
-  Build on Windows with the WiX toolset, after publishing the agent:
+  bAD Windows agent MSI (WiX v4/v5).
+  Build on Windows after publishing the agent:
 
     dotnet publish ..\..\agent\src\BadAgent\BadAgent.csproj -c Release -r win-x64 --self-contained true -o .\publish
-    wix build Product.wxs -d AgentPublishDir=.\publish -o bad-agent-0.2.0.msi
+    Copy-Item .\write-config.ps1 .\publish\
+    wix build Product.wxs -d AgentPublishDir=publish -d ProductVersion=0.2.0 -o bad-agent-0.2.0.msi
 
   Public properties (msiexec):
     SERVERURL=https://bad.example.com
     ENROLLMENTTOKEN=<site enrollment token>
 
   Upgrade preserves %ProgramData%\blazerity\bAD\ (API key / device_id).
+  ServiceControl stops BlazerityAssetDiscovery before replacing files and starts it after install.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <?ifndef ProductVersion?>
+    <?define ProductVersion = "0.2.0" ?>
+  <?endif?>
+
   <Package
       Name="blazerity Asset Discovery Agent"
       Manufacturer="blazerity"
-      Version="0.2.0"
+      Version="$(ProductVersion)"
       UpgradeCode="BADA0001-BADA-4B01-8BAD-BLAZERITY0BAD"
       Scope="perMachine">
 
@@ -48,20 +54,15 @@
       </Directory>
     </StandardDirectory>
 
+    <!-- Harvest all published artifacts (exe + deps + write-config.ps1). -->
     <ComponentGroup Id="AgentFiles" Directory="INSTALLFOLDER">
-      <Component Id="AgentExe" Guid="BADA0002-BADA-4B01-8BAD-BLAZERITY0BAD">
-        <File Id="BadAgentExe" Source="$(AgentPublishDir)\BadAgent.exe" KeyPath="yes" />
-      </Component>
-      <!-- Include published dependencies via heat/harvest in a real CI build.
-           For source completeness, Document that heat.exe should harvest $(AgentPublishDir). -->
+      <Files Include="$(AgentPublishDir)\**" />
     </ComponentGroup>
 
-    <Component Id="ProgramDataDir" Directory="BADDATA" Guid="BADA0003-BADA-4B01-8BAD-BLAZERITY0BAD">
+    <Component Id="ProgramDataDir" Directory="BADDATA" Guid="BADA0003-BADA-4B01-8BAD-BLAZERITY0BAD" Permanent="yes">
       <CreateFolder>
         <PermissionEx Sddl="D:PAI(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)" />
       </CreateFolder>
-      <!-- Never remove ProgramData on uninstall/upgrade so API key survives -->
-      <RemoveFolder Id="NeverRemoveBadData" On="uninstall" Directory="BADDATA" />
     </Component>
 
     <Component Id="AgentService" Directory="INSTALLFOLDER" Guid="BADA0004-BADA-4B01-8BAD-BLAZERITY0BAD">

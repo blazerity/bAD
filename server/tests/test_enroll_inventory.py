@@ -23,6 +23,11 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         "test-admin-token-abcdefghijklmnopqrstuvwxyz",
     )
 
+    monkeypatch.setenv("BAD_AGENT_UPDATES_DIR", str(tmp_path / "agent-updates"))
+    monkeypatch.setenv("BAD_AGENT_UPDATE_SYNC_ON_STARTUP", "false")
+    monkeypatch.setenv("BAD_AGENT_UPDATE_SYNC_INTERVAL_SECONDS", "0")
+    monkeypatch.setenv("BAD_GITHUB_REPO", "blazerity/bAD")
+
     from bad_server.config import get_settings
 
     get_settings.cache_clear()
