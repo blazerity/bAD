@@ -164,9 +164,19 @@ public sealed class BadApiClient : IDisposable
         }
     }
 
-    public async Task<UpdateCheckResponse> CheckUpdateAsync(string apiKey, string currentVersion, CancellationToken ct)
+    public async Task<UpdateCheckResponse> CheckUpdateAsync(
+        string apiKey,
+        string currentVersion,
+        string? desiredVersion,
+        CancellationToken ct)
     {
-        var url = $"{_baseUrl}/v1/agent/update/check?current={Uri.EscapeDataString(currentVersion)}";
+        var qs = $"current={Uri.EscapeDataString(currentVersion)}";
+        if (!string.IsNullOrWhiteSpace(desiredVersion))
+        {
+            qs += $"&desired={Uri.EscapeDataString(desiredVersion.Trim())}";
+        }
+
+        var url = $"{_baseUrl}/v1/agent/update/check?{qs}";
         using var req = new HttpRequestMessage(HttpMethod.Get, url);
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
 

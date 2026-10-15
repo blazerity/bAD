@@ -358,12 +358,13 @@ public sealed class Worker : BackgroundService
 
         ConfigStore.Save(config);
         _logger.LogInformation(
-            "Applied remote agent config version {Version} (inventory={Inv}h heartbeat={Hb}m update={Upd}h enabled={Enabled} hw={Hw} users={Users} sw={Sw})",
+            "Applied remote agent config version {Version} (inventory={Inv}h heartbeat={Hb}m update={Upd}h enabled={Enabled} desired={Desired} hw={Hw} users={Users} sw={Sw})",
             config.RemoteConfigVersion,
             config.InventoryIntervalHours,
             config.HeartbeatIntervalMinutes,
             config.UpdateCheckIntervalHours,
             config.UpdateEnabled,
+            config.DesiredAgentVersion,
             config.CollectHardware,
             config.CollectUsers,
             config.CollectSoftware);

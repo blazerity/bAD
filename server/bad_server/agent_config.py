@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any, Optional
 
 # Безопасные knobs, которые можно пушить enrolled-агенту (никогда secrets / URLs / ids).
@@ -12,6 +13,8 @@ DEFAULT_AGENT_SETTINGS: dict[str, Any] = {
     "heartbeat_interval_minutes": 15,
     "update_check_interval_hours": 24,
     "update_enabled": True,
+    # Целевая версия агента: "latest" или pin semver (upgrade/downgrade). См. epic 0.10.
+    "desired_agent_version": "latest",
     # Hardware/users по умолчанию включены (прежнее поведение); software — opt-in.
     "collect_hardware": True,
     "collect_users": True,
@@ -35,6 +38,13 @@ INT_SETTING_KEYS = frozenset(
         "heartbeat_interval_minutes",
         "update_check_interval_hours",
     }
+)
+
+# desired_agent_version: "latest" | major.minor.patch
+_STRING_SETTING_KEYS = frozenset({"desired_agent_version"})
+_DESIRED_SEMVER_RE = re.compile(
+    r"^\s*v?(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)\s*$",
+    re.IGNORECASE,
 )
 
 CONDITION_FIELDS = frozenset({"hostname", "domain", "os_caption", "tag"})
@@ -78,7 +88,26 @@ def sanitize_settings(raw: Any) -> dict[str, Any]:
                 continue
             if n >= 1:
                 out[key] = n
+            continue
+        if key in _STRING_SETTING_KEYS:
+            parsed = _parse_desired_agent_version(value)
+            if parsed is not None:
+                out[key] = parsed
     return out
+
+
+def _parse_desired_agent_version(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.casefold() == "latest":
+        return "latest"
+    m = _DESIRED_SEMVER_RE.match(text)
+    if not m:
+        return None
+    return f"{int(m.group('major'))}.{int(m.group('minor'))}.{int(m.group('patch'))}"
 
 
 def sanitize_conditions(raw: Any) -> list[dict[str, str]]:

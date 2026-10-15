@@ -386,11 +386,12 @@ def put_device_tags(
 @router.get("/agent/update/check")
 def agent_update_check(
     current: str = Query(default="", max_length=64),
+    desired: str = Query(default="latest", max_length=64),
     _device=Depends(require_api_key),
     db: Database = Depends(get_db),
 ) -> dict[str, Any]:
-    """Агенты спрашивают, есть ли на сервере зеркало более нового MSI."""
-    return check_update(db, current=current or "0.0.0")
+    """Агенты спрашивают целевой MSI: upgrade / downgrade / pin / latest (0.10)."""
+    return check_update(db, current=current or "0.0.0", desired=desired or "latest")
 
 
 @router.get("/agent/update/msi")

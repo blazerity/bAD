@@ -1,6 +1,6 @@
 # Заметки для coding agents (bAD)
 
-Практическая карта репозитория: где что лежит, как гонять тесты, что нельзя сломать. Версия продукта: **0.9.1**.
+Практическая карта репозитория: где что лежит, как гонять тесты, что нельзя сломать. Версия продукта: **0.10.0**.
 
 ## Структура
 
@@ -12,7 +12,7 @@ server/                # FastAPI app + agent-update mirror
 installer/msi/         # WiX Product.wxs, write-config.ps1, bad.cmd
 deploy/debian/         # install.sh, systemd/, nginx/
 docs/                  # операторские и архитектурные документы
-VERSION                # канонический semver продукта (сейчас 0.9.1)
+VERSION                # канонический semver продукта (сейчас 0.10.0)
 .github/workflows/     # ci.yml + release-msi.yml
 ```
 
@@ -36,7 +36,7 @@ uvicorn bad_server.app:app --host 127.0.0.1 --port 8000
 # локально, если есть untracked server/tests/: pytest -q
 ```
 
-- Health: `GET /v1/health` → `{"status":"ok","version":"0.9.1"}`
+- Health: `GET /v1/health` → `{"status":"ok","version":"0.10.0"}`
 - Web: `/login` (`admin`/`admin` first boot) → `/` обзор; устройства `/devices` (поиск/CSV/архив); карточка — revoke/rotate/delete
 - Параметры `/settings/*` (Win11 left-nav): LDAP (+ AD group), mail/SMTP toggles, retention, backups, policies, agent updates
 - UI look (0.8.0+): Win11/Fluent light + русский UI — `bad_server/static/style.css`, favicon; CLI HTML report — те же токены/иконки; `agent/assets/bad.ico`
@@ -89,11 +89,13 @@ BadAgent.exe service status|start|stop|restart
 
 1. GHA `release-msi` публикует MSI + `agent-release.json` в Release.
 2. Сервер sync’ит в `/var/lib/bad/agent-updates/` (+ SQLite `agent_update`).
-3. Агент: `GET /v1/agent/update/check?current=` → download MSI → sha256 → `msiexec /i … /qn` → exit; WiX останавливает/стартует службу.
+3. Агент: `GET /v1/agent/update/check?current=&desired=` → download MSI (same-origin) → sha256 → `msiexec /i … /qn` → exit; WiX MajorUpgrade (**AllowDowngrades** с 0.10).
 
-Конфиг: `update_enabled` (default true), `update_check_interval_hours` (default 24). Env: `BAD_UPDATE_ENABLED`, `BAD_UPDATE_CHECK_INTERVAL_HOURS`.
+Конфиг: `update_enabled` (default true), `update_check_interval_hours` (default 24), **`desired_agent_version`** (`latest` | semver pin). Env: `BAD_UPDATE_ENABLED`, `BAD_UPDATE_CHECK_INTERVAL_HOURS`, `BAD_DESIRED_AGENT_VERSION`.
 
-Ключевые файлы: `AgentUpdater.cs`, `VersionUtil.cs`, `server/bad_server/agent_update.py`, `github_release.py`.
+Сценарии (0.10): **upgrade** (latest/newer или pin↑), **downgrade** (pin↓ при mirrored==pin), **same** (no-op), **latest** (только вверх, без авто-отката). Anti-loop: `pending_update_*` cooldown 2h.
+
+Ключевые файлы: `AgentUpdater.cs`, `VersionUtil.cs`, `UpdatePathUtil.cs`, `server/bad_server/agent_update.py`, `github_release.py`.
 
 ## Удалённый конфиг агента
 
@@ -107,7 +109,7 @@ BadAgent.exe service status|start|stop|restart
 | `GET /v1/admin/devices/{id}/config` | admin Bearer |
 | `PUT/DELETE /v1/admin/devices/{id}/config-override` | admin Bearer |
 
-Safe knobs: интервалы + `update_enabled` + toggles коллекторов `collect_hardware` / `collect_users` / `collect_software`. Код: `server/bad_server/agent_config.py`, `ConfigStore.ApplyRemoteSettings`, `InventoryCollector` + `CollectorOptions`.
+Safe knobs: интервалы + `update_enabled` + **`desired_agent_version`** (`latest`|semver) + toggles коллекторов `collect_hardware` / `collect_users` / `collect_software`. Код: `server/bad_server/agent_config.py`, `ConfigStore.ApplyRemoteSettings`, `InventoryCollector` + `CollectorOptions`.
 
 Hardware (при `collect_hardware`): помимо CPU/RAM/disks/volumes — `serial_number`, `model`, `manufacturer`, `bios_version`, `battery`, `monitors[]`, `gpus[]`, `ram_modules[]` (+ `memory_type` на модуль), `ram_memory_type` (системный consensus). Host: `ad_ou` / `ad_distinguished_name` (domain-joined). Top-level `minidumps` — только метаданные BSOD (без upload тел). Low-impact: `ThreadPriority.BelowNormal` + yields между WMI. Soft-fail по подсекциям `hardware.*` / `host.ad_ou` / `minidumps`. Cap: 16 GPU / 32 DIMM / 8 monitors / 20 minidump files. Код: `InventoryCollector`, `HardwareMaps`, `OfflineQueue`, `WindowsEventLog`, модели в `InventoryModels.cs`.
 
@@ -132,7 +134,7 @@ Heartbeat health (опционально → meta устройства): `last_i
 
 ## Где живёт версия (bump checklist)
 
-Канон: корневой файл **`VERSION`** (`0.9.1`). Bump: patch +0.0.1 / minor +0.1.0 / major только по решению владельца. При релизе синхронизировать:
+Канон: корневой файл **`VERSION`** (`0.10.0`). Bump: patch +0.0.1 / minor +0.1.0 / major только по решению владельца. При релизе синхронизировать:
 
 | Место | Поле |
 |-------|------|
@@ -172,7 +174,7 @@ Heartbeat health (опционально → meta устройства): `last_i
 - Public properties: `SERVERURL`, `ENROLLMENTTOKEN` → ProgramData; optional `ADDPATH=1` → Machine PATH + `bad.cmd`.
 - UpgradeCode фиксирован; major upgrade, ProgramData не сносить (`Permanent`); полный uninstall — Stop/Remove службы + `cleanup-uninstall.ps1` (config/queue/logs).
 - Authenticode: secrets `CODE_SIGN_PFX_BASE64` + `CODE_SIGN_PFX_PASSWORD` (optional timestamp URL); без них — unsigned MSI.
-- Артефакт: `bad-agent-0.9.1.msi` + `agent-release.json`.
+- Артефакт: `bad-agent-0.10.0.msi` + `agent-release.json`.
 
 ## Debian install
 
@@ -240,7 +242,7 @@ Seed локального admin только если `COUNT(local_users)=0`.
 - Сборка **только на Windows** (WiX): см. `installer/msi/README.md`.
 - Public properties: `SERVERURL`, `ENROLLMENTTOKEN`; опционально `ADDPATH=1` для Machine PATH + `bad.cmd`.
 - UpgradeCode фиксирован; major upgrade, ProgramData не сносить.
-- Артефакт: `bad-agent-0.9.1.msi` (имя по semver).
+- Артефакт: `bad-agent-0.10.0.msi` (имя по semver).
 
 ## Debian install
 

@@ -38,6 +38,18 @@ def is_newer(candidate: str, current: str) -> bool:
     return a > b
 
 
+def normalize_desired(desired: Optional[str]) -> str:
+    if not desired or not str(desired).strip():
+        return "latest"
+    text = str(desired).strip()
+    if text.casefold() == "latest":
+        return "latest"
+    parsed = parse_semver(text)
+    if parsed is None:
+        return "latest"
+    return f"{parsed[0]}.{parsed[1]}.{parsed[2]}"
+
+
 def sync_from_github(db: Database, settings: Settings) -> dict[str, Any]:
     """Скачать assets последнего Release, сохранить MSI в каталог updates, записать в SQLite."""
     if not settings.github_repo:
@@ -79,7 +91,13 @@ def check_update(
     db: Database,
     current: str,
     download_path: str = "/v1/agent/update/msi",
+    desired: Optional[str] = None,
 ) -> dict[str, Any]:
+    """Проверка обновления с учётом desired=latest|semver (0.10).
+
+    Single-mirror: pin срабатывает только если mirrored.version == desired.
+    """
+    desired_norm = normalize_desired(desired)
     mirrored = db.get_agent_update()
     if not mirrored:
         return {
@@ -88,14 +106,64 @@ def check_update(
             "sha256": None,
             "url": None,
             "current": current,
+            "desired": desired_norm,
+            "action": "none",
         }
-    available = is_newer(mirrored["version"], current)
-    return {
-        "update_available": available,
-        "version": mirrored["version"],
+
+    mirrored_ver = str(mirrored["version"])
+    base = {
+        "version": mirrored_ver,
         "sha256": mirrored["sha256"],
-        "url": download_path if available else None,
-        "current": current,
         "msi_name": mirrored["msi_name"],
         "synced_at": mirrored.get("synced_at"),
+        "current": current,
+        "desired": desired_norm,
+    }
+
+    if desired_norm == "latest":
+        available = is_newer(mirrored_ver, current)
+        return {
+            **base,
+            "update_available": available,
+            "url": download_path if available else None,
+            "action": "upgrade" if available else "none",
+        }
+
+    # Pin: пакет на зеркале должен совпасть с desired.
+    pin = parse_semver(desired_norm)
+    mir = parse_semver(mirrored_ver)
+    cur = parse_semver(current)
+    if pin is None or mir is None or pin != mir:
+        return {
+            **base,
+            "update_available": False,
+            "url": None,
+            "action": "none",
+        }
+
+    if cur is not None and cur == pin:
+        return {
+            **base,
+            "update_available": False,
+            "url": None,
+            "action": "none",
+        }
+
+    if cur is None or pin > cur:
+        action = "upgrade"
+    elif pin < cur:
+        action = "downgrade"
+    else:
+        return {
+            **base,
+            "update_available": False,
+            "url": None,
+            "action": "none",
+        }
+
+    return {
+        **base,
+        "update_available": True,
+        "url": download_path,
+        "action": action,
     }

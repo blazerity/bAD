@@ -16,7 +16,7 @@ server/           # FastAPI app, web UI, зеркало обновлений а�
 installer/msi/    # исходники WiX (MSI собирается на Windows / GHA release-msi)
 deploy/debian/    # install.sh, systemd, шаблон nginx
 docs/             # архитектура, гайдлайны, заметки по агенту, операторский гайд
-VERSION           # semver продукта (0.9.1)
+VERSION           # semver продукта (0.10.0)
 .github/workflows # ci.yml (Linux build/import) + release-msi.yml (Windows, теги)
 ```
 
@@ -72,7 +72,7 @@ Self-update: агенты опрашивают **сервер** (не GitHub) н
 
 ## Релизы (агент MSI)
 
-Тег `v0.9.1` (или ручной запуск `release-msi`) → Windows GHA собирает MSI + `agent-release.json` → GitHub Release → sync на сервере → апгрейд агентов. Linux CI MSI **не** собирает. Подробности: [docs/guideline.md](docs/guideline.md).
+Тег `v0.10.0` (или ручной запуск `release-msi`) → Windows GHA собирает MSI + `agent-release.json` → GitHub Release → sync на сервере → апгрейд агентов. Linux CI MSI **не** собирает. Подробности: [docs/guideline.md](docs/guideline.md).
 
 ## Документация
 

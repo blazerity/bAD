@@ -30,6 +30,21 @@ public sealed class AgentConfig
     [JsonPropertyName("update_enabled")]
     public bool UpdateEnabled { get; set; } = true;
 
+    /// <summary>
+    /// Целевая версия агента из remote config: <c>latest</c> или semver pin.
+    /// Не секрет. Default latest.
+    /// </summary>
+    [JsonPropertyName("desired_agent_version")]
+    public string DesiredAgentVersion { get; set; } = "latest";
+
+    /// <summary>Локально: версия, для которой уже запущен msiexec (anti-loop).</summary>
+    [JsonPropertyName("pending_update_version")]
+    public string? PendingUpdateVersion { get; set; }
+
+    /// <summary>Локально: UTC ISO старта pending msiexec.</summary>
+    [JsonPropertyName("pending_update_started_at")]
+    public string? PendingUpdateStartedAt { get; set; }
+
     /// <summary>Собирать CPU/RAM/disks/volumes. По умолчанию true (как раньше).</summary>
     [JsonPropertyName("collect_hardware")]
     public bool CollectHardware { get; set; } = true;
@@ -61,6 +76,19 @@ public sealed class RemoteAgentSettings
 
     [JsonPropertyName("update_enabled")]
     public bool? UpdateEnabled { get; set; }
+
+    /// <summary><c>latest</c> или semver. Алиасы парсятся в <see cref="ConfigStore.ApplyRemoteSettings"/>.</summary>
+    [JsonPropertyName("desired_agent_version")]
+    public string? DesiredAgentVersion { get; set; }
+
+    [JsonPropertyName("agent_target_version")]
+    public string? AgentTargetVersion { get; set; }
+
+    [JsonPropertyName("target_agent_version")]
+    public string? TargetAgentVersion { get; set; }
+
+    [JsonPropertyName("update_target_version")]
+    public string? UpdateTargetVersion { get; set; }
 
     [JsonPropertyName("collect_hardware")]
     public bool? CollectHardware { get; set; }
@@ -178,6 +206,22 @@ public static class ConfigStore
             changed = true;
         }
 
+        var desiredRaw = FirstNonEmpty(
+            settings.DesiredAgentVersion,
+            settings.AgentTargetVersion,
+            settings.TargetAgentVersion,
+            settings.UpdateTargetVersion);
+        if (desiredRaw is not null)
+        {
+            var normalized = VersionUtil.NormalizeDesiredAgentVersion(desiredRaw);
+            if (normalized is not null
+                && !string.Equals(config.DesiredAgentVersion, normalized, StringComparison.OrdinalIgnoreCase))
+            {
+                config.DesiredAgentVersion = normalized;
+                changed = true;
+            }
+        }
+
         if (settings.CollectHardware is bool ch && config.CollectHardware != ch)
         {
             config.CollectHardware = ch;
@@ -233,6 +277,29 @@ public static class ConfigStore
             cfg.UpdateEnabled = updateEnabled is "1" or "true" or "TRUE" or "yes";
         }
 
+        var desired = Environment.GetEnvironmentVariable("BAD_DESIRED_AGENT_VERSION");
+        if (!string.IsNullOrWhiteSpace(desired))
+        {
+            var normalized = VersionUtil.NormalizeDesiredAgentVersion(desired);
+            if (normalized is not null)
+            {
+                cfg.DesiredAgentVersion = normalized;
+            }
+        }
+
         return cfg;
+    }
+
+    private static string? FirstNonEmpty(params string?[] values)
+    {
+        foreach (var v in values)
+        {
+            if (!string.IsNullOrWhiteSpace(v))
+            {
+                return v.Trim();
+            }
+        }
+
+        return null;
     }
 }
