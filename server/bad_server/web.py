@@ -102,7 +102,7 @@ router = APIRouter(tags=["web"], dependencies=[Depends(ensure_csrf)])
 DEVICES_PAGE_SIZE = 50
 EVENTS_PAGE_SIZE = 50
 
-# Панели карточки устройства (левое меню). inventory-* — только если есть данные.
+# Панели карточки: overview/config/admin/events + inventory ids при наличии данных.
 DEVICE_FIXED_VIEWS = frozenset({"overview", "config", "admin", "events"})
 
 
@@ -120,16 +120,7 @@ def _device_inventory_nav(
     hw = hardware_summary if isinstance(hardware_summary, dict) else None
     items: list[dict] = []
 
-    def add(
-        view_id: str,
-        icon: str,
-        title: str,
-        lines: list[str],
-        *,
-        show: bool,
-    ) -> None:
-        if not show:
-            return
+    def add(view_id: str, icon: str, title: str, lines: list[str]) -> None:
         items.append(
             {
                 "id": view_id,
@@ -147,7 +138,6 @@ def _device_inventory_nav(
             "host",
             "Операционная система",
             [os_line, str(domain) if domain else ""],
-            show=True,
         )
 
     if hw and hw.get("cpu"):
@@ -162,7 +152,6 @@ def _device_inventory_nav(
             "cpu",
             "Процессор",
             [str(cpu.get("name") or "—"), cores_line],
-            show=True,
         )
 
     if hw and (
@@ -182,7 +171,6 @@ def _device_inventory_nav(
             "model",
             "Материнская плата",
             [model_line or (hw.get("serial_number") or "—"), f"BIOS {bios}" if bios else ""],
-            show=True,
         )
 
     if hw and (
@@ -195,14 +183,14 @@ def _device_inventory_nav(
         modules = hw.get("ram_modules") or []
         line1 = " · ".join(x for x in (ram if ram != "—" else "", str(dtype)) if x) or "—"
         line2 = f"{len(modules)} планок" if modules else ""
-        add("memory", "ram", "Память", [line1, line2], show=True)
+        add("memory", "ram", "Память", [line1, line2])
 
     if hw and hw.get("gpus"):
         gpus = hw["gpus"]
         first = gpus[0] if isinstance(gpus[0], dict) else {}
         name = first.get("name") or "—"
         extra = f"+{len(gpus) - 1}" if len(gpus) > 1 else (first.get("vendor") or "")
-        add("gpu", "gpu", "Видео", [str(name), str(extra)], show=True)
+        add("gpu", "gpu", "Видео", [str(name), str(extra)])
 
     if hw and (hw.get("disks") or hw.get("volumes")):
         disks = hw.get("disks") or []
@@ -213,7 +201,7 @@ def _device_inventory_nav(
         else:
             line1 = f"{len(disks)} диск(ов)" if disks else "тома"
         line2 = f"{len(volumes)} том(ов)" if volumes else (f"{len(disks)} диск(ов)" if len(disks) > 1 else "")
-        add("storage", "disk", "Накопители", [line1, line2], show=True)
+        add("storage", "disk", "Накопители", [line1, line2])
 
     if hw and hw.get("monitors"):
         mons = hw["monitors"]
@@ -226,7 +214,6 @@ def _device_inventory_nav(
             "monitor",
             "Мониторы",
             [str(m0.get("name") or m0.get("manufacturer") or "монитор"), res or f"{len(mons)} шт."],
-            show=True,
         )
 
     if hw and hw.get("battery"):
@@ -234,7 +221,7 @@ def _device_inventory_nav(
         charge = bat.get("charge_percent")
         line1 = f"{charge}%" if charge is not None else (bat.get("status") or "батарея")
         line2 = str(bat.get("status") or "") if charge is not None else ""
-        add("battery", "battery", "Батарея", [str(line1), line2], show=True)
+        add("battery", "battery", "Батарея", [str(line1), line2])
 
     if network_info and network_info.get("nics"):
         nics = network_info["nics"]
@@ -246,7 +233,6 @@ def _device_inventory_nav(
             "network",
             "Сеть",
             [str(n0.get("name") or "NIC"), str(ip)],
-            show=True,
         )
 
     if users_info:
@@ -258,7 +244,6 @@ def _device_inventory_nav(
                 str(users_info.get("last_interactive") or "—"),
                 ", ".join(users_info.get("logged_on") or [])[:80],
             ],
-            show=True,
         )
 
     if software_info is not None:
@@ -267,31 +252,17 @@ def _device_inventory_nav(
             line1 = "недоступно"
         else:
             line1 = f"{len(programs)} программ"
-        add("software", "software", "ПО", [line1, ""], show=True)
+        add("software", "software", "ПО", [line1])
 
     if minidumps_info is not None:
         count = minidumps_info.get("count", "—")
         mem = "Memory.dmp есть" if minidumps_info.get("memory_dmp_present") else "Memory.dmp нет"
-        add("minidumps", "events", "Минидампы BSOD", [f"{count} файлов", mem], show=True)
+        add("minidumps", "events", "Минидампы BSOD", [f"{count} файлов", mem])
 
     if collector_errors:
-        add(
-            "errors",
-            "events",
-            "Ошибки сбора",
-            [f"{len(collector_errors)} ошибок", ""],
-            show=True,
-        )
+        add("errors", "events", "Ошибки сбора", [f"{len(collector_errors)} ошибок"])
 
     return items
-
-
-def _normalize_device_view(view: Optional[str], inventory_ids: set[str]) -> str:
-    if not view:
-        return "overview"
-    if view in DEVICE_FIXED_VIEWS or view in inventory_ids:
-        return view
-    return "overview"
 
 
 def _set_session_cookie(
@@ -769,6 +740,9 @@ def _device_config_context(
         collector_errors=collector_errors,
     )
     inventory_ids = {item["id"] for item in inventory_nav}
+    view = (active_view or "").strip()
+    if view not in DEVICE_FIXED_VIEWS and view not in inventory_ids:
+        view = "overview"
     return {
         "device": detail,
         "inventory_pretty": inventory_pretty,
@@ -780,7 +754,7 @@ def _device_config_context(
         "minidumps_info": minidumps_info,
         "collector_errors": collector_errors,
         "inventory_nav": inventory_nav,
-        "active_view": _normalize_device_view(active_view, inventory_ids),
+        "active_view": view or "overview",
         "user": user,
         "message": message,
         "error": error,
@@ -788,14 +762,12 @@ def _device_config_context(
         "effective": effective["settings"],
         "config_version": effective["version"],
         "matched_policies": effective["matched_policies"],
-        "match_context": effective["context"],
         "override_settings": override_settings or {},
         "has_override": effective["has_override"],
         "silence": silence,
         "health_snippet": health_snippet(detail.get("meta")),
         "recent_events": recent_events,
         "tags_text": ", ".join(detail.get("tags") or []),
-        "stale_after_seconds": settings.device_stale_after_seconds,
         "duplicates": duplicates,
         "new_api_key": None,
         "msi_versions": db.list_agent_msi_versions(),

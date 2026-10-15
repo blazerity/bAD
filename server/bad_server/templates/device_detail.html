@@ -54,7 +54,7 @@
   </div>
   {% endif %}
 
-  <div class="settings-shell device-shell" id="device-shell" data-active-view="{{ view }}">
+  <div class="settings-shell device-shell" id="device-shell">
     <aside class="settings-nav" aria-label="Разделы устройства">
       <p class="muted settings-nav-hint">Как в Параметрах Windows 11: раздел слева.</p>
       <nav class="settings-nav-list">
@@ -109,7 +109,7 @@
       </nav>
     </aside>
 
-    <div class="settings-pane device-pane">
+    <div class="settings-pane">
       {# —— Обзор —— #}
       <div class="device-panel {% if view == 'overview' %}is-active{% endif %}" data-device-panel="overview">
         <h2 class="with-icon">{{ icon('overview') }}Обзор</h2>
@@ -417,7 +417,7 @@
         {% endif %}
 
         <h3>Эффективные значения</h3>
-        <dl class="speccy-kv config-summary">
+        <dl class="speccy-kv">
           <div><dt>Inventory</dt><dd>{{ effective.inventory_interval_hours }} ч</dd></div>
           <div><dt>Heartbeat</dt><dd>{{ effective.heartbeat_interval_minutes }} мин</dd></div>
           <div><dt>Проверка обновлений</dt><dd>{{ effective.update_check_interval_hours }} ч</dd></div>
