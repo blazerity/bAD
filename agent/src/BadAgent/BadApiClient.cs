@@ -180,11 +180,12 @@ public sealed class BadApiClient : IDisposable
         return UpdateCheckResponse.FromJson(body);
     }
 
+    /// <summary>
+    /// Скачать MSI обновления. URL — только relative или same-origin к <see cref="_baseUrl"/> (SEC-009).
+    /// </summary>
     public async Task DownloadUpdateMsiAsync(string apiKey, string relativeOrAbsoluteUrl, string destPath, CancellationToken ct)
     {
-        var url = relativeOrAbsoluteUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase)
-            ? relativeOrAbsoluteUrl
-            : $"{_baseUrl}/{relativeOrAbsoluteUrl.TrimStart('/')}";
+        var url = UpdatePathUtil.ResolveSameOriginUpdateUrl(_baseUrl, relativeOrAbsoluteUrl);
 
         using var req = new HttpRequestMessage(HttpMethod.Get, url);
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);

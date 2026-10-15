@@ -17,6 +17,9 @@ if (Test-Path $BadQueueDir) {
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $BadQueueDir
 }
 
+# На случай обрыва install: временный Setup с enrollment token
+Remove-Item -Path "HKLM:\SOFTWARE\blazerity\bAD\Setup" -Recurse -Force -ErrorAction SilentlyContinue
+
 # Логи — best-effort (могут быть locked)
 if (Test-Path $BadLogsDir) {
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $BadLogsDir

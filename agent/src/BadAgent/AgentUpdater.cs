@@ -79,10 +79,18 @@ public sealed class AgentUpdater
 
         var tempDir = Path.Combine(Path.GetTempPath(), "bad-agent-update", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
-        var msiName = string.IsNullOrWhiteSpace(check.MsiName)
-            ? $"bad-agent-{check.Version}.msi"
-            : check.MsiName!;
-        var msiPath = Path.Combine(tempDir, msiName);
+        // SEC-002: basename only, no '..', path must stay inside tempDir.
+        string msiPath;
+        try
+        {
+            msiPath = UpdatePathUtil.ResolveSafeMsiPath(tempDir, check.MsiName, check.Version);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Refusing unsafe msi_name from update check");
+            WindowsEventLog.WriteError("bAD: отказ — небезопасное имя MSI в ответе update/check", ex);
+            return false;
+        }
 
         try
         {
