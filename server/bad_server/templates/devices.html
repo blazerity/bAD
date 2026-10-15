@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Devices — bAD{% endblock %}
+{% block content %}
+<section>
+  <h1>Devices</h1>
+  <p class="muted">Read-only inventory view. {{ devices|length }} enrolled.</p>
+  {% if not devices %}
+  <p>No devices yet. Install the Windows agent with SERVERURL and ENROLLMENTTOKEN.</p>
+  {% else %}
+  <table class="devices">
+    <thead>
+      <tr>
+        <th>Hostname</th>
+        <th>Device ID</th>
+        <th>Agent</th>
+        <th>Last seen</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for d in devices %}
+      <tr>
+        <td><a href="/devices/{{ d.device_id }}">{{ d.hostname or "(unknown)" }}</a></td>
+        <td class="mono">{{ d.device_id }}</td>
+        <td>{{ d.agent_version or "—" }}</td>
+        <td>{{ d.last_seen_at or "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+{% endblock %}

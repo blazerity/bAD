@@ -1,0 +1,21 @@
+[Unit]
+Description=bAD API (blazerity Asset Discovery)
+After=network.target
+
+[Service]
+Type=simple
+User=bad
+Group=bad
+EnvironmentFile=/etc/bad/site.env
+WorkingDirectory=/opt/bad
+ExecStart=/opt/bad/.venv/bin/uvicorn bad_server.app:app --host 127.0.0.1 --port 8000 --workers 1
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/bad /var/log/bad /etc/bad
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,35 @@
+# Python
+**/__pycache__/
+**/*.py[cod]
+**/.venv/
+**/venv/
+**/.pytest_cache/
+**/*.egg-info/
+server/data/
+*.db
+*.db-*
+
+# .NET
+**/bin/
+**/obj/
+**/.vs/
+*.user
+*.suo
+
+# WiX / MSI build
+installer/msi/publish/
+installer/msi/*.msi
+installer/msi/*.wixpdb
+installer/msi/Harvested.wxs
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
+
+# Secrets / local env
+.env
+site.env
+**/config.json

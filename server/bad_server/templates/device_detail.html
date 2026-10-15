@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}{{ device.hostname or device.device_id }} — bAD{% endblock %}
+{% block content %}
+<section>
+  <p class="crumb"><a href="/devices">Devices</a> / {{ device.hostname or device.device_id }}</p>
+  <h1>{{ device.hostname or "(unknown host)" }}</h1>
+  <dl class="meta">
+    <div><dt>Device ID</dt><dd class="mono">{{ device.device_id }}</dd></div>
+    <div><dt>Agent</dt><dd>{{ device.agent_version or "—" }}</dd></div>
+    <div><dt>Enrolled</dt><dd>{{ device.enrolled_at or "—" }}</dd></div>
+    <div><dt>Last seen</dt><dd>{{ device.last_seen_at or "—" }}</dd></div>
+  </dl>
+
+  <h2>Latest inventory</h2>
+  {% if inventory_pretty %}
+  <p class="muted">
+    Received {{ device.latest_inventory.received_at }}
+    · schema {{ device.latest_inventory.schema_version }}
+  </p>
+  <pre class="inventory">{{ inventory_pretty }}</pre>
+  {% else %}
+  <p>No inventory snapshot yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

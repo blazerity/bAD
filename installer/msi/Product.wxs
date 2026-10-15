@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  bAD Windows agent MSI (WiX v4/v5 style sources).
+  Build on Windows with the WiX toolset, after publishing the agent:
+
+    dotnet publish ..\..\agent\src\BadAgent\BadAgent.csproj -c Release -r win-x64 --self-contained true -o .\publish
+    wix build Product.wxs -d AgentPublishDir=.\publish -o bad-agent-1.0.0.msi
+
+  Public properties (msiexec):
+    SERVERURL=https://bad.example.com
+    ENROLLMENTTOKEN=<site enrollment token>
+
+  Upgrade preserves %ProgramData%\blazerity\bAD\ (API key / device_id).
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="blazerity Asset Discovery Agent"
+      Manufacturer="blazerity"
+      Version="1.0.0"
+      UpgradeCode="BADA0001-BADA-4B01-8BAD-BLAZERITY0BAD"
+      Scope="perMachine">
+
+    <MajorUpgrade
+        DowngradeErrorMessage="A newer version of bAD is already installed."
+        Schedule="afterInstallInitialize" />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <Property Id="SERVERURL" Secure="yes" />
+    <Property Id="ENROLLMENTTOKEN" Secure="yes" Hidden="yes" />
+
+    <Feature Id="Main" Title="bAD Agent" Level="1">
+      <ComponentGroupRef Id="AgentFiles" />
+      <ComponentRef Id="AgentService" />
+      <ComponentRef Id="ProgramDataDir" />
+      <ComponentRef Id="WriteConfig" />
+    </Feature>
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="BlazerityDir" Name="blazerity">
+        <Directory Id="INSTALLFOLDER" Name="bAD" />
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="BlazerityDataDir" Name="blazerity">
+        <Directory Id="BADDATA" Name="bAD" />
+      </Directory>
+    </StandardDirectory>
+
+    <ComponentGroup Id="AgentFiles" Directory="INSTALLFOLDER">
+      <Component Id="AgentExe" Guid="BADA0002-BADA-4B01-8BAD-BLAZERITY0BAD">
+        <File Id="BadAgentExe" Source="$(AgentPublishDir)\BadAgent.exe" KeyPath="yes" />
+      </Component>
+      <!-- Include published dependencies via heat/harvest in a real CI build.
+           For source completeness, Document that heat.exe should harvest $(AgentPublishDir). -->
+    </ComponentGroup>
+
+    <Component Id="ProgramDataDir" Directory="BADDATA" Guid="BADA0003-BADA-4B01-8BAD-BLAZERITY0BAD">
+      <CreateFolder>
+        <PermissionEx Sddl="D:PAI(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)" />
+      </CreateFolder>
+      <!-- Never remove ProgramData on uninstall/upgrade so API key survives -->
+      <RemoveFolder Id="NeverRemoveBadData" On="uninstall" Directory="BADDATA" />
+    </Component>
+
+    <Component Id="AgentService" Directory="INSTALLFOLDER" Guid="BADA0004-BADA-4B01-8BAD-BLAZERITY0BAD">
+      <ServiceInstall
+          Id="BadServiceInstall"
+          Name="BlazerityAssetDiscovery"
+          DisplayName="blazerity Asset Discovery"
+          Description="Collects hardware/OS inventory and reports to the bAD server."
+          Start="auto"
+          Type="ownProcess"
+          ErrorControl="normal"
+          Account="LocalSystem"
+          Vital="yes" />
+      <ServiceControl
+          Id="BadServiceControl"
+          Name="BlazerityAssetDiscovery"
+          Start="install"
+          Stop="both"
+          Remove="uninstall"
+          Wait="yes" />
+      <RegistryValue
+          Root="HKLM"
+          Key="SOFTWARE\blazerity\bAD"
+          Name="InstallDir"
+          Type="string"
+          Value="[INSTALLFOLDER]"
+          KeyPath="yes" />
+    </Component>
+
+    <!-- Custom action writes ProgramData config from public properties without embedding secrets in MSI binary -->
+    <Component Id="WriteConfig" Directory="BADDATA" Guid="BADA0005-BADA-4B01-8BAD-BLAZERITY0BAD">
+      <RegistryValue
+          Root="HKLM"
+          Key="SOFTWARE\blazerity\bAD"
+          Name="Configured"
+          Type="integer"
+          Value="1"
+          KeyPath="yes" />
+    </Component>
+
+    <SetProperty Id="WriteConfigCmd"
+                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]write-config.ps1&quot; -ServerUrl &quot;[SERVERURL]&quot; -EnrollmentToken &quot;[ENROLLMENTTOKEN]&quot;"
+                 Sequence="execute"
+                 Before="WriteConfigAction" />
+
+    <CustomAction
+        Id="WriteConfigAction"
+        Directory="INSTALLFOLDER"
+        ExeCommand="[WriteConfigCmd]"
+        Execute="deferred"
+        Impersonate="no"
+        Return="check" />
+
+    <InstallExecuteSequence>
+      <Custom Action="WriteConfigAction" After="InstallFiles">NOT REMOVE</Custom>
+    </InstallExecuteSequence>
+  </Package>
+</Wix>
