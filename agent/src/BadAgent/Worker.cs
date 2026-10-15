@@ -18,7 +18,7 @@ public sealed class Worker : BackgroundService
         _logger = logger;
         _collector = collector;
         _lifetime = lifetime;
-        _agentVersion = typeof(Worker).Assembly.GetName().Version?.ToString(3) ?? "0.2.0";
+        _agentVersion = typeof(Worker).Assembly.GetName().Version?.ToString(3) ?? "0.3.0";
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -46,6 +46,9 @@ public sealed class Worker : BackgroundService
             try
             {
                 config = ConfigStore.LoadOrCreate();
+                inventoryEvery = TimeSpan.FromHours(Math.Max(1, config.InventoryIntervalHours));
+                heartbeatEvery = TimeSpan.FromMinutes(Math.Max(1, config.HeartbeatIntervalMinutes));
+
                 if (string.IsNullOrWhiteSpace(config.ServerUrl))
                 {
                     _logger.LogWarning("server_url not configured; sleeping");
@@ -88,6 +91,9 @@ public sealed class Worker : BackgroundService
                 if (DateTime.UtcNow >= nextHeartbeat)
                 {
                     await RunHeartbeatAsync(client, config, stoppingToken);
+                    config = ConfigStore.LoadOrCreate();
+                    inventoryEvery = TimeSpan.FromHours(Math.Max(1, config.InventoryIntervalHours));
+                    heartbeatEvery = TimeSpan.FromMinutes(Math.Max(1, config.HeartbeatIntervalMinutes));
                     nextHeartbeat = DateTime.UtcNow + heartbeatEvery;
                 }
             }
@@ -182,14 +188,53 @@ public sealed class Worker : BackgroundService
         var last = _lastInventoryAt?.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'");
         try
         {
-            await client.SendHeartbeatAsync(config.ApiKey!, config.DeviceId!, last, ct);
+            var remote = await client.SendHeartbeatAsync(
+                config.ApiKey!,
+                config.DeviceId!,
+                last,
+                config.RemoteConfigVersion,
+                ct);
             _logger.LogDebug("Heartbeat sent");
+            if (remote?.Settings != null)
+            {
+                ApplyRemoteConfig(config, remote);
+            }
         }
         catch (HttpRequestException ex) when (ex.Message.Contains("401") || ex.Message.Contains("403"))
         {
             await HandleAuthFailureAsync(config, ct);
             throw;
         }
+    }
+
+    private void ApplyRemoteConfig(AgentConfig config, RemoteAgentConfigResponse remote)
+    {
+        if (remote.Settings is null)
+        {
+            return;
+        }
+
+        var changed = ConfigStore.ApplyRemoteSettings(config, remote.Settings);
+        if (!string.IsNullOrWhiteSpace(remote.Version)
+            && !string.Equals(config.RemoteConfigVersion, remote.Version, StringComparison.Ordinal))
+        {
+            config.RemoteConfigVersion = remote.Version;
+            changed = true;
+        }
+
+        if (!changed)
+        {
+            return;
+        }
+
+        ConfigStore.Save(config);
+        _logger.LogInformation(
+            "Applied remote agent config version {Version} (inventory={Inv}h heartbeat={Hb}m update={Upd}h enabled={Enabled})",
+            config.RemoteConfigVersion,
+            config.InventoryIntervalHours,
+            config.HeartbeatIntervalMinutes,
+            config.UpdateCheckIntervalHours,
+            config.UpdateEnabled);
     }
 
     private async Task HandleAuthFailureAsync(AgentConfig config, CancellationToken ct)

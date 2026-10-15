@@ -29,6 +29,40 @@ public sealed class AgentConfig
 
     [JsonPropertyName("update_enabled")]
     public bool UpdateEnabled { get; set; } = true;
+
+    /// <summary>Last applied remote config version (server hash); not a secret.</summary>
+    [JsonPropertyName("remote_config_version")]
+    public string? RemoteConfigVersion { get; set; }
+}
+
+/// <summary>Subset of AgentConfig knobs the server may push remotely.</summary>
+public sealed class RemoteAgentSettings
+{
+    [JsonPropertyName("inventory_interval_hours")]
+    public int? InventoryIntervalHours { get; set; }
+
+    [JsonPropertyName("heartbeat_interval_minutes")]
+    public int? HeartbeatIntervalMinutes { get; set; }
+
+    [JsonPropertyName("update_check_interval_hours")]
+    public int? UpdateCheckIntervalHours { get; set; }
+
+    [JsonPropertyName("update_enabled")]
+    public bool? UpdateEnabled { get; set; }
+}
+
+public sealed class RemoteAgentConfigResponse
+{
+    [JsonPropertyName("version")]
+    public string? Version { get; set; }
+
+    [JsonPropertyName("settings")]
+    public RemoteAgentSettings? Settings { get; set; }
+
+    public static RemoteAgentConfigResponse? FromJson(string json)
+    {
+        return JsonSerializer.Deserialize<RemoteAgentConfigResponse>(json);
+    }
 }
 
 public static class ConfigStore
@@ -87,6 +121,43 @@ public static class ConfigStore
         File.WriteAllText(tmp, json);
         File.Copy(tmp, ConfigPath, overwrite: true);
         File.Delete(tmp);
+    }
+
+    /// <summary>
+    /// Apply server-pushed safe knobs only. Never touches server_url, api_key, device_id, enrollment_token.
+    /// Returns true when any value changed.
+    /// </summary>
+    public static bool ApplyRemoteSettings(AgentConfig config, RemoteAgentSettings settings)
+    {
+        var changed = false;
+        if (settings.InventoryIntervalHours is int inv && inv >= 1
+            && config.InventoryIntervalHours != inv)
+        {
+            config.InventoryIntervalHours = inv;
+            changed = true;
+        }
+
+        if (settings.HeartbeatIntervalMinutes is int hb && hb >= 1
+            && config.HeartbeatIntervalMinutes != hb)
+        {
+            config.HeartbeatIntervalMinutes = hb;
+            changed = true;
+        }
+
+        if (settings.UpdateCheckIntervalHours is int uch && uch >= 1
+            && config.UpdateCheckIntervalHours != uch)
+        {
+            config.UpdateCheckIntervalHours = uch;
+            changed = true;
+        }
+
+        if (settings.UpdateEnabled is bool ue && config.UpdateEnabled != ue)
+        {
+            config.UpdateEnabled = ue;
+            changed = true;
+        }
+
+        return changed;
     }
 
     private static AgentConfig ApplyEnvironment(AgentConfig cfg)
