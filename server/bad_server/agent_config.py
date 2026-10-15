@@ -13,8 +13,8 @@ DEFAULT_AGENT_SETTINGS: dict[str, Any] = {
     "heartbeat_interval_minutes": 15,
     "update_check_interval_hours": 24,
     "update_enabled": True,
-    # Целевая версия агента: "latest" или pin semver (upgrade/downgrade). См. epic 0.10.
-    "desired_agent_version": "latest",
+    # Целевая версия агента (контракт 0.10): "latest" или pin semver.
+    "update_target": "latest",
     # Hardware/users по умолчанию включены (прежнее поведение); software — opt-in.
     "collect_hardware": True,
     "collect_users": True,
@@ -40,8 +40,8 @@ INT_SETTING_KEYS = frozenset(
     }
 )
 
-# desired_agent_version: "latest" | major.minor.patch
-_STRING_SETTING_KEYS = frozenset({"desired_agent_version"})
+# update_target: "latest" | major.minor.patch (+ алиас desired_agent_version при sanitize)
+_STRING_SETTING_KEYS = frozenset({"update_target", "desired_agent_version"})
 _DESIRED_SEMVER_RE = re.compile(
     r"^\s*v?(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)\s*$",
     re.IGNORECASE,
@@ -90,13 +90,14 @@ def sanitize_settings(raw: Any) -> dict[str, Any]:
                 out[key] = n
             continue
         if key in _STRING_SETTING_KEYS:
-            parsed = _parse_desired_agent_version(value)
+            parsed = _parse_update_target(value)
             if parsed is not None:
-                out[key] = parsed
+                # Канон — update_target; алиас desired_* сливаем в него.
+                out["update_target"] = parsed
     return out
 
 
-def _parse_desired_agent_version(value: Any) -> Optional[str]:
+def _parse_update_target(value: Any) -> Optional[str]:
     if value is None:
         return None
     text = str(value).strip()

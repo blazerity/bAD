@@ -92,22 +92,27 @@ def check_update(
     current: str,
     download_path: str = "/v1/agent/update/msi",
     desired: Optional[str] = None,
+    update_target: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Проверка обновления с учётом desired=latest|semver (0.10).
+    """Проверка обновления (0.10): update_target=latest|semver.
 
-    Single-mirror: pin срабатывает только если mirrored.version == desired.
+    Пока single-mirror (`agent_update`): pin срабатывает только если mirrored == target.
+    Ответ additive: target_version / reason (контракт §3); legacy version/action сохранены.
     """
-    desired_norm = normalize_desired(desired)
+    target_norm = normalize_desired(update_target or desired)
     mirrored = db.get_agent_update()
     if not mirrored:
         return {
             "update_available": False,
             "version": None,
+            "target_version": None,
             "sha256": None,
             "url": None,
             "current": current,
-            "desired": desired_norm,
+            "desired": target_norm,
+            "update_target": target_norm,
             "action": "none",
+            "reason": "no_mirror",
         }
 
     mirrored_ver = str(mirrored["version"])
@@ -117,36 +122,49 @@ def check_update(
         "msi_name": mirrored["msi_name"],
         "synced_at": mirrored.get("synced_at"),
         "current": current,
-        "desired": desired_norm,
+        "desired": target_norm,
+        "update_target": target_norm,
     }
 
-    if desired_norm == "latest":
+    def _url_for(ver: str) -> str:
+        sep = "&" if "?" in download_path else "?"
+        if "version=" in download_path:
+            return download_path
+        return f"{download_path}{sep}version={ver}"
+
+    if target_norm == "latest":
         available = is_newer(mirrored_ver, current)
         return {
             **base,
+            "target_version": mirrored_ver if available else mirrored_ver,
             "update_available": available,
-            "url": download_path if available else None,
+            "url": _url_for(mirrored_ver) if available else None,
             "action": "upgrade" if available else "none",
+            "reason": "upgrade" if available else "already_on_or_newer_than_mirror",
         }
 
-    # Pin: пакет на зеркале должен совпасть с desired.
-    pin = parse_semver(desired_norm)
+    # Pin: пакет на зеркале должен совпасть с target.
+    pin = parse_semver(target_norm)
     mir = parse_semver(mirrored_ver)
     cur = parse_semver(current)
     if pin is None or mir is None or pin != mir:
         return {
             **base,
+            "target_version": target_norm,
             "update_available": False,
             "url": None,
             "action": "none",
+            "reason": "broken_pin" if pin is not None else "bad_target",
         }
 
     if cur is not None and cur == pin:
         return {
             **base,
+            "target_version": target_norm,
             "update_available": False,
             "url": None,
             "action": "none",
+            "reason": "same",
         }
 
     if cur is None or pin > cur:
@@ -156,14 +174,18 @@ def check_update(
     else:
         return {
             **base,
+            "target_version": target_norm,
             "update_available": False,
             "url": None,
             "action": "none",
+            "reason": "same",
         }
 
     return {
         **base,
+        "target_version": target_norm,
         "update_available": True,
-        "url": download_path,
+        "url": _url_for(target_norm),
         "action": action,
+        "reason": action,
     }

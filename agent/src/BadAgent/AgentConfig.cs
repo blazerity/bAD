@@ -31,11 +31,11 @@ public sealed class AgentConfig
     public bool UpdateEnabled { get; set; } = true;
 
     /// <summary>
-    /// Целевая версия агента из remote config: <c>latest</c> или semver pin.
-    /// Не секрет. Default latest.
+    /// Целевая версия агента из remote config (контракт 0.10): <c>latest</c> или semver pin.
+    /// Не секрет. Default latest. Алиас JSON: desired_agent_version.
     /// </summary>
-    [JsonPropertyName("desired_agent_version")]
-    public string DesiredAgentVersion { get; set; } = "latest";
+    [JsonPropertyName("update_target")]
+    public string UpdateTarget { get; set; } = "latest";
 
     /// <summary>Локально: версия, для которой уже запущен msiexec (anti-loop).</summary>
     [JsonPropertyName("pending_update_version")]
@@ -77,7 +77,11 @@ public sealed class RemoteAgentSettings
     [JsonPropertyName("update_enabled")]
     public bool? UpdateEnabled { get; set; }
 
-    /// <summary><c>latest</c> или semver. Алиасы парсятся в <see cref="ConfigStore.ApplyRemoteSettings"/>.</summary>
+    /// <summary>Канон контракта 0.10: <c>latest</c> или semver.</summary>
+    [JsonPropertyName("update_target")]
+    public string? UpdateTarget { get; set; }
+
+    /// <summary>Алиас (ранний черновик агента).</summary>
     [JsonPropertyName("desired_agent_version")]
     public string? DesiredAgentVersion { get; set; }
 
@@ -206,18 +210,19 @@ public static class ConfigStore
             changed = true;
         }
 
-        var desiredRaw = FirstNonEmpty(
+        var targetRaw = FirstNonEmpty(
+            settings.UpdateTarget,
             settings.DesiredAgentVersion,
             settings.AgentTargetVersion,
             settings.TargetAgentVersion,
             settings.UpdateTargetVersion);
-        if (desiredRaw is not null)
+        if (targetRaw is not null)
         {
-            var normalized = VersionUtil.NormalizeDesiredAgentVersion(desiredRaw);
+            var normalized = VersionUtil.NormalizeDesiredAgentVersion(targetRaw);
             if (normalized is not null
-                && !string.Equals(config.DesiredAgentVersion, normalized, StringComparison.OrdinalIgnoreCase))
+                && !string.Equals(config.UpdateTarget, normalized, StringComparison.OrdinalIgnoreCase))
             {
-                config.DesiredAgentVersion = normalized;
+                config.UpdateTarget = normalized;
                 changed = true;
             }
         }
@@ -277,13 +282,14 @@ public static class ConfigStore
             cfg.UpdateEnabled = updateEnabled is "1" or "true" or "TRUE" or "yes";
         }
 
-        var desired = Environment.GetEnvironmentVariable("BAD_DESIRED_AGENT_VERSION");
-        if (!string.IsNullOrWhiteSpace(desired))
+        var target = Environment.GetEnvironmentVariable("BAD_UPDATE_TARGET")
+                     ?? Environment.GetEnvironmentVariable("BAD_DESIRED_AGENT_VERSION");
+        if (!string.IsNullOrWhiteSpace(target))
         {
-            var normalized = VersionUtil.NormalizeDesiredAgentVersion(desired);
+            var normalized = VersionUtil.NormalizeDesiredAgentVersion(target);
             if (normalized is not null)
             {
-                cfg.DesiredAgentVersion = normalized;
+                cfg.UpdateTarget = normalized;
             }
         }
 

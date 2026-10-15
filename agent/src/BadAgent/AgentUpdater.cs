@@ -7,7 +7,8 @@ namespace BadAgent;
 /// <summary>
 /// Проверяет на сервере bAD целевой MSI (upgrade / downgrade / pin / latest),
 /// сверяет sha256, запускает silent msiexec и выходит для MajorUpgrade.
-/// Агенты не ходят на GitHub напрямую. Download — только same-origin (SEC-009).
+/// Gate (0.10): server update_available + target≠current + sha256 — не только IsNewer.
+/// Download — только same-origin (SEC-009).
 /// </summary>
 public sealed class AgentUpdater
 {
@@ -38,12 +39,13 @@ public sealed class AgentUpdater
 
         ClearPendingIfMatched(config);
 
-        var desired = VersionUtil.NormalizeDesiredAgentVersion(config.DesiredAgentVersion) ?? "latest";
+        var localTarget = VersionUtil.NormalizeDesiredAgentVersion(config.UpdateTarget) ?? "latest";
 
         UpdateCheckResponse check;
         try
         {
-            check = await client.CheckUpdateAsync(config.ApiKey!, _agentVersion, desired, ct);
+            // Сервер 0.10 считает target из effective config; query — подсказка/compat.
+            check = await client.CheckUpdateAsync(config.ApiKey!, _agentVersion, localTarget, ct);
         }
         catch (AgentApiException ex) when (ex.IsAuthFailure)
         {
@@ -56,14 +58,14 @@ public sealed class AgentUpdater
             return false;
         }
 
-        var plan = ResolvePlan(_agentVersion, desired, check);
+        var plan = ResolvePlan(_agentVersion, localTarget, check);
         if (plan.Action == UpdateAction.None)
         {
             _logger.LogDebug(
-                "No agent version change (local={Local}, desired={Desired}, mirrored={Mirrored}, reason={Reason})",
+                "No agent version change (local={Local}, update_target={Target}, server_target={ServerTarget}, reason={Reason})",
                 _agentVersion,
-                desired,
-                check.Version ?? "(none)",
+                localTarget,
+                check.TargetVersion ?? check.Version ?? "(none)",
                 plan.Reason);
             return false;
         }
@@ -193,62 +195,78 @@ public sealed class AgentUpdater
         }
     }
 
-    /// <summary>Решение upgrade / downgrade / none по local + desired + ответу check.</summary>
-    public static UpdatePlan ResolvePlan(string localVersion, string desired, UpdateCheckResponse check)
+    /// <summary>
+    /// Решение upgrade / downgrade / none.
+    /// Предпочтительно: server <c>update_available</c> + <c>target_version</c> (контракт §3–4).
+    /// Fallback: локальный <c>update_target</c> + mirrored <c>version</c> (single-mirror 0.9.x).
+    /// </summary>
+    public static UpdatePlan ResolvePlan(string localVersion, string localUpdateTarget, UpdateCheckResponse check)
     {
-        var mirrored = check.Version;
-        var actionHint = NormalizeAction(check.Action);
+        var serverTarget = FirstSemVer(check.TargetVersion, check.Version);
+        var sha = check.Sha256;
+        var url = check.Url;
+        var msiName = check.MsiName;
 
-        // Сервер явно сказал none.
-        if (actionHint == UpdateAction.None)
+        // --- Канон 0.10: сервер уже посчитал target ---
+        if (check.UpdateAvailable && serverTarget is not null)
         {
-            return UpdatePlan.None("server_action_none");
-        }
+            if (VersionUtil.IsSameVersion(localVersion, serverTarget))
+            {
+                return UpdatePlan.None("same");
+            }
 
-        // Same version as mirrored / target — всегда no-op.
-        if (!string.IsNullOrWhiteSpace(mirrored) && VersionUtil.IsSameVersion(localVersion, mirrored)
-            && (string.Equals(desired, "latest", StringComparison.OrdinalIgnoreCase)
-                || VersionUtil.IsSameVersion(localVersion, desired)))
-        {
+            if (string.IsNullOrWhiteSpace(sha))
+            {
+                return UpdatePlan.None("missing_sha");
+            }
+
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                url = $"/v1/agent/update/msi?version={Uri.EscapeDataString(serverTarget)}";
+            }
+
+            if (VersionUtil.IsNewer(serverTarget, localVersion))
+            {
+                return new UpdatePlan(UpdateAction.Upgrade, serverTarget, sha, url, msiName, "server_upgrade");
+            }
+
+            if (VersionUtil.IsOlder(serverTarget, localVersion))
+            {
+                return new UpdatePlan(UpdateAction.Downgrade, serverTarget, sha, url, msiName, "server_downgrade");
+            }
+
             return UpdatePlan.None("same");
         }
 
+        if (!string.IsNullOrWhiteSpace(check.Reason)
+            && check.Reason.Contains("broken", StringComparison.OrdinalIgnoreCase))
+        {
+            return UpdatePlan.None("broken_pin");
+        }
+
+        // --- Fallback single-mirror / pre-0.10 server ---
+        var desired = VersionUtil.NormalizeDesiredAgentVersion(localUpdateTarget) ?? "latest";
+        var mirrored = check.Version;
+
         if (string.Equals(desired, "latest", StringComparison.OrdinalIgnoreCase))
         {
-            // latest: только upgrade; никогда авто-downgrade на более старое зеркало.
-            if (actionHint == UpdateAction.Downgrade)
-            {
-                return UpdatePlan.None("latest_ignores_downgrade");
-            }
-
-            if (!check.UpdateAvailable && actionHint is null)
-            {
-                return UpdatePlan.None("latest_no_update");
-            }
-
             if (string.IsNullOrWhiteSpace(mirrored) || !VersionUtil.IsNewer(mirrored, localVersion))
             {
                 return UpdatePlan.None("latest_not_newer");
             }
 
-            var url = check.Url;
-            if (string.IsNullOrWhiteSpace(url) && check.UpdateAvailable)
+            if (string.IsNullOrWhiteSpace(sha))
             {
-                url = "/v1/agent/update/msi";
+                return UpdatePlan.None("latest_missing_sha");
             }
 
-            if (string.IsNullOrWhiteSpace(check.Sha256) || string.IsNullOrWhiteSpace(url))
-            {
-                return UpdatePlan.None("latest_missing_assets");
-            }
-
-            return new UpdatePlan(UpdateAction.Upgrade, mirrored, check.Sha256, url, check.MsiName, "latest_upgrade");
+            url = string.IsNullOrWhiteSpace(url) ? "/v1/agent/update/msi" : url;
+            return new UpdatePlan(UpdateAction.Upgrade, mirrored, sha, url, msiName, "latest_upgrade");
         }
 
-        // Pin to semver.
         if (!VersionUtil.TryParseSemVer(desired, out _))
         {
-            return UpdatePlan.None("bad_desired");
+            return UpdatePlan.None("bad_update_target");
         }
 
         if (VersionUtil.IsSameVersion(localVersion, desired))
@@ -256,51 +274,44 @@ public sealed class AgentUpdater
             return UpdatePlan.None("same");
         }
 
-        // Пакет на зеркале должен совпасть с pin (single-mirror модель).
         if (string.IsNullOrWhiteSpace(mirrored) || !VersionUtil.IsSameVersion(mirrored, desired))
         {
             return UpdatePlan.None("pin_not_on_mirror");
         }
 
-        var pinUrl = check.Url;
-        if (string.IsNullOrWhiteSpace(pinUrl))
-        {
-            // Сервер 0.9.x мог не отдать url для non-newer — для pin всё равно бьём same-origin MSI.
-            pinUrl = "/v1/agent/update/msi";
-        }
-
-        if (string.IsNullOrWhiteSpace(check.Sha256))
+        if (string.IsNullOrWhiteSpace(sha))
         {
             return UpdatePlan.None("pin_missing_sha");
         }
 
+        url = string.IsNullOrWhiteSpace(url)
+            ? $"/v1/agent/update/msi?version={Uri.EscapeDataString(desired)}"
+            : url;
+
         if (VersionUtil.IsNewer(desired, localVersion))
         {
-            return new UpdatePlan(UpdateAction.Upgrade, desired, check.Sha256, pinUrl, check.MsiName, "pin_upgrade");
+            return new UpdatePlan(UpdateAction.Upgrade, desired, sha, url, msiName, "pin_upgrade");
         }
 
         if (VersionUtil.IsOlder(desired, localVersion))
         {
-            return new UpdatePlan(UpdateAction.Downgrade, desired, check.Sha256, pinUrl, check.MsiName, "pin_downgrade");
+            return new UpdatePlan(UpdateAction.Downgrade, desired, sha, url, msiName, "pin_downgrade");
         }
 
         return UpdatePlan.None("same");
     }
 
-    private static UpdateAction? NormalizeAction(string? action)
+    private static string? FirstSemVer(params string?[] values)
     {
-        if (string.IsNullOrWhiteSpace(action))
+        foreach (var v in values)
         {
-            return null;
+            if (VersionUtil.TryParseSemVer(v, out var ver))
+            {
+                return $"{ver.Major}.{ver.Minor}.{ver.Build}";
+            }
         }
 
-        return action.Trim().ToLowerInvariant() switch
-        {
-            "upgrade" => UpdateAction.Upgrade,
-            "downgrade" => UpdateAction.Downgrade,
-            "none" or "noop" or "same" => UpdateAction.None,
-            _ => null
-        };
+        return null;
     }
 
     private void ClearPendingIfMatched(AgentConfig config)
@@ -380,13 +391,16 @@ public readonly record struct UpdatePlan(
 public sealed class UpdateCheckResponse
 {
     public bool UpdateAvailable { get; init; }
+    /// <summary>Канон 0.10.</summary>
+    public string? TargetVersion { get; init; }
+    /// <summary>Legacy / mirrored version field.</summary>
     public string? Version { get; init; }
     public string? Sha256 { get; init; }
     public string? Url { get; init; }
     public string? MsiName { get; init; }
-    /// <summary>Опционально от сервера: upgrade / downgrade / none.</summary>
     public string? Action { get; init; }
     public string? Desired { get; init; }
+    public string? Reason { get; init; }
 
     public static UpdateCheckResponse FromJson(string json)
     {
@@ -397,12 +411,14 @@ public sealed class UpdateCheckResponse
             UpdateAvailable = root.TryGetProperty("update_available", out var ua)
                               && ua.ValueKind is JsonValueKind.True or JsonValueKind.False
                               && ua.GetBoolean(),
-            Version = GetString(root, "version") ?? GetString(root, "target_version"),
+            TargetVersion = GetString(root, "target_version"),
+            Version = GetString(root, "version"),
             Sha256 = GetString(root, "sha256"),
             Url = GetString(root, "url"),
             MsiName = GetString(root, "msi_name"),
             Action = GetString(root, "action"),
-            Desired = GetString(root, "desired")
+            Desired = GetString(root, "desired") ?? GetString(root, "update_target"),
+            Reason = GetString(root, "reason")
         };
     }
 
