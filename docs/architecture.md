@@ -158,10 +158,11 @@ flowchart LR
 | `/settings/ldap` | LDAP + группа доступа AD |
 | `/settings/mail` | SMTP + получатели + toggles уведомлений |
 | `/settings/retention` | сроки хранения events/inventory |
-| `/settings/backups` | статус ежедневного SQLite backup + ручной запуск |
-| `/settings/policies` | CRUD политик remote config |
-| `/settings/updates` | статус зеркала MSI + sync |
+| `/settings/backups` | daily SQLite + (0.10) **Скачать site bundle** (`GET …/site-bundle`) |
+| `/settings/policies` | CRUD; knob `update_target` = `latest` \| pin semver |
+| `/settings/updates` | (0.10) каталог MSI, upload air-gap, sync, Latest/Удалить; секция **Enrollment token** + `POST /settings/enrollment/rotate` |
 | `/account/password` | смена пароля локального пользователя |
+| `/` `/overview` | (0.10) ops: empty mirror, version drift, broken pin, revoked active |
 
 **Локальные пользователи**
 
@@ -221,9 +222,12 @@ flowchart LR
 ## Enrollment и inventory
 
 1. Оператор задаёт site enrollment token (install script → `/etc/bad/site.env`).
-2. MSI/config передаёт `SERVERURL` + `ENROLLMENTTOKEN` (**SEC-011:** deferred CA читает token из HKLM Setup, не из argv PowerShell; residual — родительский `msiexec … ENROLLMENTTOKEN=` / verbose logs — не шарить; после волны ротировать token).
+2. MSI/config передаёт `SERVERURL` + `ENROLLMENTTOKEN` (**SEC-011:** deferred CA читает token из HKLM Setup, не из argv PowerShell; residual — родительский `msiexec … ENROLLMENTTOKEN=` / verbose logs — не шарить).
 3. Агент `POST /v1/enroll` → получает `api_key`, сохраняет в ProgramData, затирает enrollment token.
 4. Повторные запуски используют API key; upsert по стабильному `device_id`.
+5. **Ротация enrollment (0.10):** UI на `/settings/updates` → **Сменить enrollment token** (`POST /settings/enrollment/rotate` + admin API); hash в SQLite сразу, restart не нужен. Runbook: [operator-guide.md](operator-guide.md#ротация-enrollment-token-после-волны-msi).
+6. **Multi-version MSI (0.10):** `agent_msi_versions` + latest; upload/sync/set-latest/delete; `update_target`; check → target в т.ч. downgrade. Оператор: [operator-guide.md](operator-guide.md#4-обновления-агента-upload-msi-и-выбор-версии-010).
+7. **Site bundle (0.10):** `GET /settings/backups/site-bundle`; restore: `deploy/debian/restore-site-bundle.sh`. Daily DB-only без изменений.
 
 ## Deploy
 

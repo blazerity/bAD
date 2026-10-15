@@ -70,9 +70,32 @@ msiexec /i bad-agent-0.10.0.msi `
   /qn
 ```
 
-**Enrollment token (SEC-011):** deferred custom action читает token из HKLM `SOFTWARE\blazerity\bAD\Setup` и сразу удаляет ключ — **не** из argv PowerShell. Residual risk: родительский `msiexec … ENROLLMENTTOKEN=` (process command line) и verbose/`msiexec` логи / transcript’ы деплоя. Не пересылайте их. После волны установки **ротируйте** site enrollment token в `/etc/bad/site.env` (и перезапустите `bad-api`). Property `Hidden=yes` снижает утечку в UI MSI, но не убирает exposure в командной строке родителя. Подробнее: `installer/msi/README.md`.
+**Enrollment token (SEC-011):** deferred custom action читает token из HKLM `SOFTWARE\blazerity\bAD\Setup` и сразу удаляет ключ — **не** из argv PowerShell. Residual risk: родительский `msiexec … ENROLLMENTTOKEN=` (process command line) и verbose/`msiexec` логи / transcript’ы деплоя. Не пересылайте их. После волны установки **ротируйте** enrollment token (runbook ниже). Property `Hidden=yes` снижает утечку в UI MSI, но не убирает exposure в командной строке родителя. Подробнее: `installer/msi/README.md`.
 
 Служба `BlazerityAssetDiscovery` стартует автоматически, один раз enroll'ится, сохраняет API key в `%ProgramData%\blazerity\bAD\config.json` и шлёт inventory при старте (далее каждые 6 часов), heartbeat каждые 15 минут. Также спрашивает сервер про MSI-обновления (никогда не GitHub напрямую). Локальный CLI (сервер не нужен): `bad` / `bad -h` / `bad -?`. Service CLI: `BadAgent.exe service status|start|stop|restart` (elevated). См. [agents.md](./agents.md).
+
+### Ротация enrollment token (после волны MSI)
+
+**Зачем.** Site enrollment token — общий секрет для первой регистрации агентов. Он может остаться в логах `msiexec`, transcript’ах деплоя или истории команд. Пока токен жив, им можно enroll’ить (и при известных рисках пытаться злоупотреблять enroll). Ротация инвалидирует **старый** токен для новых установок.
+
+**Когда.** Сразу после волны массовой установки MSI (или если токен мог утечь: логи ушли в тикет, скрипт деплоя в общем репо, и т.п.). Уже зарегистрированные устройства **не** нужно переустанавливать: у них в ProgramData лежит API key, enrollment token им больше не нужен.
+
+**Шаги (UI, 0.10):**
+
+1. Войдите как локальный **admin** (или LDAP admin).
+2. Откройте **Параметры → Обновления агента** (`/settings/updates`) — внизу секция **Enrollment token** (plaintext текущего token не показывается; видны «Hash в БД» / путь файла).
+3. При желании введите свой токен в поле «Свой токен» (пусто = сервер сгенерирует).
+4. Нажмите **Сменить enrollment token**, подтвердите диалог («Старый перестанет работать»).
+5. На той же странице появится блок **«Новый enrollment token (показать один раз)»** — скопируйте в сейф. Restart `bad-api` **не** нужен (hash в SQLite сразу). Повторно plaintext не откроется.
+6. Обновите артефакты деплоя: в следующих `msiexec` / GPO / Intune — новый `ENROLLMENTTOKEN=…`.
+
+Автоматизация: `POST /v1/admin/enrollment/rotate` (admin Bearer) — тот же эффект; plaintext нового token в ответе один раз. Endpoint формы: `POST /settings/enrollment/rotate` (CSRF).
+
+**Что со старым токеном.** После ротации `POST /v1/enroll` со старым Bearer → отказ (401). Уже enroll’енные агенты продолжают heartbeat/inventory по своему API key. Revoke/rotate **API key** устройства — отдельная операция на карточке устройства, не путать с ротацией site enrollment.
+
+**Новые установки.** Только с новым token. Если машина ещё не успела enroll’иться со старым — поставьте MSI заново с новым `ENROLLMENTTOKEN`.
+
+**Fallback без UI (аварийно):** сгенерировать новый секрет → `/etc/bad/site.env` / файл токена + предпочтительно hash в БД; UI-ротация предпочтительнее.
 
 ## 3. Проверка в web UI
 
@@ -83,7 +106,7 @@ msiexec /i bad-agent-0.10.0.msi `
 
 Теги: правка на странице устройства (через запятую). Фильтр списка устройств по тегу. Политики тоже могут матчить `tag equals/contains`.
 
-Master-ключи (`/etc/bad/data_key`, `/etc/bad/session_secret`) не входят в daily SQLite backup — храните escrow отдельно. Порог stale по умолчанию 1 час (`BAD_DEVICE_STALE_AFTER_SECONDS`); поставьте ≈2× heartbeat, если удобнее (напр. `1800` при heartbeat 15 мин). Версия продукта **0.10.0**.
+Master-ключи (`/etc/bad/data_key`, `/etc/bad/session_secret`) не входят в daily SQLite backup — храните escrow отдельно (в **site bundle** 0.10 они уже есть). Порог stale по умолчанию 1 час (`BAD_DEVICE_STALE_AFTER_SECONDS`); поставьте ≈2× heartbeat, если удобнее (напр. `1800` при heartbeat 15 мин). Версия продукта **0.10.0**.
 
 Альтернатива (автоматизация — admin API token):
 
@@ -93,6 +116,53 @@ curl -fsS -H "Authorization: Bearer <admin-token>" \
 curl -fsS -H "Authorization: Bearer <admin-token>" \
   'https://bad.example.com/v1/events?limit=50'
 ```
+
+## 4. Обновления агента: upload MSI и выбор версии (0.10)
+
+Страница: **Параметры → Обновления агента** (`/settings/updates`). Каталог на диске: `BAD_AGENT_UPDATES_DIR/{version}/bad-agent-{version}.msi` (+ `agent-release.json`). Агенты качают только с этого сервера; цель версии — knob `update_target` в политиках.
+
+### Загрузить MSI (air-gap)
+
+1. Откройте `/settings/updates`.
+2. Секция **«Загрузить MSI (air-gap)»**: выберите файл MSI (`bad-agent-X.Y.Z.msi`), опционально manifest JSON, поля «Версия» / «SHA256» (sha можно не указывать — посчитаем).
+3. **Подгрузить в зеркало**.
+4. В **«Каталог версий»** появятся версия / файл / источник (`upload`\|`github`) / sha / время. Кнопки у строки: **Latest** (назначить указатель latest), **Удалить** (нельзя снести latest или версию под pin политики).
+
+GitHub: **«Синхронизировать сейчас»** (`POST /settings/updates/sync`). Статус latest и интервал sync — в meta вверху страницы.
+
+### «Последняя» vs pin (`update_target`)
+
+| Значение в UI политик | Поведение |
+|-----------------------|-----------|
+| `latest (последняя в зеркале)` | target = site latest. Кнопка **Latest** на более старой версии → агенты с `latest` **downgrade**. |
+| конкретная `X.Y.Z` из списка зеркала | pin; save на несуществующую версию отклоняется. Нет файла → агент no-op; на Обзоре — «Закреплённая версия отсутствует в зеркале». |
+
+Где задать: **Параметры → Политики** (`update_target` в форме) или override на карточке устройства. Канон — `update_target` (алиас `desired_agent_version`). `update_enabled=false` — агент MSI не ставит. Агент следует `update_available` с сервера (upgrade и downgrade).
+
+## 5. Site backup / restore (0.10)
+
+Daily SQLite (`/var/lib/bad/backups/bad-YYYY-MM-DD.db`) **остаётся**. Отдельно — **Site bundle**.
+
+**Скачать:** **Параметры → Резервные копии** → ссылка **«Скачать site bundle (.tar.gz)»** (`GET /settings/backups/site-bundle`). В архиве: DB + keys + meta зеркала; MSI по умолчанию не тащатся (объём). Секреты только в файле, не в HTML. Храните tar в сейфе.
+
+**Restore (drill):**
+
+```bash
+sudo bash deploy/debian/restore-site-bundle.sh /path/to/bad-site-bundle-….tar.gz
+```
+
+Скрипт (root): останавливает `bad-api`, перезаписывает `/var/lib/bad/bad.db` и ключи в `/etc/bad`, поднимает сервис. Перед боем — пробный прогон на копии. После: `curl -fsS https://…/v1/health`, login, `/settings/updates` (доложить MSI upload’ом, если бинарников не было в bundle).
+
+## 6. Ops-блок на Обзоре (0.10)
+
+На **`/` / `/overview`** помимо обычных счётчиков (в т.ч. **Устарел** / stale):
+
+- пустое зеркало MSI / latest + число версий + время sync;
+- **«Отстают от целевой версии»** (version drift);
+- **«Закреплённая версия отсутствует в зеркале»** (broken pin);
+- отозванные устройства не в архиве (нужен rotate-key / recovery).
+
+Сигналы «куда смотреть», не marketing dashboard.
 
 ## Безопасность для операторов
 
@@ -139,7 +209,7 @@ install -o root -g bad -m 440 /path/from/secure/source /etc/bad/keys/data.key
 
 ### Enrollment token (SEC-011)
 
-См. выше в § MSI: не шарьте msiexec-логи; после массового деплоя ротируйте enrollment token.
+Не шарьте msiexec-логи / transcript’ы. После волны MSI — [ротация enrollment token](#ротация-enrollment-token-после-волны-msi) (UI в **0.10**).
 
 ## Заметки
 
