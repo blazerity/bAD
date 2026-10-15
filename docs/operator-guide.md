@@ -24,7 +24,7 @@ Verify:
 
 ```bash
 curl -fsS https://bad.example.com/v1/health
-# → {"status":"ok"}
+# → {"status":"ok","version":"0.1.0"}
 ```
 
 Open `https://bad.example.com/login` and sign in with the **admin token**.
@@ -36,7 +36,7 @@ Tokens live in `/etc/bad/site.env` (mode `640`, `root:bad`). uvicorn listens on 
 On a Windows build host, produce the MSI (see `installer/msi/README.md`), then install:
 
 ```powershell
-msiexec /i bad-agent-1.0.0.msi `
+msiexec /i bad-agent-0.1.0.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=<enrollment-token-from-install> `
   /qn

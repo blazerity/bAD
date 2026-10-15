@@ -71,6 +71,14 @@ main {
   padding: 2rem 1.5rem 4rem;
 }
 
+.foot {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 1.5rem 2rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
 h1 { margin: 0 0 0.5rem; font-size: 1.75rem; font-weight: 650; }
 h2 { margin: 2rem 0 0.75rem; font-size: 1.15rem; font-weight: 600; }
 .muted { color: var(--muted); margin-top: 0; }

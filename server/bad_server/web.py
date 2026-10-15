@@ -8,12 +8,14 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from . import __version__
 from .auth import admin_token_valid, get_db
 from .config import Settings, get_settings
 from .db import Database
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates.env.globals["app_version"] = __version__
 
 router = APIRouter(tags=["web"])
 

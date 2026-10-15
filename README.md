@@ -15,7 +15,8 @@ agent/            # C# Worker Service + unit tests
 server/           # FastAPI app, web UI, pytest
 installer/msi/    # WiX sources (build on Windows)
 deploy/debian/    # install.sh, systemd, nginx template
-docs/             # operator guide
+docs/             # architecture, guidelines, agent notes, operator guide
+VERSION           # product semver (0.1.0)
 ```
 
 ## Quick start (server on Linux)
@@ -57,10 +58,16 @@ dotnet run --project src/BadAgent -c Release
 
 On Windows, install as a service via the MSI (`installer/msi/`) with public properties `SERVERURL` and `ENROLLMENTTOKEN`.
 
+## Docs
+
+| Document | Description |
+|----------|-------------|
+| [docs/architecture.md](docs/architecture.md) | Архитектура сервиса (клиент/сервер, TLS, enroll, web UI, deploy) |
+| [docs/guideline.md](docs/guideline.md) | Инженерные правила (API, security, logging, UI, PR hygiene) |
+| [docs/agents.md](docs/agents.md) | Практика для coding agents: layout, тесты, version bump, инварианты |
+| [docs/operator-guide.md](docs/operator-guide.md) | Операторский путь: Debian install → MSI → web UI |
+| [docs/architecture-plan.md](docs/architecture-plan.md) | Locked plan v1 (решения не переоткрывать для MVP) |
+
 ## Operator path
 
 See [docs/operator-guide.md](docs/operator-guide.md): Debian one-line install → MSI → device appears in the HTTPS web UI.
-
-## Architecture
-
-Locked plan: [docs/architecture-plan.md](docs/architecture-plan.md) (copied from project planning). Decisions in that document are not reopened for MVP.
