@@ -3,8 +3,17 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from pathlib import Path
+from typing import Optional
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 class Settings(BaseSettings):
@@ -13,33 +22,60 @@ class Settings(BaseSettings):
     db_path: Path = Path(os.environ.get("BAD_DB_PATH", "./data/bad.db"))
     enrollment_token: str = ""
     admin_token: str = ""
+    # Master secrets — prefer env/file outside SQLite (SEC-005).
     session_secret: str = ""
+    data_key: str = ""
+    session_secret_file: Path = Path(
+        os.environ.get("BAD_SESSION_SECRET_FILE", "/etc/bad/session_secret")
+    )
+    data_key_file: Path = Path(
+        os.environ.get("BAD_DATA_KEY_FILE", "/etc/bad/data_key")
+    )
+    prefer_external_secrets: bool = _env_bool("BAD_PREFER_EXTERNAL_SECRETS", True)
+    # Cookie Secure: True/False force; None = auto (X-Forwarded-Proto / HTTPS).
+    cookie_secure: Optional[bool] = None
     enroll_rate_limit_per_minute: int = 30
+    login_rate_limit_per_minute: int = 10
+    login_username_rate_limit_per_minute: int = 5
     snapshot_retention: int = 30
     known_schema_versions: frozenset[int] = frozenset({1, 2})
-    # Web-бейдж тишины: last_seen старше порога → stale (по умолчанию 1 ч).
-    # Операторы могут поставить ~2× heartbeat (напр. 1800 при heartbeat 15 мин).
+    # Web silence badge: last_seen older than this → stale (default 1h).
     device_stale_after_seconds: int = 3600
-    # Создаётся только когда нет локальных пользователей (свежая БД / первый запуск).
+    # Seeded only when no local users exist (fresh DB / first boot).
     default_admin_username: str = "admin"
     default_admin_password: str = "admin"
 
-
-    # Зеркало обновлений агента (GitHub Release → локальное хранилище). Агенты к GitHub не ходят.
+    # Зеркало обновлений агента (GitHub Release → локальное хранилище).
     github_repo: str = "blazerity/bAD"
-    github_token: str = ""  # опционально; нужен, если репозиторий станет private
+    github_token: str = ""
     github_api_base: str = "https://api.github.com"
     agent_updates_dir: Path = Path(
         os.environ.get("BAD_AGENT_UPDATES_DIR", "/var/lib/bad/agent-updates")
     )
-    agent_update_sync_interval_seconds: int = 3600  # 0 отключает фоновый sync
+    agent_update_sync_interval_seconds: int = 3600
     agent_update_sync_on_startup: bool = True
 
     # Ежедневные бэкапы SQLite (сегодня + вчера в этом каталоге).
     backup_dir: Path = Path(
         os.environ.get("BAD_BACKUP_DIR", "/var/lib/bad/backups")
     )
-    backup_interval_seconds: int = 3600  # как часто проверять; не чаще 1 раза в сутки
+    backup_interval_seconds: int = 3600
+
+    @field_validator("cookie_secure", mode="before")
+    @classmethod
+    def _parse_cookie_secure(cls, value):  # noqa: ANN001
+        if value is None or value == "":
+            return None
+        if isinstance(value, bool):
+            return value
+        text = str(value).strip().lower()
+        if text in {"1", "true", "yes", "on"}:
+            return True
+        if text in {"0", "false", "no", "off"}:
+            return False
+        if text in {"auto", "none"}:
+            return None
+        return None
 
 
 @lru_cache

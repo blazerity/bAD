@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ssl
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -23,6 +24,8 @@ class LdapSettingsView:
     default_role: str = "operator"
     # AD sAMAccountName security-группы, которой разрешён вход (пусто = без ограничения).
     allowed_group: str = ""
+    # Opt-in only: disable certificate verification (lab). Default verify (SEC-003).
+    tls_insecure: bool = False
 
 
 @dataclass
@@ -43,7 +46,8 @@ class LdapGroupDenied(Exception):
 def _server(settings: LdapSettingsView) -> Server:
     tls = None
     if settings.use_ssl or settings.start_tls:
-        tls = Tls(validate=0)
+        validate = ssl.CERT_NONE if settings.tls_insecure else ssl.CERT_REQUIRED
+        tls = Tls(validate=validate)
     return Server(
         settings.host,
         port=int(settings.port or (636 if settings.use_ssl else 389)),
@@ -249,4 +253,5 @@ def settings_from_row(row: dict[str, Any], bind_password: str = "") -> LdapSetti
         display_name_attr=row.get("display_name_attr") or "cn",
         default_role=row.get("default_role") or "operator",
         allowed_group=(row.get("allowed_group") or "").strip(),
+        tls_insecure=bool(row.get("tls_insecure")),
     )

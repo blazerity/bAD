@@ -10,19 +10,27 @@
 </head>
 <body>
   <header class="top">
-    <a class="brand" href="/">bAD</a>
+    <a class="brand" href="{% if user is defined and user and user.must_change_password %}/account/password{% else %}/{% endif %}">bAD</a>
     <span class="tagline">blazerity Asset Discovery</span>
     {% if user is defined and user %}
-    <nav class="nav" aria-label="Основная навигация">
-      <a href="/">Обзор</a>
-      <a href="/devices">Устройства</a>
-      <a href="/events">События</a>
-      {% if user.is_admin %}
-      <a href="/settings">Параметры</a>
+      {% if user.must_change_password %}
+      {# SEC-004: no nav to other pages until password is changed #}
+      <nav class="nav" aria-label="Смена пароля">
+        {% if user.source == 'local' %}<a href="/account/password">Пароль</a>{% endif %}
+      </nav>
+      {% else %}
+      <nav class="nav" aria-label="Основная навигация">
+        <a href="/">Обзор</a>
+        <a href="/devices">Устройства</a>
+        <a href="/events">События</a>
+        {% if user.is_admin %}
+        <a href="/settings">Параметры</a>
+        {% endif %}
+        {% if user.source == 'local' %}<a href="/account/password">Пароль</a>{% endif %}
+      </nav>
       {% endif %}
-      {% if user.source == 'local' %}<a href="/account/password">Пароль</a>{% endif %}
-    </nav>
     <form class="logout" method="post" action="/logout">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <span class="who mono">{{ user.username }}{% if user.source == 'ldap' %} (ldap){% endif %}</span>
       <button type="submit">Выйти</button>
     </form>

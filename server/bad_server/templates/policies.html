@@ -46,6 +46,7 @@
         <td class="mono">{{ p.settings }}</td>
         <td>
           <form method="post" action="/settings/policies/{{ p.id }}/delete" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button type="submit" class="secondary">Удалить</button>
           </form>
         </td>
@@ -61,6 +62,7 @@
   <form method="post"
     action="{% if edit %}/settings/policies/{{ edit.id }}{% else %}/settings/policies{% endif %}"
     class="settings-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label for="name">Имя</label>
     <input id="name" name="name" type="text" required maxlength="128"
       value="{{ edit.name if edit else '' }}" autocomplete="off">

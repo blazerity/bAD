@@ -23,12 +23,18 @@ from .schemas import (
     HeartbeatRequest,
     InventoryRequest,
 )
-from .security import generate_token, hash_secret
+from .security import api_key_lookup, generate_token, hash_secret, verify_secret
 from .smtp_mail import notify_enroll, notify_inventory_events
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1")
+
+# SEC-001: enrollment token alone cannot un-revoke (api early path + DB TOCTOU guard).
+_DEVICE_REVOKED_DETAIL = (
+    "Device access revoked; admin must rotate API key in web UI "
+    "(enrollment token alone cannot un-revoke)"
+)
 
 
 @router.get("/health")
@@ -52,14 +58,56 @@ def enroll(
             detail="Enrollment rate limit exceeded",
         )
 
+    # SEC-001: enrollment token alone cannot un-revoke (early + DB TOCTOU guard).
+    _REVOKED_DETAIL = (
+        "Device access revoked; admin must rotate API key in web UI "
+        "(enrollment token alone cannot un-revoke)"
+    )
+
+    existing = db.get_device_auth_row(body.device_id)
+    allow_existing = False
+    if existing:
+        if existing.get("revoked"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=_REVOKED_DETAIL,
+            )
+        # Re-key only with proof of current API key (SEC-001).
+        proof = (body.current_api_key or "").strip()
+        if not proof or not verify_secret(existing["api_key_hash"], proof):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Device already enrolled; re-enroll requires current_api_key "
+                    "or admin rotate-key"
+                ),
+            )
+        allow_existing = True
+
     api_key = generate_token("bad_ak_")
     api_key_hash = hash_secret(api_key)
-    created = db.upsert_device_on_enroll(
-        device_id=body.device_id,
-        hostname=body.hostname,
-        api_key_hash=api_key_hash,
-        agent_version=body.agent_version,
-    )
+    data_key = getattr(request.app.state, "data_key", "") or ""
+    lookup = api_key_lookup(data_key, api_key) if data_key else None
+    try:
+        created = db.upsert_device_on_enroll(
+            device_id=body.device_id,
+            hostname=body.hostname,
+            api_key_hash=api_key_hash,
+            agent_version=body.agent_version,
+            api_key_lookup=lookup,
+            allow_existing=allow_existing,
+        )
+    except ValueError as exc:
+        code = str(exc)
+        if code == "device_revoked":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=_REVOKED_DETAIL,
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Device already enrolled",
+        ) from exc
     if created:
         try:
             smtp_row = db.get_smtp_settings()
@@ -247,13 +295,18 @@ def revoke_device(
 @router.post("/devices/{device_id}/rotate-key")
 def rotate_device_key(
     device_id: str,
+    request: Request,
     _admin: str = Depends(require_admin_token),
     db: Database = Depends(get_db),
 ) -> dict[str, Any]:
     if not db.get_device_detail(device_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
     api_key = generate_token("bad_ak_")
-    db.rotate_device_api_key(device_id, hash_secret(api_key))
+    data_key = getattr(request.app.state, "data_key", "") or ""
+    lookup = api_key_lookup(data_key, api_key) if data_key else None
+    db.rotate_device_api_key(
+        device_id, hash_secret(api_key), api_key_lookup=lookup
+    )
     return {
         "status": "ok",
         "device_id": device_id,
@@ -344,15 +397,33 @@ def agent_update_check(
 def agent_update_msi(
     _device=Depends(require_api_key),
     db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> FileResponse:
     """Скачать байты зеркалированного MSI (auth: API key агента)."""
+    from .github_release import safe_msi_filename
+
     mirrored = db.get_agent_update()
     if not mirrored:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No agent update mirrored yet",
         )
-    path = Path(mirrored["file_path"])
+    try:
+        safe_name = safe_msi_filename(mirrored["msi_name"])
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Mirrored MSI name is unsafe",
+        ) from exc
+    path = Path(mirrored["file_path"]).resolve()
+    updates_root = settings.agent_updates_dir.resolve()
+    try:
+        path.relative_to(updates_root)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Mirrored MSI path escapes updates dir",
+        ) from exc
     if not path.is_file():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -361,7 +432,7 @@ def agent_update_msi(
     return FileResponse(
         path,
         media_type="application/octet-stream",
-        filename=mirrored["msi_name"],
+        filename=safe_name,
     )
 
 

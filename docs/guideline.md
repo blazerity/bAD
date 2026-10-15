@@ -24,10 +24,15 @@
 ## Безопасность
 
 - Агент отклоняет `http://` без явного opt-in для dev.
-- На сервере: hash секретов (argon2), файл БД `0600`, site.env `640` root:bad.
+- На сервере: hash секретов (argon2), файл БД `0600`, site.env `640` root:bad; каталог бэкапов — как секреты (`700` / файлы `600`).
+- **SEC-005:** `data_key` / `session_secret` по умолчанию в той же SQLite → копия БД или daily backup = полный компромисс SMTP/LDAP bind и session cookies. Вынос master key в `BAD_DATA_KEY` (файл вне БД, права `440`/`400` root:bad) — единственный способ разорвать эту связку; пока ключ в БД — не шарить бэкапы. Операторский чеклист: [operator-guide.md](operator-guide.md#безопасность-для-операторов).
+- **SEC-011:** MSI write-config не кладёт token в argv PowerShell (HKLM Setup); residual — родительский `msiexec … ENROLLMENTTOKEN=` / verbose logs — не пересылать; после волны ротировать site enrollment token.
+- **SEC-003:** LDAP TLS — по умолчанию `CERT_REQUIRED`; lab opt-in `tls_insecure` только для лаборатории, не для боя.
+- После install **сразу** сменить `admin`/`admin` (`/account/password`); до смены UI пускает только `/account/password` и `/logout` (навигация скрыта).
+- Cookie `bad_session` — только за HTTPS (nginx TLS + Secure в prod); uvicorn не наружу.
 - nginx rate-limit / app enroll limiter — сохранять и ужесточать осторожно.
 - ProgramData ACL: Administrators + SYSTEM; не world-readable.
-- Логи (Serilog / journald): без plaintext tokens и API keys (включая `BAD_GITHUB_TOKEN`).
+- Логи (Serilog / journald): без plaintext tokens и API keys (включая `BAD_GITHUB_TOKEN` и enrollment).
 
 ## Логирование
 
@@ -37,18 +42,18 @@
 
 ## Версионирование продукта
 
-- Semver продукта: сейчас **`0.9.0`** (см. корневой `VERSION` и [agents.md](agents.md)).
+- Semver продукта: сейчас **`0.9.1`** (см. корневой `VERSION` и [agents.md](agents.md)).
 - Правило bump: **patch +0.0.1** для hotfix; **minor +0.1.0** для feature; **major** только по явному решению владельца.
 - `schema_version` протокола inventory — отдельный integer, не путать с semver агента/сервера.
 - Агент шлёт `agent_version`; сервер отдаёт `version` в `/v1/health`.
 
 ## Как вырезать релиз агента (MSI)
 
-1. Версия на `main` = нужному semver (сейчас **0.9.0**); checklist в [agents.md](agents.md).
+1. Версия на `main` = нужному semver (сейчас **0.9.1**); checklist в [agents.md](agents.md).
 2. Тег и push:
    ```bash
-   git tag v0.9.0
-   git push origin v0.9.0
+   git tag v0.9.1
+   git push origin v0.9.1
    ```
 3. Workflow **`release-msi`** (`windows-latest`): publish agent → WiX v5 → GitHub Release assets `bad-agent-<ver>.msi` + `agent-release.json`.
 4. Права: `contents: write`. Для public repo достаточно `GITHUB_TOKEN`. Private позже — `BAD_GITHUB_TOKEN` на сервере.

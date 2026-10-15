@@ -10,6 +10,7 @@
   {% if test_result %}<p class="{% if test_result.startswith('ОК') or test_result.startswith('OK') %}ok{% else %}error{% endif %}">{{ test_result }}</p>{% endif %}
 
   <form method="post" action="/settings/ldap" class="settings-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label class="check">
       <input type="checkbox" name="enabled" value="1" {% if ldap.enabled %}checked{% endif %}>
       Включить вход через LDAP
@@ -29,6 +30,11 @@
       <input type="checkbox" name="start_tls" value="1" {% if ldap.start_tls %}checked{% endif %}>
       StartTLS
     </label>
+    <label class="check">
+      <input type="checkbox" name="tls_insecure" value="1" {% if ldap.tls_insecure %}checked{% endif %}>
+      Не проверять TLS-сертификат LDAP (только lab)
+    </label>
+    <p class="hint">По умолчанию сертификат LDAP-сервера проверяется. Включайте insecure только в тестовой среде.</p>
 
     <label for="bind_dn">Bind DN</label>
     <input id="bind_dn" name="bind_dn" type="text" value="{{ ldap.bind_dn }}" placeholder="cn=svc-bad,ou=services,dc=example,dc=com" autocomplete="off">

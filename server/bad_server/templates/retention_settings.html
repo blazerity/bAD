@@ -12,6 +12,7 @@
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
 
   <form method="post" action="/settings/retention" class="settings-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label for="events_days">События (дней)</label>
     <input id="events_days" name="events_days" type="number" min="1" max="3650"
       value="{{ retention.events_days }}" required>

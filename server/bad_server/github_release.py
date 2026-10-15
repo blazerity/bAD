@@ -83,6 +83,21 @@ def _pick_msi(assets: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
     return matches[0]
 
 
+def safe_msi_filename(name: str) -> str:
+    """Только basename MSI; отклонить path traversal (SEC-002)."""
+    raw = (name or "").strip()
+    if not raw:
+        raise ValueError("empty msi_name")
+    if "/" in raw or "\\" in raw or ".." in raw:
+        raise ValueError(f"unsafe msi_name: {name!r}")
+    base = Path(raw).name
+    if base != raw or base in {".", ".."}:
+        raise ValueError(f"unsafe msi_name: {name!r}")
+    if not (base.startswith(MSI_PREFIX) and base.endswith(MSI_SUFFIX)):
+        raise ValueError(f"msi_name must match {MSI_PREFIX}*{MSI_SUFFIX}: {base}")
+    return base
+
+
 def fetch_latest_release_assets(
     repo: str,
     token: str = "",
@@ -111,20 +126,26 @@ def fetch_latest_release_assets(
         raise RuntimeError("Invalid agent-release.json") from exc
 
     version = str(manifest.get("version") or "").strip()
-    msi_name = str(manifest.get("msi_name") or "").strip()
+    msi_name_raw = str(manifest.get("msi_name") or "").strip()
     sha256 = str(manifest.get("sha256") or "").strip().lower()
-    if not version or not msi_name or not sha256:
+    if not version or not msi_name_raw or not sha256:
         raise RuntimeError("agent-release.json missing version/msi_name/sha256")
+    try:
+        msi_name = safe_msi_filename(msi_name_raw)
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
 
     msi_asset = _pick_asset(assets, msi_name) or _pick_msi(assets)
     if not msi_asset:
         raise RuntimeError(f"Release missing MSI asset {msi_name}")
     if msi_asset.get("name") != msi_name:
-        # Fallback, но сохранить имя из манифеста для последующих проверок согласованности.
         logger.warning(
             "Manifest msi_name=%s but using asset %s", msi_name, msi_asset.get("name")
         )
-        msi_name = str(msi_asset["name"])
+        try:
+            msi_name = safe_msi_filename(str(msi_asset["name"]))
+        except ValueError as exc:
+            raise RuntimeError(str(exc)) from exc
 
     msi_url = msi_asset.get("url") or msi_asset.get("browser_download_url")
     if not msi_url:
@@ -152,6 +173,12 @@ def mirror_release_to_dir(
 ) -> Path:
     """Скачать MSI, проверить sha256, атомарно записать в dest_dir. Вернуть путь к MSI."""
     dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_root = dest_dir.resolve()
+    try:
+        msi_name = safe_msi_filename(assets.msi_name)
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
+
     raw = _download_bytes(assets.msi_download_url, token=token)
     digest = sha256_hex(raw)
     if digest != assets.sha256.lower():
@@ -159,8 +186,17 @@ def mirror_release_to_dir(
             f"MSI sha256 mismatch: expected {assets.sha256}, got {digest}"
         )
 
-    target = dest_dir / assets.msi_name
-    tmp = dest_dir / f".{assets.msi_name}.tmp"
+    target = (dest_dir / msi_name).resolve()
+    try:
+        target.relative_to(dest_root)
+    except ValueError as exc:
+        raise RuntimeError(f"MSI path escapes updates dir: {target}") from exc
+
+    tmp = (dest_dir / f".{msi_name}.tmp").resolve()
+    try:
+        tmp.relative_to(dest_root)
+    except ValueError as exc:
+        raise RuntimeError(f"MSI temp path escapes updates dir: {tmp}") from exc
     tmp.write_bytes(raw)
     tmp.replace(target)
 
@@ -169,7 +205,7 @@ def mirror_release_to_dir(
         json.dumps(
             {
                 "version": assets.version,
-                "msi_name": assets.msi_name,
+                "msi_name": msi_name,
                 "sha256": assets.sha256,
             },
             separators=(",", ":"),

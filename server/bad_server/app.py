@@ -156,6 +156,14 @@ async def lifespan(app: FastAPI):
         max_calls=settings.enroll_rate_limit_per_minute,
         window_seconds=60.0,
     )
+    app.state.login_ip_limiter = SlidingWindowRateLimiter(
+        max_calls=settings.login_rate_limit_per_minute,
+        window_seconds=60.0,
+    )
+    app.state.login_user_limiter = SlidingWindowRateLimiter(
+        max_calls=settings.login_username_rate_limit_per_minute,
+        window_seconds=60.0,
+    )
 
     tasks: list[asyncio.Task] = []
     # Фоновый/startup sync — best-effort; в тестах отключается через env.

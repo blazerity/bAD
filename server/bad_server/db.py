@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS devices (
   device_id TEXT PRIMARY KEY,
   hostname TEXT,
   api_key_hash TEXT NOT NULL,
+  api_key_lookup TEXT,
   enrolled_at TEXT NOT NULL,
   last_seen_at TEXT,
   agent_version TEXT,
@@ -24,6 +25,9 @@ CREATE TABLE IF NOT EXISTS devices (
   revoked INTEGER NOT NULL DEFAULT 0,
   archived INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE INDEX IF NOT EXISTS idx_devices_api_key_lookup
+  ON devices(api_key_lookup);
 
 CREATE TABLE IF NOT EXISTS inventory_snapshots (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,6 +69,7 @@ CREATE TABLE IF NOT EXISTS ldap_settings (
   display_name_attr TEXT NOT NULL DEFAULT 'cn',
   default_role TEXT NOT NULL DEFAULT 'operator',
   allowed_group TEXT NOT NULL DEFAULT '',
+  tls_insecure INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT
 );
 
@@ -178,6 +183,12 @@ class Database:
                 conn.execute(
                     "ALTER TABLE devices ADD COLUMN archived INTEGER NOT NULL DEFAULT 0"
                 )
+            if "api_key_lookup" not in cols:
+                conn.execute("ALTER TABLE devices ADD COLUMN api_key_lookup TEXT")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_devices_api_key_lookup "
+                "ON devices(api_key_lookup)"
+            )
             ldap_cols = {
                 row["name"]
                 for row in conn.execute("PRAGMA table_info(ldap_settings)").fetchall()
@@ -186,6 +197,11 @@ class Database:
                 conn.execute(
                     "ALTER TABLE ldap_settings ADD COLUMN allowed_group "
                     "TEXT NOT NULL DEFAULT ''"
+                )
+            if "tls_insecure" not in ldap_cols:
+                conn.execute(
+                    "ALTER TABLE ldap_settings ADD COLUMN tls_insecure "
+                    "INTEGER NOT NULL DEFAULT 0"
                 )
             smtp_cols = {
                 row["name"]
@@ -225,52 +241,124 @@ class Database:
                 (key, value),
             )
 
+    def delete_site_secret(self, key: str) -> None:
+        with self.connection() as conn:
+            conn.execute("DELETE FROM site_secrets WHERE key = ?", (key,))
+
+    def get_device_auth_row(self, device_id: str) -> Optional[dict[str, Any]]:
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT device_id, api_key_hash, revoked "
+                "FROM devices WHERE device_id = ?",
+                (device_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
     def upsert_device_on_enroll(
         self,
         device_id: str,
         hostname: Optional[str],
         api_key_hash: str,
         agent_version: Optional[str],
+        *,
+        api_key_lookup: Optional[str] = None,
+        allow_existing: bool = False,
     ) -> bool:
-        """Upsert при enroll. True, если создана новая строка device."""
+        """Создать устройство или (при allow_existing) обновить ключ.
+
+        True — создана новая строка. Без allow_existing повторный enroll
+        существующего device_id не делается (SEC-001).
+        """
         now = utc_now()
         with self.connection() as conn:
             existing = conn.execute(
-                "SELECT device_id FROM devices WHERE device_id = ?", (device_id,)
+                "SELECT device_id, revoked FROM devices WHERE device_id = ?",
+                (device_id,),
             ).fetchone()
             if existing:
+                if not allow_existing:
+                    raise ValueError("device_already_enrolled")
+                if existing["revoked"]:
+                    raise ValueError("device_revoked")
                 conn.execute(
                     """
                     UPDATE devices
                     SET hostname = COALESCE(?, hostname),
                         api_key_hash = ?,
+                        api_key_lookup = ?,
                         last_seen_at = ?,
                         agent_version = COALESCE(?, agent_version),
                         revoked = 0
                     WHERE device_id = ?
                     """,
-                    (hostname, api_key_hash, now, agent_version, device_id),
+                    (
+                        hostname,
+                        api_key_hash,
+                        api_key_lookup,
+                        now,
+                        agent_version,
+                        device_id,
+                    ),
                 )
                 return False
             conn.execute(
                 """
                 INSERT INTO devices(
-                  device_id, hostname, api_key_hash, enrolled_at,
+                  device_id, hostname, api_key_hash, api_key_lookup, enrolled_at,
                   last_seen_at, agent_version, meta_json, revoked, archived
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
                 """,
-                (device_id, hostname, api_key_hash, now, now, agent_version, None),
+                (
+                    device_id,
+                    hostname,
+                    api_key_hash,
+                    api_key_lookup,
+                    now,
+                    now,
+                    agent_version,
+                    None,
+                ),
             )
             return True
 
     def find_device_by_api_key(
-        self, api_key: str, verify_fn
+        self,
+        api_key: str,
+        verify_fn,
+        *,
+        lookup_hash: Optional[str] = None,
     ) -> Optional[sqlite3.Row]:
+        """O(1) lookup by HMAC index, then one Argon2 verify (SEC-006).
+
+        Legacy rows without api_key_lookup are scanned once and backfilled.
+        """
         with self.connection() as conn:
-            rows = conn.execute("SELECT * FROM devices").fetchall()
-        for row in rows:
-            if verify_fn(row["api_key_hash"], api_key):
-                return row
+            row = None
+            if lookup_hash:
+                row = conn.execute(
+                    "SELECT * FROM devices WHERE api_key_lookup = ?",
+                    (lookup_hash,),
+                ).fetchone()
+            if row is not None:
+                if verify_fn(row["api_key_hash"], api_key):
+                    return row
+                return None
+
+            # Migration: only devices missing lookup index (bounded set).
+            legacy = conn.execute(
+                """
+                SELECT * FROM devices
+                WHERE api_key_lookup IS NULL OR api_key_lookup = ''
+                """
+            ).fetchall()
+            for candidate in legacy:
+                if verify_fn(candidate["api_key_hash"], api_key):
+                    if lookup_hash:
+                        conn.execute(
+                            "UPDATE devices SET api_key_lookup = ? WHERE device_id = ?",
+                            (lookup_hash, candidate["device_id"]),
+                        )
+                    return candidate
         return None
 
     @staticmethod
@@ -741,10 +829,12 @@ class Database:
                 "display_name_attr": "cn",
                 "default_role": "operator",
                 "allowed_group": "",
+                "tls_insecure": 0,
                 "updated_at": None,
             }
         data = dict(row)
         data.setdefault("allowed_group", "")
+        data.setdefault("tls_insecure", 0)
         return data
 
     def update_ldap_settings(
@@ -761,6 +851,7 @@ class Database:
         display_name_attr: str,
         default_role: str,
         allowed_group: str = "",
+        tls_insecure: bool = False,
         bind_password_enc: Optional[str] = None,
     ) -> None:
         now = utc_now()
@@ -773,7 +864,7 @@ class Database:
                       bind_dn = ?, bind_password_enc = ?,
                       user_search_base = ?, user_filter_template = ?,
                       display_name_attr = ?, default_role = ?,
-                      allowed_group = ?, updated_at = ?
+                      allowed_group = ?, tls_insecure = ?, updated_at = ?
                     WHERE id = 1
                     """,
                     (
@@ -789,6 +880,7 @@ class Database:
                         display_name_attr,
                         default_role,
                         allowed_group,
+                        1 if tls_insecure else 0,
                         now,
                     ),
                 )
@@ -800,7 +892,7 @@ class Database:
                       bind_dn = ?,
                       user_search_base = ?, user_filter_template = ?,
                       display_name_attr = ?, default_role = ?,
-                      allowed_group = ?, updated_at = ?
+                      allowed_group = ?, tls_insecure = ?, updated_at = ?
                     WHERE id = 1
                     """,
                     (
@@ -815,6 +907,7 @@ class Database:
                         display_name_attr,
                         default_role,
                         allowed_group,
+                        1 if tls_insecure else 0,
                         now,
                     ),
                 )
@@ -1103,15 +1196,21 @@ class Database:
     def set_device_revoked(self, device_id: str, revoked: bool) -> bool:
         return self._set_device_flag(device_id, "revoked", revoked)
 
-    def rotate_device_api_key(self, device_id: str, api_key_hash: str) -> bool:
+    def rotate_device_api_key(
+        self,
+        device_id: str,
+        api_key_hash: str,
+        *,
+        api_key_lookup: Optional[str] = None,
+    ) -> bool:
         with self.connection() as conn:
             cur = conn.execute(
                 """
                 UPDATE devices
-                SET api_key_hash = ?, revoked = 0
+                SET api_key_hash = ?, api_key_lookup = ?, revoked = 0
                 WHERE device_id = ?
                 """,
-                (api_key_hash, device_id),
+                (api_key_hash, api_key_lookup, device_id),
             )
             return cur.rowcount > 0
 

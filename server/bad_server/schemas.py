@@ -11,6 +11,8 @@ class EnrollRequest(BaseModel):
     device_id: str = Field(min_length=1, max_length=128)
     hostname: Optional[str] = Field(default=None, max_length=255)
     agent_version: Optional[str] = Field(default=None, max_length=64)
+    # Proof-of-possession for re-enroll of an existing device (SEC-001).
+    current_api_key: Optional[str] = Field(default=None, max_length=256)
 
 
 class EnrollResponse(BaseModel):

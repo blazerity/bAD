@@ -1,13 +1,29 @@
-param(
-    [string]$ServerUrl = "",
-    [string]$EnrollmentToken = ""
-)
+# config.json из HKLM …\Setup (не argv). Setup удаляется после чтения. См. Product.wxs SEC-011.
+
+param()
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "bad-paths.ps1")
 $dir = $BadProgramData
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
 New-Item -ItemType Directory -Force -Path $BadLogsDir | Out-Null
+
+$setupKey = "HKLM:\SOFTWARE\blazerity\bAD\Setup"
+$ServerUrl = ""
+$EnrollmentToken = ""
+if (Test-Path $setupKey) {
+    try {
+        $props = Get-ItemProperty -Path $setupKey -ErrorAction Stop
+        if ($props.PSObject.Properties.Name -contains "ServerUrl") {
+            $ServerUrl = [string]$props.ServerUrl
+        }
+        if ($props.PSObject.Properties.Name -contains "EnrollmentToken") {
+            $EnrollmentToken = [string]$props.EnrollmentToken
+        }
+    } catch {
+        # нет Setup — upgrade без новых свойств
+    }
+}
 
 $configPath = $BadConfigPath
 $existing = $null
@@ -52,3 +68,8 @@ $rules = @(
 $acl.Access | ForEach-Object { [void]$acl.RemoveAccessRule($_) }
 foreach ($r in $rules) { $acl.AddAccessRule($r) }
 Set-Acl -Path $configPath -AclObject $acl
+
+# Убрать plaintext token из registry после применения
+if (Test-Path $setupKey) {
+    Remove-Item -Path $setupKey -Recurse -Force -ErrorAction SilentlyContinue
+}
