@@ -54,14 +54,6 @@ def validate_csrf(request: Request, form_token: Optional[str]) -> bool:
     return secrets.compare_digest(str(cookie), str(form_token))
 
 
-def require_csrf_token(request: Request, form_token: Optional[str]) -> None:
-    if not validate_csrf(request, form_token):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="CSRF token missing or invalid",
-        )
-
-
 async def ensure_csrf(request: Request) -> None:
     """Router dependency: validate CSRF on POST web forms (SEC-010).
 

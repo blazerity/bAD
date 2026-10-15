@@ -79,7 +79,6 @@ public sealed class AgentUpdater
 
         var tempDir = Path.Combine(Path.GetTempPath(), "bad-agent-update", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
-        // SEC-002: basename only, no '..', path must stay inside tempDir.
         string msiPath;
         try
         {

@@ -46,7 +46,6 @@ class LdapGroupDenied(Exception):
 def _server(settings: LdapSettingsView) -> Server:
     tls = None
     if settings.use_ssl or settings.start_tls:
-        # Default: verify server cert (SEC-003). tls_insecure is explicit lab opt-in.
         validate = ssl.CERT_NONE if settings.tls_insecure else ssl.CERT_REQUIRED
         tls = Tls(validate=validate)
     return Server(

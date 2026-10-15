@@ -30,6 +30,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1")
 
+# SEC-001: enrollment token alone cannot un-revoke (api early path + DB TOCTOU guard).
+_DEVICE_REVOKED_DETAIL = (
+    "Device access revoked; admin must rotate API key in web UI "
+    "(enrollment token alone cannot un-revoke)"
+)
+
 
 @router.get("/health")
 def health() -> dict[str, str]:
@@ -52,16 +58,19 @@ def enroll(
             detail="Enrollment rate limit exceeded",
         )
 
+    # SEC-001: enrollment token alone cannot un-revoke (early + DB TOCTOU guard).
+    _REVOKED_DETAIL = (
+        "Device access revoked; admin must rotate API key in web UI "
+        "(enrollment token alone cannot un-revoke)"
+    )
+
     existing = db.get_device_auth_row(body.device_id)
     allow_existing = False
     if existing:
         if existing.get("revoked"):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=(
-                    "Device access revoked; admin must rotate API key in web UI "
-                    "(enrollment token alone cannot un-revoke)"
-                ),
+                detail=_REVOKED_DETAIL,
             )
         # Re-key only with proof of current API key (SEC-001).
         proof = (body.current_api_key or "").strip()
@@ -93,7 +102,7 @@ def enroll(
         if code == "device_revoked":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Device access revoked; admin must rotate API key",
+                detail=_REVOKED_DETAIL,
             ) from exc
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

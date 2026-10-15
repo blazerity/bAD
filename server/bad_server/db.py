@@ -248,7 +248,7 @@ class Database:
     def get_device_auth_row(self, device_id: str) -> Optional[dict[str, Any]]:
         with self.connection() as conn:
             row = conn.execute(
-                "SELECT device_id, api_key_hash, api_key_lookup, revoked, hostname "
+                "SELECT device_id, api_key_hash, revoked "
                 "FROM devices WHERE device_id = ?",
                 (device_id,),
             ).fetchone()

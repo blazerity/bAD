@@ -70,7 +70,7 @@ msiexec /i bad-agent-0.9.1.msi `
   /qn
 ```
 
-**Enrollment token в командной строке (SEC-011):** `ENROLLMENTTOKEN=…` попадает в argv deferred custom action и может оказаться в логах `msiexec` / истории скриптов деплоя. Не пересылайте логи установки и transcript’ы массового деплоя. После волны установки **ротируйте** site enrollment token в `/etc/bad/site.env` (и перезапустите `bad-api`), чтобы старый токен из логов/командных строк перестал действовать. Property `Hidden=yes` снижает утечку в UI MSI, но не убирает exposure в process command line на машине во время install.
+**Enrollment token (SEC-011):** deferred custom action читает token из HKLM `SOFTWARE\blazerity\bAD\Setup` и сразу удаляет ключ — **не** из argv PowerShell. Residual risk: родительский `msiexec … ENROLLMENTTOKEN=` (process command line) и verbose/`msiexec` логи / transcript’ы деплоя. Не пересылайте их. После волны установки **ротируйте** site enrollment token в `/etc/bad/site.env` (и перезапустите `bad-api`). Property `Hidden=yes` снижает утечку в UI MSI, но не убирает exposure в командной строке родителя. Подробнее: `installer/msi/README.md`.
 
 Служба `BlazerityAssetDiscovery` стартует автоматически, один раз enroll'ится, сохраняет API key в `%ProgramData%\blazerity\bAD\config.json` и шлёт inventory при старте (далее каждые 6 часов), heartbeat каждые 15 минут. Также спрашивает сервер про MSI-обновления (никогда не GitHub напрямую). Локальный CLI (сервер не нужен): `bad` / `bad -h` / `bad -?`. Service CLI: `BadAgent.exe service status|start|stop|restart` (elevated). См. [agents.md](./agents.md).
 

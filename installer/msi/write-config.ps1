@@ -1,6 +1,4 @@
-# Пишет config.json из HKLM\SOFTWARE\blazerity\bAD\Setup (WiX RegistryValue),
-# не из argv — чтобы enrollment token не попадал в командную строку deferred CA (SEC-011).
-# Setup-ключи удаляются после чтения.
+# config.json из HKLM …\Setup (не argv). Setup удаляется после чтения. См. Product.wxs SEC-011.
 
 param()
 

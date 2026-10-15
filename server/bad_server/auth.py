@@ -225,7 +225,7 @@ def ensure_bootstrap_secrets(db: Database, settings: Settings) -> tuple[str, str
         data_key = generate_data_key()
         created_data = True
 
-    def _persist(kind: str, value: str, path: Path, created: bool, from_db_only: bool) -> None:
+    def _persist(kind: str, value: str, path: Path, created: bool) -> None:
         if not settings.prefer_external_secrets:
             if created:
                 db.set_site_secret(kind, value)
@@ -278,14 +278,12 @@ def ensure_bootstrap_secrets(db: Database, settings: Settings) -> tuple[str, str
         session_secret,
         settings.session_secret_file,
         created_session,
-        from_db_only=bool(db_session and not env_session and not file_session),
     )
     _persist(
         "data_key",
         data_key,
         settings.data_key_file,
         created_data,
-        from_db_only=bool(db_data and not env_data and not file_data),
     )
     if db_data and not env_data and not file_data and not settings.data_key_file.is_file():
         logger.warning(

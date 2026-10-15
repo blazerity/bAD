@@ -110,10 +110,7 @@
           KeyPath="yes" />
     </Component>
 
-    <!--
-      WriteConfig: маркер + временный Setup (SERVERURL / ENROLLMENTTOKEN) через RegistryValue.
-      Не передаём token в argv PowerShell (SEC-011). write-config.ps1 удаляет Setup после чтения.
-    -->
+    <!-- WriteConfig: маркер + временный HKLM Setup; write-config.ps1 читает и удаляет. -->
     <Component Id="WriteConfig" Directory="BADDATA" Guid="BADA0005-BADA-4B01-8BAD-BLAZERITY0BAD">
       <RegistryValue
           Root="HKLM"
@@ -159,7 +156,7 @@
           KeyPath="yes" />
     </Component>
 
-    <!-- Без SERVERURL/ENROLLMENTTOKEN в командной строке — только путь к скрипту. -->
+    <!-- Только путь к скрипту (без token в argv). -->
     <SetProperty Id="WriteConfigCmd"
                  Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]write-config.ps1&quot;"
                  Sequence="execute"

@@ -80,8 +80,8 @@
   <h2>Удаление</h2>
   <p class="muted">Безвозвратно удаляет устройство, inventory, события и override. Для подтверждения введите <span class="mono">{{ device.device_id }}</span>.</p>
   <form method="post" action="/devices/{{ device.device_id }}/delete" class="settings-form"
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     onsubmit="return confirm('Удалить устройство навсегда?');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label for="confirm">Подтверждение</label>
     <input id="confirm" name="confirm" type="text" autocomplete="off" placeholder="{{ device.device_id }}">
     <div class="form-actions">

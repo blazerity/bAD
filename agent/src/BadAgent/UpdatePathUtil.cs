@@ -114,11 +114,6 @@ public static class UpdatePathUtil
                 "Update download URL must be same-origin as configured server_url; refusing arbitrary absolute URL");
         }
 
-        if (resolved.AbsolutePath.Contains("..", StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException("Update URL path must not contain '..'");
-        }
-
         // Без fragment; query сохраняем.
         var builder = new UriBuilder(resolved) { Fragment = "" };
         return builder.Uri.ToString();

@@ -116,12 +116,12 @@ Heartbeat health (опционально → meta устройства): `last_i
 ### Web UI security (0.9.1)
 
 - **SEC-004:** при `must_change_password` UI пускает только `/account/password` и `/logout`; основная навигация скрыта.
-- **SEC-010:** CSRF — cookie `bad_csrf` + поле формы `csrf_token` на всех HTML POST.
+- **SEC-010:** CSRF на всех HTML POST — `Depends(ensure_csrf)` (cookie `bad_csrf` + поле `csrf_token`); детали в [architecture.md](architecture.md).
 
 ### Offline queue / revoke (0.9.1)
 
 - Недоступный сервер → `%ProgramData%\blazerity\bAD\queue\` + backoff (`OfflineQueue`).
-- 401/403 → очистить `api_key`, оставить `device_id`, Event Log, не постить до re-enroll/reinstall (`Worker.HandleAuthFailureAsync`).
+- 401/403 → очистить `api_key`, оставить `device_id`, Event Log, не постить до re-enroll/reinstall (`Worker.HandleAuthFailure`).
 - Крупные сбои enroll/update/revoke → Application log, source `bAD Agent`.
 
 ### Security harden (0.9.1)

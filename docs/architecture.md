@@ -141,7 +141,7 @@ flowchart LR
 
 ### Web UI и аутентификация
 
-**SEC-004 / SEC-010 (0.9.x):** при `must_change_password` `require_web_user` пускает только `/account/password` и `/logout`; в `base.html` скрыта основная навигация. CSRF: cookie `bad_csrf` + поле формы `csrf_token` (см. `bad_server/csrf.py`, `CsrfAwareRoute`); все HTML POST проверяются.
+**SEC-004 / SEC-010 (0.9.x):** при `must_change_password` `require_web_user` пускает только `/account/password` и `/logout`; в `base.html` скрыта основная навигация. CSRF: cookie `bad_csrf` + поле формы `csrf_token`; все HTML POST — через `Depends(ensure_csrf)` на web-router (`bad_server/csrf.py`).
 
 
 Визуальный язык (с **0.8.0**, актуально в **0.9.0**): светлая оболочка в духе Windows 11 / Fluent — Segoe UI Variable, слоистые полупрозрачные поверхности, радиусы 4px (controls) / 8px (surfaces), акцент Fluent blue (`#0067C0`), UI copy на русском, stroke-иконки секций (без emoji). Стили: `server/bad_server/static/style.css` + `favicon.svg`/`favicon.ico`; локальный HTML-отчёт (`HtmlReportWriter`) — та же семья токенов/иконок. Иконка агента: `agent/assets/bad.ico` (`ApplicationIcon` + WiX `ARPPRODUCTICON`).
@@ -212,7 +212,7 @@ flowchart LR
 ## Enrollment и inventory
 
 1. Оператор задаёт site enrollment token (install script → `/etc/bad/site.env`).
-2. MSI/config передаёт `SERVERURL` + `ENROLLMENTTOKEN` (**SEC-011:** токен в argv / потенциально в msiexec-логах — не шарить логи; после массового деплоя ротировать token).
+2. MSI/config передаёт `SERVERURL` + `ENROLLMENTTOKEN` (**SEC-011:** deferred CA читает token из HKLM Setup, не из argv PowerShell; residual — родительский `msiexec … ENROLLMENTTOKEN=` / verbose logs — не шарить; после волны ротировать token).
 3. Агент `POST /v1/enroll` → получает `api_key`, сохраняет в ProgramData, затирает enrollment token.
 4. Повторные запуски используют API key; upsert по стабильному `device_id`.
 

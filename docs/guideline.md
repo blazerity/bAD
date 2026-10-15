@@ -26,9 +26,9 @@
 - Агент отклоняет `http://` без явного opt-in для dev.
 - На сервере: hash секретов (argon2), файл БД `0600`, site.env `640` root:bad; каталог бэкапов — как секреты (`700` / файлы `600`).
 - **SEC-005:** `data_key` / `session_secret` по умолчанию в той же SQLite → копия БД или daily backup = полный компромисс SMTP/LDAP bind и session cookies. Вынос master key в `BAD_DATA_KEY` (файл вне БД, права `440`/`400` root:bad) — единственный способ разорвать эту связку; пока ключ в БД — не шарить бэкапы. Операторский чеклист: [operator-guide.md](operator-guide.md#безопасность-для-операторов).
-- **SEC-011:** enrollment token в argv/`msiexec` логах при MSI install — не пересылать логи; после массового деплоя ротировать site enrollment token.
-- **SEC-003:** LDAP TLS — в проде с проверкой сертификата; сейчас verify отключён → только lab / доверенный сегмент; insecure opt-in не для боя.
-- После install **сразу** сменить `admin`/`admin` (`/account/password`); до смены admin UI уже доступен.
+- **SEC-011:** MSI write-config не кладёт token в argv PowerShell (HKLM Setup); residual — родительский `msiexec … ENROLLMENTTOKEN=` / verbose logs — не пересылать; после волны ротировать site enrollment token.
+- **SEC-003:** LDAP TLS — по умолчанию `CERT_REQUIRED`; lab opt-in `tls_insecure` только для лаборатории, не для боя.
+- После install **сразу** сменить `admin`/`admin` (`/account/password`); до смены UI пускает только `/account/password` и `/logout` (навигация скрыта).
 - Cookie `bad_session` — только за HTTPS (nginx TLS + Secure в prod); uvicorn не наружу.
 - nginx rate-limit / app enroll limiter — сохранять и ужесточать осторожно.
 - ProgramData ACL: Administrators + SYSTEM; не world-readable.
