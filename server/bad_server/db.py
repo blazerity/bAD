@@ -1090,13 +1090,18 @@ class Database:
 
     # --- device lifecycle (revoke / archive / delete) ---
 
-    def set_device_revoked(self, device_id: str, revoked: bool) -> bool:
+    def _set_device_flag(self, device_id: str, column: str, value: bool) -> bool:
+        if column not in {"revoked", "archived"}:
+            raise ValueError(f"unsupported device flag: {column}")
         with self.connection() as conn:
             cur = conn.execute(
-                "UPDATE devices SET revoked = ? WHERE device_id = ?",
-                (1 if revoked else 0, device_id),
+                f"UPDATE devices SET {column} = ? WHERE device_id = ?",
+                (1 if value else 0, device_id),
             )
             return cur.rowcount > 0
+
+    def set_device_revoked(self, device_id: str, revoked: bool) -> bool:
+        return self._set_device_flag(device_id, "revoked", revoked)
 
     def rotate_device_api_key(self, device_id: str, api_key_hash: str) -> bool:
         with self.connection() as conn:
@@ -1111,12 +1116,7 @@ class Database:
             return cur.rowcount > 0
 
     def set_device_archived(self, device_id: str, archived: bool) -> bool:
-        with self.connection() as conn:
-            cur = conn.execute(
-                "UPDATE devices SET archived = ? WHERE device_id = ?",
-                (1 if archived else 0, device_id),
-            )
-            return cur.rowcount > 0
+        return self._set_device_flag(device_id, "archived", archived)
 
     def delete_device(self, device_id: str) -> bool:
         """Hard-delete device and related rows (snapshots + cascades)."""
@@ -1202,21 +1202,12 @@ class Database:
             {"version": v, "count": c}
             for v, c in sorted(versions.items(), key=lambda x: (-x[1], x[0]))
         ]
+        from .smtp_mail import HARDWARE_ALERT_TYPES
+
         recent_hw = [
             e
             for e in self.list_device_events(limit=40)
-            if e.get("type")
-            in {
-                "disk_added",
-                "disk_removed",
-                "cpu_change",
-                "ram_module_added",
-                "ram_module_removed",
-                "ram_bytes_change",
-                "serial_change",
-                "model_change",
-                "manufacturer_change",
-            }
+            if e.get("type") in HARDWARE_ALERT_TYPES
         ][:10]
         return {
             "total_active": len(active),

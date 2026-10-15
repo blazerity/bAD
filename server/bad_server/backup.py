@@ -89,19 +89,9 @@ def run_daily_backup(db_path: Path, backup_dir: Path) -> dict[str, Any]:
         logger.exception("SQLite backup failed")
         return {"ok": False, "error": str(exc), "path": str(dest)}
 
-    # Keep only the newest KEEP_DAILY dated files.
-    files = list_backup_files(backup_dir)
-    removed: list[str] = []
-    if len(files) > KEEP_DAILY:
-        for old in files[:-KEEP_DAILY]:
-            try:
-                old.unlink()
-                removed.append(old.name)
-            except OSError:
-                logger.warning("Failed to remove old backup %s", old)
-
-    # Also drop anything older than yesterday-1 explicitly by date parse.
+    # Keep today + yesterday (drop older dated files by name).
     cutoff = today - timedelta(days=KEEP_DAILY - 1)
+    removed: list[str] = []
     for f in list_backup_files(backup_dir):
         try:
             day = date.fromisoformat(f.stem.replace("bad-", "", 1))
@@ -110,10 +100,9 @@ def run_daily_backup(db_path: Path, backup_dir: Path) -> dict[str, Any]:
         if day < cutoff:
             try:
                 f.unlink()
-                if f.name not in removed:
-                    removed.append(f.name)
+                removed.append(f.name)
             except OSError:
-                pass
+                logger.warning("Failed to remove old backup %s", f)
 
     logger.info("SQLite backup written to %s", dest)
     return {

@@ -105,6 +105,42 @@ class LdapFormData:
         self.allowed_group = allowed_group
 
 
+class SmtpFormData:
+    """Shared Form fields for mail save/test POSTs."""
+
+    def __init__(
+        self,
+        enabled: Optional[str] = Form(None),
+        host: str = Form(""),
+        port: str = Form("587"),
+        use_ssl: Optional[str] = Form(None),
+        use_starttls: Optional[str] = Form(None),
+        username: str = Form(""),
+        password: str = Form(""),
+        from_addr: str = Form(""),
+        to_addrs: str = Form(""),
+        notify_hardware: Optional[str] = Form(None),
+        notify_stale: Optional[str] = Form(None),
+        notify_enroll: Optional[str] = Form(None),
+        notify_hostname: Optional[str] = Form(None),
+        notify_domain: Optional[str] = Form(None),
+    ):
+        self.enabled = enabled
+        self.host = host
+        self.port = port
+        self.use_ssl = use_ssl
+        self.use_starttls = use_starttls
+        self.username = username
+        self.password = password
+        self.from_addr = from_addr
+        self.to_addrs = to_addrs
+        self.notify_hardware = notify_hardware
+        self.notify_stale = notify_stale
+        self.notify_enroll = notify_enroll
+        self.notify_hostname = notify_hostname
+        self.notify_domain = notify_domain
+
+
 @router.get("/", response_class=HTMLResponse)
 def home(
     request: Request,
@@ -1195,41 +1231,70 @@ def _smtp_form_context(
     }
 
 
-def _parse_smtp_form(
-    *,
-    enabled: Optional[str],
-    host: str,
-    port: str,
-    use_ssl: Optional[str],
-    use_starttls: Optional[str],
-    username: str,
-    password: str,
-    from_addr: str,
-    to_addrs: str,
-    notify_flags: Optional[dict[str, Optional[str]]] = None,
-) -> tuple[dict, Optional[str]]:
+def _parse_smtp_form(form: SmtpFormData) -> tuple[dict, Optional[str]]:
     try:
-        port_i = int(port or "587")
+        port_i = int(form.port or "587")
     except ValueError:
         return {}, "Порт должен быть целым числом"
     if port_i < 1 or port_i > 65535:
         return {}, "Порт должен быть от 1 до 65535"
     flags = {key: False for key in DEFAULT_NOTIFY}
-    for key, raw in (notify_flags or {}).items():
+    notify_flags = {
+        "hardware": form.notify_hardware,
+        "stale": form.notify_stale,
+        "enroll": form.notify_enroll,
+        "hostname": form.notify_hostname,
+        "domain": form.notify_domain,
+    }
+    for key, raw in notify_flags.items():
         if key in flags and raw is not None:
             flags[key] = True
     return {
-        "enabled": enabled is not None,
-        "host": (host or "").strip(),
+        "enabled": form.enabled is not None,
+        "host": (form.host or "").strip(),
         "port": port_i,
-        "use_ssl": use_ssl is not None,
-        "use_starttls": use_starttls is not None,
-        "username": (username or "").strip(),
-        "password": password,
-        "from_addr": (from_addr or "").strip(),
-        "to_addrs": (to_addrs or "").strip(),
+        "use_ssl": form.use_ssl is not None,
+        "use_starttls": form.use_starttls is not None,
+        "username": (form.username or "").strip(),
+        "password": form.password,
+        "from_addr": (form.from_addr or "").strip(),
+        "to_addrs": (form.to_addrs or "").strip(),
         "notify_json": dump_notify_flags(flags),
     }, None
+
+
+def _retention_context(
+    db: Database,
+    *,
+    user: WebUser,
+    message: Optional[str] = None,
+    error: Optional[str] = None,
+) -> dict:
+    return {
+        "user": user,
+        "settings_section": "retention",
+        "retention": db.get_retention_settings(),
+        "message": message,
+        "error": error,
+    }
+
+
+def _backup_context(
+    db: Database,
+    settings: Settings,
+    *,
+    user: WebUser,
+    message: Optional[str] = None,
+    error: Optional[str] = None,
+) -> dict:
+    return {
+        "user": user,
+        "settings_section": "backups",
+        "backup": backup_status(settings.backup_dir),
+        "last_backup_at": db.get_site_secret("last_backup_at"),
+        "message": message,
+        "error": error,
+    }
 
 
 @router.get("/settings")
@@ -1246,13 +1311,7 @@ def retention_settings_page(
     return templates.TemplateResponse(
         request,
         "retention_settings.html",
-        {
-            "user": user,
-            "settings_section": "retention",
-            "retention": db.get_retention_settings(),
-            "message": None,
-            "error": None,
-        },
+        _retention_context(db, user=user),
     )
 
 
@@ -1271,39 +1330,25 @@ def retention_settings_save(
         return templates.TemplateResponse(
             request,
             "retention_settings.html",
-            {
-                "user": user,
-                "settings_section": "retention",
-                "retention": db.get_retention_settings(),
-                "message": None,
-                "error": "Укажите целые числа дней",
-            },
+            _retention_context(db, user=user, error="Укажите целые числа дней"),
             status_code=400,
         )
     if ev < 1 or inv < 1 or ev > 3650 or inv > 3650:
         return templates.TemplateResponse(
             request,
             "retention_settings.html",
-            {
-                "user": user,
-                "settings_section": "retention",
-                "retention": db.get_retention_settings(),
-                "message": None,
-                "error": "Диапазон: от 1 до 3650 дней",
-            },
+            _retention_context(
+                db, user=user, error="Диапазон: от 1 до 3650 дней"
+            ),
             status_code=400,
         )
     db.update_retention_settings(events_days=ev, inventory_days=inv)
     return templates.TemplateResponse(
         request,
         "retention_settings.html",
-        {
-            "user": user,
-            "settings_section": "retention",
-            "retention": db.get_retention_settings(),
-            "message": "Настройки хранения сохранены",
-            "error": None,
-        },
+        _retention_context(
+            db, user=user, message="Настройки хранения сохранены"
+        ),
     )
 
 
@@ -1328,42 +1373,12 @@ def mail_settings_page(
 @router.post("/settings/mail")
 def mail_settings_save(
     request: Request,
+    form: SmtpFormData = Depends(),
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
     data_key: str = Depends(get_data_key),
-    enabled: Optional[str] = Form(None),
-    host: str = Form(""),
-    port: str = Form("587"),
-    use_ssl: Optional[str] = Form(None),
-    use_starttls: Optional[str] = Form(None),
-    username: str = Form(""),
-    password: str = Form(""),
-    from_addr: str = Form(""),
-    to_addrs: str = Form(""),
-    notify_hardware: Optional[str] = Form(None),
-    notify_stale: Optional[str] = Form(None),
-    notify_enroll: Optional[str] = Form(None),
-    notify_hostname: Optional[str] = Form(None),
-    notify_domain: Optional[str] = Form(None),
 ):
-    parsed, err = _parse_smtp_form(
-        enabled=enabled,
-        host=host,
-        port=port,
-        use_ssl=use_ssl,
-        use_starttls=use_starttls,
-        username=username,
-        password=password,
-        from_addr=from_addr,
-        to_addrs=to_addrs,
-        notify_flags={
-            "hardware": notify_hardware,
-            "stale": notify_stale,
-            "enroll": notify_enroll,
-            "hostname": notify_hostname,
-            "domain": notify_domain,
-        },
-    )
+    parsed, err = _parse_smtp_form(form)
     if err:
         return templates.TemplateResponse(
             request,
@@ -1400,42 +1415,12 @@ def mail_settings_save(
 @router.post("/settings/mail/test")
 def mail_settings_test(
     request: Request,
+    form: SmtpFormData = Depends(),
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
     data_key: str = Depends(get_data_key),
-    enabled: Optional[str] = Form(None),
-    host: str = Form(""),
-    port: str = Form("587"),
-    use_ssl: Optional[str] = Form(None),
-    use_starttls: Optional[str] = Form(None),
-    username: str = Form(""),
-    password: str = Form(""),
-    from_addr: str = Form(""),
-    to_addrs: str = Form(""),
-    notify_hardware: Optional[str] = Form(None),
-    notify_stale: Optional[str] = Form(None),
-    notify_enroll: Optional[str] = Form(None),
-    notify_hostname: Optional[str] = Form(None),
-    notify_domain: Optional[str] = Form(None),
 ):
-    parsed, err = _parse_smtp_form(
-        enabled=enabled,
-        host=host,
-        port=port,
-        use_ssl=use_ssl,
-        use_starttls=use_starttls,
-        username=username,
-        password=password,
-        from_addr=from_addr,
-        to_addrs=to_addrs,
-        notify_flags={
-            "hardware": notify_hardware,
-            "stale": notify_stale,
-            "enroll": notify_enroll,
-            "hostname": notify_hostname,
-            "domain": notify_domain,
-        },
-    )
+    parsed, err = _parse_smtp_form(form)
     row = db.get_smtp_settings()
     if err:
         return templates.TemplateResponse(
@@ -1516,14 +1501,7 @@ def backups_settings_page(
     return templates.TemplateResponse(
         request,
         "backup_settings.html",
-        {
-            "user": user,
-            "settings_section": "backups",
-            "backup": backup_status(settings.backup_dir),
-            "last_backup_at": db.get_site_secret("last_backup_at"),
-            "message": None,
-            "error": None,
-        },
+        _backup_context(db, settings, user=user),
     )
 
 
@@ -1548,14 +1526,7 @@ def backups_settings_run(
     return templates.TemplateResponse(
         request,
         "backup_settings.html",
-        {
-            "user": user,
-            "settings_section": "backups",
-            "backup": backup_status(settings.backup_dir),
-            "last_backup_at": db.get_site_secret("last_backup_at"),
-            "message": message,
-            "error": error,
-        },
+        _backup_context(db, settings, user=user, message=message, error=error),
         status_code=200 if result.get("ok") else 500,
     )
 

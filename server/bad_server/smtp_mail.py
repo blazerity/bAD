@@ -145,13 +145,19 @@ def send_email(
     to_hdr = message.get("To") or ""
     if not to_hdr.strip():
         return False, "Не заданы получатели"
+
+    def _login_and_send(smtp: smtplib.SMTP) -> None:
+        if username:
+            smtp.login(username, password)
+        smtp.send_message(message)
+
     try:
         if use_ssl:
             context = ssl.create_default_context()
-            with smtplib.SMTP_SSL(host, int(port or 465), context=context, timeout=30) as smtp:
-                if username:
-                    smtp.login(username, password)
-                smtp.send_message(message)
+            with smtplib.SMTP_SSL(
+                host, int(port or 465), context=context, timeout=30
+            ) as smtp:
+                _login_and_send(smtp)
         else:
             with smtplib.SMTP(host, int(port or 587), timeout=30) as smtp:
                 smtp.ehlo()
@@ -159,9 +165,7 @@ def send_email(
                     context = ssl.create_default_context()
                     smtp.starttls(context=context)
                     smtp.ehlo()
-                if username:
-                    smtp.login(username, password)
-                smtp.send_message(message)
+                _login_and_send(smtp)
         return True, "Письмо отправлено"
     except Exception as exc:  # noqa: BLE001 — soft-fail for operators
         return False, f"SMTP ошибка: {exc}"
@@ -223,10 +227,6 @@ def notify_inventory_events(
         to_addrs=recipients,
     )
     _dispatch(smtp_row, password=password, message=msg, log_label=device_id)
-
-
-# Back-compat name used by api.py
-notify_hardware_changes = notify_inventory_events
 
 
 def notify_enroll(
