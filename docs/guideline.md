@@ -1,6 +1,6 @@
 # Руководства по разработке bAD
 
-Краткие инженерные правила для этого репозитория. Стек и границы v1 зафиксированы в [architecture-plan.md](architecture-plan.md). Архитектура и update pipeline: [architecture.md](architecture.md).
+Краткие инженерные правила для этого репозитория. Стек, границы и update pipeline: [architecture.md](architecture.md).
 
 ## Общие принципы
 

@@ -184,7 +184,6 @@ Heartbeat health (optional → device meta): `last_inventory_ok`, `last_inventor
 | Collectors | `agent/src/BadAgent/InventoryCollector.cs`, `HardwareMaps.cs` |
 | MSI PATH shim | `installer/msi/bad.cmd`, `ADDPATH` in `Product.wxs` |
 | Release MSI | `.github/workflows/release-msi.yml` |
-| План (locked) | `docs/architecture-plan.md` |
 | Оператор | `docs/operator-guide.md` |
 
 ## CI
@@ -250,7 +249,6 @@ Seed default admin только если `COUNT(local_users)=0`.
 | Worker loop | `agent/src/BadAgent/Worker.cs` |
 | HTTP client | `agent/src/BadAgent/BadApiClient.cs` |
 | Collectors | `agent/src/BadAgent/InventoryCollector.cs` |
-| План (locked) | `docs/architecture-plan.md` |
 | Оператор | `docs/operator-guide.md` |
 
 ## CI
