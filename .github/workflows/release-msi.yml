@@ -75,6 +75,7 @@ jobs:
             -p:Version=${{ steps.ver.outputs.version }} `
             -o $out
           Copy-Item installer/msi/write-config.ps1 $out -Force
+          Copy-Item installer/msi/bad.cmd $out -Force
 
       - name: Install WiX toolset (dotnet tool)
         run: |

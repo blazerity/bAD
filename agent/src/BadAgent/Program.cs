@@ -1,10 +1,19 @@
 using BadAgent;
+using Microsoft.Extensions.Hosting.WindowsServices;
 using Serilog;
 
-// CLI: BadAgent.exe service status|start|stop|restart (elevated). Otherwise run Windows Service host.
+// Elevated service control: BadAgent.exe service status|start|stop|restart
 if (args.Length > 0 && string.Equals(args[0], "service", StringComparison.OrdinalIgnoreCase))
 {
     return ServiceCli.Run(args.AsSpan(1).ToArray());
+}
+
+// Interactive CLI (bad / BadAgent.exe from console): reports, help — not the Windows Service host.
+// SCM starts the process as a Windows service; keep that path unchanged.
+// On non-Windows (Linux CI / `dotnet run`), default remains the hosted Worker unless CLI args are explicit.
+if (ShouldRunCli(args))
+{
+    return BadCli.Run(args);
 }
 
 Directory.CreateDirectory(ConfigStore.LogsDir);
@@ -41,4 +50,35 @@ catch (Exception ex)
 finally
 {
     Log.CloseAndFlush();
+}
+
+/// <summary>
+/// True when the process was started as an interactive tool (console), not by the SCM.
+/// </summary>
+static bool ShouldRunCli(string[] args)
+{
+    if (args.Length > 0)
+    {
+        if (BadCli.IsExplicitCliArg(args[0]))
+        {
+            return true;
+        }
+
+        // Unknown first arg on an interactive Windows console → still CLI (shows help/error).
+        if (OperatingSystem.IsWindows() && Environment.UserInteractive
+            && !WindowsServiceHelpers.IsWindowsService())
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    // No args: Windows interactive console → ASCII report; otherwise service/worker host.
+    if (WindowsServiceHelpers.IsWindowsService())
+    {
+        return false;
+    }
+
+    return OperatingSystem.IsWindows() && Environment.UserInteractive;
 }
