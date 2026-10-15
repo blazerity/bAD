@@ -37,7 +37,7 @@ uvicorn bad_server.app:app --host 127.0.0.1 --port 8000
 ```
 
 - Health: `GET /v1/health` → `{"status":"ok","version":"0.9.0"}`
-- Web: `/login` (`admin`/`admin` first boot) → `/` обзор; устройства `/devices` (поиск/CSV/архив); карточка — revoke/rotate/delete
+- Web: `/login` (`admin`/`admin` first boot) → `/account/password` (обязательная смена; CSRF `csrf_token` + cookie `bad_csrf`) → `/` обзор; устройства `/devices` (поиск/CSV/архив); карточка — revoke/rotate/delete
 - Параметры `/settings/*` (Win11 left-nav): LDAP (+ AD group), mail/SMTP toggles, retention, backups, policies, agent updates
 - UI look (0.8.0+): Win11/Fluent light + русский UI — `bad_server/static/style.css`, favicon; CLI HTML report — те же токены/иконки; `agent/assets/bad.ico`
 
