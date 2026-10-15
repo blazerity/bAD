@@ -79,6 +79,8 @@ BadAgent.exe service status|start|stop|restart
 
 Учитываются `collect_*` из `%ProgramData%\blazerity\bAD\config.json`. Код: `BadCli`, `AsciiReportWriter`, `HtmlReportWriter`, `ReportPathResolver`.
 
+Порядок разделов отчёта (Speccy / карточка устройства): **ОС → Процессор → Материнская плата → Память → Видео → Накопители → Мониторы → Батарея → Сеть → Пользователи → ПО → …**.
+
 Опционально MSI `ADDPATH=1` добавляет каталог установки в Machine PATH (по умолчанию PATH не трогаем).
 
 Реализация service: `System.ServiceProcess.ServiceController`. На Linux команды управления возвращают ошибку (unit-тесты покрывают help/unknown/non-Windows).
