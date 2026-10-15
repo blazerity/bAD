@@ -12,7 +12,7 @@ public sealed class Worker : BackgroundService
     {
         _logger = logger;
         _collector = collector;
-        _agentVersion = typeof(Worker).Assembly.GetName().Version?.ToString(3) ?? "0.1.0";
+        _agentVersion = typeof(Worker).Assembly.GetName().Version?.ToString(3) ?? "0.2.0";
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

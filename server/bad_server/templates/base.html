@@ -10,12 +10,21 @@
   <header class="top">
     <a class="brand" href="/devices">bAD</a>
     <span class="tagline">blazerity Asset Discovery</span>
-    {% if request.url.path != '/login' %}
+    {% if user is defined and user %}
+    <nav class="nav">
+      <a href="/devices">Devices</a>
+      {% if user.is_admin %}<a href="/settings/ldap">LDAP</a>{% endif %}
+      {% if user.source == 'local' %}<a href="/account/password">Password</a>{% endif %}
+    </nav>
     <form class="logout" method="post" action="/logout">
+      <span class="who mono">{{ user.username }}{% if user.source == 'ldap' %} (ldap){% endif %}</span>
       <button type="submit">Sign out</button>
     </form>
     {% endif %}
   </header>
+  {% if user is defined and user and user.must_change_password %}
+  <div class="banner">Default password in use — <a href="/account/password">change it now</a>.</div>
+  {% endif %}
   <main>
     {% block content %}{% endblock %}
   </main>

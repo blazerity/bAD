@@ -16,7 +16,7 @@ server/           # FastAPI app, web UI, pytest
 installer/msi/    # WiX sources (build on Windows)
 deploy/debian/    # install.sh, systemd, nginx template
 docs/             # architecture, guidelines, agent notes, operator guide
-VERSION           # product semver (0.1.0)
+VERSION           # product semver (0.2.0)
 ```
 
 ## Quick start (server on Linux)
@@ -34,8 +34,10 @@ uvicorn bad_server.app:app --host 127.0.0.1 --port 8000
 ```
 
 - API health: http://127.0.0.1:8000/v1/health  
-- Web UI (admin token): http://127.0.0.1:8000/login  
+- Web UI: http://127.0.0.1:8000/login (default `admin` / `admin` on first boot — change it)  
 - Devices: http://127.0.0.1:8000/devices  
+- LDAP settings (admin): http://127.0.0.1:8000/settings/ldap  
+
 
 ```bash
 pytest -q

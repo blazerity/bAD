@@ -17,13 +17,13 @@ Copy-Item .\write-config.ps1 .\publish\
 # heat dir .\publish -cg AgentFiles -gg -sfrag -srd -dr INSTALLFOLDER -out Harvested.wxs
 # Or extend Product.wxs File elements for each published artifact.
 
-wix build Product.wxs -d AgentPublishDir=.\publish -o bad-agent-0.1.0.msi
+wix build Product.wxs -d AgentPublishDir=.\publish -o bad-agent-0.2.0.msi
 ```
 
 ## Install
 
 ```powershell
-msiexec /i bad-agent-0.1.0.msi `
+msiexec /i bad-agent-0.2.0.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=your-enrollment-token `
   /qn

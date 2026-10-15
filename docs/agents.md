@@ -14,7 +14,7 @@ server/                # FastAPI app
 installer/msi/         # WiX Product.wxs, write-config.ps1
 deploy/debian/         # install.sh, systemd/, nginx/
 docs/                  # операторские и архитектурные документы
-VERSION                # канонический semver продукта (сейчас 0.1.0)
+VERSION                # канонический semver продукта (сейчас 0.2.0)
 ```
 
 Не путать: **не** игнорировать исходники `server/tests` и `agent/tests` — только `__pycache__`, `bin/`, `obj/`, coverage и т.п.
@@ -34,8 +34,9 @@ uvicorn bad_server.app:app --host 127.0.0.1 --port 8000
 pytest -q
 ```
 
-- Health: `GET /v1/health` → `{"status":"ok","version":"0.1.0"}`
-- Web: `/login` → `/devices`
+- Health: `GET /v1/health` → `{"status":"ok","version":"0.2.0"}`
+- Web: `/login` с `admin` / `admin` (первый boot) → `/devices`
+- LDAP UI: `/settings/ldap` (после входа как local admin)
 
 ## Как собрать / тестировать агент
 
@@ -59,7 +60,7 @@ dotnet run --project src/BadAgent -c Release
 
 ## Где живёт версия (bump checklist)
 
-Канон: корневой файл **`VERSION`** (`0.1.0`). При релизе синхронизировать:
+Канон: корневой файл **`VERSION`** (`0.2.0`). При релизе синхронизировать:
 
 | Место | Поле |
 |-------|------|
@@ -71,22 +72,39 @@ dotnet run --project src/BadAgent -c Release
 | `agent/src/BadAgent/Worker.cs` | fallback string рядом с `Assembly.GetName().Version` |
 | `installer/msi/Product.wxs` | `Package/@Version` + имя `bad-agent-<semver>.msi` в комментарии |
 | `deploy/debian/install.sh` | default `BAD_VERSION` |
-| тесты / README / operator-guide | ожидаемые строки версии при необходимости |
+| тесты / README / operator-guide / docs | ожидаемые строки версии при необходимости |
+
+Правила: patch hotfix `+0.0.1`; feature `+0.1.0`; major только по явному слову владельца. Не двойной minor bump, если соседний feature PR уже поднял ту же версию.
 
 Агент отправляет `agent_version` из assembly version (трёхкомпонентный semver). Сервер отдаёт версию в `/v1/health` и в footer web UI.
 
 `schema_version` inventory (**integer `1`**) — отдельный контракт; не менять вместе с semver без миграции протокола.
 
+## Auth map (не перепутать)
+
+| Механизм | Где | Назначение |
+|----------|-----|------------|
+| Enrollment Bearer | `POST /v1/enroll` | одноразовый обмен на API key агента |
+| Agent API key | heartbeat / inventory | per-device |
+| Admin Bearer | `GET /v1/devices*` | автоматизация / curl |
+| Local user session | web cookie `bad_session` | операторы в браузере |
+| LDAP (optional) | web login fallback | directory users → session |
+
+Код: `server/bad_server/auth.py`, `sessions.py`, `ldap_client.py`, `web.py`, `crypto_util.py`.
+
+Seed default admin только если `COUNT(local_users)=0`.
+
 ## Инварианты — не ломать
 
 1. **HTTPS-only** для агента в нормальном режиме; reject cleartext.
-2. **Три разных секрета**: enrollment ≠ API key ≠ admin.
+2. **Три разных API-секрета**: enrollment ≠ API key ≠ admin token; плюс отдельные web-аккаунты.
 3. **Hash в БД**, plaintext API key только в ProgramData с жёстким ACL.
 4. **Upsert по `device_id`**; MSI upgrade сохраняет ProgramData (не требовать re-enroll).
 5. **uvicorn localhost-only**; TLS на nginx.
-6. **Web UI read-only**; admin cookie/Bearer, без публичного доступа к `/devices`.
+6. **Web UI за session login**; `/devices` без сессии → redirect `/login`.
 7. **OpenAPI UI выключен** в приложении.
 8. Сбой одного collector не валит весь snapshot (`collector_errors`).
+9. LDAP bind password не echo’ить в форме после save.
 
 ## MSI
 
@@ -94,7 +112,7 @@ dotnet run --project src/BadAgent -c Release
 - Сборка **только на Windows** (WiX): см. `installer/msi/README.md`.
 - Public properties: `SERVERURL`, `ENROLLMENTTOKEN` → пишутся в ProgramData custom action’ом.
 - UpgradeCode фиксирован; major upgrade, ProgramData не сносить.
-- Артефакт: `bad-agent-0.1.0.msi` (имя по semver).
+- Артефакт: `bad-agent-0.2.0.msi` (имя по semver).
 
 ## Debian install
 
@@ -103,14 +121,18 @@ dotnet run --project src/BadAgent -c Release
 - Кладёт app в `/opt/bad`, БД `/var/lib/bad/bad.db`, env `/etc/bad/site.env`.
 - Unit: `deploy/debian/systemd/bad-api.service` → `bad-api.service`.
 - nginx template: `deploy/debian/nginx/bad.conf.template`.
-- Печатает enrollment + admin tokens **один раз** при первом создании `site.env`.
+- Печатает enrollment + admin API tokens **один раз** при первом создании `site.env`.
+- Web: после первого старта — local `admin`/`admin` (сменить).
 
 ## Полезные файлы
 
 | Задача | Файл |
 |--------|------|
 | Маршруты API | `server/bad_server/api.py` |
-| Web routes | `server/bad_server/web.py` |
+| Web routes / LDAP UI | `server/bad_server/web.py` |
+| Auth helpers | `server/bad_server/auth.py` |
+| LDAP client | `server/bad_server/ldap_client.py` |
+| Sessions | `server/bad_server/sessions.py` |
 | Схема/settings | `server/bad_server/schemas.py`, `config.py` |
 | DB | `server/bad_server/db.py` |
 | Worker loop | `agent/src/BadAgent/Worker.cs` |

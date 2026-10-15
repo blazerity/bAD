@@ -3,14 +3,20 @@
 {% block content %}
 <section class="login">
   <h1>Operator sign-in</h1>
-  <p class="muted">Enter the admin token from the server install output.</p>
+  <p class="muted">
+    Sign in with a local account{% if ldap_enabled %} or LDAP{% endif %}.
+    Default local admin on first boot: <span class="mono">admin</span> / <span class="mono">admin</span>
+    — change this password immediately.
+  </p>
   {% if error %}
   <p class="error">{{ error }}</p>
   {% endif %}
   <form method="post" action="/login">
-    <label for="admin_token">Admin token</label>
-    <input id="admin_token" name="admin_token" type="password" autocomplete="current-password" required autofocus>
-    <button type="submit">Continue</button>
+    <label for="username">Username</label>
+    <input id="username" name="username" type="text" autocomplete="username" required autofocus>
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <button type="submit">Sign in</button>
   </form>
 </section>
 {% endblock %}

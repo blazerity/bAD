@@ -37,6 +37,32 @@ CREATE TABLE IF NOT EXISTS site_secrets (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS local_users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'admin',
+  must_change_password INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  last_login_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS ldap_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  enabled INTEGER NOT NULL DEFAULT 0,
+  host TEXT NOT NULL DEFAULT '',
+  port INTEGER NOT NULL DEFAULT 389,
+  use_ssl INTEGER NOT NULL DEFAULT 0,
+  start_tls INTEGER NOT NULL DEFAULT 0,
+  bind_dn TEXT NOT NULL DEFAULT '',
+  bind_password_enc TEXT NOT NULL DEFAULT '',
+  user_search_base TEXT NOT NULL DEFAULT '',
+  user_filter_template TEXT NOT NULL DEFAULT '(uid={username})',
+  display_name_attr TEXT NOT NULL DEFAULT 'cn',
+  default_role TEXT NOT NULL DEFAULT 'operator',
+  updated_at TEXT
+);
 """
 
 
@@ -61,6 +87,10 @@ class Database:
     def _init_schema(self) -> None:
         with self._connect() as conn:
             conn.executescript(SCHEMA_SQL)
+            # Ensure single LDAP settings row exists
+            conn.execute(
+                "INSERT OR IGNORE INTO ldap_settings(id) VALUES (1)"
+            )
             conn.commit()
 
     @contextmanager
@@ -296,3 +326,167 @@ class Database:
             "meta": meta,
             "latest_inventory": inventory,
         }
+
+    # --- local users ---
+
+    def count_local_users(self) -> int:
+        with self.connection() as conn:
+            row = conn.execute("SELECT COUNT(*) AS c FROM local_users").fetchone()
+            return int(row["c"] if row else 0)
+
+    def create_local_user(
+        self,
+        username: str,
+        password_hash: str,
+        role: str = "admin",
+        must_change_password: bool = False,
+    ) -> int:
+        now = utc_now()
+        with self.connection() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO local_users(
+                  username, password_hash, role, must_change_password, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    username,
+                    password_hash,
+                    role,
+                    1 if must_change_password else 0,
+                    now,
+                ),
+            )
+            return int(cur.lastrowid)
+
+    def get_local_user(self, username: str) -> Optional[dict[str, Any]]:
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM local_users WHERE username = ? COLLATE NOCASE",
+                (username,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def update_local_user_password(
+        self, username: str, password_hash: str, clear_must_change: bool = True
+    ) -> None:
+        with self.connection() as conn:
+            if clear_must_change:
+                conn.execute(
+                    """
+                    UPDATE local_users
+                    SET password_hash = ?, must_change_password = 0
+                    WHERE username = ? COLLATE NOCASE
+                    """,
+                    (password_hash, username),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE local_users
+                    SET password_hash = ?
+                    WHERE username = ? COLLATE NOCASE
+                    """,
+                    (password_hash, username),
+                )
+
+    def touch_local_user_login(self, username: str) -> None:
+        with self.connection() as conn:
+            conn.execute(
+                """
+                UPDATE local_users SET last_login_at = ?
+                WHERE username = ? COLLATE NOCASE
+                """,
+                (utc_now(), username),
+            )
+
+    # --- LDAP settings ---
+
+    def get_ldap_settings(self) -> dict[str, Any]:
+        with self.connection() as conn:
+            row = conn.execute("SELECT * FROM ldap_settings WHERE id = 1").fetchone()
+        if not row:
+            return {
+                "id": 1,
+                "enabled": 0,
+                "host": "",
+                "port": 389,
+                "use_ssl": 0,
+                "start_tls": 0,
+                "bind_dn": "",
+                "bind_password_enc": "",
+                "user_search_base": "",
+                "user_filter_template": "(uid={username})",
+                "display_name_attr": "cn",
+                "default_role": "operator",
+                "updated_at": None,
+            }
+        return dict(row)
+
+    def update_ldap_settings(
+        self,
+        *,
+        enabled: bool,
+        host: str,
+        port: int,
+        use_ssl: bool,
+        start_tls: bool,
+        bind_dn: str,
+        user_search_base: str,
+        user_filter_template: str,
+        display_name_attr: str,
+        default_role: str,
+        bind_password_enc: Optional[str] = None,
+    ) -> None:
+        now = utc_now()
+        with self.connection() as conn:
+            if bind_password_enc is not None:
+                conn.execute(
+                    """
+                    UPDATE ldap_settings SET
+                      enabled = ?, host = ?, port = ?, use_ssl = ?, start_tls = ?,
+                      bind_dn = ?, bind_password_enc = ?,
+                      user_search_base = ?, user_filter_template = ?,
+                      display_name_attr = ?, default_role = ?, updated_at = ?
+                    WHERE id = 1
+                    """,
+                    (
+                        1 if enabled else 0,
+                        host,
+                        port,
+                        1 if use_ssl else 0,
+                        1 if start_tls else 0,
+                        bind_dn,
+                        bind_password_enc,
+                        user_search_base,
+                        user_filter_template,
+                        display_name_attr,
+                        default_role,
+                        now,
+                    ),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE ldap_settings SET
+                      enabled = ?, host = ?, port = ?, use_ssl = ?, start_tls = ?,
+                      bind_dn = ?,
+                      user_search_base = ?, user_filter_template = ?,
+                      display_name_attr = ?, default_role = ?, updated_at = ?
+                    WHERE id = 1
+                    """,
+                    (
+                        1 if enabled else 0,
+                        host,
+                        port,
+                        1 if use_ssl else 0,
+                        1 if start_tls else 0,
+                        bind_dn,
+                        user_search_base,
+                        user_filter_template,
+                        display_name_attr,
+                        default_role,
+                        now,
+                    ),
+                )
+

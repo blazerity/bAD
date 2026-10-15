@@ -41,7 +41,7 @@ def test_health(client: TestClient):
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "ok"
-    assert body["version"] == "0.1.0"
+    assert body["version"] == "0.2.0"
 
 
 def test_enroll_inventory_get_flow(client: TestClient):
@@ -168,18 +168,25 @@ def test_web_login_and_devices(client: TestClient):
     enroll = client.post(
         "/v1/enroll",
         headers={"Authorization": "Bearer test-enrollment-token-abcdefghijklmnopqrstuvwxyz"},
-        json={"device_id": "web-device", "hostname": "WEB-HOST", "agent_version": "1.0.0"},
+        json={"device_id": "web-device", "hostname": "WEB-HOST", "agent_version": "0.2.0"},
     )
     assert enroll.status_code == 200
 
+    denied = client.get("/devices", follow_redirects=False)
+    assert denied.status_code == 303
+    assert denied.headers["location"] == "/login"
+
     login = client.post(
         "/login",
-        data={"admin_token": "test-admin-token-abcdefghijklmnopqrstuvwxyz"},
+        data={"username": "admin", "password": "admin"},
         follow_redirects=False,
     )
     assert login.status_code == 303
-    assert "bad_admin_token" in login.cookies
+    assert "bad_session" in login.cookies
+    # Default password forces change
+    assert login.headers["location"] == "/account/password"
 
+    # Still allowed to reach devices after session is set (banner nudges change)
     page = client.get("/devices")
     assert page.status_code == 200
     assert "WEB-HOST" in page.text
