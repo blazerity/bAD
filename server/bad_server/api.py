@@ -399,7 +399,7 @@ def agent_update_check(
     device=Depends(require_api_key),
     db: Database = Depends(get_db),
 ) -> dict[str, Any]:
-    """Агенты спрашивают, есть ли целевой MSI (policy update_target_version)."""
+    """Агенты спрашивают, есть ли целевой MSI (effective update_target)."""
     return check_update(
         db,
         current=current or "0.0.0",

@@ -62,9 +62,6 @@ def sanitize_update_target(value: Any) -> Optional[str]:
     return m.group("ver")
 
 
-# Alias for older call sites / handoff wording.
-sanitize_update_target_version = sanitize_update_target
-
 CONDITION_FIELDS = frozenset({"hostname", "domain", "os_caption", "tag"})
 CONDITION_OPS = frozenset({"equals", "contains"})
 

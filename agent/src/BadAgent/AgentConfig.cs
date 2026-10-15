@@ -81,18 +81,9 @@ public sealed class RemoteAgentSettings
     [JsonPropertyName("update_target")]
     public string? UpdateTarget { get; set; }
 
-    /// <summary>Алиас (ранний черновик агента).</summary>
+    /// <summary>Документированный алиас для <see cref="UpdateTarget"/>.</summary>
     [JsonPropertyName("desired_agent_version")]
     public string? DesiredAgentVersion { get; set; }
-
-    [JsonPropertyName("agent_target_version")]
-    public string? AgentTargetVersion { get; set; }
-
-    [JsonPropertyName("target_agent_version")]
-    public string? TargetAgentVersion { get; set; }
-
-    [JsonPropertyName("update_target_version")]
-    public string? UpdateTargetVersion { get; set; }
 
     [JsonPropertyName("collect_hardware")]
     public bool? CollectHardware { get; set; }
@@ -212,10 +203,7 @@ public static class ConfigStore
 
         var targetRaw = FirstNonEmpty(
             settings.UpdateTarget,
-            settings.DesiredAgentVersion,
-            settings.AgentTargetVersion,
-            settings.TargetAgentVersion,
-            settings.UpdateTargetVersion);
+            settings.DesiredAgentVersion);
         if (targetRaw is not null)
         {
             var normalized = VersionUtil.NormalizeDesiredAgentVersion(targetRaw);

@@ -44,8 +44,7 @@ public sealed class AgentUpdater
         UpdateCheckResponse check;
         try
         {
-            // Сервер 0.10 считает target из effective config; query — подсказка/compat.
-            check = await client.CheckUpdateAsync(config.ApiKey!, _agentVersion, localTarget, ct);
+            check = await client.CheckUpdateAsync(config.ApiKey!, _agentVersion, ct);
         }
         catch (AgentApiException ex) when (ex.IsAuthFailure)
         {

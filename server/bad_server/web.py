@@ -710,27 +710,16 @@ def device_config_override_save(
         assert ctx is not None
         return _html(request, "device_detail.html", ctx)
 
-    raw: dict = {}
-    for key, raw_val in (
-        ("inventory_interval_hours", inventory_interval_hours),
-        ("heartbeat_interval_minutes", heartbeat_interval_minutes),
-        ("update_check_interval_hours", update_check_interval_hours),
-    ):
-        text = (raw_val or "").strip()
-        if text:
-            raw[key] = text
-    _apply_bool_form_fields(
-        raw,
-        {
-            "update_enabled": update_enabled,
-            "collect_hardware": collect_hardware,
-            "collect_users": collect_users,
-            "collect_software": collect_software,
-        },
+    raw = _settings_raw_from_form(
+        inventory_interval_hours=inventory_interval_hours,
+        heartbeat_interval_minutes=heartbeat_interval_minutes,
+        update_check_interval_hours=update_check_interval_hours,
+        update_enabled=update_enabled,
+        update_target=update_target,
+        collect_hardware=collect_hardware,
+        collect_users=collect_users,
+        collect_software=collect_software,
     )
-    target = (update_target or "").strip()
-    if target:
-        raw["update_target"] = target
 
     cleaned = sanitize_settings(raw)
     if not cleaned:
@@ -921,6 +910,42 @@ def _apply_bool_form_fields(raw: dict, fields: dict[str, str]) -> None:
             raw[key] = text in {"true", "1"}
 
 
+def _settings_raw_from_form(
+    *,
+    inventory_interval_hours: str = "",
+    heartbeat_interval_minutes: str = "",
+    update_check_interval_hours: str = "",
+    update_enabled: str = "",
+    update_target: str = "",
+    collect_hardware: str = "",
+    collect_users: str = "",
+    collect_software: str = "",
+) -> dict:
+    """Общий harvest interval/bool/update_target из HTML-форм (policy + device override)."""
+    raw: dict = {}
+    for key, raw_val in (
+        ("inventory_interval_hours", inventory_interval_hours),
+        ("heartbeat_interval_minutes", heartbeat_interval_minutes),
+        ("update_check_interval_hours", update_check_interval_hours),
+    ):
+        text = (raw_val or "").strip()
+        if text:
+            raw[key] = text
+    _apply_bool_form_fields(
+        raw,
+        {
+            "update_enabled": update_enabled,
+            "collect_hardware": collect_hardware,
+            "collect_users": collect_users,
+            "collect_software": collect_software,
+        },
+    )
+    target = (update_target or "").strip()
+    if target:
+        raw["update_target"] = target
+    return raw
+
+
 def _parse_policy_form(
     *,
     name: str,
@@ -960,27 +985,16 @@ def _parse_policy_form(
     if not conditions:
         return None, "Нужно одно валидное условие (hostname/domain/os_caption/tag)"
 
-    raw: dict = {}
-    for key, raw_val in (
-        ("inventory_interval_hours", inventory_interval_hours),
-        ("heartbeat_interval_minutes", heartbeat_interval_minutes),
-        ("update_check_interval_hours", update_check_interval_hours),
-    ):
-        text = (raw_val or "").strip()
-        if text:
-            raw[key] = text
-    _apply_bool_form_fields(
-        raw,
-        {
-            "update_enabled": update_enabled,
-            "collect_hardware": collect_hardware,
-            "collect_users": collect_users,
-            "collect_software": collect_software,
-        },
+    raw = _settings_raw_from_form(
+        inventory_interval_hours=inventory_interval_hours,
+        heartbeat_interval_minutes=heartbeat_interval_minutes,
+        update_check_interval_hours=update_check_interval_hours,
+        update_enabled=update_enabled,
+        update_target=update_target,
+        collect_hardware=collect_hardware,
+        collect_users=collect_users,
+        collect_software=collect_software,
     )
-    target = (update_target or "").strip()
-    if target:
-        raw["update_target"] = target
     settings = sanitize_settings(raw)
     if not settings:
         return None, "Задайте хотя бы одно поле settings для политики"
@@ -1003,27 +1017,34 @@ def _validate_update_target_pin(db: Database, settings: dict) -> Optional[str]:
     return None
 
 
+def _policies_context(
+    db: Database,
+    user: WebUser,
+    *,
+    message: Optional[str] = None,
+    error: Optional[str] = None,
+    edit: Optional[dict] = None,
+) -> dict:
+    return {
+        "user": user,
+        "policies": db.list_agent_policies(),
+        "defaults": dict(DEFAULT_AGENT_SETTINGS),
+        "condition_fields": sorted(CONDITION_FIELDS),
+        "condition_ops": sorted(CONDITION_OPS),
+        "msi_versions": db.list_agent_msi_versions(),
+        "message": message,
+        "error": error,
+        "edit": edit,
+    }
+
+
 @router.get("/settings/policies", response_class=HTMLResponse)
 def policies_page(
     request: Request,
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
 ):
-    return _html(
-        request,
-        "policies.html",
-        {
-            "user": user,
-            "policies": db.list_agent_policies(),
-            "defaults": dict(DEFAULT_AGENT_SETTINGS),
-            "condition_fields": sorted(CONDITION_FIELDS),
-            "condition_ops": sorted(CONDITION_OPS),
-            "msi_versions": db.list_agent_msi_versions(),
-            "message": None,
-            "error": None,
-            "edit": None,
-        },
-    )
+    return _html(request, "policies.html", _policies_context(db, user))
 
 
 @router.get("/settings/policies/{policy_id}", response_class=HTMLResponse)
@@ -1037,19 +1058,7 @@ def policy_edit_page(
     if not policy:
         return RedirectResponse(url="/settings/policies", status_code=303)
     return _html(
-        request,
-        "policies.html",
-        {
-            "user": user,
-            "policies": db.list_agent_policies(),
-            "defaults": dict(DEFAULT_AGENT_SETTINGS),
-            "condition_fields": sorted(CONDITION_FIELDS),
-            "condition_ops": sorted(CONDITION_OPS),
-            "msi_versions": db.list_agent_msi_versions(),
-            "message": None,
-            "error": None,
-            "edit": policy,
-        },
+        request, "policies.html", _policies_context(db, user, edit=policy)
     )
 
 
@@ -1093,17 +1102,7 @@ def policy_create(
         return _html(
             request,
             "policies.html",
-            {
-                "user": user,
-                "policies": db.list_agent_policies(),
-                "defaults": dict(DEFAULT_AGENT_SETTINGS),
-                "condition_fields": sorted(CONDITION_FIELDS),
-                "condition_ops": sorted(CONDITION_OPS),
-                "msi_versions": db.list_agent_msi_versions(),
-                "message": None,
-                "error": err,
-                "edit": None,
-            },
+            _policies_context(db, user, error=err),
             status_code=400,
         )
     pin_err = _validate_update_target_pin(db, parsed["settings"])
@@ -1111,34 +1110,14 @@ def policy_create(
         return _html(
             request,
             "policies.html",
-            {
-                "user": user,
-                "policies": db.list_agent_policies(),
-                "defaults": dict(DEFAULT_AGENT_SETTINGS),
-                "condition_fields": sorted(CONDITION_FIELDS),
-                "condition_ops": sorted(CONDITION_OPS),
-                "msi_versions": db.list_agent_msi_versions(),
-                "message": None,
-                "error": pin_err,
-                "edit": None,
-            },
+            _policies_context(db, user, error=pin_err),
             status_code=400,
         )
     db.create_agent_policy(**parsed)
     return _html(
         request,
         "policies.html",
-        {
-            "user": user,
-            "policies": db.list_agent_policies(),
-            "defaults": dict(DEFAULT_AGENT_SETTINGS),
-            "condition_fields": sorted(CONDITION_FIELDS),
-            "condition_ops": sorted(CONDITION_OPS),
-            "msi_versions": db.list_agent_msi_versions(),
-            "message": "Политика создана",
-            "error": None,
-            "edit": None,
-        },
+        _policies_context(db, user, message="Политика создана"),
     )
 
 
@@ -1180,21 +1159,12 @@ def policy_update(
         collect_software=collect_software,
     )
     if err or not parsed:
-        policy = db.get_agent_policy(policy_id)
         return _html(
             request,
             "policies.html",
-            {
-                "user": user,
-                "policies": db.list_agent_policies(),
-                "defaults": dict(DEFAULT_AGENT_SETTINGS),
-                "condition_fields": sorted(CONDITION_FIELDS),
-                "condition_ops": sorted(CONDITION_OPS),
-                "msi_versions": db.list_agent_msi_versions(),
-                "message": None,
-                "error": err,
-                "edit": policy,
-            },
+            _policies_context(
+                db, user, error=err, edit=db.get_agent_policy(policy_id)
+            ),
             status_code=400,
         )
     pin_err = _validate_update_target_pin(db, parsed["settings"])
@@ -1202,17 +1172,9 @@ def policy_update(
         return _html(
             request,
             "policies.html",
-            {
-                "user": user,
-                "policies": db.list_agent_policies(),
-                "defaults": dict(DEFAULT_AGENT_SETTINGS),
-                "condition_fields": sorted(CONDITION_FIELDS),
-                "condition_ops": sorted(CONDITION_OPS),
-                "msi_versions": db.list_agent_msi_versions(),
-                "message": None,
-                "error": pin_err,
-                "edit": policy,
-            },
+            _policies_context(
+                db, user, error=pin_err, edit=db.get_agent_policy(policy_id)
+            ),
             status_code=400,
         )
     updated = db.update_agent_policy(policy_id, **parsed)
@@ -1221,17 +1183,7 @@ def policy_update(
     return _html(
         request,
         "policies.html",
-        {
-            "user": user,
-            "policies": db.list_agent_policies(),
-            "defaults": dict(DEFAULT_AGENT_SETTINGS),
-            "condition_fields": sorted(CONDITION_FIELDS),
-            "condition_ops": sorted(CONDITION_OPS),
-            "msi_versions": db.list_agent_msi_versions(),
-            "message": "Политика обновлена",
-            "error": None,
-            "edit": updated,
-        },
+        _policies_context(db, user, message="Политика обновлена", edit=updated),
     )
 
 

@@ -6,7 +6,6 @@ import io
 import json
 import logging
 import tarfile
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -126,17 +125,19 @@ def build_site_bundle(
         )
 
         if include_msi_files:
-            updates_root = Path(updates_dir)
+            updates_root = Path(updates_dir).resolve()
             for v in versions:
                 fp = Path(v["file_path"]) if v.get("file_path") else None
                 if not fp or not fp.is_file():
-                    # try by msi_name under updates_dir
-                    candidate = updates_root / v["msi_name"]
-                    fp = candidate if candidate.is_file() else None
+                    # 0.10 layout: {updates_dir}/{version}/{msi_name}
+                    ver = (v.get("version") or "").strip()
+                    name = (v.get("msi_name") or "").strip()
+                    candidate = updates_root / ver / name if ver and name else None
+                    fp = candidate if candidate and candidate.is_file() else None
                 if not fp:
                     continue
                 try:
-                    fp.resolve().relative_to(updates_root.resolve())
+                    fp.resolve().relative_to(updates_root)
                 except ValueError:
                     logger.warning("Skip MSI outside updates dir: %s", fp)
                     continue
@@ -163,17 +164,3 @@ def build_site_bundle(
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     filename = f"bad-site-bundle-{stamp}.tar.gz"
     return buf.getvalue(), filename
-
-
-def inspect_site_bundle(archive: Path) -> dict[str, Any]:
-    """Прочитать manifest без распаковки ключей в plaintext logs."""
-    with tarfile.open(archive, mode="r:gz") as tar:
-        try:
-            member = tar.getmember(BUNDLE_MANIFEST_NAME)
-        except KeyError:
-            return {"ok": False, "error": "manifest.json missing"}
-        f = tar.extractfile(member)
-        if not f:
-            return {"ok": False, "error": "cannot read manifest"}
-        data = json.loads(f.read().decode("utf-8"))
-    return {"ok": True, "manifest": data}

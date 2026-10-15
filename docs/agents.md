@@ -120,7 +120,7 @@ Heartbeat health (опционально → meta устройства): `last_i
 - **SEC-004:** при `must_change_password` UI пускает только `/account/password` и `/logout`; основная навигация скрыта.
 - **SEC-010:** CSRF на всех HTML POST — `Depends(ensure_csrf)` (cookie `bad_csrf` + поле `csrf_token`); детали в [architecture.md](architecture.md).
 
-### Offline queue / revoke (0.9.0)
+### Offline queue / revoke (0.9.1)
 
 - Недоступный сервер → `%ProgramData%\blazerity\bAD\queue\` + backoff (`OfflineQueue`).
 - 401/403 → очистить `api_key`, оставить `device_id`, Event Log, не постить до re-enroll/reinstall (`Worker.HandleAuthFailure`).
@@ -169,7 +169,7 @@ Heartbeat health (опционально → meta устройства): `last_i
 3. **Hash в БД**, plaintext API key только в ProgramData с жёстким ACL.
 4. **Upsert по `device_id`**; MSI upgrade сохраняет ProgramData (не требовать re-enroll).
 5. **uvicorn localhost-only**; TLS на nginx.
-6. **Web UI read-only**; admin cookie/Bearer, без публичного доступа к `/devices`.
+6. **Web UI за session login**; `/devices` без сессии → redirect `/login`.
 7. **OpenAPI UI выключен** в приложении.
 8. Сбой одного collector не валит весь snapshot (`collector_errors`).
 9. **Агент не ходит в GitHub** за обновлениями — только server mirror.
@@ -231,53 +231,3 @@ Heartbeat health (опционально → meta устройства): `last_i
 Код: `server/bad_server/auth.py`, `sessions.py`, `ldap_client.py`, `web.py`, `crypto_util.py`.
 
 Seed локального admin только если `COUNT(local_users)=0`.
-
-## Инварианты — не ломать
-
-1. **HTTPS-only** для агента в нормальном режиме; reject cleartext.
-2. **Три разных API-секрета**: enrollment ≠ API key ≠ admin token; плюс отдельные web-аккаунты.
-3. **Hash в БД**, plaintext API key только в ProgramData с жёстким ACL.
-4. **Upsert по `device_id`**; MSI upgrade сохраняет ProgramData (не требовать re-enroll).
-5. **uvicorn localhost-only**; TLS на nginx.
-6. **Web UI за session login**; `/devices` без сессии → redirect `/login`.
-7. **OpenAPI UI выключен** в приложении.
-8. Сбой одного collector не валит весь snapshot (`collector_errors`).
-9. LDAP bind password не echo’ить в форме после save.
-
-## MSI
-
-- Источники: `installer/msi/Product.wxs`, `write-config.ps1`.
-- Сборка **только на Windows** (WiX): см. `installer/msi/README.md`.
-- Public properties: `SERVERURL`, `ENROLLMENTTOKEN`; опционально `ADDPATH=1` для Machine PATH + `bad.cmd`.
-- UpgradeCode фиксирован; major upgrade, ProgramData не сносить.
-- Артефакт: `bad-agent-0.10.0.msi` (имя по semver).
-
-## Debian install
-
-- Скрипт: `deploy/debian/install.sh`.
-- Требует root; рассчитан на Debian 12.
-- Кладёт app в `/opt/bad`, БД `/var/lib/bad/bad.db`, env `/etc/bad/site.env`.
-- Unit: `deploy/debian/systemd/bad-api.service` → `bad-api.service`.
-- nginx template: `deploy/debian/nginx/bad.conf.template`.
-- Печатает enrollment + admin API tokens **один раз** при первом создании `site.env`.
-- Web: после первого старта — локальный `admin`/`admin` (сменить).
-
-## Полезные файлы
-
-| Задача | Файл |
-|--------|------|
-| Маршруты API | `server/bad_server/api.py` |
-| Web routes / LDAP UI | `server/bad_server/web.py` |
-| Auth helpers | `server/bad_server/auth.py` |
-| LDAP client | `server/bad_server/ldap_client.py` |
-| Sessions | `server/bad_server/sessions.py` |
-| Схема/settings | `server/bad_server/schemas.py`, `config.py` |
-| DB | `server/bad_server/db.py` |
-| Worker loop | `agent/src/BadAgent/Worker.cs` |
-| HTTP client | `agent/src/BadAgent/BadApiClient.cs` |
-| Collectors | `agent/src/BadAgent/InventoryCollector.cs` |
-| Оператор | `docs/operator-guide.md` |
-
-## CI
-
-`.github/workflows/ci.yml`: import-check + ruff (`server/`), `dotnet build` Release (`agent/`). Unit tests не в репо — гоняйте локально при наличии `*/tests/`.

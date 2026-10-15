@@ -270,12 +270,13 @@ def prune_old_msi_versions(
     """Удалить самые старые версии сверх cap (не latest, не pinned)."""
     keep = max(1, int(keep))
     removed: list[str] = []
+    # Pins/latest не меняются от удаления MSI — один скан на prune.
+    pinned = versions_pinned_in_config(db)
+    latest = (db.get_agent_update() or {}).get("version")
     while True:
         versions = db.list_agent_msi_versions()  # newest first
         if len(versions) <= keep:
             break
-        latest = (db.get_agent_update() or {}).get("version")
-        pinned = versions_pinned_in_config(db)
         # oldest first candidates
         candidate = None
         for row in reversed(versions):
@@ -305,11 +306,13 @@ def resolve_target_msi(
     return db.get_agent_msi_version(target)
 
 
-def effective_update_target_for_device(
+def effective_settings_for_device(
     db: Database,
     device: dict[str, Any],
-) -> str:
-    """Эффективный update_target для устройства (defaults < policies < override)."""
+    *,
+    policies: Optional[list[dict[str, Any]]] = None,
+) -> dict[str, Any]:
+    """Эффективные agent settings (defaults < policies < override)."""
     detail = db.get_device_detail(device.get("device_id") or "") or device
     inv = (detail.get("latest_inventory") or {}).get("payload")
     override = db.get_device_config_override(device["device_id"])
@@ -318,10 +321,20 @@ def effective_update_target_for_device(
         meta=detail.get("meta") if isinstance(detail.get("meta"), dict) else {},
         inventory_payload=inv if isinstance(inv, dict) else None,
         tags=detail.get("tags"),
-        policies=db.list_agent_policies(),
+        policies=policies if policies is not None else db.list_agent_policies(),
         override=override.get("settings") if override else None,
     )
-    settings = computed.get("settings") or {}
+    return computed.get("settings") or {}
+
+
+def effective_update_target_for_device(
+    db: Database,
+    device: dict[str, Any],
+    *,
+    policies: Optional[list[dict[str, Any]]] = None,
+) -> str:
+    """Эффективный update_target для устройства (defaults < policies < override)."""
+    settings = effective_settings_for_device(db, device, policies=policies)
     return (
         sanitize_update_target(settings.get("update_target"))
         or UPDATE_TARGET_LATEST
@@ -399,6 +412,7 @@ def ops_update_signals(
     versions = db.list_agent_msi_versions()
     latest = db.get_agent_update()
     active = db.list_devices(archived=False)
+    policies = db.list_agent_policies()
     drift: list[dict[str, Any]] = []
     pinned_missing: list[dict[str, Any]] = []
     revoked_active = 0
@@ -406,7 +420,11 @@ def ops_update_signals(
         if d.get("revoked"):
             revoked_active += 1
             continue
-        target = effective_update_target_for_device(db, d)
+        settings = effective_settings_for_device(db, d, policies=policies)
+        target = (
+            sanitize_update_target(settings.get("update_target"))
+            or UPDATE_TARGET_LATEST
+        )
         mirrored = resolve_target_msi(db, target)
         if target != UPDATE_TARGET_LATEST and not mirrored:
             pinned_missing.append(
@@ -422,18 +440,7 @@ def ops_update_signals(
         have = (d.get("agent_version") or "").strip()
         if want and have and is_newer(want, have):
             # Only flag when updates enabled for this device.
-            detail = db.get_device_detail(d["device_id"]) or d
-            inv = (detail.get("latest_inventory") or {}).get("payload")
-            override = db.get_device_config_override(d["device_id"])
-            eff = compute_effective_config(
-                hostname=detail.get("hostname"),
-                meta=detail.get("meta") if isinstance(detail.get("meta"), dict) else {},
-                inventory_payload=inv if isinstance(inv, dict) else None,
-                tags=detail.get("tags"),
-                policies=db.list_agent_policies(),
-                override=override.get("settings") if override else None,
-            )
-            if not (eff.get("settings") or {}).get("update_enabled", True):
+            if not settings.get("update_enabled", True):
                 continue
             silence = device_silence_status(
                 d.get("last_seen_at"), stale_after_seconds=stale_after_seconds
