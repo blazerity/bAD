@@ -166,12 +166,6 @@ class Database:
                     (device_id, hostname, api_key_hash, now, now, agent_version, None),
                 )
 
-    def get_device_by_id(self, device_id: str) -> Optional[sqlite3.Row]:
-        with self.connection() as conn:
-            return conn.execute(
-                "SELECT * FROM devices WHERE device_id = ?", (device_id,)
-            ).fetchone()
-
     def find_device_by_api_key(
         self, api_key: str, verify_fn
     ) -> Optional[sqlite3.Row]:
@@ -182,6 +176,16 @@ class Database:
                 return row
         return None
 
+    @staticmethod
+    def _parse_meta(raw: Optional[str]) -> dict[str, Any]:
+        if not raw:
+            return {}
+        try:
+            meta = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+        return meta if isinstance(meta, dict) else {}
+
     def update_heartbeat(
         self,
         device_id: str,
@@ -191,7 +195,12 @@ class Database:
         now = utc_now()
         with self.connection() as conn:
             if last_inventory_at:
-                meta = {"last_inventory_at": last_inventory_at}
+                row = conn.execute(
+                    "SELECT meta_json FROM devices WHERE device_id = ?",
+                    (device_id,),
+                ).fetchone()
+                meta = self._parse_meta(row["meta_json"] if row else None)
+                meta["last_inventory_at"] = last_inventory_at
                 conn.execute(
                     """
                     UPDATE devices
@@ -275,12 +284,6 @@ class Database:
             ).fetchall()
         result: list[dict[str, Any]] = []
         for row in rows:
-            meta = {}
-            if row["meta_json"]:
-                try:
-                    meta = json.loads(row["meta_json"])
-                except json.JSONDecodeError:
-                    meta = {}
             result.append(
                 {
                     "device_id": row["device_id"],
@@ -288,7 +291,7 @@ class Database:
                     "enrolled_at": row["enrolled_at"],
                     "last_seen_at": row["last_seen_at"],
                     "agent_version": row["agent_version"],
-                    "meta": meta,
+                    "meta": self._parse_meta(row["meta_json"]),
                 }
             )
         return result
@@ -310,12 +313,7 @@ class Database:
                 """,
                 (device_id,),
             ).fetchone()
-        meta = {}
-        if device["meta_json"]:
-            try:
-                meta = json.loads(device["meta_json"])
-            except json.JSONDecodeError:
-                meta = {}
+        meta = self._parse_meta(device["meta_json"])
         inventory = None
         if snap:
             try:

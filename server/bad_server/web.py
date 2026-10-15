@@ -16,11 +16,13 @@ from .auth import (
     get_db,
     get_session_secret,
     load_ldap_view,
+    require_web_admin,
+    require_web_user,
 )
 from .config import Settings, get_settings
 from .crypto_util import encrypt_secret
 from .db import Database
-from .ldap_client import LdapSettingsView, test_connection
+from .ldap_client import settings_from_row, test_connection
 from .security import hash_secret, verify_secret
 from .sessions import SESSION_COOKIE, SESSION_MAX_AGE, WebUser, dump_session
 
@@ -29,10 +31,6 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.globals["app_version"] = __version__
 
 router = APIRouter(tags=["web"])
-
-
-def _login_redirect() -> RedirectResponse:
-    return RedirectResponse(url="/login", status_code=303)
 
 
 def _set_session_cookie(resp: RedirectResponse, secret: str, user: WebUser) -> None:
@@ -50,10 +48,38 @@ def _clear_session_cookie(resp: RedirectResponse) -> None:
     resp.delete_cookie(SESSION_COOKIE, path="/")
 
 
+class LdapFormData:
+    """Shared Form fields for LDAP save/test POSTs."""
+
+    def __init__(
+        self,
+        enabled: Optional[str] = Form(None),
+        host: str = Form(""),
+        port: str = Form("389"),
+        use_ssl: Optional[str] = Form(None),
+        start_tls: Optional[str] = Form(None),
+        bind_dn: str = Form(""),
+        bind_password: str = Form(""),
+        user_search_base: str = Form(""),
+        user_filter_template: str = Form("(uid={username})"),
+        display_name_attr: str = Form("cn"),
+        default_role: str = Form("operator"),
+    ):
+        self.enabled = enabled
+        self.host = host
+        self.port = port
+        self.use_ssl = use_ssl
+        self.start_tls = start_tls
+        self.bind_dn = bind_dn
+        self.bind_password = bind_password
+        self.user_search_base = user_search_base
+        self.user_filter_template = user_filter_template
+        self.display_name_attr = display_name_attr
+        self.default_role = default_role
+
+
 @router.get("/", response_class=HTMLResponse)
-def home(user: Optional[WebUser] = Depends(current_web_user)):
-    if not user:
-        return _login_redirect()
+def home(_user: WebUser = Depends(require_web_user)):
     return RedirectResponse(url="/devices", status_code=303)
 
 
@@ -115,12 +141,10 @@ def logout():
 @router.get("/devices", response_class=HTMLResponse)
 def devices_page(
     request: Request,
-    user: Optional[WebUser] = Depends(current_web_user),
+    user: WebUser = Depends(require_web_user),
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    if not user:
-        return _login_redirect()
     devices = db.list_devices()
     agent_update = db.get_agent_update()
     return templates.TemplateResponse(
@@ -139,11 +163,9 @@ def devices_page(
 def device_detail_page(
     device_id: str,
     request: Request,
-    user: Optional[WebUser] = Depends(current_web_user),
+    user: WebUser = Depends(require_web_user),
     db: Database = Depends(get_db),
 ):
-    if not user:
-        return _login_redirect()
     detail = db.get_device_detail(device_id)
     if not detail:
         return templates.TemplateResponse(
@@ -166,12 +188,8 @@ def device_detail_page(
 @router.get("/account/password", response_class=HTMLResponse)
 def password_page(
     request: Request,
-    user: Optional[WebUser] = Depends(current_web_user),
-    message: Optional[str] = None,
-    error: Optional[str] = None,
+    user: WebUser = Depends(require_web_user),
 ):
-    if not user:
-        return _login_redirect()
     if user.source != "local":
         return RedirectResponse(url="/devices", status_code=303)
     return templates.TemplateResponse(
@@ -179,8 +197,8 @@ def password_page(
         "password.html",
         {
             "user": user,
-            "message": message,
-            "error": error,
+            "message": None,
+            "error": None,
             "forced": user.must_change_password,
         },
     )
@@ -192,12 +210,10 @@ def password_submit(
     current_password: str = Form(...),
     new_password: str = Form(...),
     new_password_confirm: str = Form(...),
-    user: Optional[WebUser] = Depends(current_web_user),
+    user: WebUser = Depends(require_web_user),
     db: Database = Depends(get_db),
     session_secret: str = Depends(get_session_secret),
 ):
-    if not user:
-        return _login_redirect()
     if user.source != "local":
         return RedirectResponse(url="/devices", status_code=303)
 
@@ -269,16 +285,40 @@ def _ldap_form_context(
     }
 
 
+def _parse_ldap_form(form: LdapFormData) -> tuple[dict, Optional[str]]:
+    try:
+        port_i = int(form.port or "389")
+    except ValueError:
+        return {}, "Port must be an integer"
+    if port_i < 1 or port_i > 65535:
+        return {}, "Port must be between 1 and 65535"
+    role = (form.default_role or "operator").strip().lower()
+    if role not in {"admin", "operator"}:
+        return {}, "Default role must be admin or operator"
+    template = (form.user_filter_template or "").strip() or "(uid={username})"
+    if "{username}" not in template:
+        return {}, "User filter template must contain {username}"
+    return {
+        "enabled": form.enabled is not None,
+        "host": (form.host or "").strip(),
+        "port": port_i,
+        "use_ssl": form.use_ssl is not None,
+        "start_tls": form.start_tls is not None,
+        "bind_dn": (form.bind_dn or "").strip(),
+        "bind_password": form.bind_password,  # may be empty = unchanged
+        "user_search_base": (form.user_search_base or "").strip(),
+        "user_filter_template": template,
+        "display_name_attr": (form.display_name_attr or "cn").strip() or "cn",
+        "default_role": role,
+    }, None
+
+
 @router.get("/settings/ldap", response_class=HTMLResponse)
 def ldap_settings_page(
     request: Request,
-    user: Optional[WebUser] = Depends(current_web_user),
+    user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
 ):
-    if not user:
-        return _login_redirect()
-    if not user.is_admin:
-        return RedirectResponse(url="/devices", status_code=303)
     row = db.get_ldap_settings()
     return templates.TemplateResponse(
         request,
@@ -287,83 +327,15 @@ def ldap_settings_page(
     )
 
 
-def _parse_ldap_form(
-    *,
-    enabled: Optional[str],
-    host: str,
-    port: str,
-    use_ssl: Optional[str],
-    start_tls: Optional[str],
-    bind_dn: str,
-    bind_password: str,
-    user_search_base: str,
-    user_filter_template: str,
-    display_name_attr: str,
-    default_role: str,
-) -> tuple[dict, Optional[str]]:
-    try:
-        port_i = int(port or "389")
-    except ValueError:
-        return {}, "Port must be an integer"
-    if port_i < 1 or port_i > 65535:
-        return {}, "Port must be between 1 and 65535"
-    role = (default_role or "operator").strip().lower()
-    if role not in {"admin", "operator"}:
-        return {}, "Default role must be admin or operator"
-    template = (user_filter_template or "").strip() or "(uid={username})"
-    if "{username}" not in template:
-        return {}, "User filter template must contain {username}"
-    return {
-        "enabled": enabled is not None,
-        "host": (host or "").strip(),
-        "port": port_i,
-        "use_ssl": use_ssl is not None,
-        "start_tls": start_tls is not None,
-        "bind_dn": (bind_dn or "").strip(),
-        "bind_password": bind_password,  # may be empty = unchanged
-        "user_search_base": (user_search_base or "").strip(),
-        "user_filter_template": template,
-        "display_name_attr": (display_name_attr or "cn").strip() or "cn",
-        "default_role": role,
-    }, None
-
-
 @router.post("/settings/ldap")
 def ldap_settings_save(
     request: Request,
-    enabled: Optional[str] = Form(None),
-    host: str = Form(""),
-    port: str = Form("389"),
-    use_ssl: Optional[str] = Form(None),
-    start_tls: Optional[str] = Form(None),
-    bind_dn: str = Form(""),
-    bind_password: str = Form(""),
-    user_search_base: str = Form(""),
-    user_filter_template: str = Form("(uid={username})"),
-    display_name_attr: str = Form("cn"),
-    default_role: str = Form("operator"),
-    user: Optional[WebUser] = Depends(current_web_user),
+    form: LdapFormData = Depends(),
+    user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
     data_key: str = Depends(get_data_key),
 ):
-    if not user:
-        return _login_redirect()
-    if not user.is_admin:
-        return RedirectResponse(url="/devices", status_code=303)
-
-    parsed, err = _parse_ldap_form(
-        enabled=enabled,
-        host=host,
-        port=port,
-        use_ssl=use_ssl,
-        start_tls=start_tls,
-        bind_dn=bind_dn,
-        bind_password=bind_password,
-        user_search_base=user_search_base,
-        user_filter_template=user_filter_template,
-        display_name_attr=display_name_attr,
-        default_role=default_role,
-    )
+    parsed, err = _parse_ldap_form(form)
     if err:
         row = db.get_ldap_settings()
         return templates.TemplateResponse(
@@ -401,39 +373,12 @@ def ldap_settings_save(
 @router.post("/settings/ldap/test")
 def ldap_settings_test(
     request: Request,
-    enabled: Optional[str] = Form(None),
-    host: str = Form(""),
-    port: str = Form("389"),
-    use_ssl: Optional[str] = Form(None),
-    start_tls: Optional[str] = Form(None),
-    bind_dn: str = Form(""),
-    bind_password: str = Form(""),
-    user_search_base: str = Form(""),
-    user_filter_template: str = Form("(uid={username})"),
-    display_name_attr: str = Form("cn"),
-    default_role: str = Form("operator"),
-    user: Optional[WebUser] = Depends(current_web_user),
+    form: LdapFormData = Depends(),
+    user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
     data_key: str = Depends(get_data_key),
 ):
-    if not user:
-        return _login_redirect()
-    if not user.is_admin:
-        return RedirectResponse(url="/devices", status_code=303)
-
-    parsed, err = _parse_ldap_form(
-        enabled=enabled,
-        host=host,
-        port=port,
-        use_ssl=use_ssl,
-        start_tls=start_tls,
-        bind_dn=bind_dn,
-        bind_password=bind_password,
-        user_search_base=user_search_base,
-        user_filter_template=user_filter_template,
-        display_name_attr=display_name_attr,
-        default_role=default_role,
-    )
+    parsed, err = _parse_ldap_form(form)
     row = db.get_ldap_settings()
     if err:
         return templates.TemplateResponse(
@@ -448,21 +393,9 @@ def ldap_settings_test(
         existing = load_ldap_view(db, data_key)
         password = existing.bind_password
 
-    view = LdapSettingsView(
-        enabled=True,
-        host=parsed["host"],
-        port=parsed["port"],
-        use_ssl=parsed["use_ssl"],
-        start_tls=parsed["start_tls"],
-        bind_dn=parsed["bind_dn"],
-        bind_password=password,
-        user_search_base=parsed["user_search_base"],
-        user_filter_template=parsed["user_filter_template"],
-        display_name_attr=parsed["display_name_attr"],
-        default_role=parsed["default_role"],
-    )
+    # Test bind even if the form leaves LDAP disabled; reuse settings_from_row defaults.
+    view = settings_from_row({**parsed, "enabled": True}, bind_password=password)
     ok, msg = test_connection(view)
-    # Re-render with form values the operator just submitted (not yet necessarily saved)
     preview = dict(row)
     preview.update(
         {

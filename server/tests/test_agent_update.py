@@ -1,55 +1,13 @@
 from __future__ import annotations
 
-import hashlib
-import json
-import os
 from pathlib import Path
-from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
-os.environ["BAD_ENROLLMENT_TOKEN"] = "test-enrollment-token-abcdefghijklmnopqrstuvwxyz"
-os.environ["BAD_ADMIN_TOKEN"] = "test-admin-token-abcdefghijklmnopqrstuvwxyz"
+from bad_server.github_release import sha256_hex
 
-
-@pytest.fixture()
-def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    db_path = tmp_path / "bad.db"
-    updates = tmp_path / "agent-updates"
-    monkeypatch.setenv("BAD_DB_PATH", str(db_path))
-    monkeypatch.setenv("BAD_AGENT_UPDATES_DIR", str(updates))
-    monkeypatch.setenv("BAD_AGENT_UPDATE_SYNC_ON_STARTUP", "false")
-    monkeypatch.setenv("BAD_AGENT_UPDATE_SYNC_INTERVAL_SECONDS", "0")
-    monkeypatch.setenv(
-        "BAD_ENROLLMENT_TOKEN",
-        "test-enrollment-token-abcdefghijklmnopqrstuvwxyz",
-    )
-    monkeypatch.setenv(
-        "BAD_ADMIN_TOKEN",
-        "test-admin-token-abcdefghijklmnopqrstuvwxyz",
-    )
-    monkeypatch.setenv("BAD_GITHUB_REPO", "blazerity/bAD")
-
-    from bad_server.config import get_settings
-
-    get_settings.cache_clear()
-    from bad_server.app import create_app
-
-    app = create_app()
-    with TestClient(app) as c:
-        yield c, updates
-    get_settings.cache_clear()
-
-
-def _enroll(client: TestClient) -> str:
-    r = client.post(
-        "/v1/enroll",
-        headers={"Authorization": "Bearer test-enrollment-token-abcdefghijklmnopqrstuvwxyz"},
-        json={"device_id": "upd-device-1", "hostname": "UPD-HOST", "agent_version": "0.1.0"},
-    )
-    assert r.status_code == 200
-    return r.json()["api_key"]
+from helpers import ADMIN_TOKEN, enroll_device
 
 
 def _seed_mirror(client: TestClient, updates: Path, version: str, payload: bytes) -> str:
@@ -57,7 +15,7 @@ def _seed_mirror(client: TestClient, updates: Path, version: str, payload: bytes
     msi_name = f"bad-agent-{version}.msi"
     path = updates / msi_name
     path.write_bytes(payload)
-    digest = hashlib.sha256(payload).hexdigest()
+    digest = sha256_hex(payload)
     from bad_server.config import get_settings
     from bad_server.db import Database
 
@@ -73,10 +31,9 @@ def _seed_mirror(client: TestClient, updates: Path, version: str, payload: bytes
     return digest
 
 
-def test_check_no_mirror(client):
-    c, _updates = client
-    api_key = _enroll(c)
-    r = c.get(
+def test_check_no_mirror(client: TestClient):
+    api_key = enroll_device(client)
+    r = client.get(
         "/v1/agent/update/check",
         params={"current": "0.1.0"},
         headers={"Authorization": f"Bearer {api_key}"},
@@ -87,13 +44,12 @@ def test_check_no_mirror(client):
     assert body["version"] is None
 
 
-def test_check_and_download_msi(client):
-    c, updates = client
-    api_key = _enroll(c)
+def test_check_and_download_msi(client: TestClient, updates_dir: Path):
+    api_key = enroll_device(client)
     payload = b"fake-msi-bytes-for-test"
-    digest = _seed_mirror(c, updates, "0.2.0", payload)
+    digest = _seed_mirror(client, updates_dir, "0.2.0", payload)
 
-    r = c.get(
+    r = client.get(
         "/v1/agent/update/check",
         params={"current": "0.1.0"},
         headers={"Authorization": f"Bearer {api_key}"},
@@ -106,14 +62,14 @@ def test_check_and_download_msi(client):
     assert body["url"] == "/v1/agent/update/msi"
 
     # same version → no update
-    same = c.get(
+    same = client.get(
         "/v1/agent/update/check",
         params={"current": "0.2.0"},
         headers={"Authorization": f"Bearer {api_key}"},
     )
     assert same.json()["update_available"] is False
 
-    dl = c.get(
+    dl = client.get(
         "/v1/agent/update/msi",
         headers={"Authorization": f"Bearer {api_key}"},
     )
@@ -121,17 +77,17 @@ def test_check_and_download_msi(client):
     assert dl.content == payload
 
 
-def test_update_requires_api_key(client):
-    c, _updates = client
-    assert c.get("/v1/agent/update/check", params={"current": "0.1.0"}).status_code == 401
-    assert c.get("/v1/agent/update/msi").status_code == 401
+def test_update_requires_api_key(client: TestClient):
+    assert client.get("/v1/agent/update/check", params={"current": "0.1.0"}).status_code == 401
+    assert client.get("/v1/agent/update/msi").status_code == 401
 
 
-def test_admin_status_and_sync_fixture(client, monkeypatch: pytest.MonkeyPatch):
-    c, updates = client
-    admin = {"Authorization": "Bearer test-admin-token-abcdefghijklmnopqrstuvwxyz"}
+def test_admin_status_and_sync_fixture(
+    client: TestClient, updates_dir: Path, monkeypatch: pytest.MonkeyPatch
+):
+    admin = {"Authorization": f"Bearer {ADMIN_TOKEN}"}
 
-    status = c.get("/v1/admin/agent-update", headers=admin)
+    status = client.get("/v1/admin/agent-update", headers=admin)
     assert status.status_code == 200
     assert status.json()["mirrored"] is None
     assert status.json()["github_repo"] == "blazerity/bAD"
@@ -141,7 +97,7 @@ def test_admin_status_and_sync_fixture(client, monkeypatch: pytest.MonkeyPatch):
     from bad_server.github_release import ReleaseAssets
 
     payload = b"mirrored-from-fixture"
-    digest = hashlib.sha256(payload).hexdigest()
+    digest = sha256_hex(payload)
 
     def fake_fetch(repo: str, token: str = "", api_base: str = "https://api.github.com"):
         assert repo == "blazerity/bAD"
@@ -164,24 +120,24 @@ def test_admin_status_and_sync_fixture(client, monkeypatch: pytest.MonkeyPatch):
     )
     monkeypatch.setattr(github_release, "_download_bytes", fake_download)
 
-    sync = c.post("/v1/admin/agent-update/sync", headers=admin)
+    sync = client.post("/v1/admin/agent-update/sync", headers=admin)
     assert sync.status_code == 200, sync.text
     mirrored = sync.json()["mirrored"]
     assert mirrored["version"] == "0.1.1"
     assert mirrored["sha256"] == digest
     assert Path(mirrored["file_path"]).is_file()
-    assert (updates / "bad-agent-0.1.1.msi").read_bytes() == payload
-    assert (updates / "agent-release.json").is_file()
+    assert (updates_dir / "bad-agent-0.1.1.msi").read_bytes() == payload
+    assert (updates_dir / "agent-release.json").is_file()
 
     # Web UI shows mirrored version (session login, not admin API token)
-    login = c.post(
+    login = client.post(
         "/login",
         data={"username": "admin", "password": "admin"},
         follow_redirects=False,
     )
     assert login.status_code == 303
     assert "bad_session" in login.cookies
-    page = c.get("/devices")
+    page = client.get("/devices")
     assert page.status_code == 200
     assert "0.1.1" in page.text
 
