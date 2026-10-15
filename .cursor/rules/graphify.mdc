@@ -3,19 +3,12 @@ description: graphify knowledge graph context
 alwaysApply: true
 ---
 
-This project has a graphify knowledge graph at graphify-out/.
+Checked-in graph: `docs/graphify/` (`graph.json`, `GRAPH_REPORT.md`, `graph.html`). Local `graphify-out/` is build output only.
 
-**MANDATORY: Before using Read, Grep, Glob, or Bash to explore the codebase, you MUST run graphify first:**
-- `graphify query "<question>"` — scoped subgraph for any codebase or architecture question
-- `graphify path "<A>" "<B>"` — dependency path between two symbols
-- `graphify explain "<concept>"` — all nodes related to a concept
+**When exploring structure** (where a feature lives, cross-module impact, architecture): prefer Graphify over broad greps:
+- `graphify query "<question>"` / `path` / `explain`, or read `docs/graphify/GRAPH_REPORT.md`
+- Then open only the cited files
 
-This applies to YOU and to every subagent you spawn. Include this rule explicitly in every subagent prompt that involves code exploration. Do not skip graphify because files are "already known" or because you are executing a plan — the graph surfaces cross-file dependencies and INFERRED edges that grep and Read cannot find.
+**Do not** require Graphify before every Read/Grep/edit. Skip it for narrow, known-file changes.
 
-Only use Read/Grep/Glob directly when:
-1. graphify has already oriented you and you need to modify or debug specific lines
-2. `graphify-out/graph.json` does not exist yet
-
-- If `graphify-out/wiki/index.md` exists, navigate it instead of reading raw files
-- Read `graphify-out/GRAPH_REPORT.md` only for broad architecture review when query/path/explain do not surface enough context
-- After modifying code files, run `graphify update .` to keep the graph current (AST-only, no API cost)
+**Do not** run `graphify update` / full extract after every code change. Refresh `docs/graphify/` only in a rare chore (batch of merges, large architecture shift, or owner request) — see Project principle `use-code-graph`.
