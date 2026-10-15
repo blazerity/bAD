@@ -113,6 +113,11 @@ Hardware (при `collect_hardware`): помимо CPU/RAM/disks/volumes — `se
 
 Heartbeat health (опционально → meta устройства): `last_inventory_ok`, `last_inventory_error`, `agent_uptime_seconds`, `system_drive_free_bytes`.
 
+### Web UI security (0.9.1)
+
+- **SEC-004:** при `must_change_password` UI пускает только `/account/password` и `/logout`; основная навигация скрыта.
+- **SEC-010:** CSRF — cookie `bad_csrf` + поле формы `csrf_token` на всех HTML POST.
+
 ### Offline queue / revoke (0.9.1)
 
 - Недоступный сервер → `%ProgramData%\blazerity\bAD\queue\` + backoff (`OfflineQueue`).

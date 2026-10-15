@@ -1,0 +1,5 @@
+{# Hidden CSRF field — must match cookie bad_csrf (see bad_server.csrf).
+   Pass csrf_token from template context (macros do not inherit context). #}
+{% macro csrf_field(token) -%}
+<input type="hidden" name="csrf_token" value="{{ token }}">
+{%- endmacro %}

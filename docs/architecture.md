@@ -141,7 +141,10 @@ flowchart LR
 
 ### Web UI и аутентификация
 
-Визуальный язык (с **0.8.0**, актуально в **0.9.1**): светлая оболочка в духе Windows 11 / Fluent — Segoe UI Variable, слоистые полупрозрачные поверхности, радиусы 4px (controls) / 8px (surfaces), акцент Fluent blue (`#0067C0`), UI copy на русском, stroke-иконки секций (без emoji). Стили: `server/bad_server/static/style.css` + `favicon.svg`/`favicon.ico`; локальный HTML-отчёт (`HtmlReportWriter`) — та же семья токенов/иконок. Иконка агента: `agent/assets/bad.ico` (`ApplicationIcon` + WiX `ARPPRODUCTICON`).
+**SEC-004 / SEC-010 (0.9.x):** при `must_change_password` `require_web_user` пускает только `/account/password` и `/logout`; в `base.html` скрыта основная навигация. CSRF: cookie `bad_csrf` + поле формы `csrf_token` (см. `bad_server/csrf.py`, `CsrfAwareRoute`); все HTML POST проверяются.
+
+
+Визуальный язык (с **0.8.0**, актуально в **0.9.0**): светлая оболочка в духе Windows 11 / Fluent — Segoe UI Variable, слоистые полупрозрачные поверхности, радиусы 4px (controls) / 8px (surfaces), акцент Fluent blue (`#0067C0`), UI copy на русском, stroke-иконки секций (без emoji). Стили: `server/bad_server/static/style.css` + `favicon.svg`/`favicon.ico`; локальный HTML-отчёт (`HtmlReportWriter`) — та же семья токенов/иконок. Иконка агента: `agent/assets/bad.ico` (`ApplicationIcon` + WiX `ARPPRODUCTICON`).
 
 | Path | Назначение |
 |------|------------|
@@ -163,14 +166,13 @@ flowchart LR
 **Локальные пользователи**
 
 - Таблица `local_users`; пароли — argon2.
-- Первый boot / пустая таблица: создаётся `admin` / `admin` с флагом `must_change_password` (сервер блокирует все HTML-маршруты кроме смены пароля и logout).
+- Первый boot / пустая таблица: создаётся `admin` / `admin` с флагом `must_change_password` (баннер + редирект; остальные HTML-страницы закрыты до смены пароля).
 - Работает **без** настроенного LDAP.
 
 **LDAP (опционально)**
 
-- Настройки в `ldap_settings` (одна строка): host, port, use_ssl / start_tls, bind DN, encrypted bind password, search base, filter template (`{username}`), display name attr, default role, **`allowed_group`** (sAMAccountName или DN группы AD; пусто = без ограничения), **`tls_insecure`** (default off; lab opt-in to skip cert verify).
-- При `use_ssl` / `start_tls` сертификат LDAP проверяется (`ssl.CERT_REQUIRED`), пока не включён `tls_insecure`.
-- Bind password шифруется Fernet-ключом (`BAD_DATA_KEY` / `/etc/bad/data_key`); в форме после save — placeholder «unchanged», plaintext не отдаётся.
+- Настройки в `ldap_settings` (одна строка): host, port, use_ssl / start_tls, bind DN, encrypted bind password, search base, filter template (`{username}`), display name attr, default role, **`allowed_group`** (sAMAccountName или DN группы AD; пусто = без ограничения).
+- Bind password шифруется Fernet-ключом из `site_secrets.data_key`; в форме после save — placeholder «unchanged», plaintext не отдаётся.
 - Логин: сначала local match (break-glass); иначе, если LDAP enabled — search + user bind через `ldap3`, затем проверка членства в `allowed_group` (в т.ч. nested via matching rule). Иначе — отказ с русской ошибкой.
 - Роль LDAP-пользователей: `operator` или `admin` — поле default role.
 
@@ -186,14 +188,10 @@ flowchart LR
 - Каталог `BAD_BACKUP_DIR` (default `/var/lib/bad/backups`).
 - Ежедневно файл `bad-YYYY-MM-DD.db` (sqlite3 backup API); хранятся сегодня + вчера.
 - Restore вручную: остановить сервис, скопировать файл на `BAD_DB_PATH`.
-- **Важно:** `data_key` / `session_secret` хранятся вне БД (`/etc/bad/data_key`, `/etc/bad/session_secret` или env). Копия `bad.db` / daily backup **не** должна считаться безопасной, если ключи всё ещё лежат в `site_secrets` (legacy). Бэкапьте файлы ключей отдельно (escrow), не кладите их в тот же tar без защиты.
 
 **Сессия**
 
-- Подписанный cookie `bad_session` (itsdangerous, 12h); секрет из `BAD_SESSION_SECRET` / `BAD_SESSION_SECRET_FILE` (prefers external; SQLite only legacy fallback).
-- Cookie `Secure` при `BAD_COOKIE_SECURE=1` или `X-Forwarded-Proto: https`.
-- CSRF: double-submit cookie `bad_csrf` + hidden field на всех state-changing POST web-форм.
-- Login: sliding-window rate limit по IP и username (`BAD_LOGIN_RATE_LIMIT_PER_MINUTE`, `BAD_LOGIN_USERNAME_RATE_LIMIT_PER_MINUTE`).
+- Подписанный cookie `bad_session` (itsdangerous, 12h); секрет из `BAD_SESSION_SECRET` или `site_secrets.session_secret`.
 
 - На `/devices` дополнительно показывается mirrored agent MSI version (из `agent_update`).
 - Silence/health: badge **OK** / **stale** если `last_seen_at` старше `BAD_DEVICE_STALE_AFTER_SECONDS` (default 3600 ≈ 1h; можно выставить ~2× heartbeat). На карточке устройства — last seen + опциональный health snippet из `meta` (`health` / `last_health`, если агент их пришлёт).

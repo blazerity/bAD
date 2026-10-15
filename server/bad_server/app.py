@@ -20,6 +20,7 @@ from .rate_limit import SlidingWindowRateLimiter
 from .security import hash_secret
 from .smtp_mail import notify_stale_device
 from .web import router as web_router
+from .web_guards import CsrfCookieMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -209,6 +210,8 @@ def create_app() -> FastAPI:
     static_dir = Path(__file__).parent / "static"
     static_dir.mkdir(exist_ok=True)
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+    # Issue CSRF cookie for HTML; validation is on web router (CsrfAwareRoute).
+    app.add_middleware(CsrfCookieMiddleware)
     app.include_router(api_router)
     app.include_router(web_router)
     return app
