@@ -2,14 +2,14 @@ using System.Text.RegularExpressions;
 
 namespace BadAgent;
 
-/// <summary>Pure helpers for WMI hardware field mapping (unit-testable).</summary>
+/// <summary>Чистые хелперы маппинга WMI-полей железа (удобно для unit-тестов).</summary>
 public static class HardwareMaps
 {
     private static readonly Regex ChannelRegex = new(
         @"(?:channel[\s\-_]*)([A-Z0-9]+)|(?:^|\b)(?:CHA?N?)[\s\-_]?([A-Z])(?:\b|$)|(?:DIMM\s*)([A-Z])\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    /// <summary>Trim and drop WMI placeholder serials like "To Be Filled By O.E.M.".</summary>
+    /// <summary>Trim и отбрасывание placeholder-строк WMI вроде "To Be Filled By O.E.M.".</summary>
     public static string? CleanWmiString(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -114,7 +114,7 @@ public static class HardwareMaps
     };
 
     /// <summary>
-    /// Prefer SMBIOSMemoryType (modern Windows / Dell) over legacy MemoryType when the latter is 0/Unknown.
+    /// Предпочитать SMBIOSMemoryType (современный Windows / Dell) вместо legacy MemoryType, если тот 0/Unknown.
     /// </summary>
     public static string? ResolveMemoryType(int? memoryType, int? smbiosMemoryType)
     {
@@ -127,7 +127,7 @@ public static class HardwareMaps
         return MeaningfulMemoryType(memoryType);
     }
 
-    /// <summary>Single system-level type when all sticks agree; otherwise null.</summary>
+    /// <summary>Единый тип на уровне системы, если все планки совпадают; иначе null.</summary>
     public static string? ConsensusMemoryType(IEnumerable<string?> stickTypes)
     {
         var distinct = stickTypes
@@ -154,7 +154,7 @@ public static class HardwareMaps
     }
 
     /// <summary>
-    /// Best-effort channel from DeviceLocator / BankLabel (Dell often uses "ChannelA-DIMM0").
+    /// Best-effort канал из DeviceLocator / BankLabel (Dell часто пишет "ChannelA-DIMM0").
     /// </summary>
     public static string? InferChannel(string? deviceLocator, string? bankLabel)
     {

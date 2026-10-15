@@ -1,8 +1,8 @@
 namespace BadAgent;
 
 /// <summary>
-/// Interactive local CLI (<c>bad</c> / BadAgent.exe when not running as Windows Service).
-/// Collects inventory locally — does not require server connectivity.
+/// Локальный интерактивный CLI (<c>bad</c> / BadAgent.exe вне Windows Service).
+/// Сбор inventory локально — сервер не нужен.
 /// </summary>
 public static class BadCli
 {
@@ -37,7 +37,7 @@ public static class BadCli
         }
     }
 
-    /// <summary>First-arg verbs/flags that always take the local report CLI path (not the service host).</summary>
+    /// <summary>Глаголы/флаги первого аргумента: всегда локальный report CLI (не service host).</summary>
     public static bool IsExplicitCliArg(string arg) =>
         arg is "-?" or "--help" or "help" or "/?"
             or "-h" or "--html" or "html"

@@ -17,29 +17,29 @@ class Settings(BaseSettings):
     enroll_rate_limit_per_minute: int = 30
     snapshot_retention: int = 30
     known_schema_versions: frozenset[int] = frozenset({1, 2})
-    # Web silence badge: last_seen older than this → stale (default 1h).
-    # Operators may set ~2× heartbeat (e.g. 1800 for 15m heartbeat).
+    # Web-бейдж тишины: last_seen старше порога → stale (по умолчанию 1 ч).
+    # Операторы могут поставить ~2× heartbeat (напр. 1800 при heartbeat 15 мин).
     device_stale_after_seconds: int = 3600
-    # Seeded only when no local users exist (fresh DB / first boot).
+    # Создаётся только когда нет локальных пользователей (свежая БД / первый запуск).
     default_admin_username: str = "admin"
     default_admin_password: str = "admin"
 
 
-    # Agent update mirror (GitHub Release → local store). Agents never talk to GitHub.
+    # Зеркало обновлений агента (GitHub Release → локальное хранилище). Агенты к GitHub не ходят.
     github_repo: str = "blazerity/bAD"
-    github_token: str = ""  # optional; needed if the repo becomes private
+    github_token: str = ""  # опционально; нужен, если репозиторий станет private
     github_api_base: str = "https://api.github.com"
     agent_updates_dir: Path = Path(
         os.environ.get("BAD_AGENT_UPDATES_DIR", "/var/lib/bad/agent-updates")
     )
-    agent_update_sync_interval_seconds: int = 3600  # 0 disables background sync
+    agent_update_sync_interval_seconds: int = 3600  # 0 отключает фоновый sync
     agent_update_sync_on_startup: bool = True
 
-    # Daily SQLite backups (today + yesterday kept under this directory).
+    # Ежедневные бэкапы SQLite (сегодня + вчера в этом каталоге).
     backup_dir: Path = Path(
         os.environ.get("BAD_BACKUP_DIR", "/var/lib/bad/backups")
     )
-    backup_interval_seconds: int = 3600  # how often to check; creates at most 1/day
+    backup_interval_seconds: int = 3600  # как часто проверять; не чаще 1 раза в сутки
 
 
 @lru_cache

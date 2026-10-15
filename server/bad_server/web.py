@@ -74,7 +74,7 @@ def _clear_session_cookie(resp: RedirectResponse) -> None:
 
 
 class LdapFormData:
-    """Shared Form fields for LDAP save/test POSTs."""
+    """Общие Form-поля для POST save/test LDAP."""
 
     def __init__(
         self,
@@ -106,7 +106,7 @@ class LdapFormData:
 
 
 class SmtpFormData:
-    """Shared Form fields for mail save/test POSTs."""
+    """Общие Form-поля для POST save/test почты."""
 
     def __init__(
         self,
@@ -284,7 +284,7 @@ def devices_page(
             limit=page_size,
         )
     ]
-    # Lightweight duplicate hints for the current page (hostname only in list).
+    # Лёгкие подсказки о дубликатах для текущей страницы (в списке только hostname).
     host_counts: dict[str, int] = {}
     for d in db.list_devices(archived=None):
         hn = (d.get("hostname") or "").strip().casefold()
@@ -808,7 +808,7 @@ def _parse_ldap_form(form: LdapFormData) -> tuple[dict, Optional[str]]:
         "use_ssl": form.use_ssl is not None,
         "start_tls": form.start_tls is not None,
         "bind_dn": (form.bind_dn or "").strip(),
-        "bind_password": form.bind_password,  # may be empty = unchanged
+        "bind_password": form.bind_password,  # пусто = без изменений
         "user_search_base": (form.user_search_base or "").strip(),
         "user_filter_template": template,
         "display_name_attr": (form.display_name_attr or "cn").strip() or "cn",
@@ -1169,7 +1169,7 @@ def ldap_settings_test(
         existing = load_ldap_view(db, data_key)
         password = existing.bind_password
 
-    # Test bind even if the form leaves LDAP disabled; reuse settings_from_row defaults.
+    # Тестовый bind даже если в форме LDAP выключен; defaults из settings_from_row.
     view = settings_from_row({**parsed, "enabled": True}, bind_password=password)
     ok, msg = test_connection(view)
     preview = dict(row)

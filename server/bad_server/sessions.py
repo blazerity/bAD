@@ -6,7 +6,7 @@ from typing import Any, Optional
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 SESSION_COOKIE = "bad_session"
-SESSION_MAX_AGE = 60 * 60 * 12  # 12 hours
+SESSION_MAX_AGE = 60 * 60 * 12  # 12 часов
 SESSION_SALT = "bad-web-session-v1"
 
 

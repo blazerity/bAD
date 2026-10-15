@@ -3,7 +3,7 @@ using System.Text;
 
 namespace BadAgent;
 
-/// <summary>Pretty ASCII inventory report for terminal (boxes/columns, no emojis). Russian labels.</summary>
+/// <summary>ASCII inventory-отчёт для терминала (рамки/колонки, без emoji). Подписи на русском.</summary>
 public static class AsciiReportWriter
 {
     private const int Width = 72;

@@ -4,9 +4,9 @@ using System.Text.Json;
 namespace BadAgent;
 
 /// <summary>
-/// Checks the bAD server for a newer MSI, verifies sha256, then launches silent msiexec
-/// and exits so WiX ServiceControl / MajorUpgrade can replace files.
-/// Agents never contact GitHub directly.
+/// Проверяет на сервере bAD более новый MSI, сверяет sha256, запускает silent msiexec
+/// и выходит, чтобы WiX ServiceControl / MajorUpgrade заменил файлы.
+/// Агенты не ходят на GitHub напрямую.
 /// </summary>
 public sealed class AgentUpdater
 {
@@ -95,8 +95,8 @@ public sealed class AgentUpdater
             }
 
             var logPath = Path.Combine(ConfigStore.LogsDir, $"msiexec-upgrade-{check.Version}.log");
-            // Detached msiexec: WiX ServiceControl stops the service, replaces files, restarts.
-            // We exit promptly so file locks are released.
+            // Отвязанный msiexec: WiX ServiceControl останавливает службу, меняет файлы, перезапускает.
+            // Выходим сразу, чтобы снять file locks.
             var psi = new ProcessStartInfo
             {
                 FileName = Path.Combine(
@@ -116,14 +116,14 @@ public sealed class AgentUpdater
                 return false;
             }
 
-            // Brief delay so msiexec can attach; then exit process (service stop follows).
+            // Короткая пауза, чтобы msiexec успел стартовать; затем выход (далее — остановка службы).
             try
             {
                 await Task.Delay(TimeSpan.FromSeconds(2), ct);
             }
             catch (OperationCanceledException)
             {
-                // still exit to unlock files
+                // всё равно выходим, чтобы разблокировать файлы
             }
 
             return true;
@@ -140,7 +140,7 @@ public sealed class AgentUpdater
             }
             catch
             {
-                // best-effort cleanup
+                // best-effort очистка
             }
 
             return false;

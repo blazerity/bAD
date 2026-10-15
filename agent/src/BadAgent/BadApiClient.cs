@@ -43,7 +43,7 @@ public sealed class BadApiClient : IDisposable
         _agentVersion = agentVersion;
         var handler = new HttpClientHandler
         {
-            // Proper TLS certificate validation (do not bypass)
+            // Нормальная проверка TLS-сертификата (не обходить)
             ServerCertificateCustomValidationCallback = null,
             CheckCertificateRevocationList = true
         };
@@ -126,7 +126,7 @@ public sealed class BadApiClient : IDisposable
         }
         catch (JsonException)
         {
-            // Heartbeat succeeded; config parse is best-effort.
+            // Heartbeat успешен; разбор config — best-effort.
         }
 
         return null;

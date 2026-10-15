@@ -1,4 +1,4 @@
-"""Remote agent settings: defaults, policy match, effective config merge."""
+"""Удалённые настройки агента: defaults, сопоставление политик, merge эффективного конфига."""
 
 from __future__ import annotations
 
@@ -6,13 +6,13 @@ import hashlib
 import json
 from typing import Any, Optional
 
-# Safe knobs that may be pushed to an enrolled agent (never secrets / URLs / ids).
+# Безопасные knobs, которые можно пушить enrolled-агенту (никогда secrets / URLs / ids).
 DEFAULT_AGENT_SETTINGS: dict[str, Any] = {
     "inventory_interval_hours": 6,
     "heartbeat_interval_minutes": 15,
     "update_check_interval_hours": 24,
     "update_enabled": True,
-    # Hardware/users stay on by default (preserve prior behavior); software is opt-in.
+    # Hardware/users по умолчанию включены (прежнее поведение); software — opt-in.
     "collect_hardware": True,
     "collect_users": True,
     "collect_software": False,
@@ -59,7 +59,7 @@ def _parse_bool(value: Any) -> Optional[bool]:
 
 
 def sanitize_settings(raw: Any) -> dict[str, Any]:
-    """Keep only known keys with validated types/ranges."""
+    """Оставить только известные ключи с проверенными типами/диапазонами."""
     if not isinstance(raw, dict):
         return {}
     out: dict[str, Any] = {}
@@ -82,7 +82,7 @@ def sanitize_settings(raw: Any) -> dict[str, Any]:
 
 
 def sanitize_conditions(raw: Any) -> list[dict[str, str]]:
-    """Normalize policy conditions; drop invalid entries."""
+    """Нормализовать условия политики; отбросить невалидные."""
     if not isinstance(raw, list):
         return []
     out: list[dict[str, str]] = []
@@ -110,7 +110,7 @@ def device_match_context(
     inventory_payload: Optional[dict[str, Any]] = None,
     tags: Optional[list[str]] = None,
 ) -> dict[str, Any]:
-    """Build match fields from device row + latest inventory + tags."""
+    """Собрать поля сопоставления из строки device + последнего inventory + tags."""
     from .device_health import normalize_tags
 
     meta = meta or {}
@@ -130,7 +130,7 @@ def device_match_context(
         domain = str(host.get("domain") or "")
 
     hn = hostname or (str(host.get("hostname") or "") if host else "") or ""
-    # tag is a list; equals = membership, contains = substring of any tag.
+    # tag — список; equals = членство, contains = подстрока любого тега.
     return {
         "hostname": hn,
         "domain": domain,
@@ -160,7 +160,7 @@ def condition_matches(condition: dict[str, str], context: dict[str, Any]) -> boo
 
 
 def policy_matches(conditions: list[dict[str, str]], context: dict[str, Any]) -> bool:
-    """All conditions must match (AND). Empty conditions never match."""
+    """Все условия должны совпасть (AND). Пустые условия не совпадают."""
     if not conditions:
         return False
     return all(condition_matches(c, context) for c in conditions)
@@ -180,10 +180,10 @@ def compute_effective_config(
     policies: list[dict[str, Any]],
     override: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
-    """defaults < matching policies (ascending priority) < per-device override.
+    """defaults < совпавшие политики (по возрастанию priority) < per-device override.
 
-    Each policy dict: {enabled, priority, conditions (list|json), settings (dict|json)}.
-    Lower priority number wins earlier; later matching policies override earlier ones.
+    Каждый dict политики: {enabled, priority, conditions (list|json), settings (dict|json)}.
+    Меньший priority применяется раньше; более поздние совпавшие политики перекрывают ранние.
     """
     effective = dict(DEFAULT_AGENT_SETTINGS)
     context = device_match_context(

@@ -1,21 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  bAD Windows agent MSI (WiX v4/v5).
-  Build on Windows after publishing the agent:
+  MSI Windows-агента bAD (WiX v4/v5).
+  Сборка на Windows после publish агента:
 
     dotnet publish ..\..\agent\src\BadAgent\BadAgent.csproj -c Release -r win-x64 --self-contained true -o .\publish
     Copy-Item .\write-config.ps1 .\publish\
     Copy-Item .\bad.cmd .\publish\
     wix build Product.wxs -d AgentPublishDir=publish -d ProductVersion=0.8.0 -o bad-agent-0.8.0.msi
 
-  Public properties (msiexec):
+  Публичные свойства (msiexec):
     SERVERURL=https://bad.example.com
     ENROLLMENTTOKEN=<site enrollment token>
-    ADDPATH=1   (optional; default 0 / absent = do not modify PATH)
-                When 1: append INSTALLFOLDER to Machine PATH so `bad` (bad.cmd shim) works from cmd.exe / Win+R.
+    ADDPATH=1   (опционально; по умолчанию 0 / отсутствует = не менять PATH)
+                При 1: добавить INSTALLFOLDER в Machine PATH, чтобы `bad` (shim bad.cmd) работал из cmd.exe / Win+R.
 
-  Upgrade preserves %ProgramData%\blazerity\bAD\ (API key / device_id).
-  ServiceControl stops BlazerityAssetDiscovery before replacing files and starts it after install.
+  Upgrade сохраняет %ProgramData%\blazerity\bAD\ (API key / device_id).
+  ServiceControl останавливает BlazerityAssetDiscovery перед заменой файлов и запускает после установки.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <?ifndef ProductVersion?>
@@ -35,13 +35,13 @@
 
     <MediaTemplate EmbedCab="yes" />
 
-    <!-- Add/Remove Programs + Start menu family mark (same as ApplicationIcon / favicon). -->
+    <!-- Метка семейства в Add/Remove Programs + меню Пуск (та же, что ApplicationIcon / favicon). -->
     <Icon Id="BadAgentIcon" SourceFile="bad.ico" />
     <Property Id="ARPPRODUCTICON" Value="BadAgentIcon" />
 
     <Property Id="SERVERURL" Secure="yes" />
     <Property Id="ENROLLMENTTOKEN" Secure="yes" Hidden="yes" />
-    <!-- Optional PATH: default absent/0 = do not modify Machine PATH. Pass ADDPATH=1 to enable. -->
+    <!-- Опциональный PATH: по умолчанию отсутствует/0 = не менять Machine PATH. Передать ADDPATH=1 для включения. -->
     <Property Id="ADDPATH" Secure="yes" Value="0" />
 
     <Feature Id="Main" Title="bAD Agent" Level="1">
@@ -64,7 +64,7 @@
       </Directory>
     </StandardDirectory>
 
-    <!-- Harvest all published artifacts (exe + deps + write-config.ps1 + bad.cmd). -->
+    <!-- Собрать все publish-артефакты (exe + deps + write-config.ps1 + bad.cmd). -->
     <ComponentGroup Id="AgentFiles" Directory="INSTALLFOLDER">
       <Files Include="$(AgentPublishDir)\**" />
     </ComponentGroup>
@@ -102,7 +102,7 @@
           KeyPath="yes" />
     </Component>
 
-    <!-- Custom action writes ProgramData config from public properties without embedding secrets in MSI binary -->
+    <!-- Custom action пишет конфиг в ProgramData из публичных свойств, не вшивая секреты в бинарник MSI -->
     <Component Id="WriteConfig" Directory="BADDATA" Guid="BADA0005-BADA-4B01-8BAD-BLAZERITY0BAD">
       <RegistryValue
           Root="HKLM"
@@ -114,9 +114,9 @@
     </Component>
 
     <!--
-      Optional Machine PATH: only when msiexec … ADDPATH=1.
-      Appends INSTALLFOLDER so bad.cmd (shim → BadAgent.exe) is found as `bad`.
-      Permanent="no" removes the PATH entry on uninstall.
+      Опциональный Machine PATH: только при msiexec … ADDPATH=1.
+      Добавляет INSTALLFOLDER, чтобы bad.cmd (shim → BadAgent.exe) находился как `bad`.
+      Permanent="no" убирает запись PATH при uninstall.
     -->
     <Component Id="AddPath" Directory="INSTALLFOLDER" Guid="BADA0006-BADA-4B01-8BAD-BLAZERITY0BAD" Condition="ADDPATH=&quot;1&quot;">
       <Environment

@@ -2,15 +2,15 @@ using BadAgent;
 using Microsoft.Extensions.Hosting.WindowsServices;
 using Serilog;
 
-// Elevated service control: BadAgent.exe service status|start|stop|restart
+// Elevated управление службой: BadAgent.exe service status|start|stop|restart
 if (args.Length > 0 && string.Equals(args[0], "service", StringComparison.OrdinalIgnoreCase))
 {
     return ServiceCli.Run(args.AsSpan(1).ToArray());
 }
 
-// Interactive CLI (bad / BadAgent.exe from console): reports, help — not the Windows Service host.
-// SCM starts the process as a Windows service; keep that path unchanged.
-// On non-Windows (Linux CI / `dotnet run`), default remains the hosted Worker unless CLI args are explicit.
+// Интерактивный CLI (bad / BadAgent.exe из консоли): отчёты, справка — не хост Windows Service.
+// SCM стартует процесс как Windows service; этот путь не менять.
+// На non-Windows (Linux CI / `dotnet run`) по умолчанию остаётся hosted Worker, пока CLI-аргументы не явные.
 if (ShouldRunCli(args))
 {
     return BadCli.Run(args);
@@ -53,7 +53,7 @@ finally
 }
 
 /// <summary>
-/// True when the process was started as an interactive tool (console), not by the SCM.
+/// True, если процесс запущен как интерактивный инструмент (консоль), а не SCM.
 /// </summary>
 static bool ShouldRunCli(string[] args)
 {
@@ -64,7 +64,7 @@ static bool ShouldRunCli(string[] args)
             return true;
         }
 
-        // Unknown first arg on an interactive Windows console → still CLI (shows help/error).
+        // Неизвестный первый аргумент в интерактивной Windows-консоли → всё равно CLI (help/error).
         if (OperatingSystem.IsWindows() && Environment.UserInteractive
             && !WindowsServiceHelpers.IsWindowsService())
         {
@@ -74,7 +74,7 @@ static bool ShouldRunCli(string[] args)
         return false;
     }
 
-    // No args: Windows interactive console → ASCII report; otherwise service/worker host.
+    // Без аргументов: интерактивная Windows-консоль → ASCII-отчёт; иначе service/worker host.
     if (WindowsServiceHelpers.IsWindowsService())
     {
         return false;

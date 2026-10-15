@@ -156,12 +156,12 @@ class Database:
     def _init_schema(self) -> None:
         with self._connect() as conn:
             conn.executescript(SCHEMA_SQL)
-            # Ensure singleton settings rows exist
+            # Гарантировать наличие singleton-строк settings
             conn.execute("INSERT OR IGNORE INTO ldap_settings(id) VALUES (1)")
             conn.execute("INSERT OR IGNORE INTO retention_settings(id) VALUES (1)")
             conn.execute("INSERT OR IGNORE INTO smtp_settings(id) VALUES (1)")
-            # Lightweight migrations for existing DBs (CREATE IF NOT EXISTS
-            # does not add new columns).
+            # Лёгкие миграции для существующих БД (CREATE IF NOT EXISTS
+            # не добавляет новые колонки).
             cols = {
                 row["name"]
                 for row in conn.execute("PRAGMA table_info(devices)").fetchall()
@@ -232,7 +232,7 @@ class Database:
         api_key_hash: str,
         agent_version: Optional[str],
     ) -> bool:
-        """Upsert on enroll. Returns True if a new device row was created."""
+        """Upsert при enroll. True, если создана новая строка device."""
         now = utc_now()
         with self.connection() as conn:
             existing = conn.execute(
@@ -369,7 +369,7 @@ class Database:
                 except json.JSONDecodeError:
                     previous = None
 
-            # Merge inventory meta into existing meta so heartbeat/health keys survive.
+            # Слить inventory meta с существующим meta, чтобы ключи heartbeat/health сохранились.
             existing = conn.execute(
                 "SELECT meta_json FROM devices WHERE device_id = ?",
                 (device_id,),
@@ -424,7 +424,7 @@ class Database:
                     ),
                 )
 
-            # prune older than per-device count retention (env BAD_SNAPSHOT_RETENTION)
+            # удалить старше лимита retention по числу на устройство (env BAD_SNAPSHOT_RETENTION)
             conn.execute(
                 """
                 DELETE FROM inventory_snapshots
@@ -479,9 +479,9 @@ class Database:
                         hostname.casefold(),
                     ]
                 )
-                # serial from latest inventory is expensive; match id/hostname first
+                # serial из последнего inventory дорогой; сначала id/hostname
                 if query not in hay:
-                    # optional serial match via meta cache if present
+                    # опционально serial через meta-кэш, если есть
                     meta = self._parse_meta(row["meta_json"])
                     serial = str(meta.get("serial_number") or "").casefold()
                     if query not in serial:
@@ -526,7 +526,7 @@ class Database:
         return sorted(seen.values(), key=str.casefold)
 
     def set_device_tags(self, device_id: str, tags: Any) -> list[str]:
-        """Normalize and persist tags. Sole write-path choke point for tag cleaning."""
+        """Нормализовать и сохранить tags. Единая точка записи для очистки тегов."""
         from .device_health import normalize_tags
 
         clean = normalize_tags(tags)
@@ -648,7 +648,7 @@ class Database:
             "latest_inventory": inventory,
         }
 
-    # --- local users ---
+    # --- локальные пользователи ---
 
     def count_local_users(self) -> int:
         with self.connection() as conn:
@@ -819,7 +819,7 @@ class Database:
                     ),
                 )
 
-    # --- agent update mirror ---
+    # --- зеркало agent update ---
 
     def get_agent_update(self) -> Optional[dict[str, Any]]:
         with self.connection() as conn:
@@ -878,7 +878,7 @@ class Database:
             "synced_at": now,
         }
 
-    # --- agent remote config (policies + per-device overrides) ---
+    # --- remote config агента (policies + per-device overrides) ---
 
     @staticmethod
     def _row_to_policy(row: sqlite3.Row) -> dict[str, Any]:
@@ -1088,7 +1088,7 @@ class Database:
         result["override"] = override_row
         return result
 
-    # --- device lifecycle (revoke / archive / delete) ---
+    # --- жизненный цикл устройства (revoke / archive / delete) ---
 
     def _set_device_flag(self, device_id: str, column: str, value: bool) -> bool:
         if column not in {"revoked", "archived"}:
@@ -1119,7 +1119,7 @@ class Database:
         return self._set_device_flag(device_id, "archived", archived)
 
     def delete_device(self, device_id: str) -> bool:
-        """Hard-delete device and related rows (snapshots + cascades)."""
+        """Жёстко удалить device и связанные строки (snapshots + cascades)."""
         with self.connection() as conn:
             exists = conn.execute(
                 "SELECT device_id FROM devices WHERE device_id = ?", (device_id,)
@@ -1139,7 +1139,7 @@ class Database:
             return True
 
     def find_duplicate_devices(self, device_id: str) -> dict[str, list[dict[str, Any]]]:
-        """Other devices sharing hostname (ci) or serial_number from latest inventory."""
+        """Другие устройства с тем же hostname (ci) или serial_number из последнего inventory."""
         detail = self.get_device_detail(device_id)
         if not detail:
             return {"hostname": [], "serial_number": []}
@@ -1147,7 +1147,7 @@ class Database:
         serial = (detail.get("serial_number") or "").strip()
         by_host: list[dict[str, Any]] = []
         by_serial: list[dict[str, Any]] = []
-        # Include archived when hunting duplicates
+        # При поиске дубликатов учитывать и archived
         for other in self.list_devices(archived=None):
             if other["device_id"] == device_id:
                 continue
@@ -1298,7 +1298,7 @@ class Database:
     def prune_expired_data(
         self, *, events_days: int, inventory_days: int
     ) -> dict[str, int]:
-        """Delete events/snapshots older than N days. Keep newest snapshot per device."""
+        """Удалить events/snapshots старше N дней. Оставить новейший snapshot на устройство."""
         from datetime import datetime, timedelta, timezone
 
         now = datetime.now(timezone.utc)
@@ -1312,7 +1312,7 @@ class Database:
             ev = conn.execute(
                 "DELETE FROM device_events WHERE created_at < ?", (events_cut,)
             )
-            # Keep the latest snapshot for each device even if old.
+            # Оставить последний snapshot на каждое устройство, даже если он старый.
             keep_rows = conn.execute(
                 """
                 SELECT s.id FROM inventory_snapshots s
@@ -1508,7 +1508,7 @@ class Database:
                     continue
                 out.append(d)
             elif meta.get("stale_notified_at"):
-                # Recovered — clear flag so a future outage can alert again.
+                # Восстановилось — сбросить флаг, чтобы следующий сбой снова алертил.
                 self.patch_device_meta(d["device_id"], {"stale_notified_at": None})
         return out
 

@@ -42,7 +42,7 @@ async def _agent_update_sync_loop(app: FastAPI) -> None:
 
 
 async def _retention_prune_loop(app: FastAPI) -> None:
-    """Periodically delete expired events / old inventory snapshots."""
+    """Периодически удалять просроченные events / старые inventory-снимки."""
     interval = 3600
     db: Database = app.state.db
     while True:
@@ -91,7 +91,7 @@ async def _backup_loop(app: FastAPI) -> None:
 
 async def _stale_alert_loop(app: FastAPI) -> None:
     settings = get_settings()
-    interval = 300  # 5 minutes
+    interval = 300  # 5 минут
     db: Database = app.state.db
     while True:
         try:
@@ -134,7 +134,7 @@ async def lifespan(app: FastAPI):
     except OSError:
         logger.warning("Cannot create backup dir %s", settings.backup_dir)
 
-    # Persist hashed site secrets when plaintext tokens provided via env
+    # Сохранить hashed site secrets, если plaintext-токены заданы через env
     if settings.enrollment_token and not db.get_site_secret("enrollment_token_hash"):
         db.set_site_secret("enrollment_token_hash", hash_secret(settings.enrollment_token))
     if settings.admin_token and not db.get_site_secret("admin_token_hash"):
@@ -143,7 +143,7 @@ async def lifespan(app: FastAPI):
     session_secret, data_key = ensure_bootstrap_secrets(db, settings)
     seed_default_admin(db, settings)
 
-    # Restrict DB file permissions when possible (bind password lives encrypted inside).
+    # По возможности ограничить права на файл БД (bind-пароль лежит внутри зашифрованным).
     try:
         settings.db_path.chmod(0o600)
     except OSError:
@@ -158,7 +158,7 @@ async def lifespan(app: FastAPI):
     )
 
     tasks: list[asyncio.Task] = []
-    # Background/startup sync is best-effort; disable in tests via env.
+    # Фоновый/startup sync — best-effort; в тестах отключается через env.
     if (
         settings.agent_update_sync_on_startup
         and settings.github_repo

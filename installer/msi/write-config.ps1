@@ -24,7 +24,7 @@ $obj = [ordered]@{
     heartbeat_interval_minutes = 15
 }
 
-# Preserve api_key / device_id across upgrades
+# Сохранять api_key / device_id при апгрейдах
 if ($existing -and $existing.api_key) {
     $obj.api_key = $existing.api_key
 }
@@ -32,7 +32,7 @@ if ($existing -and $existing.device_id) {
     $obj.device_id = $existing.device_id
 }
 
-# Only set enrollment token when no API key yet (first install / re-enroll)
+# Ставить enrollment token только если ещё нет API key (первая установка / re-enroll)
 if (-not $obj.api_key -and $EnrollmentToken) {
     $obj.enrollment_token = $EnrollmentToken
 }
@@ -41,7 +41,7 @@ $tmp = "$configPath.tmp"
 ($obj | ConvertTo-Json -Depth 5) | Set-Content -Path $tmp -Encoding UTF8
 Move-Item -Force -Path $tmp -Destination $configPath
 
-# ACL: Administrators + SYSTEM only
+# ACL: только Administrators + SYSTEM
 $acl = Get-Acl $configPath
 $acl.SetAccessRuleProtection($true, $false)
 $rules = @(
