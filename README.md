@@ -82,7 +82,6 @@ Tag `v0.6.0` (or run `release-msi` manually) → Windows GHA builds MSI + `agent
 | [docs/guideline.md](docs/guideline.md) | Инженерные правила + как релизить MSI |
 | [docs/agents.md](docs/agents.md) | Агент, service CLI, version bump, LDAP/web auth map, инварианты |
 | [docs/operator-guide.md](docs/operator-guide.md) | Операторский путь: Debian install → MSI → web UI |
-| [docs/architecture-plan.md](docs/architecture-plan.md) | Locked plan v1 (решения не переоткрывать для MVP) |
 
 ## Operator path
 

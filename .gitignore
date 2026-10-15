@@ -81,3 +81,27 @@ Desktop.ini
 
 # Graphify local build
 graphify-out/
+
+# Cursor / AI local tooling (not product source)
+.cursor/
+.cursor-*/**
+*.bundle
+**/agent-transcripts/
+**/walkthrough/
+**/playwright-report/
+**/test-results/
+**/blob-report/
+tmp/
+.tmp/
+*.tmp
+*.bak
+*~
+.graphify_analysis.json
+docs/graphify/.graphify_analysis.json
+docs/graphify/manifest.json
+
+# Local scratch / debug dumps
+**/debug/
+**/scratch/
+**/*.orig
+**/*.rej
