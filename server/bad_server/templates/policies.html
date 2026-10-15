@@ -11,7 +11,10 @@
     inventory {{ defaults.inventory_interval_hours }}h /
     heartbeat {{ defaults.heartbeat_interval_minutes }}m /
     update check {{ defaults.update_check_interval_hours }}h /
-    update_enabled {{ defaults.update_enabled }}.
+    update_enabled {{ defaults.update_enabled }} /
+    collect_hardware {{ defaults.collect_hardware }} /
+    collect_users {{ defaults.collect_users }} /
+    collect_software {{ defaults.collect_software }}.
   </p>
   {% if message %}<p class="ok">{{ message }}</p>{% endif %}
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
@@ -110,6 +113,27 @@
       <option value="" {% if s.update_enabled is not defined %}selected{% endif %}>(omit)</option>
       <option value="true" {% if s.update_enabled is defined and s.update_enabled %}selected{% endif %}>true</option>
       <option value="false" {% if s.update_enabled is defined and not s.update_enabled %}selected{% endif %}>false</option>
+    </select>
+
+    <label for="collect_hardware">collect_hardware</label>
+    <select id="collect_hardware" name="collect_hardware">
+      <option value="" {% if s.collect_hardware is not defined %}selected{% endif %}>(omit)</option>
+      <option value="true" {% if s.collect_hardware is defined and s.collect_hardware %}selected{% endif %}>true</option>
+      <option value="false" {% if s.collect_hardware is defined and not s.collect_hardware %}selected{% endif %}>false</option>
+    </select>
+
+    <label for="collect_users">collect_users</label>
+    <select id="collect_users" name="collect_users">
+      <option value="" {% if s.collect_users is not defined %}selected{% endif %}>(omit)</option>
+      <option value="true" {% if s.collect_users is defined and s.collect_users %}selected{% endif %}>true</option>
+      <option value="false" {% if s.collect_users is defined and not s.collect_users %}selected{% endif %}>false</option>
+    </select>
+
+    <label for="collect_software">collect_software</label>
+    <select id="collect_software" name="collect_software">
+      <option value="" {% if s.collect_software is not defined %}selected{% endif %}>(omit)</option>
+      <option value="true" {% if s.collect_software is defined and s.collect_software %}selected{% endif %}>true</option>
+      <option value="false" {% if s.collect_software is defined and not s.collect_software %}selected{% endif %}>false</option>
     </select>
 
     <div class="form-actions">

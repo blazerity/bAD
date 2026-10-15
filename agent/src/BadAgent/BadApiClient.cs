@@ -88,6 +88,10 @@ public sealed class BadApiClient : IDisposable
         string deviceId,
         string? lastInventoryAt,
         string? configVersion,
+        bool? lastInventoryOk,
+        string? lastInventoryError,
+        long? agentUptimeSeconds,
+        long? systemDriveFreeBytes,
         CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/heartbeat");
@@ -97,8 +101,12 @@ public sealed class BadApiClient : IDisposable
             device_id = deviceId,
             agent_version = _agentVersion,
             last_inventory_at = lastInventoryAt,
-            config_version = configVersion
-        });
+            config_version = configVersion,
+            last_inventory_ok = lastInventoryOk,
+            last_inventory_error = lastInventoryError,
+            agent_uptime_seconds = agentUptimeSeconds,
+            system_drive_free_bytes = systemDriveFreeBytes
+        }, options: JsonOptions);
 
         using var resp = await _http.SendAsync(req, ct);
         var body = await resp.Content.ReadAsStringAsync(ct);

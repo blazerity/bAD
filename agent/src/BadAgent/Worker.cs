@@ -6,7 +6,10 @@ public sealed class Worker : BackgroundService
     private readonly IInventoryCollector _collector;
     private readonly IHostApplicationLifetime _lifetime;
     private readonly string _agentVersion;
+    private readonly DateTime _startedAtUtc = DateTime.UtcNow;
     private DateTime? _lastInventoryAt;
+    private bool? _lastInventoryOk;
+    private string? _lastInventoryError;
     private DateTime _authBackoffUntil = DateTime.MinValue;
     private DateTime _nextUpdateCheck = DateTime.MinValue;
 
@@ -18,7 +21,7 @@ public sealed class Worker : BackgroundService
         _logger = logger;
         _collector = collector;
         _lifetime = lifetime;
-        _agentVersion = typeof(Worker).Assembly.GetName().Version?.ToString(3) ?? "0.3.0";
+        _agentVersion = typeof(Worker).Assembly.GetName().Version?.ToString(3) ?? "0.4.0";
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -168,17 +171,32 @@ public sealed class Worker : BackgroundService
 
     private async Task RunInventoryAsync(BadApiClient client, AgentConfig config, CancellationToken ct)
     {
-        _logger.LogInformation("Collecting inventory");
-        var snap = _collector.Collect(config.DeviceId!, _agentVersion);
+        _logger.LogInformation(
+            "Collecting inventory (hardware={Hw} users={Users} software={Sw})",
+            config.CollectHardware,
+            config.CollectUsers,
+            config.CollectSoftware);
+        var options = CollectorOptions.FromConfig(config);
+        var snap = _collector.Collect(config.DeviceId!, _agentVersion, options);
         try
         {
             await client.SendInventoryAsync(config.ApiKey!, snap, ct);
             _lastInventoryAt = DateTime.UtcNow;
+            _lastInventoryOk = true;
+            _lastInventoryError = null;
             _logger.LogInformation("Inventory uploaded ({Errors} collector errors)", snap.CollectorErrors.Count);
         }
         catch (HttpRequestException ex) when (ex.Message.Contains("401") || ex.Message.Contains("403"))
         {
+            _lastInventoryOk = false;
+            _lastInventoryError = Truncate("auth_failed", 200);
             await HandleAuthFailureAsync(config, ct);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _lastInventoryOk = false;
+            _lastInventoryError = Truncate(ex.Message, 200);
             throw;
         }
     }
@@ -186,6 +204,8 @@ public sealed class Worker : BackgroundService
     private async Task RunHeartbeatAsync(BadApiClient client, AgentConfig config, CancellationToken ct)
     {
         var last = _lastInventoryAt?.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'");
+        var uptime = (long)Math.Max(0, (DateTime.UtcNow - _startedAtUtc).TotalSeconds);
+        var freeBytes = TrySystemDriveFreeBytes();
         try
         {
             var remote = await client.SendHeartbeatAsync(
@@ -193,6 +213,10 @@ public sealed class Worker : BackgroundService
                 config.DeviceId!,
                 last,
                 config.RemoteConfigVersion,
+                _lastInventoryOk,
+                _lastInventoryError,
+                uptime,
+                freeBytes,
                 ct);
             _logger.LogDebug("Heartbeat sent");
             if (remote?.Settings != null)
@@ -229,12 +253,15 @@ public sealed class Worker : BackgroundService
 
         ConfigStore.Save(config);
         _logger.LogInformation(
-            "Applied remote agent config version {Version} (inventory={Inv}h heartbeat={Hb}m update={Upd}h enabled={Enabled})",
+            "Applied remote agent config version {Version} (inventory={Inv}h heartbeat={Hb}m update={Upd}h enabled={Enabled} hw={Hw} users={Users} sw={Sw})",
             config.RemoteConfigVersion,
             config.InventoryIntervalHours,
             config.HeartbeatIntervalMinutes,
             config.UpdateCheckIntervalHours,
-            config.UpdateEnabled);
+            config.UpdateEnabled,
+            config.CollectHardware,
+            config.CollectUsers,
+            config.CollectSoftware);
     }
 
     private async Task HandleAuthFailureAsync(AgentConfig config, CancellationToken ct)
@@ -251,5 +278,44 @@ public sealed class Worker : BackgroundService
             _authBackoffUntil = DateTime.UtcNow.AddHours(1);
             _logger.LogError("Auth failed and no enrollment token available; backing off 1h");
         }
+    }
+
+    /// <summary>Free bytes on system drive via DriveInfo (no WMI).</summary>
+    public static long? TrySystemDriveFreeBytes()
+    {
+        try
+        {
+            string root;
+            if (OperatingSystem.IsWindows())
+            {
+                root = Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\";
+            }
+            else
+            {
+                root = "/";
+            }
+
+            var drive = new DriveInfo(root);
+            if (!drive.IsReady)
+            {
+                return null;
+            }
+
+            return drive.AvailableFreeSpace;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string Truncate(string text, int max)
+    {
+        if (string.IsNullOrEmpty(text) || text.Length <= max)
+        {
+            return text;
+        }
+
+        return text[..max];
     }
 }

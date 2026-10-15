@@ -1,6 +1,6 @@
 # Архитектура bAD
 
-**blazerity Asset Discovery** — Windows-агент инвентаризации и on-prem сервер накопления снимков. Документ описывает фактическую архитектуру репозитория в согласовании с [architecture-plan.md](architecture-plan.md). Версия продукта: **0.3.0**.
+**blazerity Asset Discovery** — Windows-агент инвентаризации и on-prem сервер накопления снимков. Документ описывает фактическую архитектуру репозитория в согласовании с [architecture-plan.md](architecture-plan.md). Версия продукта: **0.4.0**.
 
 ## Компоненты
 
@@ -37,9 +37,11 @@ flowchart LR
 - Жизненный цикл: при старте enroll (если нет API key) → check update → полный inventory → heartbeat (с подтягиванием remote config) → циклы по эффективным интервалам.
 - Remote config: сервер считает effective settings (defaults &lt; matching policies &lt; per-device override); агент применяет только safe knobs, сохраняет в `config.json`. Секреты / `server_url` / `device_id` с сервера не принимаются.
 - `device_id`: MachineGuid (registry), fallback SMBIOS UUID.
-- Collectors: WMI/CIM + .NET; сбой секции → `null` + запись в `collector_errors[]`.
+- Collectors: WMI/CIM + .NET (+ Uninstall registry для software); сбой секции → `null` + запись в `collector_errors[]`.
+- Секции `hardware` / `users` / `software` управляются knobs `collect_*` (disabled → поле `null`/omitted, без error spam).
 - HTTPS only; cleartext `http://` отклоняется (кроме явного `BAD_ALLOW_HTTP=1` для локальной разработки).
 - `User-Agent: bad-agent/<semver>`; в payload поле `agent_version`.
+- Heartbeat несёт лёгкий health: `last_inventory_ok` / `last_inventory_error`, `agent_uptime_seconds`, `system_drive_free_bytes` (DriveInfo, без тяжёлого WMI) → device `meta`.
 - Service CLI: `BadAgent.exe service status|start|stop|restart` (elevated); без подкоманды — host службы. См. [agents.md](agents.md).
 
 ## Удалённые настройки агента
@@ -55,7 +57,8 @@ flowchart LR
 
 - SQLite: `agent_policies` (name, priority, conditions JSON, settings JSON), `device_config_overrides` (per `device_id`).
 - Условия: `hostname` / `domain` / `os_caption` × `equals` / `contains` (AND внутри политики).
-- Safe knobs: `inventory_interval_hours`, `heartbeat_interval_minutes`, `update_check_interval_hours`, `update_enabled`.
+- Safe knobs: `inventory_interval_hours`, `heartbeat_interval_minutes`, `update_check_interval_hours`, `update_enabled`, `collect_hardware` (default true), `collect_users` (default true), `collect_software` (default false, opt-in).
+- Software inventory (когда `collect_software`): лёгкий список name/version/publisher из Uninstall registry (64+32), cap 500.
 - Web: `/settings/policies`; на странице устройства — effective + manual override.
 
 ## Поток обновления агента
@@ -99,8 +102,8 @@ flowchart LR
 |--------|------|------|------------|
 | `GET` | `/v1/health` | нет | liveness + `version` |
 | `POST` | `/v1/enroll` | enrollment Bearer | обмен на per-agent API key |
-| `POST` | `/v1/heartbeat` | API key | `last_seen`; piggyback `config` если `config_version` устарел |
-| `POST` | `/v1/inventory` | API key | upsert снимка по `device_id` |
+| `POST` | `/v1/heartbeat` | API key | `last_seen` + optional health → meta; piggyback `config` если `config_version` устарел |
+| `POST` | `/v1/inventory` | API key | upsert снимка по `device_id` (host/network + optional hardware/users/software) |
 | `GET` | `/v1/agent/config` | API key | effective settings только для своего устройства |
 | `GET` | `/v1/devices` | admin Bearer | список устройств |
 | `GET` | `/v1/devices/{device_id}` | admin Bearer | meta + последний inventory |
@@ -112,7 +115,7 @@ flowchart LR
 | `GET` | `/v1/admin/devices/{id}/config` | admin | effective + override + matched |
 | `PUT/DELETE` | `/v1/admin/devices/{id}/config-override` | admin | ручной override |
 
-- `schema_version` сейчас `1`; неизвестные версии → `400`.
+- `schema_version` inventory: сервер принимает `1` и `2` (v2 добавляет optional `software`); неизвестные → `400`.
 - Секреты сайта: enrollment и admin tokens (разные); в БД хранятся hash (argon2).
 - Rate limit на `/v1/enroll` (sliding window).
 - Retention: последние 30 снимков на устройство.
@@ -179,4 +182,4 @@ BAD_DOMAIN=… BAD_TLS_CERT=… BAD_TLS_KEY=… sudo -E bash deploy/debian/insta
 
 ## Вне scope v1
 
-macOS/Linux агенты, software inventory, RBAC/SSO, HA SQLite, push-команды на агент, Let’s Encrypt как основной путь, полноценный product dashboard. Прямой доступ агентов к GitHub — вне модели (только server mirror).
+macOS/Linux агенты (полноценный collect), расширенный software/патчи, RBAC/SSO, HA SQLite, push-команды на агент, Let’s Encrypt как основной путь, полноценный product dashboard. Прямой доступ агентов к GitHub — вне модели (только server mirror).

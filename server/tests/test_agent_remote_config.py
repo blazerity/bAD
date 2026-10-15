@@ -17,12 +17,16 @@ def test_sanitize_settings_drops_unsafe_keys():
             "server_url": "https://evil.example",
             "api_key": "steal-me",
             "update_enabled": "false",
+            "collect_software": "true",
+            "collect_hardware": 0,
             "heartbeat_interval_minutes": 0,
         }
     )
     assert cleaned == {
         "inventory_interval_hours": 3,
         "update_enabled": False,
+        "collect_software": True,
+        "collect_hardware": False,
     }
 
 
@@ -61,11 +65,29 @@ def test_compute_effective_precedence_defaults_policy_override():
     assert result["settings"]["inventory_interval_hours"] == 2
     assert result["settings"]["heartbeat_interval_minutes"] == 1  # override wins
     assert result["settings"]["update_enabled"] is False
+    assert result["settings"]["collect_hardware"] is True
+    assert result["settings"]["collect_users"] is True
+    assert result["settings"]["collect_software"] is False
     assert result["settings"]["update_check_interval_hours"] == (
         DEFAULT_AGENT_SETTINGS["update_check_interval_hours"]
     )
     assert result["has_override"] is True
     assert [p["name"] for p in result["matched_policies"]] == ["corp-hosts", "later-wins"]
+
+
+def test_compute_effective_collector_toggles_override():
+    result = compute_effective_config(
+        hostname="X",
+        policies=[],
+        override={
+            "collect_hardware": False,
+            "collect_users": False,
+            "collect_software": True,
+        },
+    )
+    assert result["settings"]["collect_hardware"] is False
+    assert result["settings"]["collect_users"] is False
+    assert result["settings"]["collect_software"] is True
 
 
 def test_compute_effective_disabled_and_nonmatching_ignored():
@@ -111,7 +133,7 @@ def test_agent_config_and_heartbeat_piggyback(client):
         json={
             "schema_version": 1,
             "device_id": "cfg-dev-1",
-            "agent_version": "0.3.0",
+            "agent_version": "0.4.0",
             "collected_at": "2026-10-15T12:00:00Z",
             "host": {
                 "hostname": "CORP-PC",
@@ -173,8 +195,11 @@ def test_agent_config_and_heartbeat_piggyback(client):
         headers={"Authorization": f"Bearer {api_key}"},
         json={
             "device_id": "cfg-dev-1",
-            "agent_version": "0.3.0",
+            "agent_version": "0.4.0",
             "config_version": "stale",
+            "last_inventory_ok": True,
+            "agent_uptime_seconds": 120,
+            "system_drive_free_bytes": 50_000_000,
         },
     )
     assert hb.status_code == 200
@@ -182,12 +207,22 @@ def test_agent_config_and_heartbeat_piggyback(client):
     assert hb_body["config_version"] == version
     assert hb_body["config"]["settings"]["heartbeat_interval_minutes"] == 3
 
+    detail_after_hb = client.get(
+        "/v1/devices/cfg-dev-1",
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"},
+    )
+    assert detail_after_hb.status_code == 200
+    meta = detail_after_hb.json().get("meta") or {}
+    assert meta.get("last_inventory_ok") is True
+    assert meta.get("agent_uptime_seconds") == 120
+    assert meta.get("system_drive_free_bytes") == 50_000_000
+
     hb2 = client.post(
         "/v1/heartbeat",
         headers={"Authorization": f"Bearer {api_key}"},
         json={
             "device_id": "cfg-dev-1",
-            "agent_version": "0.3.0",
+            "agent_version": "0.4.0",
             "config_version": version,
         },
     )
@@ -274,8 +309,12 @@ def test_web_policies_and_device_override(client):
             "heartbeat_interval_minutes": "",
             "update_check_interval_hours": "",
             "update_enabled": "false",
+            "collect_software": "true",
+            "collect_hardware": "",
+            "collect_users": "",
         },
     )
     assert saved.status_code == 200
     assert "Manual override saved" in saved.text
     assert ">8<" in saved.text or "inventory_interval_hours</dt><dd class=\"mono\">8" in saved.text
+    assert "collect_software</dt><dd class=\"mono\">True" in saved.text

@@ -1,25 +1,46 @@
 using System.Management;
 using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
+using Microsoft.Win32;
 
 namespace BadAgent;
 
 public sealed class InventoryCollector : IInventoryCollector
 {
-    public InventorySnapshot Collect(string deviceId, string agentVersion)
+    /// <summary>Max installed programs to include (Uninstall registry can be large).</summary>
+    public const int MaxSoftwarePrograms = 500;
+
+    public InventorySnapshot Collect(string deviceId, string agentVersion, CollectorOptions? options = null)
     {
+        options ??= new CollectorOptions();
         var snap = new InventorySnapshot
         {
-            SchemaVersion = 1,
+            SchemaVersion = 2,
             DeviceId = deviceId,
             CollectedAt = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
             AgentVersion = agentVersion
         };
 
         snap.Host = CollectHost(snap.CollectorErrors);
-        snap.Hardware = CollectHardware(snap.CollectorErrors);
         snap.Network = CollectNetwork(snap.CollectorErrors);
-        snap.Users = CollectUsers(snap.CollectorErrors);
+
+        if (options.CollectHardware)
+        {
+            snap.Hardware = CollectHardware(snap.CollectorErrors);
+        }
+        // Disabled: leave null, no collector_errors spam.
+
+        if (options.CollectUsers)
+        {
+            snap.Users = CollectUsers(snap.CollectorErrors);
+        }
+
+        if (options.CollectSoftware)
+        {
+            snap.Software = CollectSoftware(snap.CollectorErrors);
+        }
+
         return snap;
     }
 
@@ -282,6 +303,96 @@ public sealed class InventoryCollector : IInventoryCollector
         return users;
     }
 
+    /// <summary>
+    /// Lightweight installed programs from Uninstall registry (64-bit + 32-bit views).
+    /// </summary>
+    private static SoftwareInfo CollectSoftware(List<CollectorError> errors)
+    {
+        var software = new SoftwareInfo { Programs = new List<InstalledProgram>() };
+        try
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                // Opt-in but no Windows registry — omit programs without error spam.
+                software.Programs = null;
+                return software;
+            }
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            ReadUninstallHive(RegistryHive.LocalMachine, RegistryView.Registry64, software.Programs!, seen);
+            ReadUninstallHive(RegistryHive.LocalMachine, RegistryView.Registry32, software.Programs!, seen);
+
+            software.Programs = software.Programs!
+                .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+                .Take(MaxSoftwarePrograms)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            errors.Add(new CollectorError { Section = "software", Error = Truncate(ex.Message, 200) });
+            software.Programs = null;
+        }
+
+        return software;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void ReadUninstallHive(
+        RegistryHive hive,
+        RegistryView view,
+        List<InstalledProgram> dest,
+        HashSet<string> seen)
+    {
+        using var baseKey = RegistryKey.OpenBaseKey(hive, view);
+        using var uninstall = baseKey.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall");
+        if (uninstall is null)
+        {
+            return;
+        }
+
+        foreach (var subName in uninstall.GetSubKeyNames())
+        {
+            if (dest.Count >= MaxSoftwarePrograms)
+            {
+                break;
+            }
+
+            using var sub = uninstall.OpenSubKey(subName);
+            if (sub is null)
+            {
+                continue;
+            }
+
+            // Skip quiet/system entries that lack a display name.
+            var name = sub.GetValue("DisplayName") as string;
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                continue;
+            }
+
+            name = name.Trim();
+            if (sub.GetValue("SystemComponent") is int sc && sc == 1)
+            {
+                continue;
+            }
+
+            var version = (sub.GetValue("DisplayVersion") as string)?.Trim();
+            var publisher = (sub.GetValue("Publisher") as string)?.Trim();
+            var dedupeKey = $"{name}|{version}";
+            if (!seen.Add(dedupeKey))
+            {
+                continue;
+            }
+
+            dest.Add(new InstalledProgram
+            {
+                Name = name,
+                Version = string.IsNullOrWhiteSpace(version) ? null : version,
+                Publisher = string.IsNullOrWhiteSpace(publisher) ? null : publisher,
+            });
+        }
+    }
+
     private static string? FormatMac(PhysicalAddress address)
     {
         var bytes = address.GetAddressBytes();
@@ -299,5 +410,15 @@ public sealed class InventoryCollector : IInventoryCollector
     {
         if (value is null) return null;
         return Convert.ToInt64(value);
+    }
+
+    private static string Truncate(string text, int max)
+    {
+        if (string.IsNullOrEmpty(text) || text.Length <= max)
+        {
+            return text;
+        }
+
+        return text[..max];
     }
 }

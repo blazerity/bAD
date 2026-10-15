@@ -10,7 +10,7 @@ def test_health(client: TestClient):
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "ok"
-    assert body["version"] == "0.3.0"
+    assert body["version"] == "0.4.0"
 
 
 def test_enroll_inventory_get_flow(client: TestClient):
@@ -132,12 +132,48 @@ def test_unknown_schema_rejected(client: TestClient):
     assert r.status_code == 400
 
 
+def test_schema_version_2_with_software_accepted(client: TestClient):
+    device_id = "device-schema-v2"
+    api_key = enroll_device(
+        client,
+        device_id=device_id,
+        hostname="SW-HOST",
+        agent_version="0.4.0",
+    )
+    r = client.post(
+        "/v1/inventory",
+        headers={"Authorization": f"Bearer {api_key}"},
+        json={
+            "schema_version": 2,
+            "device_id": device_id,
+            "agent_version": "0.4.0",
+            "collected_at": "2026-10-15T16:00:00Z",
+            "host": {"hostname": "SW-HOST"},
+            "software": {
+                "programs": [
+                    {"name": "Example App", "version": "1.2.3", "publisher": "Acme"},
+                ]
+            },
+            "collector_errors": [],
+        },
+    )
+    assert r.status_code == 200
+    detail = client.get(
+        f"/v1/devices/{device_id}",
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"},
+    )
+    assert detail.status_code == 200
+    payload = detail.json()["latest_inventory"]["payload"]
+    assert payload["schema_version"] == 2
+    assert payload["software"]["programs"][0]["name"] == "Example App"
+
+
 def test_web_login_and_devices(client: TestClient):
     enroll_device(
         client,
         device_id="web-device",
         hostname="WEB-HOST",
-        agent_version="0.3.0",
+        agent_version="0.4.0",
     )
 
     denied = client.get("/devices", follow_redirects=False)
