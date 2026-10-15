@@ -44,6 +44,55 @@
   <p class="muted">Пока нет активных устройств.</p>
   {% endif %}
 
+
+  <h2>Операции: обновления и доступ</h2>
+  {% if ops.mirror_empty %}
+  <p class="error">Зеркало MSI пусто — агенты не получат обновления. Загрузите MSI или выполните sync.</p>
+  {% else %}
+  <p class="muted">
+    Latest в зеркале: <span class="mono">{{ ops.latest_version or "—" }}</span>
+    · версий в каталоге: <span class="mono">{{ ops.mirror_count }}</span>
+    · sync: <span class="mono">{{ ops.latest_synced_at or "—" }}</span>
+  </p>
+  {% endif %}
+
+  {% if ops.version_drift_count %}
+  <div class="warn-box">
+    <strong>Отстают от целевой версии</strong> ({{ ops.version_drift_count }})
+    <table class="devices">
+      <thead><tr><th>Устройство</th><th>Сейчас</th><th>Цель</th><th>Want</th><th>Контакт</th></tr></thead>
+      <tbody>
+      {% for d in ops.version_drift %}
+        <tr>
+          <td><a href="/devices/{{ d.device_id }}">{{ d.hostname or d.device_id }}</a></td>
+          <td class="mono">{{ d.agent_version }}</td>
+          <td class="mono">{{ d.target }}</td>
+          <td class="mono">{{ d.want_version }}</td>
+          <td class="mono">{{ d.silence }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">Отстающих по целевой версии нет (или обновления выключены политикой).</p>
+  {% endif %}
+
+  {% if ops.pinned_missing_count %}
+  <div class="warn-box">
+    <strong>Закреплённая версия отсутствует в зеркале</strong> ({{ ops.pinned_missing_count }})
+    <ul>
+    {% for d in ops.pinned_missing %}
+      <li><a href="/devices/{{ d.device_id }}">{{ d.hostname or d.device_id }}</a> → <span class="mono">{{ d.target }}</span></li>
+    {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% if ops.revoked_active %}
+  <p class="warn-box">Отозванных устройств (не в архиве): <strong>{{ ops.revoked_active }}</strong> — нужен admin rotate-key / recovery.</p>
+  {% endif %}
+
   <h2 class="with-icon">{{ icon('events') }}Недавние изменения железа</h2>
   {% if stats.recent_hardware_events %}
   <table class="devices">

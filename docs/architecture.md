@@ -1,6 +1,6 @@
 # Архитектура bAD
 
-**blazerity Asset Discovery** — Windows-агент инвентаризации и on-prem сервер накопления снимков. Документ описывает фактическую архитектуру репозитория. Версия продукта: **0.9.1**.
+**blazerity Asset Discovery** — Windows-агент инвентаризации и on-prem сервер накопления снимков. Документ описывает фактическую архитектуру репозитория. Версия продукта: **0.10.0**.
 
 ## Компоненты
 
@@ -35,7 +35,7 @@ flowchart LR
 - Установка: MSI → `%ProgramFiles%\blazerity\bAD\`, служба auto-start под LocalSystem.
 - Конфиг: `%ProgramData%\blazerity\bAD\config.json` (`server_url`, `enrollment_token` временно, `api_key`, `device_id`, интервалы, `update_*`, `remote_config_version`).
 - Жизненный цикл: при старте enroll (если нет API key) → flush offline queue → check update → полный inventory → heartbeat (с подтягиванием remote config) → циклы по эффективным интервалам.
-- Offline queue (0.9.1): при недоступном сервере inventory/heartbeat пишутся в `%ProgramData%\blazerity\bAD\queue\` и уходят с backoff (cap 64 / 14 дней); не молча теряются.
+- Offline queue (0.10.0): при недоступном сервере inventory/heartbeat пишутся в `%ProgramData%\blazerity\bAD\queue\` и уходят с backoff (cap 64 / 14 дней); не молча теряются.
 - Revoked API key (401/403): очистить `api_key`, сохранить `device_id`, запись в Application Event Log, не долбить API до re-enroll / reinstall.
 - Remote config: сервер считает effective settings (defaults &lt; matching policies &lt; per-device override); агент применяет только safe knobs, сохраняет в `config.json`. Секреты / `server_url` / `device_id` с сервера не принимаются.
 - `device_id`: MachineGuid (registry), fallback SMBIOS UUID.
@@ -183,6 +183,15 @@ flowchart LR
 - Defaults ON: hardware (RAM/CPU/disks/serial/model), stale, enroll. Defaults OFF: hostname, domain. Без webhooks.
 - Soft-fail: ошибки SMTP только в лог, enroll/inventory не ломаются.
 - Stale-алерты — фоновый цикл (~5 мин) с флагом `meta.stale_notified_at`.
+
+**Зеркало MSI (0.10)**
+
+- Диск: `{BAD_AGENT_UPDATES_DIR}/{version}/bad-agent-{version}.msi` (+ `agent-release.json`).
+- БД: `agent_msi_versions` + указатель `agent_update` / `site_secrets.agent_msi_latest_version`.
+- Ingest: GitHub sync и ручная заливка UI/API; cap ~10 версий; delete запрещён для latest и pin.
+- Remote-config knob **`update_target`**: `latest` (default) или semver из зеркала; check отдаёт target даже для downgrade.
+- Enrollment rotate из UI/API (hash в SQLite); restart не обязателен.
+- Site bundle: DB + keys + meta зеркала (MSI в tar опционально); restore — `deploy/debian/restore-site-bundle.sh`.
 
 **Резервные копии SQLite**
 

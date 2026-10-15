@@ -4,14 +4,21 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any, Optional
 
 # Безопасные knobs, которые можно пушить enrolled-агенту (никогда secrets / URLs / ids).
+# update_target: "latest" | конкретный semver из зеркала MSI на сервере (epic 0.10).
+# Сервер резолвит цель в /v1/agent/update/check; агент применяет target (в т.ч. downgrade).
+UPDATE_TARGET_LATEST = "latest"
+_SEMVER_TARGET_RE = re.compile(r"^v?(?P<ver>\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)$")
+
 DEFAULT_AGENT_SETTINGS: dict[str, Any] = {
     "inventory_interval_hours": 6,
     "heartbeat_interval_minutes": 15,
     "update_check_interval_hours": 24,
     "update_enabled": True,
+    "update_target": UPDATE_TARGET_LATEST,
     # Hardware/users по умолчанию включены (прежнее поведение); software — opt-in.
     "collect_hardware": True,
     "collect_users": True,
@@ -36,6 +43,27 @@ INT_SETTING_KEYS = frozenset(
         "update_check_interval_hours",
     }
 )
+
+STRING_SETTING_KEYS = frozenset({"update_target"})
+
+
+def sanitize_update_target(value: Any) -> Optional[str]:
+    """Нормализовать цель обновления: latest или semver."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.casefold() in {UPDATE_TARGET_LATEST, "newest", "*"}:
+        return UPDATE_TARGET_LATEST
+    m = _SEMVER_TARGET_RE.match(text)
+    if not m:
+        return None
+    return m.group("ver")
+
+
+# Alias for older call sites / handoff wording.
+sanitize_update_target_version = sanitize_update_target
 
 CONDITION_FIELDS = frozenset({"hostname", "domain", "os_caption", "tag"})
 CONDITION_OPS = frozenset({"equals", "contains"})
@@ -78,6 +106,12 @@ def sanitize_settings(raw: Any) -> dict[str, Any]:
                 continue
             if n >= 1:
                 out[key] = n
+            continue
+        if key in STRING_SETTING_KEYS:
+            if key == "update_target":
+                parsed = sanitize_update_target(value)
+                if parsed is not None:
+                    out[key] = parsed
     return out
 
 

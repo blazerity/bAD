@@ -5,32 +5,117 @@
 <section class="settings">
   <h1>Обновления агента</h1>
   <p class="muted">
-    Сервер зеркалирует MSI с GitHub Releases. Агенты качают только с этого сервера.
+    Сервер хранит каталог MSI (GitHub sync и ручная заливка для air-gap).
+    Агенты качают только с этого сервера. Цель версии — knob
+    <span class="mono">update_target</span> в политиках.
   </p>
   {% if message %}<p class="ok">{{ message }}</p>{% endif %}
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+  {% if new_enrollment_token %}
+  <div class="warn-box">
+    <strong>Новый enrollment token</strong> (показать один раз):
+    <p class="mono">{{ new_enrollment_token }}</p>
+    <p class="muted">Старый hash инвалидирован. Restart не требуется. Обновите MSI/деплой.</p>
+  </div>
+  {% endif %}
 
   <dl class="meta">
     <div><dt>GitHub repo</dt><dd class="mono">{{ github_repo }}</dd></div>
     <div><dt>Каталог MSI</dt><dd class="mono">{{ updates_dir }}</dd></div>
     <div><dt>Интервал sync</dt><dd class="mono">{{ sync_interval }} с</dd></div>
+    <div><dt>Latest</dt><dd class="mono">{% if agent_update %}{{ agent_update.version }}{% else %}—{% endif %}</dd></div>
   </dl>
 
-  {% if agent_update %}
-  <h2>Текущее зеркало</h2>
-  <dl class="meta">
-    <div><dt>Версия</dt><dd class="mono">{{ agent_update.version }}</dd></div>
-    <div><dt>Файл</dt><dd class="mono">{{ agent_update.msi_name }}</dd></div>
-    <div><dt>SHA256</dt><dd class="mono">{{ agent_update.sha256 }}</dd></div>
-    <div><dt>Синхронизировано</dt><dd class="mono">{{ agent_update.synced_at }}</dd></div>
-  </dl>
+  <h2>Каталог версий</h2>
+  {% if msi_versions %}
+  <table class="devices">
+    <thead>
+      <tr>
+        <th>Версия</th>
+        <th>Файл</th>
+        <th>Источник</th>
+        <th>SHA256</th>
+        <th>Когда</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for v in msi_versions %}
+      <tr>
+        <td class="mono">{{ v.version }}{% if agent_update and v.version == agent_update.version %} · latest{% endif %}</td>
+        <td class="mono">{{ v.msi_name }}</td>
+        <td class="mono">{{ v.source or "—" }}</td>
+        <td class="mono" title="{{ v.sha256 }}">{{ v.sha256[:16] }}…</td>
+        <td class="mono">{{ v.mirrored_at or v.synced_at or "—" }}</td>
+        <td>
+          <form method="post" action="/settings/updates/set-latest" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="version" value="{{ v.version }}">
+            <button type="submit" class="secondary">Latest</button>
+          </form>
+          <form method="post" action="/settings/updates/delete" style="display:inline"
+            onsubmit="return confirm('Удалить {{ v.version }} из каталога?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="version" value="{{ v.version }}">
+            <button type="submit" class="secondary">Удалить</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
   {% else %}
-  <p class="muted">Зеркала пока нет. Запустите sync или дождитесь фоновой задачи.</p>
+  <p class="muted">Каталог пуст. Сделайте sync или загрузите MSI вручную.</p>
   {% endif %}
 
+  <h2>Синхронизация GitHub</h2>
   <form method="post" action="/settings/updates/sync" class="form-actions">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button type="submit">Синхронизировать сейчас</button>
+  </form>
+
+  <h2>Загрузить MSI (air-gap)</h2>
+  <p class="muted">
+    Файл <span class="mono">bad-agent-X.Y.Z.msi</span> и при желании
+    <span class="mono">agent-release.json</span>. SHA256 можно не указывать — посчитаем.
+  </p>
+  <form method="post" action="/settings/updates/upload" enctype="multipart/form-data" class="settings-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="msi">MSI</label>
+    <input id="msi" name="msi" type="file" accept=".msi,application/octet-stream" required>
+
+    <label for="manifest">Manifest (необязательно)</label>
+    <input id="manifest" name="manifest" type="file" accept=".json,application/json">
+
+    <label for="version">Версия (если не в имени / manifest)</label>
+    <input id="version" name="version" type="text" placeholder="0.10.0" autocomplete="off">
+
+    <label for="sha256">SHA256 (необязательно, проверка)</label>
+    <input id="sha256" name="sha256" type="text" class="mono" placeholder="hex" autocomplete="off">
+
+    <div class="form-actions">
+      <button type="submit">Подгрузить в зеркало</button>
+    </div>
+  </form>
+
+  <h2>Enrollment token</h2>
+  <p class="muted">
+    Ротация из UI: новый hash в SQLite сразу; restart не нужен.
+    {% if enrollment.rotated_at %}Последняя ротация: <span class="mono">{{ enrollment.rotated_at }}</span>.{% endif %}
+  </p>
+  <dl class="meta">
+    <div><dt>Hash в БД</dt><dd>{% if enrollment.has_hash %}есть{% else %}нет{% endif %}</dd></div>
+    <div><dt>Файл токена</dt><dd class="mono">{{ enrollment.token_file }}</dd></div>
+  </dl>
+  <form method="post" action="/settings/enrollment/rotate" class="settings-form"
+    onsubmit="return confirm('Сгенерировать новый enrollment token? Старый перестанет работать.');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="custom_token">Свой токен (пусто = сгенерировать)</label>
+    <input id="custom_token" name="custom_token" type="text" autocomplete="off" placeholder="bad_en_…">
+    <div class="form-actions">
+      <button type="submit">Сменить enrollment token</button>
+    </div>
   </form>
 </section>
 {% endblock %}
