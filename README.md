@@ -11,14 +11,16 @@ Lightweight Windows inventory agent + on-prem accumulation server.
 ## Repository layout
 
 ```
-agent/            # C# Worker Service + unit tests + service CLI
-server/           # FastAPI app, web UI, agent-update mirror, pytest
+agent/            # C# Worker Service + service CLI
+server/           # FastAPI app, web UI, agent-update mirror
 installer/msi/    # WiX sources (MSI built on Windows / GHA release-msi)
 deploy/debian/    # install.sh, systemd, nginx template
 docs/             # architecture, guidelines, agent notes, operator guide
 VERSION           # product semver (0.8.0)
-.github/workflows # ci.yml (Linux) + release-msi.yml (Windows tags)
+.github/workflows # ci.yml (Linux build/import) + release-msi.yml (Windows tags)
 ```
+
+Unit tests (`agent/tests/`, `server/tests/`) are **local-only** — gitignored, not on GitHub. CI does not run them.
 
 ## Quick start (server on Linux)
 
@@ -40,6 +42,8 @@ uvicorn bad_server.app:app --host 127.0.0.1 --port 8000
 - LDAP settings (admin): http://127.0.0.1:8000/settings/ldap  
 
 
+Local tests (if you keep an untracked `server/tests/` tree):
+
 ```bash
 pytest -q
 ```
@@ -49,7 +53,7 @@ pytest -q
 ```bash
 cd agent
 dotnet build BadAgent.sln -c Release
-dotnet test BadAgent.sln -c Release
+# Local tests (untracked agent/tests/): dotnet test tests/BadAgent.Tests -c Release
 
 # Point at a local server (HTTP only with explicit opt-in):
 export BAD_CONFIG_DIR=/tmp/bad-agent-config

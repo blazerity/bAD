@@ -7,10 +7,6 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{3824500C-850
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BadAgent", "src\BadAgent\BadAgent.csproj", "{B4AA13E6-D4B2-40B2-828B-1C78A7C91D16}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{2197C4CA-CB60-46B4-AC6B-8DD762D126B9}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BadAgent.Tests", "tests\BadAgent.Tests\BadAgent.Tests.csproj", "{CDB61323-A1C1-4997-AF12-1FFD1F0C004F}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -24,13 +20,8 @@ Global
 		{B4AA13E6-D4B2-40B2-828B-1C78A7C91D16}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B4AA13E6-D4B2-40B2-828B-1C78A7C91D16}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B4AA13E6-D4B2-40B2-828B-1C78A7C91D16}.Release|Any CPU.Build.0 = Release|Any CPU
-		{CDB61323-A1C1-4997-AF12-1FFD1F0C004F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{CDB61323-A1C1-4997-AF12-1FFD1F0C004F}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{CDB61323-A1C1-4997-AF12-1FFD1F0C004F}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{CDB61323-A1C1-4997-AF12-1FFD1F0C004F}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{B4AA13E6-D4B2-40B2-828B-1C78A7C91D16} = {3824500C-850F-4430-A974-4249300BB748}
-		{CDB61323-A1C1-4997-AF12-1FFD1F0C004F} = {2197C4CA-CB60-46B4-AC6B-8DD762D126B9}
 	EndGlobalSection
 EndGlobal

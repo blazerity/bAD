@@ -5,12 +5,10 @@
 ## Layout
 
 ```
-agent/                 # .NET 8 Worker + tests + service CLI
+agent/                 # .NET 8 Worker + service CLI
   src/BadAgent/        # код службы (Worker, AgentUpdater, ServiceCli, …)
-  tests/BadAgent.Tests/
 server/                # FastAPI app + agent-update mirror
   bad_server/          # пакет приложения
-  tests/               # pytest (не игнорировать в git — только кэши)
 installer/msi/         # WiX Product.wxs, write-config.ps1, bad.cmd
 deploy/debian/         # install.sh, systemd/, nginx/
 docs/                  # операторские и архитектурные документы
@@ -18,7 +16,7 @@ VERSION                # канонический semver продукта (се�
 .github/workflows/     # ci.yml + release-msi.yml
 ```
 
-Не путать: **не** игнорировать исходники `server/tests` и `agent/tests` — только `__pycache__`, `bin/`, `obj/`, coverage и т.п.
+Unit tests — **только локально** (gitignored, не в GitHub): `agent/tests/`, `server/tests/`. CI их не запускает.
 
 ## Как запустить сервер (dev)
 
@@ -35,7 +33,7 @@ export BAD_AGENT_UPDATE_SYNC_ON_STARTUP=false
 export BAD_AGENT_UPDATE_SYNC_INTERVAL_SECONDS=0
 
 uvicorn bad_server.app:app --host 127.0.0.1 --port 8000
-pytest -q
+# локально, если есть untracked server/tests/: pytest -q
 ```
 
 - Health: `GET /v1/health` → `{"status":"ok","version":"0.8.0"}`
@@ -48,7 +46,8 @@ pytest -q
 ```bash
 cd agent
 dotnet build BadAgent.sln -c Release
-dotnet test BadAgent.sln -c Release
+# локально, если есть untracked agent/tests/:
+#   dotnet test tests/BadAgent.Tests -c Release
 ```
 
 Локальный прогон против HTTP-сервера:
@@ -188,7 +187,7 @@ Heartbeat health (optional → device meta): `last_inventory_ok`, `last_inventor
 
 ## CI
 
-- `.github/workflows/ci.yml`: pytest в `server/`, `dotnet build/test` в `agent/` (Linux; **без** MSI).
+- `.github/workflows/ci.yml`: import-check + ruff в `server/`, `dotnet build` Release в `agent/` (Linux; **без** pytest/dotnet test и **без** MSI). Тесты — local-only.
 - `.github/workflows/release-msi.yml`: Windows, тег `v*` / dispatch → GitHub Release.
 
 ## Auth map (не перепутать)
@@ -253,4 +252,4 @@ Seed default admin только если `COUNT(local_users)=0`.
 
 ## CI
 
-`.github/workflows/ci.yml`: pytest в `server/`, `dotnet build/test` в `agent/`. Локально повторяйте те же команды перед PR.
+`.github/workflows/ci.yml`: import-check + ruff (`server/`), `dotnet build` Release (`agent/`). Unit tests не в репо — гоняйте локально при наличии `*/tests/`.

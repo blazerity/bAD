@@ -109,7 +109,8 @@ BAD_BACKUP_DIR=/var/lib/bad/backups
 
 ## Тесты
 
-- Сервер: pytest enroll → inventory → admin get + web login + agent-update + policy/override precedence.
-- Сервисные фичи 0.8.0: revoke/rotate, archive/delete, retention, SMTP notify flags, backup, overview/settings — `server/tests/test_service_features.py`.
-- Агент: xUnit на collector/schema, cleartext reject, semver/sha256, service CLI, ApplyRemoteSettings.
+Unit tests (`agent/tests/`, `server/tests/`) — **local-only**, не коммитить в GitHub; CI их не гоняет.
+
+- Локально (если деревья есть): сервер — `pytest -q`; агент — `dotnet test tests/BadAgent.Tests -c Release`.
+- Покрывать: enroll → inventory → admin/web login + agent-update + policy/override; сервис 0.8.0 (revoke/rotate, archive, retention, SMTP, backup); xUnit collector/schema, cleartext reject, semver/sha256, service CLI, ApplyRemoteSettings.
 - Предпочитать узкие регрессии инвариантов (auth, schema, upsert, update compare, config precedence), а не хрупкие snapshot-гиганты.
