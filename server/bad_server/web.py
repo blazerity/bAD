@@ -63,6 +63,40 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.globals["app_version"] = __version__
 
+
+def _format_bytes(value: object, empty: str = "—") -> str:
+    """Человекочитаемый размер (KiB/MiB/…) для Speccy-карточки."""
+    if value is None:
+        return empty
+    try:
+        n = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return empty
+    if n < 0:
+        return empty
+    units = ("B", "KiB", "MiB", "GiB", "TiB")
+    v = float(n)
+    i = 0
+    while v >= 1024 and i < len(units) - 1:
+        v /= 1024
+        i += 1
+    if i == 0:
+        return f"{n} {units[i]}"
+    text = f"{v:.2f}".rstrip("0").rstrip(".")
+    return f"{text} {units[i]}"
+
+
+def _format_os(os_info: object, empty: str = "—") -> str:
+    if not isinstance(os_info, dict):
+        return empty
+    parts = [os_info.get("caption"), os_info.get("version"), os_info.get("arch")]
+    text = " / ".join(str(p) for p in parts if p)
+    return text or empty
+
+
+templates.env.filters["format_bytes"] = _format_bytes
+templates.env.filters["format_os"] = _format_os
+
 router = APIRouter(tags=["web"], dependencies=[Depends(ensure_csrf)])
 
 DEVICES_PAGE_SIZE = 50
@@ -495,6 +529,12 @@ def _device_config_context(
     override_settings = override.get("settings") if override else {}
     inventory_pretty = None
     hardware_summary = None
+    host_info = None
+    network_info = None
+    users_info = None
+    software_info = None
+    minidumps_info = None
+    collector_errors = None
     latest = detail.get("latest_inventory")
     if latest and latest.get("payload") is not None:
         payload = latest["payload"]
@@ -503,6 +543,24 @@ def _device_config_context(
             hw = payload.get("hardware")
             if isinstance(hw, dict):
                 hardware_summary = hw
+            h = payload.get("host")
+            if isinstance(h, dict):
+                host_info = h
+            n = payload.get("network")
+            if isinstance(n, dict):
+                network_info = n
+            u = payload.get("users")
+            if isinstance(u, dict):
+                users_info = u
+            s = payload.get("software")
+            if isinstance(s, dict):
+                software_info = s
+            md = payload.get("minidumps")
+            if isinstance(md, dict):
+                minidumps_info = md
+            errs = payload.get("collector_errors")
+            if isinstance(errs, list):
+                collector_errors = errs
     silence = device_silence_status(
         detail.get("last_seen_at"),
         stale_after_seconds=settings.device_stale_after_seconds,
@@ -513,6 +571,12 @@ def _device_config_context(
         "device": detail,
         "inventory_pretty": inventory_pretty,
         "hardware_summary": hardware_summary,
+        "host_info": host_info,
+        "network_info": network_info,
+        "users_info": users_info,
+        "software_info": software_info,
+        "minidumps_info": minidumps_info,
+        "collector_errors": collector_errors,
         "user": user,
         "message": message,
         "error": error,
