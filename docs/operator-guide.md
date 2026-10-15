@@ -24,7 +24,7 @@ Verify:
 
 ```bash
 curl -fsS https://bad.example.com/v1/health
-# → {"status":"ok","version":"0.6.0"}
+# → {"status":"ok","version":"0.7.0"}
 ```
 
 ### Web login (local)
@@ -54,7 +54,7 @@ Security caveat: change the default `admin`/`admin` password before exposing the
 On a Windows build host, produce the MSI (see `installer/msi/README.md`), then install:
 
 ```powershell
-msiexec /i bad-agent-0.6.0.msi `
+msiexec /i bad-agent-0.7.0.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=<enrollment-token-from-install> `
   /qn
@@ -63,7 +63,7 @@ msiexec /i bad-agent-0.6.0.msi `
 Optional PATH for local `bad` CLI (default off):
 
 ```powershell
-msiexec /i bad-agent-0.6.0.msi `
+msiexec /i bad-agent-0.7.0.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=<enrollment-token-from-install> `
   ADDPATH=1 `
@@ -81,7 +81,7 @@ The service `BlazerityAssetDiscovery` starts automatically, enrolls once, stores
 
 Tags: edit on the device page (comma-separated). Filter the devices list by tag. Policies can also match `tag equals/contains`.
 
-Stale threshold defaults to 1 hour (`BAD_DEVICE_STALE_AFTER_SECONDS`); set ≈2× heartbeat if you prefer (e.g. `1800` for a 15‑minute heartbeat). Product version **0.6.0**.
+Stale threshold defaults to 1 hour (`BAD_DEVICE_STALE_AFTER_SECONDS`); set ≈2× heartbeat if you prefer (e.g. `1800` for a 15‑minute heartbeat). Product version **0.7.0**.
 
 Alternatively (automation — admin API token):
 

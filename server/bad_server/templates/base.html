@@ -11,7 +11,7 @@
     <a class="brand" href="/devices">bAD</a>
     <span class="tagline">blazerity Asset Discovery</span>
     {% if user is defined and user %}
-    <nav class="nav">
+    <nav class="nav" aria-label="Primary">
       <a href="/devices">Devices</a>
       <a href="/events">Events</a>
       {% if user.is_admin %}

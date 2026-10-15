@@ -72,7 +72,9 @@ public class CliReportTests
         var html = HtmlReportWriter.Write(snap);
         Assert.Contains("WORKSTATION-01", html, StringComparison.Ordinal);
         Assert.Contains("bAD", html, StringComparison.Ordinal);
-        Assert.Contains("--bg: #0f1419", html, StringComparison.Ordinal);
+        Assert.Contains("--bg: #f3f3f3", html, StringComparison.Ordinal);
+        Assert.Contains("--accent: #0067c0", html, StringComparison.Ordinal);
+        Assert.Contains("Segoe UI Variable", html, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -181,7 +183,7 @@ public class CliReportTests
     {
         SchemaVersion = 2,
         DeviceId = "dev-sample",
-        AgentVersion = "0.6.0",
+        AgentVersion = "0.7.0",
         CollectedAt = "2026-10-15T17:00:00Z",
         Host = new HostInfo
         {

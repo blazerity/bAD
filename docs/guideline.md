@@ -37,18 +37,18 @@
 
 ## Версионирование продукта
 
-- Semver продукта: сейчас **`0.6.0`** (см. корневой `VERSION` и [agents.md](agents.md)).
+- Semver продукта: сейчас **`0.7.0`** (см. корневой `VERSION` и [agents.md](agents.md)).
 - Правило bump: **patch +0.0.1** для hotfix; **minor +0.1.0** для feature; **major** только по явному решению владельца.
 - `schema_version` протокола inventory — отдельный integer, не путать с semver агента/сервера.
 - Агент шлёт `agent_version`; сервер отдаёт `version` в `/v1/health`.
 
 ## Как вырезать релиз агента (MSI)
 
-1. Версия на `main` = нужному semver (сейчас **0.6.0**); checklist в [agents.md](agents.md).
+1. Версия на `main` = нужному semver (сейчас **0.7.0**); checklist в [agents.md](agents.md).
 2. Тег и push:
    ```bash
-   git tag v0.6.0
-   git push origin v0.6.0
+   git tag v0.7.0
+   git push origin v0.7.0
    ```
 3. Workflow **`release-msi`** (`windows-latest`): publish agent → WiX v5 → GitHub Release assets `bad-agent-<ver>.msi` + `agent-release.json`.
 4. Права: `contents: write`. Для public repo достаточно `GITHUB_TOKEN`. Private позже — `BAD_GITHUB_TOKEN` на сервере.
@@ -75,7 +75,7 @@ BAD_AGENT_UPDATE_SYNC_ON_STARTUP=true
 
 - Просмотр парка / inventory (+ статус mirrored MSI).
 - Редактирование: LDAP settings, agent policies, per-device config override — без «дашборд-шума» и без произвольных команд.
-- Сохранять существующий визуальный язык (`static/style.css`), не превращать в marketing landing.
+- Визуальный язык: Windows 11 / Fluent light (`static/style.css` + согласованный `HtmlReportWriter`); не превращать в marketing landing.
 
 ## Агент
 
@@ -105,4 +105,4 @@ BAD_AGENT_UPDATE_SYNC_ON_STARTUP=true
 - Задачи: просмотр парка/inventory + login + LDAP + policies/overrides (admin).
 - Login: username/password (local first, optional LDAP). Не возвращать paste-admin-token gate.
 - Без редактирования активов, графиков, «дашборд-шума».
-- Сохранять существующий визуальный язык (`static/style.css`).
+- Визуальный язык: Windows 11 / Fluent light (`static/style.css`); HTML-отчёт CLI — та же семья токенов.

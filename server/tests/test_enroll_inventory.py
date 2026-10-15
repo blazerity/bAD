@@ -10,7 +10,7 @@ def test_health(client: TestClient):
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "ok"
-    assert body["version"] == "0.6.0"
+    assert body["version"] == "0.7.0"
 
 
 def test_enroll_inventory_get_flow(client: TestClient):
@@ -138,7 +138,7 @@ def test_schema_version_2_with_software_accepted(client: TestClient):
         client,
         device_id=device_id,
         hostname="SW-HOST",
-        agent_version="0.6.0",
+        agent_version="0.7.0",
     )
     r = client.post(
         "/v1/inventory",
@@ -146,7 +146,7 @@ def test_schema_version_2_with_software_accepted(client: TestClient):
         json={
             "schema_version": 2,
             "device_id": device_id,
-            "agent_version": "0.6.0",
+            "agent_version": "0.7.0",
             "collected_at": "2026-10-15T16:00:00Z",
             "host": {"hostname": "SW-HOST"},
             "software": {
@@ -174,7 +174,7 @@ def test_schema_version_2_extended_hardware_accepted(client: TestClient):
         client,
         device_id=device_id,
         hostname="DELL-HOST",
-        agent_version="0.6.0",
+        agent_version="0.7.0",
     )
     hardware = {
         "cpu": {"name": "Intel Core i7", "cores": 8, "logical": 16},
@@ -207,7 +207,7 @@ def test_schema_version_2_extended_hardware_accepted(client: TestClient):
         json={
             "schema_version": 2,
             "device_id": device_id,
-            "agent_version": "0.6.0",
+            "agent_version": "0.7.0",
             "collected_at": "2026-10-15T16:30:00Z",
             "host": {"hostname": "DELL-HOST"},
             "hardware": hardware,
@@ -250,7 +250,7 @@ def test_web_login_and_devices(client: TestClient):
         client,
         device_id="web-device",
         hostname="WEB-HOST",
-        agent_version="0.6.0",
+        agent_version="0.7.0",
     )
 
     denied = client.get("/devices", follow_redirects=False)
