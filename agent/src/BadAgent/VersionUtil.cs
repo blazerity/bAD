@@ -12,7 +12,7 @@ public static class VersionUtil
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     /// <summary>Assembly version as major.minor.patch, or <paramref name="fallback"/>.</summary>
-    public static string GetAgentVersion(string fallback = "0.5.0") =>
+    public static string GetAgentVersion(string fallback = "0.6.0") =>
         Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? fallback;
 
     public static bool TryParseSemVer(string? value, out Version version)

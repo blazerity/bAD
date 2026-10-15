@@ -11,6 +11,12 @@ public sealed class InventoryCollector : IInventoryCollector
     /// <summary>Max installed programs to include (Uninstall registry can be large).</summary>
     public const int MaxSoftwarePrograms = 500;
 
+    /// <summary>Max GPUs from Win32_VideoController.</summary>
+    public const int MaxGpus = 16;
+
+    /// <summary>Max physical RAM modules from Win32_PhysicalMemory.</summary>
+    public const int MaxRamModules = 32;
+
     public InventorySnapshot Collect(string deviceId, string agentVersion, CollectorOptions? options = null)
     {
         options ??= new CollectorOptions();
@@ -107,67 +113,9 @@ public sealed class InventoryCollector : IInventoryCollector
     {
         var hw = new HardwareInfo();
 
-        try
+        if (!OperatingSystem.IsWindows())
         {
-            if (OperatingSystem.IsWindows())
-            {
-                using var cpuSearcher = new ManagementObjectSearcher("SELECT * FROM Win32_Processor");
-                foreach (ManagementObject obj in cpuSearcher.Get())
-                {
-                    using (obj)
-                    {
-                        hw.Cpu = new CpuInfo
-                        {
-                            Name = obj["Name"]?.ToString()?.Trim(),
-                            Cores = ToInt(obj["NumberOfCores"]),
-                            Logical = ToInt(obj["NumberOfLogicalProcessors"])
-                        };
-                        break;
-                    }
-                }
-
-                using var cs = new ManagementObjectSearcher(
-                    "SELECT TotalPhysicalMemory FROM Win32_ComputerSystem");
-                foreach (ManagementObject obj in cs.Get())
-                {
-                    using (obj)
-                    {
-                        hw.RamBytes = ToLong(obj["TotalPhysicalMemory"]);
-                    }
-                }
-
-                hw.Disks = new List<DiskInfo>();
-                using var disks = new ManagementObjectSearcher("SELECT * FROM Win32_DiskDrive");
-                foreach (ManagementObject obj in disks.Get())
-                {
-                    using (obj)
-                    {
-                        hw.Disks.Add(new DiskInfo
-                        {
-                            Model = obj["Model"]?.ToString(),
-                            SizeBytes = ToLong(obj["Size"]),
-                            MediaType = obj["MediaType"]?.ToString()
-                        });
-                    }
-                }
-
-                hw.Volumes = new List<VolumeInfo>();
-                using var vols = new ManagementObjectSearcher(
-                    "SELECT * FROM Win32_LogicalDisk WHERE DriveType=3");
-                foreach (ManagementObject obj in vols.Get())
-                {
-                    using (obj)
-                    {
-                        hw.Volumes.Add(new VolumeInfo
-                        {
-                            Letter = obj["DeviceID"]?.ToString(),
-                            SizeBytes = ToLong(obj["Size"]),
-                            FreeBytes = ToLong(obj["FreeSpace"])
-                        });
-                    }
-                }
-            }
-            else
+            try
             {
                 hw.Cpu = new CpuInfo
                 {
@@ -186,13 +134,299 @@ public sealed class InventoryCollector : IInventoryCollector
                     })
                     .ToList();
             }
+            catch (Exception ex)
+            {
+                errors.Add(new CollectorError { Section = "hardware", Error = Truncate(ex.Message, 200) });
+            }
+
+            return hw;
+        }
+
+        CollectHardwareCpu(hw, errors);
+        CollectHardwareRamTotal(hw, errors);
+        CollectHardwareSystemIdentity(hw, errors);
+        CollectHardwareDisks(hw, errors);
+        CollectHardwareVolumes(hw, errors);
+        CollectHardwareGpus(hw, errors);
+        CollectHardwareRamModules(hw, errors);
+        return hw;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void CollectHardwareCpu(HardwareInfo hw, List<CollectorError> errors)
+    {
+        try
+        {
+            using var cpuSearcher = new ManagementObjectSearcher(
+                "SELECT Name, NumberOfCores, NumberOfLogicalProcessors FROM Win32_Processor");
+            foreach (ManagementObject obj in cpuSearcher.Get())
+            {
+                using (obj)
+                {
+                    hw.Cpu = new CpuInfo
+                    {
+                        Name = HardwareMaps.CleanWmiString(obj["Name"]?.ToString()),
+                        Cores = ToInt(obj["NumberOfCores"]),
+                        Logical = ToInt(obj["NumberOfLogicalProcessors"])
+                    };
+                    break;
+                }
+            }
         }
         catch (Exception ex)
         {
-            errors.Add(new CollectorError { Section = "hardware", Error = ex.Message });
+            errors.Add(new CollectorError { Section = "hardware.cpu", Error = Truncate(ex.Message, 200) });
         }
+    }
 
-        return hw;
+    [SupportedOSPlatform("windows")]
+    private static void CollectHardwareRamTotal(HardwareInfo hw, List<CollectorError> errors)
+    {
+        try
+        {
+            using var cs = new ManagementObjectSearcher(
+                "SELECT TotalPhysicalMemory FROM Win32_ComputerSystem");
+            foreach (ManagementObject obj in cs.Get())
+            {
+                using (obj)
+                {
+                    hw.RamBytes = ToLong(obj["TotalPhysicalMemory"]);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            errors.Add(new CollectorError { Section = "hardware.ram", Error = Truncate(ex.Message, 200) });
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void CollectHardwareSystemIdentity(HardwareInfo hw, List<CollectorError> errors)
+    {
+        try
+        {
+            string? biosSerial = null;
+            string? productSerial = null;
+            string? productName = null;
+            string? productVendor = null;
+            string? csModel = null;
+            string? csManufacturer = null;
+            string? boardSerial = null;
+
+            using (var bios = new ManagementObjectSearcher("SELECT SerialNumber FROM Win32_BIOS"))
+            {
+                foreach (ManagementObject obj in bios.Get())
+                {
+                    using (obj)
+                    {
+                        biosSerial = obj["SerialNumber"]?.ToString();
+                        break;
+                    }
+                }
+            }
+
+            using (var product = new ManagementObjectSearcher(
+                       "SELECT Name, IdentifyingNumber, Vendor FROM Win32_ComputerSystemProduct"))
+            {
+                foreach (ManagementObject obj in product.Get())
+                {
+                    using (obj)
+                    {
+                        productName = obj["Name"]?.ToString();
+                        productSerial = obj["IdentifyingNumber"]?.ToString();
+                        productVendor = obj["Vendor"]?.ToString();
+                        break;
+                    }
+                }
+            }
+
+            using (var cs = new ManagementObjectSearcher(
+                       "SELECT Model, Manufacturer FROM Win32_ComputerSystem"))
+            {
+                foreach (ManagementObject obj in cs.Get())
+                {
+                    using (obj)
+                    {
+                        csModel = obj["Model"]?.ToString();
+                        csManufacturer = obj["Manufacturer"]?.ToString();
+                        break;
+                    }
+                }
+            }
+
+            using (var board = new ManagementObjectSearcher("SELECT SerialNumber FROM Win32_BaseBoard"))
+            {
+                foreach (ManagementObject obj in board.Get())
+                {
+                    using (obj)
+                    {
+                        boardSerial = obj["SerialNumber"]?.ToString();
+                        break;
+                    }
+                }
+            }
+
+            // Prefer BIOS / CSP IdentifyingNumber (Dell Service Tag) over baseboard.
+            hw.SerialNumber = HardwareMaps.PreferFirst(biosSerial, productSerial, boardSerial);
+            hw.Model = HardwareMaps.PreferFirst(csModel, productName);
+            hw.Manufacturer = HardwareMaps.PreferFirst(csManufacturer, productVendor);
+        }
+        catch (Exception ex)
+        {
+            errors.Add(new CollectorError
+            {
+                Section = "hardware.system",
+                Error = Truncate(ex.Message, 200)
+            });
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void CollectHardwareDisks(HardwareInfo hw, List<CollectorError> errors)
+    {
+        try
+        {
+            hw.Disks = new List<DiskInfo>();
+            using var disks = new ManagementObjectSearcher(
+                "SELECT Model, Size, MediaType FROM Win32_DiskDrive");
+            foreach (ManagementObject obj in disks.Get())
+            {
+                using (obj)
+                {
+                    hw.Disks.Add(new DiskInfo
+                    {
+                        Model = HardwareMaps.CleanWmiString(obj["Model"]?.ToString()),
+                        SizeBytes = ToLong(obj["Size"]),
+                        MediaType = HardwareMaps.CleanWmiString(obj["MediaType"]?.ToString())
+                    });
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            errors.Add(new CollectorError { Section = "hardware.disks", Error = Truncate(ex.Message, 200) });
+            hw.Disks = null;
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void CollectHardwareVolumes(HardwareInfo hw, List<CollectorError> errors)
+    {
+        try
+        {
+            hw.Volumes = new List<VolumeInfo>();
+            using var vols = new ManagementObjectSearcher(
+                "SELECT DeviceID, Size, FreeSpace FROM Win32_LogicalDisk WHERE DriveType=3");
+            foreach (ManagementObject obj in vols.Get())
+            {
+                using (obj)
+                {
+                    hw.Volumes.Add(new VolumeInfo
+                    {
+                        Letter = obj["DeviceID"]?.ToString(),
+                        SizeBytes = ToLong(obj["Size"]),
+                        FreeBytes = ToLong(obj["FreeSpace"])
+                    });
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            errors.Add(new CollectorError
+            {
+                Section = "hardware.volumes",
+                Error = Truncate(ex.Message, 200)
+            });
+            hw.Volumes = null;
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void CollectHardwareGpus(HardwareInfo hw, List<CollectorError> errors)
+    {
+        try
+        {
+            var gpus = new List<GpuInfo>();
+            using var searcher = new ManagementObjectSearcher(
+                "SELECT Name, AdapterCompatibility, DriverVersion, AdapterRAM, PNPDeviceID " +
+                "FROM Win32_VideoController");
+            foreach (ManagementObject obj in searcher.Get())
+            {
+                using (obj)
+                {
+                    if (gpus.Count >= MaxGpus)
+                    {
+                        break;
+                    }
+
+                    var name = HardwareMaps.CleanWmiString(obj["Name"]?.ToString());
+                    if (name is null)
+                    {
+                        continue;
+                    }
+
+                    // Skip placeholder / remote display stubs when a real adapter name exists later.
+                    if (name.Contains("Microsoft Basic Display", StringComparison.OrdinalIgnoreCase)
+                        || name.Contains("Remote Desktop", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    gpus.Add(new GpuInfo
+                    {
+                        Name = name,
+                        Vendor = HardwareMaps.CleanWmiString(obj["AdapterCompatibility"]?.ToString()),
+                        DriverVersion = HardwareMaps.CleanWmiString(obj["DriverVersion"]?.ToString()),
+                        AdapterRamBytes = ToLong(obj["AdapterRAM"]),
+                        PnpDeviceId = HardwareMaps.CleanWmiString(obj["PNPDeviceID"]?.ToString())
+                    });
+                }
+            }
+
+            hw.Gpus = gpus.Count > 0 ? gpus : new List<GpuInfo>();
+        }
+        catch (Exception ex)
+        {
+            errors.Add(new CollectorError { Section = "hardware.gpus", Error = Truncate(ex.Message, 200) });
+            hw.Gpus = null;
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void CollectHardwareRamModules(HardwareInfo hw, List<CollectorError> errors)
+    {
+        try
+        {
+            // Prefer SMBIOSMemoryType; older hosts may reject that column — fall back.
+            const string withSmbios =
+                "SELECT Capacity, Speed, Manufacturer, PartNumber, SerialNumber, FormFactor, " +
+                "MemoryType, SMBIOSMemoryType, BankLabel, DeviceLocator FROM Win32_PhysicalMemory";
+            const string legacy =
+                "SELECT Capacity, Speed, Manufacturer, PartNumber, SerialNumber, FormFactor, " +
+                "MemoryType, BankLabel, DeviceLocator FROM Win32_PhysicalMemory";
+
+            List<RamModuleInfo> modules;
+            try
+            {
+                modules = ReadPhysicalMemoryModules(withSmbios);
+            }
+            catch (ManagementException)
+            {
+                modules = ReadPhysicalMemoryModules(legacy);
+            }
+
+            hw.RamModules = modules;
+            hw.RamMemoryType = HardwareMaps.ConsensusMemoryType(modules.Select(m => m.MemoryType));
+        }
+        catch (Exception ex)
+        {
+            errors.Add(new CollectorError
+            {
+                Section = "hardware.ram_modules",
+                Error = Truncate(ex.Message, 200)
+            });
+            hw.RamModules = null;
+        }
     }
 
     private static NetworkInfo CollectNetwork(List<CollectorError> errors)
@@ -398,6 +632,82 @@ public sealed class InventoryCollector : IInventoryCollector
         var bytes = address.GetAddressBytes();
         if (bytes.Length == 0) return null;
         return string.Join(":", bytes.Select(b => b.ToString("X2")));
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static List<RamModuleInfo> ReadPhysicalMemoryModules(string wql)
+    {
+        var modules = new List<RamModuleInfo>();
+        using var searcher = new ManagementObjectSearcher(wql);
+        foreach (ManagementObject obj in searcher.Get())
+        {
+            using (obj)
+            {
+                if (modules.Count >= MaxRamModules)
+                {
+                    break;
+                }
+
+                var capacity = ToLong(obj["Capacity"]);
+                var speed = ToInt(obj["Speed"]);
+                var manufacturer = HardwareMaps.CleanWmiString(obj["Manufacturer"]?.ToString());
+                var partNumber = HardwareMaps.CleanWmiString(obj["PartNumber"]?.ToString());
+                var serial = HardwareMaps.CleanWmiString(obj["SerialNumber"]?.ToString());
+                var bank = HardwareMaps.CleanWmiString(obj["BankLabel"]?.ToString());
+                var locator = HardwareMaps.CleanWmiString(obj["DeviceLocator"]?.ToString());
+                var formFactor = HardwareMaps.FormFactorName(ToInt(obj["FormFactor"]));
+                // Legacy MemoryType is often 0 on modern Dell; SMBIOSMemoryType has DDR4/DDR5/LPDDR*.
+                var memoryType = HardwareMaps.ResolveMemoryType(
+                    ToInt(SafeWmiProperty(obj, "MemoryType")),
+                    ToInt(SafeWmiProperty(obj, "SMBIOSMemoryType")));
+
+                // Skip empty rows that carry no useful identity/size.
+                if (capacity is null or 0
+                    && speed is null
+                    && manufacturer is null
+                    && partNumber is null
+                    && locator is null
+                    && bank is null
+                    && memoryType is null)
+                {
+                    continue;
+                }
+
+                modules.Add(new RamModuleInfo
+                {
+                    CapacityBytes = capacity,
+                    SpeedMhz = speed,
+                    Manufacturer = manufacturer,
+                    PartNumber = partNumber,
+                    SerialNumber = serial,
+                    FormFactor = formFactor,
+                    MemoryType = memoryType,
+                    BankLabel = bank,
+                    DeviceLocator = locator,
+                    Channel = HardwareMaps.InferChannel(locator, bank)
+                });
+            }
+        }
+
+        return modules;
+    }
+
+    /// <summary>Read optional WMI property; missing properties return null (no throw).</summary>
+    [SupportedOSPlatform("windows")]
+    private static object? SafeWmiProperty(ManagementBaseObject obj, string name)
+    {
+        try
+        {
+            return obj[name];
+        }
+        catch (ManagementException)
+        {
+            return null;
+        }
+        catch (System.Runtime.InteropServices.COMException)
+        {
+            return null;
+        }
     }
 
     private static int? ToInt(object? value)

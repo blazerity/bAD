@@ -38,9 +38,40 @@ public static class AsciiReportWriter
         {
             sb.AppendLine(BoxMid("Hardware"));
             var cpu = snap.Hardware.Cpu;
+            Row(sb, "Manufacturer", snap.Hardware.Manufacturer);
+            Row(sb, "Model", snap.Hardware.Model);
+            Row(sb, "Serial", snap.Hardware.SerialNumber);
             Row(sb, "CPU", cpu?.Name);
             Row(sb, "Cores", ReportFormat.FormatCores(cpu));
             Row(sb, "RAM", ReportFormat.FormatBytes(snap.Hardware.RamBytes));
+            Row(sb, "RAM type", snap.Hardware.RamMemoryType);
+
+            if (snap.Hardware.Gpus is { Count: > 0 })
+            {
+                sb.AppendLine(BoxMid("GPUs"));
+                foreach (var g in snap.Hardware.Gpus)
+                {
+                    var vendor = string.IsNullOrWhiteSpace(g.Vendor) ? "" : $"  ({g.Vendor})";
+                    Row(sb, Trunc(g.Name ?? "GPU", 28), vendor.Trim());
+                }
+            }
+
+            if (snap.Hardware.RamModules is { Count: > 0 })
+            {
+                sb.AppendLine(BoxMid("RAM modules"));
+                Row(sb, "Sticks", snap.Hardware.RamModules.Count.ToString(CultureInfo.InvariantCulture));
+                foreach (var m in snap.Hardware.RamModules)
+                {
+                    var part = m.PartNumber ?? m.Manufacturer ?? "module";
+                    var type = string.IsNullOrWhiteSpace(m.MemoryType) ? "" : $" {m.MemoryType}";
+                    var speed = m.SpeedMhz is null ? "" : $" {m.SpeedMhz} MHz";
+                    var channel = string.IsNullOrWhiteSpace(m.Channel) ? "" : $" {m.Channel}";
+                    Row(
+                        sb,
+                        Trunc(part, 28),
+                        $"{ReportFormat.FormatBytes(m.CapacityBytes)}{type}{speed}{channel}".Trim());
+                }
+            }
 
             if (snap.Hardware.Disks is { Count: > 0 })
             {

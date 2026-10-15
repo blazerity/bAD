@@ -1,6 +1,6 @@
 # Заметки для coding agents (bAD)
 
-Практическая карта репозитория: где что лежит, как гонять тесты, что нельзя сломать. Версия продукта: **0.5.0**.
+Практическая карта репозитория: где что лежит, как гонять тесты, что нельзя сломать. Версия продукта: **0.6.0**.
 
 ## Layout
 
@@ -14,7 +14,7 @@ server/                # FastAPI app + agent-update mirror
 installer/msi/         # WiX Product.wxs, write-config.ps1, bad.cmd
 deploy/debian/         # install.sh, systemd/, nginx/
 docs/                  # операторские и архитектурные документы
-VERSION                # канонический semver продукта (сейчас 0.5.0)
+VERSION                # канонический semver продукта (сейчас 0.6.0)
 .github/workflows/     # ci.yml + release-msi.yml
 ```
 
@@ -38,7 +38,7 @@ uvicorn bad_server.app:app --host 127.0.0.1 --port 8000
 pytest -q
 ```
 
-- Health: `GET /v1/health` → `{"status":"ok","version":"0.5.0"}`
+- Health: `GET /v1/health` → `{"status":"ok","version":"0.6.0"}`
 - Web: `/login` с `admin` / `admin` (первый boot) → `/devices` (mirrored MSI version в UI)
 - Policies UI: `/settings/policies` (admin) — условия + settings; на `/devices/{id}` — effective + override
 - LDAP UI: `/settings/ldap` (после входа как local admin)
@@ -110,11 +110,13 @@ Effective settings: **defaults &lt; matching policies (priority asc) &lt; per-de
 
 Safe knobs: intervals + `update_enabled` + collector toggles `collect_hardware` / `collect_users` / `collect_software`. Код: `server/bad_server/agent_config.py`, `ConfigStore.ApplyRemoteSettings`, `InventoryCollector` + `CollectorOptions`.
 
+Hardware (при `collect_hardware`): помимо CPU/RAM/disks/volumes — `serial_number`, `model`, `manufacturer`, `gpus[]`, `ram_modules[]` (+ per-stick `memory_type`), `ram_memory_type` (system consensus). Тип памяти: map WMI `SMBIOSMemoryType` / `MemoryType` → `DDR4`/`DDR5`/`LPDDR4`/`LPDDR5`/… (`HardwareMaps.ResolveMemoryType`). Soft-fail по подсекциям `hardware.*`. Cap: 16 GPU / 32 DIMM. Код: `InventoryCollector`, `HardwareMaps`, модели в `InventoryModels.cs`.
+
 Heartbeat health (optional → device meta): `last_inventory_ok`, `last_inventory_error`, `agent_uptime_seconds`, `system_drive_free_bytes`.
 
 ## Где живёт версия (bump checklist)
 
-Канон: корневой файл **`VERSION`** (`0.5.0`). Bump: patch +0.0.1 / minor +0.1.0 / major только по решению владельца. При релизе синхронизировать:
+Канон: корневой файл **`VERSION`** (`0.6.0`). Bump: patch +0.0.1 / minor +0.1.0 / major только по решению владельца. При релизе синхронизировать:
 
 | Место | Поле |
 |-------|------|
@@ -153,7 +155,7 @@ Heartbeat health (optional → device meta): `last_inventory_ok`, `last_inventor
 - Сборка **только на Windows** (локально или GHA `release-msi`): см. `installer/msi/README.md`.
 - Public properties: `SERVERURL`, `ENROLLMENTTOKEN` → ProgramData; optional `ADDPATH=1` → Machine PATH + `bad.cmd`.
 - UpgradeCode фиксирован; major upgrade, ProgramData не сносить (`Permanent`).
-- Артефакт: `bad-agent-0.5.0.msi` + `agent-release.json`.
+- Артефакт: `bad-agent-0.6.0.msi` + `agent-release.json`.
 
 ## Debian install
 
@@ -179,7 +181,7 @@ Heartbeat health (optional → device meta): `last_inventory_ok`, `last_inventor
 | Service CLI | `agent/src/BadAgent/ServiceCli.cs` |
 | Local CLI / reports | `BadCli.cs`, `AsciiReportWriter.cs`, `HtmlReportWriter.cs` |
 | HTTP client | `agent/src/BadAgent/BadApiClient.cs` |
-| Collectors | `agent/src/BadAgent/InventoryCollector.cs` |
+| Collectors | `agent/src/BadAgent/InventoryCollector.cs`, `HardwareMaps.cs` |
 | MSI PATH shim | `installer/msi/bad.cmd`, `ADDPATH` in `Product.wxs` |
 | Release MSI | `.github/workflows/release-msi.yml` |
 | План (locked) | `docs/architecture-plan.md` |
@@ -222,7 +224,7 @@ Seed default admin только если `COUNT(local_users)=0`.
 - Сборка **только на Windows** (WiX): см. `installer/msi/README.md`.
 - Public properties: `SERVERURL`, `ENROLLMENTTOKEN`; optional `ADDPATH=1` for Machine PATH + `bad.cmd`.
 - UpgradeCode фиксирован; major upgrade, ProgramData не сносить.
-- Артефакт: `bad-agent-0.5.0.msi` (имя по semver).
+- Артефакт: `bad-agent-0.6.0.msi` (имя по semver).
 
 ## Debian install
 

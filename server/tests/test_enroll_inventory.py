@@ -10,7 +10,7 @@ def test_health(client: TestClient):
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "ok"
-    assert body["version"] == "0.5.0"
+    assert body["version"] == "0.6.0"
 
 
 def test_enroll_inventory_get_flow(client: TestClient):
@@ -138,7 +138,7 @@ def test_schema_version_2_with_software_accepted(client: TestClient):
         client,
         device_id=device_id,
         hostname="SW-HOST",
-        agent_version="0.5.0",
+        agent_version="0.6.0",
     )
     r = client.post(
         "/v1/inventory",
@@ -146,7 +146,7 @@ def test_schema_version_2_with_software_accepted(client: TestClient):
         json={
             "schema_version": 2,
             "device_id": device_id,
-            "agent_version": "0.5.0",
+            "agent_version": "0.6.0",
             "collected_at": "2026-10-15T16:00:00Z",
             "host": {"hostname": "SW-HOST"},
             "software": {
@@ -168,12 +168,89 @@ def test_schema_version_2_with_software_accepted(client: TestClient):
     assert payload["software"]["programs"][0]["name"] == "Example App"
 
 
+def test_schema_version_2_extended_hardware_accepted(client: TestClient):
+    device_id = "device-hw-ext"
+    api_key = enroll_device(
+        client,
+        device_id=device_id,
+        hostname="DELL-HOST",
+        agent_version="0.6.0",
+    )
+    hardware = {
+        "cpu": {"name": "Intel Core i7", "cores": 8, "logical": 16},
+        "ram_bytes": 17179869184,
+        "ram_memory_type": "DDR4",
+        "serial_number": "SRVTAG01",
+        "model": "Latitude 5440",
+        "manufacturer": "Dell Inc.",
+        "gpus": [
+            {"name": "Intel UHD Graphics", "vendor": "Intel Corporation"},
+            {"name": "NVIDIA RTX", "vendor": "NVIDIA", "adapter_ram_bytes": 6442450944},
+        ],
+        "ram_modules": [
+            {
+                "capacity_bytes": 8589934592,
+                "speed_mhz": 3200,
+                "part_number": "M471A1K43EB1-CWE",
+                "channel": "Channel A",
+                "device_locator": "ChannelA-DIMM0",
+                "form_factor": "SODIMM",
+                "memory_type": "DDR4",
+            }
+        ],
+        "disks": [],
+        "volumes": [],
+    }
+    r = client.post(
+        "/v1/inventory",
+        headers={"Authorization": f"Bearer {api_key}"},
+        json={
+            "schema_version": 2,
+            "device_id": device_id,
+            "agent_version": "0.6.0",
+            "collected_at": "2026-10-15T16:30:00Z",
+            "host": {"hostname": "DELL-HOST"},
+            "hardware": hardware,
+            "collector_errors": [],
+        },
+    )
+    assert r.status_code == 200
+    detail = client.get(
+        f"/v1/devices/{device_id}",
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"},
+    )
+    assert detail.status_code == 200
+    payload = detail.json()["latest_inventory"]["payload"]
+    hw = payload["hardware"]
+    assert hw["serial_number"] == "SRVTAG01"
+    assert hw["model"] == "Latitude 5440"
+    assert hw["ram_memory_type"] == "DDR4"
+    assert len(hw["gpus"]) == 2
+    assert hw["ram_modules"][0]["speed_mhz"] == 3200
+    assert hw["ram_modules"][0]["memory_type"] == "DDR4"
+
+    # Web device page renders structured hardware summary when logged in.
+    login = client.post(
+        "/login",
+        data={"username": "admin", "password": "admin"},
+        follow_redirects=False,
+    )
+    assert login.status_code in (302, 303)
+    page = client.get(f"/devices/{device_id}")
+    assert page.status_code == 200
+    assert "SRVTAG01" in page.text
+    assert "Latitude 5440" in page.text
+    assert "Intel UHD Graphics" in page.text
+    assert "M471A1K43EB1-CWE" in page.text
+    assert "DDR4" in page.text
+
+
 def test_web_login_and_devices(client: TestClient):
     enroll_device(
         client,
         device_id="web-device",
         hostname="WEB-HOST",
-        agent_version="0.5.0",
+        agent_version="0.6.0",
     )
 
     denied = client.get("/devices", follow_redirects=False)

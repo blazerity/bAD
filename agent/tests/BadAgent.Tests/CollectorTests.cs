@@ -1,3 +1,4 @@
+using System.Text.Json;
 using BadAgent;
 
 namespace BadAgent.Tests;
@@ -8,11 +9,11 @@ public class CollectorTests
     public void InventoryCollector_ProducesSchemaVersion2()
     {
         var collector = new InventoryCollector();
-        var snap = collector.Collect("test-device-id", "0.5.0");
+        var snap = collector.Collect("test-device-id", "0.6.0");
 
         Assert.Equal(2, snap.SchemaVersion);
         Assert.Equal("test-device-id", snap.DeviceId);
-        Assert.Equal("0.5.0", snap.AgentVersion);
+        Assert.Equal("0.6.0", snap.AgentVersion);
         Assert.False(string.IsNullOrWhiteSpace(snap.CollectedAt));
         Assert.NotNull(snap.Host);
         Assert.False(string.IsNullOrWhiteSpace(snap.Host!.Hostname));
@@ -29,7 +30,7 @@ public class CollectorTests
         var collector = new InventoryCollector();
         var snap = collector.Collect(
             "dev-skip",
-            "0.5.0",
+            "0.6.0",
             new CollectorOptions
             {
                 CollectHardware = false,
@@ -54,7 +55,7 @@ public class CollectorTests
             var collector = new InventoryCollector();
             var snap = collector.Collect(
                 "dev-sw",
-                "0.5.0",
+                "0.6.0",
                 new CollectorOptions { CollectSoftware = true });
             // On Windows we may get a list (or empty after filters); must not crash.
             Assert.NotNull(snap.Software);
@@ -68,11 +69,116 @@ public class CollectorTests
 
         var linuxSnap = new InventoryCollector().Collect(
             "dev-sw",
-            "0.5.0",
+            "0.6.0",
             new CollectorOptions { CollectSoftware = true });
         Assert.NotNull(linuxSnap.Software);
         Assert.Null(linuxSnap.Software!.Programs);
         Assert.DoesNotContain(linuxSnap.CollectorErrors, e => e.Section == "software");
+    }
+
+    [Fact]
+    public void HardwareMaps_CleanWmiString_DropsPlaceholders()
+    {
+        Assert.Null(HardwareMaps.CleanWmiString("To Be Filled By O.E.M."));
+        Assert.Null(HardwareMaps.CleanWmiString("  "));
+        Assert.Equal("ABC1234", HardwareMaps.CleanWmiString(" ABC1234 "));
+    }
+
+    [Fact]
+    public void HardwareMaps_MemoryAndFormFactor_KnownCodes()
+    {
+        Assert.Equal("SODIMM", HardwareMaps.FormFactorName(12));
+        Assert.Equal("DDR5", HardwareMaps.MemoryTypeName(34));
+        Assert.Equal("DDR4", HardwareMaps.MemoryTypeName(26));
+        Assert.Equal("LPDDR4", HardwareMaps.MemoryTypeName(30));
+        Assert.Equal("LPDDR5", HardwareMaps.MemoryTypeName(35));
+        Assert.Equal("LPDDR5X", HardwareMaps.MemoryTypeName(37));
+    }
+
+    [Fact]
+    public void HardwareMaps_ResolveMemoryType_PrefersSmbiosOverUnknownLegacy()
+    {
+        // Dell/Windows often leave MemoryType=0 and put DDR5 in SMBIOSMemoryType.
+        Assert.Equal("DDR5", HardwareMaps.ResolveMemoryType(0, 34));
+        Assert.Equal("DDR4", HardwareMaps.ResolveMemoryType(26, null));
+        Assert.Equal("LPDDR5", HardwareMaps.ResolveMemoryType(null, 35));
+        Assert.Null(HardwareMaps.ResolveMemoryType(0, 0));
+        Assert.Null(HardwareMaps.ResolveMemoryType(null, null));
+    }
+
+    [Fact]
+    public void HardwareMaps_ConsensusMemoryType_WhenSticksAgree()
+    {
+        Assert.Equal("DDR5", HardwareMaps.ConsensusMemoryType(new[] { "DDR5", "DDR5" }));
+        Assert.Null(HardwareMaps.ConsensusMemoryType(new[] { "DDR4", "DDR5" }));
+        Assert.Equal("LPDDR4", HardwareMaps.ConsensusMemoryType(new string?[] { "LPDDR4", null, "Unknown" }));
+    }
+
+    [Fact]
+    public void HardwareMaps_InferChannel_FromDellLocator()
+    {
+        Assert.Equal("Channel A", HardwareMaps.InferChannel("ChannelA-DIMM0", null));
+        Assert.Equal("Channel B", HardwareMaps.InferChannel("DIMM B", "BANK 1"));
+        Assert.Null(HardwareMaps.InferChannel(null, null));
+    }
+
+    [Fact]
+    public void HardwareInfo_SerializesNewFields_SnakeCase()
+    {
+        var hw = new HardwareInfo
+        {
+            SerialNumber = "SRVTAG01",
+            Model = "Latitude 5440",
+            Manufacturer = "Dell Inc.",
+            RamBytes = 16L * 1024 * 1024 * 1024,
+            RamMemoryType = "DDR4",
+            Gpus = new List<GpuInfo>
+            {
+                new() { Name = "Intel UHD", Vendor = "Intel Corporation", DriverVersion = "31.0" },
+                new() { Name = "NVIDIA RTX", Vendor = "NVIDIA", AdapterRamBytes = 6L * 1024 * 1024 * 1024 }
+            },
+            RamModules = new List<RamModuleInfo>
+            {
+                new()
+                {
+                    CapacityBytes = 8L * 1024 * 1024 * 1024,
+                    SpeedMhz = 3200,
+                    PartNumber = "M471A1K43EB1-CWE",
+                    Channel = "Channel A",
+                    DeviceLocator = "ChannelA-DIMM0",
+                    FormFactor = "SODIMM",
+                    MemoryType = "DDR4"
+                }
+            }
+        };
+
+        var json = JsonSerializer.Serialize(hw);
+        Assert.Contains("\"serial_number\":\"SRVTAG01\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"model\":\"Latitude 5440\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"gpus\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"ram_modules\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"ram_memory_type\":\"DDR4\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"memory_type\":\"DDR4\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"part_number\":\"M471A1K43EB1-CWE\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"adapter_ram_bytes\"", json, StringComparison.Ordinal);
+
+        var roundTrip = JsonSerializer.Deserialize<HardwareInfo>(json);
+        Assert.NotNull(roundTrip);
+        Assert.Equal("SRVTAG01", roundTrip!.SerialNumber);
+        Assert.Equal("DDR4", roundTrip.RamMemoryType);
+        Assert.Equal(2, roundTrip.Gpus!.Count);
+        Assert.Equal("Channel A", roundTrip.RamModules![0].Channel);
+        Assert.Equal("DDR4", roundTrip.RamModules[0].MemoryType);
+        Assert.Equal(3200, roundTrip.RamModules[0].SpeedMhz);
+    }
+
+    [Fact]
+    public void InventoryCollector_HardwareCaps_ArePositive()
+    {
+        Assert.True(InventoryCollector.MaxGpus > 0);
+        Assert.True(InventoryCollector.MaxRamModules > 0);
+        Assert.True(InventoryCollector.MaxGpus <= 64);
+        Assert.True(InventoryCollector.MaxRamModules <= 128);
     }
 
     [Fact]
@@ -88,7 +194,7 @@ public class CollectorTests
     [Fact]
     public void BadApiClient_RejectsCleartextHttp()
     {
-        Assert.Throws<InvalidOperationException>(() => new BadApiClient("http://evil.example.com", "0.5.0"));
+        Assert.Throws<InvalidOperationException>(() => new BadApiClient("http://evil.example.com", "0.6.0"));
     }
 
     [Fact]

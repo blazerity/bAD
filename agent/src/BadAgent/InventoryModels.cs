@@ -14,7 +14,7 @@ public sealed class InventorySnapshot
     public string CollectedAt { get; set; } = "";
 
     [JsonPropertyName("agent_version")]
-    public string AgentVersion { get; set; } = "0.5.0";
+    public string AgentVersion { get; set; } = "0.6.0";
 
     [JsonPropertyName("host")]
     public HostInfo? Host { get; set; }
@@ -82,11 +82,87 @@ public sealed class HardwareInfo
     [JsonPropertyName("ram_bytes")]
     public long? RamBytes { get; set; }
 
+    /// <summary>
+    /// System-level DRAM generation when all sticks agree (e.g. DDR4 / DDR5 / LPDDR5).
+    /// </summary>
+    [JsonPropertyName("ram_memory_type")]
+    public string? RamMemoryType { get; set; }
+
+    /// <summary>System / chassis serial (Dell Service Tag when present).</summary>
+    [JsonPropertyName("serial_number")]
+    public string? SerialNumber { get; set; }
+
+    /// <summary>System product / model string (e.g. Dell Latitude 5440).</summary>
+    [JsonPropertyName("model")]
+    public string? Model { get; set; }
+
+    [JsonPropertyName("manufacturer")]
+    public string? Manufacturer { get; set; }
+
+    [JsonPropertyName("gpus")]
+    public List<GpuInfo>? Gpus { get; set; }
+
+    /// <summary>Physical RAM sticks from Win32_PhysicalMemory (when available).</summary>
+    [JsonPropertyName("ram_modules")]
+    public List<RamModuleInfo>? RamModules { get; set; }
+
     [JsonPropertyName("disks")]
     public List<DiskInfo>? Disks { get; set; }
 
     [JsonPropertyName("volumes")]
     public List<VolumeInfo>? Volumes { get; set; }
+}
+
+public sealed class GpuInfo
+{
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+
+    [JsonPropertyName("vendor")]
+    public string? Vendor { get; set; }
+
+    [JsonPropertyName("driver_version")]
+    public string? DriverVersion { get; set; }
+
+    [JsonPropertyName("adapter_ram_bytes")]
+    public long? AdapterRamBytes { get; set; }
+
+    [JsonPropertyName("pnp_device_id")]
+    public string? PnpDeviceId { get; set; }
+}
+
+public sealed class RamModuleInfo
+{
+    [JsonPropertyName("capacity_bytes")]
+    public long? CapacityBytes { get; set; }
+
+    [JsonPropertyName("speed_mhz")]
+    public int? SpeedMhz { get; set; }
+
+    [JsonPropertyName("manufacturer")]
+    public string? Manufacturer { get; set; }
+
+    [JsonPropertyName("part_number")]
+    public string? PartNumber { get; set; }
+
+    [JsonPropertyName("serial_number")]
+    public string? SerialNumber { get; set; }
+
+    [JsonPropertyName("form_factor")]
+    public string? FormFactor { get; set; }
+
+    [JsonPropertyName("memory_type")]
+    public string? MemoryType { get; set; }
+
+    [JsonPropertyName("bank_label")]
+    public string? BankLabel { get; set; }
+
+    [JsonPropertyName("device_locator")]
+    public string? DeviceLocator { get; set; }
+
+    /// <summary>Best-effort channel label derived from locator/bank when WMI exposes it.</summary>
+    [JsonPropertyName("channel")]
+    public string? Channel { get; set; }
 }
 
 public sealed class CpuInfo
