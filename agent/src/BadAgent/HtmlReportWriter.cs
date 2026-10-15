@@ -4,7 +4,8 @@ using System.Text;
 namespace BadAgent;
 
 /// <summary>
-/// Самодостаточный HTML inventory-отчёт — семейство Win11/Fluent light, русские подписи, иконки секций.
+/// Самодостаточный HTML inventory-отчёт — Win11/Fluent light, русские подписи.
+/// Разделы в логике Speccy: ОС → CPU → MB → Memory → GPU → Storage → …
 /// </summary>
 public static class HtmlReportWriter
 {
@@ -44,7 +45,8 @@ public static class HtmlReportWriter
 
         sb.AppendLine("</section>");
 
-        Section(sb, "host", "Система");
+        // Speccy order: OS → CPU → MB → Memory → GPU → Storage → Monitors → Battery → Network → …
+        Section(sb, "host", "Операционная система");
         sb.AppendLine("<dl class=\"grid\">");
         Kv(sb, "Имя узла", snap.Host?.Hostname);
         Kv(sb, "Домен", snap.Host?.Domain);
@@ -53,80 +55,49 @@ public static class HtmlReportWriter
         Kv(sb, "ОС", ReportFormat.FormatOs(snap.Host?.Os, "—"));
         sb.AppendLine("</dl>");
 
-        Section(sb, "cpu", "Оборудование");
         if (snap.Hardware is null)
         {
+            Section(sb, "cpu", "Оборудование");
             sb.AppendLine("<p class=\"muted\">пропущено (collect_hardware=false)</p>");
         }
         else
         {
-            sb.AppendLine("<dl class=\"grid\">");
-            Kv(sb, "Производитель", snap.Hardware.Manufacturer, "model");
-            Kv(sb, "Модель", snap.Hardware.Model, "model");
-            Kv(sb, "Серийный номер", snap.Hardware.SerialNumber, "serial");
-            Kv(sb, "Версия BIOS", snap.Hardware.BiosVersion, "serial");
-            Kv(sb, "Производитель BIOS", snap.Hardware.BiosManufacturer, "serial");
-            Kv(sb, "Процессор", snap.Hardware.Cpu?.Name, "cpu");
-            Kv(sb, "Ядра", snap.Hardware.Cpu is null
-                ? null
-                : $"{snap.Hardware.Cpu.Cores} / {snap.Hardware.Cpu.Logical} логических", "cpu");
-            Kv(sb, "ОЗУ", ReportFormat.FormatBytes(snap.Hardware.RamBytes, "—"), "ram");
-            Kv(sb, "Тип ОЗУ", snap.Hardware.RamMemoryType, "ram");
-            if (snap.Hardware.RamModules is { Count: > 0 })
-            {
-                Kv(sb, "Планки ОЗУ", snap.Hardware.RamModules.Count.ToString(), "ram");
-            }
+            var hw = snap.Hardware;
 
-            if (snap.Hardware.Battery is not null)
+            Section(sb, "cpu", "Процессор");
+            sb.AppendLine("<dl class=\"grid\">");
+            Kv(sb, "Имя", hw.Cpu?.Name, "cpu");
+            Kv(sb, "Ядра", hw.Cpu is null
+                ? null
+                : $"{hw.Cpu.Cores} / {hw.Cpu.Logical} логических", "cpu");
+            sb.AppendLine("</dl>");
+
+            Section(sb, "model", "Материнская плата");
+            sb.AppendLine("<dl class=\"grid\">");
+            Kv(sb, "Производитель", hw.Manufacturer, "model");
+            Kv(sb, "Модель", hw.Model, "model");
+            Kv(sb, "Серийный номер", hw.SerialNumber, "serial");
+            Kv(sb, "Версия BIOS", hw.BiosVersion, "serial");
+            Kv(sb, "Производитель BIOS", hw.BiosManufacturer, "serial");
+            Kv(sb, "Дата BIOS", hw.BiosReleaseDate, "serial");
+            sb.AppendLine("</dl>");
+
+            Section(sb, "ram", "Память");
+            sb.AppendLine("<dl class=\"grid\">");
+            Kv(sb, "ОЗУ", ReportFormat.FormatBytes(hw.RamBytes, "—"), "ram");
+            Kv(sb, "Тип ОЗУ", hw.RamMemoryType, "ram");
+            if (hw.RamModules is { Count: > 0 })
             {
-                var bat = snap.Hardware.Battery;
-                Kv(sb, "Батарея", bat.ChargePercent is null ? bat.Status : $"{bat.ChargePercent}% · {bat.Status}");
-                if (bat.EstimatedRuntimeMinutes is not null)
-                {
-                    Kv(sb, "Осталось (мин)", bat.EstimatedRuntimeMinutes.ToString());
-                }
+                Kv(sb, "Планки ОЗУ", hw.RamModules.Count.ToString(), "ram");
             }
 
             sb.AppendLine("</dl>");
-
-            if (snap.Hardware.Monitors is { Count: > 0 })
+            if (hw.RamModules is { Count: > 0 })
             {
-                SubHead(sb, "gpu", "Мониторы");
-                sb.AppendLine(
-                    "<table><thead><tr><th>Имя</th><th>Производитель</th><th>Серийный №</th>" +
-                    "<th>Разрешение</th></tr></thead><tbody>");
-                foreach (var m in snap.Hardware.Monitors)
-                {
-                    var res = m.Width is null || m.Height is null ? "—" : $"{m.Width}×{m.Height}";
-                    sb.AppendLine(
-                        $"<tr><td>{Enc(m.Name)}</td><td>{Enc(m.Manufacturer)}</td>" +
-                        $"<td>{Enc(m.SerialNumber)}</td><td>{Enc(res)}</td></tr>");
-                }
-
-                sb.AppendLine("</tbody></table>");
-            }
-
-            if (snap.Hardware.Gpus is { Count: > 0 })
-            {
-                SubHead(sb, "gpu", "Видеоадаптеры");
-                sb.AppendLine("<table><thead><tr><th>Имя</th><th>Вендор</th><th>Драйвер</th><th>Память адаптера</th></tr></thead><tbody>");
-                foreach (var g in snap.Hardware.Gpus)
-                {
-                    sb.AppendLine(
-                        $"<tr><td>{Enc(g.Name)}</td><td>{Enc(g.Vendor)}</td><td>{Enc(g.DriverVersion)}</td>" +
-                        $"<td>{Enc(ReportFormat.FormatBytes(g.AdapterRamBytes, "—"))}</td></tr>");
-                }
-
-                sb.AppendLine("</tbody></table>");
-            }
-
-            if (snap.Hardware.RamModules is { Count: > 0 })
-            {
-                SubHead(sb, "ram", "Модули ОЗУ");
                 sb.AppendLine(
                     "<table><thead><tr><th>Part</th><th>Тип</th><th>Ёмкость</th><th>Частота</th>" +
                     "<th>Канал</th><th>Locator</th></tr></thead><tbody>");
-                foreach (var m in snap.Hardware.RamModules)
+                foreach (var m in hw.RamModules)
                 {
                     var speed = m.SpeedMhz is null ? "—" : $"{m.SpeedMhz} MHz";
                     sb.AppendLine(
@@ -140,28 +111,83 @@ public static class HtmlReportWriter
                 sb.AppendLine("</tbody></table>");
             }
 
-            if (snap.Hardware.Disks is { Count: > 0 })
+            Section(sb, "gpu", "Видео");
+            if (hw.Gpus is { Count: > 0 })
+            {
+                sb.AppendLine("<table><thead><tr><th>Имя</th><th>Вендор</th><th>Драйвер</th><th>Память адаптера</th></tr></thead><tbody>");
+                foreach (var g in hw.Gpus)
+                {
+                    sb.AppendLine(
+                        $"<tr><td>{Enc(g.Name)}</td><td>{Enc(g.Vendor)}</td><td>{Enc(g.DriverVersion)}</td>" +
+                        $"<td>{Enc(ReportFormat.FormatBytes(g.AdapterRamBytes, "—"))}</td></tr>");
+                }
+
+                sb.AppendLine("</tbody></table>");
+            }
+            else
+            {
+                sb.AppendLine("<p class=\"muted\">нет видеоадаптеров</p>");
+            }
+
+            Section(sb, "disk", "Накопители");
+            if (hw.Disks is { Count: > 0 })
             {
                 SubHead(sb, "disk", "Диски");
                 sb.AppendLine("<table><thead><tr><th>Модель</th><th>Размер</th><th>Носитель</th></tr></thead><tbody>");
-                foreach (var d in snap.Hardware.Disks)
+                foreach (var d in hw.Disks)
                 {
                     sb.AppendLine($"<tr><td>{Enc(d.Model)}</td><td>{Enc(ReportFormat.FormatBytes(d.SizeBytes, "—"))}</td><td>{Enc(d.MediaType)}</td></tr>");
                 }
 
                 sb.AppendLine("</tbody></table>");
             }
+            else
+            {
+                sb.AppendLine("<p class=\"muted\">нет дисков</p>");
+            }
 
-            if (snap.Hardware.Volumes is { Count: > 0 })
+            if (hw.Volumes is { Count: > 0 })
             {
                 SubHead(sb, "volume", "Тома");
                 sb.AppendLine("<table><thead><tr><th>Буква</th><th>Размер</th><th>Свободно</th></tr></thead><tbody>");
-                foreach (var v in snap.Hardware.Volumes)
+                foreach (var v in hw.Volumes)
                 {
                     sb.AppendLine($"<tr><td>{Enc(v.Letter)}</td><td>{Enc(ReportFormat.FormatBytes(v.SizeBytes, "—"))}</td><td>{Enc(ReportFormat.FormatBytes(v.FreeBytes, "—"))}</td></tr>");
                 }
 
                 sb.AppendLine("</tbody></table>");
+            }
+
+            if (hw.Monitors is { Count: > 0 })
+            {
+                Section(sb, "gpu", "Мониторы");
+                sb.AppendLine(
+                    "<table><thead><tr><th>Имя</th><th>Производитель</th><th>Серийный №</th>" +
+                    "<th>Разрешение</th></tr></thead><tbody>");
+                foreach (var m in hw.Monitors)
+                {
+                    var res = m.Width is null || m.Height is null ? "—" : $"{m.Width}×{m.Height}";
+                    sb.AppendLine(
+                        $"<tr><td>{Enc(m.Name)}</td><td>{Enc(m.Manufacturer)}</td>" +
+                        $"<td>{Enc(m.SerialNumber)}</td><td>{Enc(res)}</td></tr>");
+                }
+
+                sb.AppendLine("</tbody></table>");
+            }
+
+            if (hw.Battery is not null)
+            {
+                Section(sb, "events", "Батарея");
+                sb.AppendLine("<dl class=\"grid\">");
+                var bat = hw.Battery;
+                Kv(sb, "Заряд", bat.ChargePercent is null ? null : $"{bat.ChargePercent}%");
+                Kv(sb, "Статус", bat.Status);
+                if (bat.EstimatedRuntimeMinutes is not null)
+                {
+                    Kv(sb, "Осталось (мин)", bat.EstimatedRuntimeMinutes.ToString());
+                }
+
+                sb.AppendLine("</dl>");
             }
         }
 
