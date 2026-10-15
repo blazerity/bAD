@@ -74,6 +74,23 @@ CREATE TABLE IF NOT EXISTS agent_update (
   release_url TEXT,
   synced_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS agent_policies (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  priority INTEGER NOT NULL DEFAULT 100,
+  conditions_json TEXT NOT NULL,
+  settings_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS device_config_overrides (
+  device_id TEXT PRIMARY KEY REFERENCES devices(device_id) ON DELETE CASCADE,
+  settings_json TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 """
 
 
@@ -557,3 +574,212 @@ class Database:
             "release_url": release_url,
             "synced_at": now,
         }
+
+    # --- agent remote config (policies + per-device overrides) ---
+
+    @staticmethod
+    def _row_to_policy(row: sqlite3.Row) -> dict[str, Any]:
+        try:
+            conditions = json.loads(row["conditions_json"] or "[]")
+        except json.JSONDecodeError:
+            conditions = []
+        try:
+            settings = json.loads(row["settings_json"] or "{}")
+        except json.JSONDecodeError:
+            settings = {}
+        return {
+            "id": row["id"],
+            "name": row["name"],
+            "enabled": bool(row["enabled"]),
+            "priority": int(row["priority"]),
+            "conditions": conditions if isinstance(conditions, list) else [],
+            "settings": settings if isinstance(settings, dict) else {},
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def list_agent_policies(self) -> list[dict[str, Any]]:
+        with self.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM agent_policies
+                ORDER BY priority ASC, id ASC
+                """
+            ).fetchall()
+        return [self._row_to_policy(r) for r in rows]
+
+    def get_agent_policy(self, policy_id: int) -> Optional[dict[str, Any]]:
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM agent_policies WHERE id = ?", (policy_id,)
+            ).fetchone()
+        return self._row_to_policy(row) if row else None
+
+    def create_agent_policy(
+        self,
+        *,
+        name: str,
+        enabled: bool,
+        priority: int,
+        conditions: list[dict[str, Any]],
+        settings: dict[str, Any],
+    ) -> dict[str, Any]:
+        now = utc_now()
+        with self.connection() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO agent_policies(
+                  name, enabled, priority, conditions_json, settings_json,
+                  created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    name,
+                    1 if enabled else 0,
+                    priority,
+                    json.dumps(conditions, separators=(",", ":"), ensure_ascii=False),
+                    json.dumps(settings, separators=(",", ":"), ensure_ascii=False),
+                    now,
+                    now,
+                ),
+            )
+            policy_id = int(cur.lastrowid)
+        policy = self.get_agent_policy(policy_id)
+        assert policy is not None
+        return policy
+
+    def update_agent_policy(
+        self,
+        policy_id: int,
+        *,
+        name: str,
+        enabled: bool,
+        priority: int,
+        conditions: list[dict[str, Any]],
+        settings: dict[str, Any],
+    ) -> Optional[dict[str, Any]]:
+        now = utc_now()
+        with self.connection() as conn:
+            cur = conn.execute(
+                """
+                UPDATE agent_policies SET
+                  name = ?, enabled = ?, priority = ?,
+                  conditions_json = ?, settings_json = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    name,
+                    1 if enabled else 0,
+                    priority,
+                    json.dumps(conditions, separators=(",", ":"), ensure_ascii=False),
+                    json.dumps(settings, separators=(",", ":"), ensure_ascii=False),
+                    now,
+                    policy_id,
+                ),
+            )
+            if cur.rowcount == 0:
+                return None
+        return self.get_agent_policy(policy_id)
+
+    def delete_agent_policy(self, policy_id: int) -> bool:
+        with self.connection() as conn:
+            cur = conn.execute(
+                "DELETE FROM agent_policies WHERE id = ?", (policy_id,)
+            )
+            return cur.rowcount > 0
+
+    def get_device_config_override(self, device_id: str) -> Optional[dict[str, Any]]:
+        with self.connection() as conn:
+            row = conn.execute(
+                """
+                SELECT device_id, settings_json, updated_at
+                FROM device_config_overrides WHERE device_id = ?
+                """,
+                (device_id,),
+            ).fetchone()
+        if not row:
+            return None
+        try:
+            settings = json.loads(row["settings_json"] or "{}")
+        except json.JSONDecodeError:
+            settings = {}
+        return {
+            "device_id": row["device_id"],
+            "settings": settings if isinstance(settings, dict) else {},
+            "updated_at": row["updated_at"],
+        }
+
+    def set_device_config_override(
+        self, device_id: str, settings: dict[str, Any]
+    ) -> dict[str, Any]:
+        now = utc_now()
+        payload = json.dumps(settings, separators=(",", ":"), ensure_ascii=False)
+        with self.connection() as conn:
+            exists = conn.execute(
+                "SELECT device_id FROM devices WHERE device_id = ?", (device_id,)
+            ).fetchone()
+            if not exists:
+                raise KeyError(device_id)
+            conn.execute(
+                """
+                INSERT INTO device_config_overrides(device_id, settings_json, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(device_id) DO UPDATE SET
+                  settings_json = excluded.settings_json,
+                  updated_at = excluded.updated_at
+                """,
+                (device_id, payload, now),
+            )
+        override = self.get_device_config_override(device_id)
+        assert override is not None
+        return override
+
+    def delete_device_config_override(self, device_id: str) -> bool:
+        with self.connection() as conn:
+            cur = conn.execute(
+                "DELETE FROM device_config_overrides WHERE device_id = ?",
+                (device_id,),
+            )
+            return cur.rowcount > 0
+
+    def latest_inventory_payload(self, device_id: str) -> Optional[dict[str, Any]]:
+        with self.connection() as conn:
+            snap = conn.execute(
+                """
+                SELECT payload_json FROM inventory_snapshots
+                WHERE device_id = ?
+                ORDER BY received_at DESC, id DESC
+                LIMIT 1
+                """,
+                (device_id,),
+            ).fetchone()
+        if not snap:
+            return None
+        try:
+            payload = json.loads(snap["payload_json"])
+        except json.JSONDecodeError:
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def compute_device_effective_config(self, device_id: str) -> Optional[dict[str, Any]]:
+        from .agent_config import compute_effective_config
+
+        with self.connection() as conn:
+            device = conn.execute(
+                "SELECT * FROM devices WHERE device_id = ?", (device_id,)
+            ).fetchone()
+        if not device:
+            return None
+        override_row = self.get_device_config_override(device_id)
+        override = override_row["settings"] if override_row else None
+        result = compute_effective_config(
+            hostname=device["hostname"],
+            meta=self._parse_meta(device["meta_json"]),
+            inventory_payload=self.latest_inventory_payload(device_id),
+            policies=self.list_agent_policies(),
+            override=override,
+        )
+        result["device_id"] = device_id
+        result["override"] = override_row
+        return result
+

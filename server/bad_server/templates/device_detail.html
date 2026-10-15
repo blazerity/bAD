@@ -4,12 +4,76 @@
 <section>
   <p class="crumb"><a href="/devices">Devices</a> / {{ device.hostname or device.device_id }}</p>
   <h1>{{ device.hostname or "(unknown host)" }}</h1>
+  {% if message %}<p class="ok">{{ message }}</p>{% endif %}
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
   <dl class="meta">
     <div><dt>Device ID</dt><dd class="mono">{{ device.device_id }}</dd></div>
     <div><dt>Agent</dt><dd>{{ device.agent_version or "—" }}</dd></div>
     <div><dt>Enrolled</dt><dd>{{ device.enrolled_at or "—" }}</dd></div>
     <div><dt>Last seen</dt><dd>{{ device.last_seen_at or "—" }}</dd></div>
   </dl>
+
+  <h2>Effective agent config</h2>
+  <p class="muted">
+    Precedence: defaults &lt; matching policies (by priority) &lt; manual override.
+    Version <span class="mono">{{ config_version }}</span>
+  </p>
+  <dl class="meta">
+    <div><dt>inventory_interval_hours</dt><dd class="mono">{{ effective.inventory_interval_hours }}</dd></div>
+    <div><dt>heartbeat_interval_minutes</dt><dd class="mono">{{ effective.heartbeat_interval_minutes }}</dd></div>
+    <div><dt>update_check_interval_hours</dt><dd class="mono">{{ effective.update_check_interval_hours }}</dd></div>
+    <div><dt>update_enabled</dt><dd class="mono">{{ effective.update_enabled }}</dd></div>
+  </dl>
+  <p class="muted">
+    Match context:
+    hostname=<span class="mono">{{ match_context.hostname or "—" }}</span>
+    · domain=<span class="mono">{{ match_context.domain or "—" }}</span>
+    · os_caption=<span class="mono">{{ match_context.os_caption or "—" }}</span>
+  </p>
+  {% if matched_policies %}
+  <p class="muted">Matched policies:
+    {% for p in matched_policies %}
+      <a href="/settings/policies/{{ p.id }}">{{ p.name }}</a>{% if not loop.last %}, {% endif %}
+    {% endfor %}
+  </p>
+  {% else %}
+  <p class="muted">No policies matched.</p>
+  {% endif %}
+
+  {% if user.is_admin %}
+  <h2>Manual override</h2>
+  <p class="muted">Leave a field blank to omit it from the override blob. Clear removes the whole override.</p>
+  <form method="post" action="/devices/{{ device.device_id }}/config-override" class="settings-form">
+    <label for="inventory_interval_hours">inventory_interval_hours</label>
+    <input id="inventory_interval_hours" name="inventory_interval_hours" type="number" min="1"
+      value="{{ override_settings.inventory_interval_hours if override_settings.inventory_interval_hours is defined else '' }}"
+      placeholder="default {{ defaults.inventory_interval_hours }}">
+
+    <label for="heartbeat_interval_minutes">heartbeat_interval_minutes</label>
+    <input id="heartbeat_interval_minutes" name="heartbeat_interval_minutes" type="number" min="1"
+      value="{{ override_settings.heartbeat_interval_minutes if override_settings.heartbeat_interval_minutes is defined else '' }}"
+      placeholder="default {{ defaults.heartbeat_interval_minutes }}">
+
+    <label for="update_check_interval_hours">update_check_interval_hours</label>
+    <input id="update_check_interval_hours" name="update_check_interval_hours" type="number" min="1"
+      value="{{ override_settings.update_check_interval_hours if override_settings.update_check_interval_hours is defined else '' }}"
+      placeholder="default {{ defaults.update_check_interval_hours }}">
+
+    <label for="update_enabled">update_enabled</label>
+    <select id="update_enabled" name="update_enabled">
+      <option value="" {% if override_settings.update_enabled is not defined %}selected{% endif %}>(omit)</option>
+      <option value="true" {% if override_settings.update_enabled is defined and override_settings.update_enabled %}selected{% endif %}>true</option>
+      <option value="false" {% if override_settings.update_enabled is defined and not override_settings.update_enabled %}selected{% endif %}>false</option>
+    </select>
+
+    <div class="form-actions">
+      <button type="submit">Save override</button>
+      {% if has_override %}
+      <button type="submit" name="clear_override" value="1" class="secondary">Clear override</button>
+      {% endif %}
+    </div>
+  </form>
+  {% endif %}
 
   <h2>Latest inventory</h2>
   {% if inventory_pretty %}

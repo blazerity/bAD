@@ -13,7 +13,10 @@
     {% if user is defined and user %}
     <nav class="nav">
       <a href="/devices">Devices</a>
-      {% if user.is_admin %}<a href="/settings/ldap">LDAP</a>{% endif %}
+      {% if user.is_admin %}
+      <a href="/settings/policies">Policies</a>
+      <a href="/settings/ldap">LDAP</a>
+      {% endif %}
       {% if user.source == 'local' %}<a href="/account/password">Password</a>{% endif %}
     </nav>
     <form class="logout" method="post" action="/logout">
