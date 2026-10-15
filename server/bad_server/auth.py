@@ -127,14 +127,25 @@ def current_web_user(
 
 
 def require_web_user(
+    request: Request,
     user: Optional[WebUser] = Depends(current_web_user),
 ) -> WebUser:
-    """HTML-шлюз сессии: redirect на login (303) вместо JSON 401."""
+    """HTML-шлюз сессии: redirect на login (303) вместо JSON 401.
+
+    SEC-004: при must_change_password разрешены только /account/password и /logout.
+    """
     if not user:
         raise HTTPException(
             status_code=status.HTTP_303_SEE_OTHER,
             headers={"Location": "/login"},
         )
+    if user.must_change_password:
+        path = request.url.path
+        if path not in {"/account/password", "/logout"}:
+            raise HTTPException(
+                status_code=status.HTTP_303_SEE_OTHER,
+                headers={"Location": "/account/password"},
+            )
     return user
 
 

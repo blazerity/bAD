@@ -141,6 +141,9 @@ flowchart LR
 
 ### Web UI и аутентификация
 
+**SEC-004 / SEC-010 (0.9.x):** при `must_change_password` `require_web_user` пускает только `/account/password` и `/logout`; в `base.html` скрыта основная навигация. CSRF: cookie `bad_csrf` + поле формы `csrf_token` (см. `bad_server/csrf.py`, `CsrfAwareRoute`); все HTML POST проверяются.
+
+
 Визуальный язык (с **0.8.0**, актуально в **0.9.0**): светлая оболочка в духе Windows 11 / Fluent — Segoe UI Variable, слоистые полупрозрачные поверхности, радиусы 4px (controls) / 8px (surfaces), акцент Fluent blue (`#0067C0`), UI copy на русском, stroke-иконки секций (без emoji). Стили: `server/bad_server/static/style.css` + `favicon.svg`/`favicon.ico`; локальный HTML-отчёт (`HtmlReportWriter`) — та же семья токенов/иконок. Иконка агента: `agent/assets/bad.ico` (`ApplicationIcon` + WiX `ARPPRODUCTICON`).
 
 | Path | Назначение |
@@ -163,7 +166,7 @@ flowchart LR
 **Локальные пользователи**
 
 - Таблица `local_users`; пароли — argon2.
-- Первый boot / пустая таблица: создаётся `admin` / `admin` с флагом `must_change_password` (баннер + редирект на смену пароля).
+- Первый boot / пустая таблица: создаётся `admin` / `admin` с флагом `must_change_password` (баннер + редирект; остальные HTML-страницы закрыты до смены пароля).
 - Работает **без** настроенного LDAP.
 
 **LDAP (опционально)**

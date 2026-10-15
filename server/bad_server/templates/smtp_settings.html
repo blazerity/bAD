@@ -1,4 +1,5 @@
 {% extends "settings_base.html" %}
+{% from "macros/csrf.html" import csrf_field %}
 {% set settings_section = 'mail' %}
 {% block title %}Почта и уведомления — bAD{% endblock %}
 {% block settings_content %}
@@ -13,6 +14,7 @@
   {% if test_result %}<p class="{% if test_result.startswith('ОК') %}ok{% else %}error{% endif %}">{{ test_result }}</p>{% endif %}
 
   <form method="post" action="/settings/mail" class="settings-form">
+    {{ csrf_field(csrf_token) }}
     <label class="check">
       <input type="checkbox" name="enabled" value="1" {% if smtp.enabled %}checked{% endif %}>
       Включить отправку писем

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros/csrf.html" import csrf_field %}
 {% block title %}Вход — bAD{% endblock %}
 {% block content %}
 <section class="login">
@@ -12,6 +13,7 @@
   <p class="error">{{ error }}</p>
   {% endif %}
   <form method="post" action="/login">
+    {{ csrf_field(csrf_token) }}
     <label for="username">Имя пользователя</label>
     <input id="username" name="username" type="text" autocomplete="username" required autofocus>
     <label for="password">Пароль</label>

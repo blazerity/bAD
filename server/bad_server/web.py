@@ -49,10 +49,23 @@ from .smtp_mail import (
 )
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+
+def _csrf_context(request: Request) -> dict:
+    from .csrf import ensure_request_csrf
+
+    return {"csrf_token": ensure_request_csrf(request)}
+
+
+templates = Jinja2Templates(
+    directory=str(TEMPLATES_DIR),
+    context_processors=[_csrf_context],
+)
 templates.env.globals["app_version"] = __version__
 
-router = APIRouter(tags=["web"])
+from .web_guards import CsrfAwareRoute
+
+router = APIRouter(tags=["web"], route_class=CsrfAwareRoute)
 
 DEVICES_PAGE_SIZE = 50
 EVENTS_PAGE_SIZE = 50

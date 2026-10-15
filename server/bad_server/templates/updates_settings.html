@@ -1,4 +1,5 @@
 {% extends "settings_base.html" %}
+{% from "macros/csrf.html" import csrf_field %}
 {% set settings_section = 'updates' %}
 {% block title %}Обновления агента — bAD{% endblock %}
 {% block settings_content %}
@@ -29,6 +30,7 @@
   {% endif %}
 
   <form method="post" action="/settings/updates/sync" class="form-actions">
+    {{ csrf_field(csrf_token) }}
     <button type="submit">Синхронизировать сейчас</button>
   </form>
 </section>
