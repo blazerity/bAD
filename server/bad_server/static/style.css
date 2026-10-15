@@ -624,6 +624,11 @@ button.subtle-danger:hover,
 .device-card .identity-meta { margin-bottom: 0.65rem; }
 .device-card .inventory-meta { margin: 0.35rem 0 0.75rem; }
 .device-shell { margin-top: 0.75rem; }
+.device-shell .settings-nav-item {
+  align-items: center;
+  padding: 0.5rem 0.65rem;
+}
+.device-shell .settings-nav-item .settings-nav-icon { margin-top: 0; }
 .device-shell .settings-nav-item.nav-secondary {
   margin-top: 0.5rem;
   opacity: 0.92;
@@ -633,14 +638,24 @@ button.subtle-danger:hover,
 }
 .device-panel { display: none; }
 .device-panel.is-active { display: block; animation: page-in var(--dur-nav) var(--ease); }
+/* Панели разделов — белая подложка как карточки на Обзоре */
+.device-panel.is-active:not([data-device-panel="overview"]) {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-surface);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  padding: 1rem 1.1rem 1.15rem;
+}
 .device-panel > h2 {
-  margin: 0 0 0.55rem;
-  padding-bottom: 0.3rem;
+  margin: 0 0 0.65rem;
+  padding-bottom: 0.35rem;
   border-bottom: 1px solid var(--border);
   font-size: 1.05rem;
 }
 .device-panel > h3 {
-  margin: 1.1rem 0 0.35rem;
+  margin: 1.25rem 0 0.45rem;
   font-size: 0.95rem;
 }
 
@@ -680,43 +695,44 @@ button.subtle-danger:hover,
   text-overflow: ellipsis;
 }
 
+/* Vertical rhythm Speccy — как до уплотнения в nav-ветке */
 .speccy-group {
-  margin: 0.55rem 0 0.1rem;
-  font-size: 0.78rem;
+  margin: 0.85rem 0 0.2rem;
+  font-size: 0.82rem;
   font-weight: 600;
   color: var(--muted);
   letter-spacing: 0.01em;
 }
 dl.speccy-kv {
   display: grid;
-  grid-template-columns: minmax(7rem, 11rem) minmax(0, 1fr);
+  grid-template-columns: minmax(7.5rem, 12rem) minmax(0, 1fr);
   gap: 0;
   margin: 0;
   padding: 0;
-  line-height: 1.3;
+  line-height: 1.45;
 }
 dl.speccy-kv > div { display: contents; }
 dl.speccy-kv dt {
   margin: 0;
-  padding: 0.22rem 0.65rem 0.22rem 0;
+  padding: 0.32rem 0.75rem 0.32rem 0;
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   font-weight: 600;
   border-bottom: 1px solid var(--border);
   align-self: stretch;
 }
 dl.speccy-kv dd {
   margin: 0;
-  padding: 0.22rem 0;
+  padding: 0.32rem 0;
   font-family: var(--mono);
-  font-size: 0.86rem;
+  font-size: 0.9rem;
   border-bottom: 1px solid var(--border);
   word-break: break-word;
 }
-.speccy-table { margin-top: 0.4rem; }
+.speccy-table { margin-top: 0.5rem; }
 .collector-errors {
   color: var(--error);
-  margin: 0.4rem 0 0;
+  margin: 0.5rem 0 0;
   padding-left: 1.2rem;
 }
 .raw-inventory {
