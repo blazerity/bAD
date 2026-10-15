@@ -31,11 +31,11 @@ curl -fsS https://bad.example.com/v1/health
 
 1. Откройте `https://bad.example.com/login`
 2. Войдите локальным аккаунтом по умолчанию: **`admin` / `admin`**
-3. Сразу смените пароль (`Пароль` в шапке или принудительный редирект)
+3. **Сразу смените пароль** (`Пароль` в шапке / `/account/password`). До смены UI лишь напоминает — полноценный admin-доступ уже есть. Не публикуйте UI за пределы доверенной сети, пока пароль не сменён.
 
 Работает **без настроенного LDAP**. Admin API token для браузерного UI **не** используется.
 
-Токены лежат в `/etc/bad/site.env` (режим `640`, `root:bad`). uvicorn слушает только `127.0.0.1:8000`; nginx терминирует TLS на 443.
+Токены лежат в `/etc/bad/site.env` (режим `640`, `root:bad`). uvicorn слушает только `127.0.0.1:8000`; nginx терминирует TLS на 443 (в проде обязателен HTTPS — cookie сессии рассчитан на TLS; см. [Безопасность](#безопасность-для-операторов)).
 
 ### Опционально: LDAP из UI
 
@@ -47,7 +47,7 @@ curl -fsS https://bad.example.com/v1/health
 
 Bind password хранится в SQLite зашифрованным и после save больше не показывается (оставьте поле пустым, чтобы не менять).
 
-Важно: смените пароль `admin`/`admin` до публикации UI за пределы доверенной сети.
+**TLS к LDAP (SEC-003):** в проде нужен LDAPS/StartTLS **с проверкой сертификата** сервера каталога (system CA или свой CA). Сейчас клиент по умолчанию **не** валидирует сертификат LDAP — это уязвимо к MITM (утечка bind-пароля и паролей пользователей). LDAP без verify — только lab / заведомо доверенный сегмент; insecure opt-in — только для лаборатории, не для боевого AD через недоверенную сеть.
 
 ## 2. Windows-агент (MSI)
 
@@ -69,6 +69,8 @@ msiexec /i bad-agent-0.9.0.msi `
   ADDPATH=1 `
   /qn
 ```
+
+**Enrollment token в командной строке (SEC-011):** `ENROLLMENTTOKEN=…` попадает в argv deferred custom action и может оказаться в логах `msiexec` / истории скриптов деплоя. Не пересылайте логи установки и transcript’ы массового деплоя. После волны установки **ротируйте** site enrollment token в `/etc/bad/site.env` (и перезапустите `bad-api`), чтобы старый токен из логов/командных строк перестал действовать. Property `Hidden=yes` снижает утечку в UI MSI, но не убирает exposure в process command line на машине во время install.
 
 Служба `BlazerityAssetDiscovery` стартует автоматически, один раз enroll'ится, сохраняет API key в `%ProgramData%\blazerity\bAD\config.json` и шлёт inventory при старте (далее каждые 6 часов), heartbeat каждые 15 минут. Также спрашивает сервер про MSI-обновления (никогда не GitHub напрямую). Локальный CLI (сервер не нужен): `bad` / `bad -h` / `bad -?`. Service CLI: `BadAgent.exe service status|start|stop|restart` (elevated). См. [agents.md](./agents.md).
 
@@ -92,8 +94,55 @@ curl -fsS -H "Authorization: Bearer <admin-token>" \
   'https://bad.example.com/v1/events?limit=50'
 ```
 
+## Безопасность для операторов
+
+Краткий чеклист (детали — [guideline.md](guideline.md), [architecture.md](architecture.md)).
+
+### БД и бэкапы = секреты сайта (SEC-005)
+
+Fernet-ключ `data_key` (расшифровка SMTP/LDAP bind) и `session_secret` (подделка cookie `bad_session`) по умолчанию лежат **в той же SQLite**, что и `*_password_enc`. Поэтому:
+
+- копия `/var/lib/bad/bad.db` или daily backup `bad-YYYY-MM-DD.db` = **полный компромисс** секретов сайта (не «просто inventory»);
+- шифрование полей в БД **не** защищает at-rest при краже файла, пока master key рядом в той же БД.
+
+**Права сейчас (минимум):**
+
+```bash
+# БД и WAL — только владелец bad
+chown bad:bad /var/lib/bad/bad.db /var/lib/bad/bad.db-* 2>/dev/null || true
+chmod 600 /var/lib/bad/bad.db
+
+# Каталог бэкапов — не world-readable; файлы бэкапа как секреты
+chown -R bad:bad /var/lib/bad/backups
+chmod 700 /var/lib/bad/backups
+chmod 600 /var/lib/bad/backups/bad-*.db
+```
+
+Не кладите бэкапы БД в общие шары/тикеты без отдельного контроля доступа. Не бэкапьте master key **вместе** с копией БД без раздельного key escrow.
+
+**Вынести ключ из БД (`BAD_DATA_KEY`):** единственный способ, при котором кража *только* файла БД не даёт расшифровку SMTP/LDAP и подделку сессий — держать master key **вне** SQLite (env или файл). Пока ключ в `site_secrets`, считайте БД и бэкапы равносильными компромиссу. Когда ключ вынесен в файл:
+
+```bash
+# пример: отдельный файл ключа (не рядом с бэкапами без изоляции)
+install -d -o root -g bad -m 750 /etc/bad/keys
+# содержимое — url-safe Fernet key; читать может только сервис
+install -o root -g bad -m 440 /path/from/secure/source /etc/bad/keys/data.key
+# в site.env: BAD_DATA_KEY=/etc/bad/keys/data.key
+# (или сам ключ в env — хуже для ps/audit)
+```
+
+Файл ключа: **не** 644/666; типично `440` или `400`, владелец `root:bad`. Не коммитьте ключ в git и не кладите в тот же tar, что и `bad.db`, без отдельного сейфа.
+
+### Cookie и TLS
+
+Штатный путь — только HTTPS через nginx (HSTS, redirect с 80). Не открывайте uvicorn наружу. Cookie `bad_session` должен уходить только по TLS (`Secure` за reverse-proxy / в prod); cleartext к приложению = риск перехвата сессии.
+
+### Enrollment token (SEC-011)
+
+См. выше в § MSI: не шарьте msiexec-логи; после массового деплоя ротируйте enrollment token.
+
 ## Заметки
 
 - Апгрейд MSI сохраняет ProgramData (API key); повторный enroll не нужен.
 - Не кладите enrollment или admin tokens в world-readable файлы.
-- Локальные демо без TLS: uvicorn на Linux (`server/README.md`) и тестовый агент с `BAD_ALLOW_HTTP=1` на `http://127.0.0.1:8000`.
+- Локальные демо без TLS: uvicorn на Linux (`server/README.md`) и тестовый агент с `BAD_ALLOW_HTTP=1` на `http://127.0.0.1:8000` — только lab.
