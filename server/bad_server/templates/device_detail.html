@@ -14,7 +14,7 @@
       <dt>Last seen</dt>
       <dd>
         {{ device.last_seen_at or "—" }}
-        <span class="badge badge-{{ silence.status }}">{{ silence.label }}</span>
+        <span class="badge badge-{{ silence.status }}">{% if silence.status == "ok" %}OK{% else %}{{ silence.status }}{% endif %}</span>
       </dd>
     </div>
     <div>
@@ -79,7 +79,7 @@
     hostname=<span class="mono">{{ match_context.hostname or "—" }}</span>
     · domain=<span class="mono">{{ match_context.domain or "—" }}</span>
     · os_caption=<span class="mono">{{ match_context.os_caption or "—" }}</span>
-    · tag=<span class="mono">{{ match_context.tag or "—" }}</span>
+    · tag=<span class="mono">{% if match_context.tag %}{{ match_context.tag | join(", ") }}{% else %}—{% endif %}</span>
   </p>
   {% if matched_policies %}
   <p class="muted">Matched policies:

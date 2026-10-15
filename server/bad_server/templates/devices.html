@@ -55,7 +55,7 @@
         <td><a href="/devices/{{ d.device_id }}">{{ d.hostname or "(unknown)" }}</a></td>
         <td class="mono">{{ d.device_id }}</td>
         <td>
-          <span class="badge badge-{{ d.silence.status }}">{{ d.silence.label }}</span>
+          <span class="badge badge-{{ d.silence.status }}">{% if d.silence.status == "ok" %}OK{% else %}{{ d.silence.status }}{% endif %}</span>
         </td>
         <td>
           {% if d.tags %}

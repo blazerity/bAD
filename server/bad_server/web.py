@@ -29,11 +29,7 @@ from .auth import (
 from .config import Settings, get_settings
 from .crypto_util import encrypt_secret
 from .db import Database
-from .device_health import (
-    device_silence_status,
-    health_snippet,
-    normalize_tags,
-)
+from .device_health import device_silence_status, health_snippet
 from .ldap_client import settings_from_row, test_connection
 from .security import hash_secret, verify_secret
 from .sessions import SESSION_COOKIE, SESSION_MAX_AGE, WebUser, dump_session
@@ -151,13 +147,11 @@ def logout():
 
 
 def _enrich_device_row(device: dict, settings: Settings) -> dict:
-    silence = device_silence_status(
+    device = dict(device)
+    device["silence"] = device_silence_status(
         device.get("last_seen_at"),
         stale_after_seconds=settings.device_stale_after_seconds,
     )
-    device = dict(device)
-    device["silence"] = silence
-    device["health_snippet"] = health_snippet(device.get("meta"))
     return device
 
 
@@ -284,17 +278,8 @@ def device_tags_save(
     settings: Settings = Depends(get_settings),
     tags: str = Form(""),
 ):
-    if not db.get_device_detail(device_id):
-        return templates.TemplateResponse(
-            request,
-            "device_missing.html",
-            {"device_id": device_id, "user": user},
-            status_code=404,
-        )
     try:
-        db.set_device_tags(device_id, normalize_tags(tags))
-        message = "Tags saved"
-        error = None
+        db.set_device_tags(device_id, tags)
     except KeyError:
         return templates.TemplateResponse(
             request,
@@ -302,11 +287,8 @@ def device_tags_save(
             {"device_id": device_id, "user": user},
             status_code=404,
         )
-    except Exception as exc:  # noqa: BLE001 — surface to form
-        message = None
-        error = f"Could not save tags: {exc}"
     ctx = _device_config_context(
-        db, device_id, user=user, settings=settings, message=message, error=error
+        db, device_id, user=user, settings=settings, message="Tags saved"
     )
     assert ctx is not None
     return templates.TemplateResponse(request, "device_detail.html", ctx)

@@ -15,6 +15,7 @@ from .db import Database
 from .schemas import (
     AgentPolicyBody,
     DeviceConfigOverrideBody,
+    DeviceTagsBody,
     EnrollRequest,
     EnrollResponse,
     HeartbeatRequest,
@@ -182,16 +183,16 @@ def list_events(
 @router.put("/devices/{device_id}/tags")
 def put_device_tags(
     device_id: str,
-    body: dict[str, Any],
+    body: DeviceTagsBody,
     _admin: str = Depends(require_admin_token),
     db: Database = Depends(get_db),
 ) -> dict[str, Any]:
-    from .device_health import normalize_tags
-
-    if not db.get_device_detail(device_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
-    tags = normalize_tags(body.get("tags"))
-    saved = db.set_device_tags(device_id, tags)
+    try:
+        saved = db.set_device_tags(device_id, body.tags)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Device not found"
+        ) from exc
     return {"device_id": device_id, "tags": saved}
 
 

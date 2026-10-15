@@ -109,8 +109,10 @@ def device_match_context(
     meta: Optional[dict[str, Any]] = None,
     inventory_payload: Optional[dict[str, Any]] = None,
     tags: Optional[list[str]] = None,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """Build match fields from device row + latest inventory + tags."""
+    from .device_health import normalize_tags
+
     meta = meta or {}
     host: dict[str, Any] = {}
     if inventory_payload and isinstance(inventory_payload.get("host"), dict):
@@ -128,29 +130,28 @@ def device_match_context(
         domain = str(host.get("domain") or "")
 
     hn = hostname or (str(host.get("hostname") or "") if host else "") or ""
-    tag_list = [str(t).strip() for t in (tags or []) if str(t).strip()]
-
+    # tag is a list; equals = membership, contains = substring of any tag.
     return {
         "hostname": hn,
         "domain": domain,
         "os_caption": os_caption,
-        # Comma-separated for display / contains; equals matches membership.
-        "tag": ",".join(tag_list),
+        "tag": normalize_tags(tags),
     }
 
 
-def condition_matches(condition: dict[str, str], context: dict[str, str]) -> bool:
+def condition_matches(condition: dict[str, str], context: dict[str, Any]) -> bool:
     field = condition["field"]
     op = condition["op"]
     expected = condition["value"]
-    actual = context.get(field, "") or ""
     if field == "tag":
-        tags = [t.strip() for t in actual.split(",") if t.strip()]
+        raw = context.get("tag") or []
+        tags = raw if isinstance(raw, list) else [str(raw)]
         if op == "equals":
-            return any(t.casefold() == expected.casefold() for t in tags)
+            return any(str(t).casefold() == expected.casefold() for t in tags)
         if op == "contains":
-            return any(expected.casefold() in t.casefold() for t in tags)
+            return any(expected.casefold() in str(t).casefold() for t in tags)
         return False
+    actual = str(context.get(field, "") or "")
     if op == "equals":
         return actual.casefold() == expected.casefold()
     if op == "contains":
@@ -158,7 +159,7 @@ def condition_matches(condition: dict[str, str], context: dict[str, str]) -> boo
     return False
 
 
-def policy_matches(conditions: list[dict[str, str]], context: dict[str, str]) -> bool:
+def policy_matches(conditions: list[dict[str, str]], context: dict[str, Any]) -> bool:
     """All conditions must match (AND). Empty conditions never match."""
     if not conditions:
         return False

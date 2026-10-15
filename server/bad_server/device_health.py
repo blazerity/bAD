@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -29,58 +28,46 @@ def device_silence_status(
     *,
     stale_after_seconds: int,
     now: Optional[datetime] = None,
-) -> dict[str, Any]:
-    """Return {status: ok|stale|unknown, age_seconds, stale_after_seconds}."""
+) -> dict[str, str]:
+    """Return {status: ok|stale|unknown} for badge CSS / display mapping."""
     threshold = max(1, int(stale_after_seconds))
     seen = parse_utc(last_seen_at)
     if seen is None:
-        return {
-            "status": "unknown",
-            "age_seconds": None,
-            "stale_after_seconds": threshold,
-            "label": "unknown",
-        }
+        return {"status": "unknown"}
     clock = now or datetime.now(timezone.utc)
     age = max(0, int((clock - seen).total_seconds()))
-    stale = age > threshold
-    return {
-        "status": "stale" if stale else "ok",
-        "age_seconds": age,
-        "stale_after_seconds": threshold,
-        "label": "stale" if stale else "OK",
-    }
+    return {"status": "stale" if age > threshold else "ok"}
 
 
 def health_snippet(meta: Optional[dict[str, Any]]) -> Optional[str]:
-    """Best-effort short health text from device meta (if agent/sibling adds it)."""
+    """Short health text from heartbeat fields stored in device meta."""
     if not meta or not isinstance(meta, dict):
         return None
-    for key in ("health", "last_health", "health_status"):
-        value = meta.get(key)
-        if value is None:
-            continue
-        if isinstance(value, str):
-            text = value.strip()
-            if text:
-                return text[:240]
-        if isinstance(value, (dict, list)):
-            try:
-                return json.dumps(value, ensure_ascii=False, separators=(",", ":"))[:240]
-            except (TypeError, ValueError):
-                continue
-        text = str(value).strip()
-        if text:
-            return text[:240]
-    return None
+    parts: list[str] = []
+    if "last_inventory_ok" in meta:
+        ok = meta.get("last_inventory_ok")
+        if ok is True:
+            parts.append("inventory ok")
+        elif ok is False:
+            err = str(meta.get("last_inventory_error") or "").strip()
+            parts.append(f"inventory fail: {err}" if err else "inventory fail")
+    uptime = meta.get("agent_uptime_seconds")
+    if isinstance(uptime, int) and uptime >= 0:
+        parts.append(f"uptime {uptime}s")
+    free = meta.get("system_drive_free_bytes")
+    if isinstance(free, int) and free >= 0:
+        parts.append(f"free {free} B")
+    if not parts:
+        return None
+    return "; ".join(parts)[:240]
 
 
 def normalize_tags(raw: Any) -> list[str]:
-    """Normalize tags from JSON list, comma-separated string, or iterable."""
+    """Normalize tags from JSON list, comma/semicolon/newline string, or iterable."""
     items: list[str] = []
     if raw is None:
         return []
     if isinstance(raw, str):
-        # Allow comma/space separated form input.
         parts = raw.replace(";", ",").replace("\n", ",").split(",")
         items = [p.strip() for p in parts]
     elif isinstance(raw, (list, tuple, set)):
@@ -96,7 +83,6 @@ def normalize_tags(raw: Any) -> list[str]:
     for tag in items:
         if not tag:
             continue
-        # Keep original casing of first occurrence; match case-insensitively.
         key = tag.casefold()
         if key in seen:
             continue

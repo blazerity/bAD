@@ -291,7 +291,7 @@ class Database:
         meta: Optional[dict[str, Any]],
         retention: int,
     ) -> int:
-        from .inventory_events import detail_json, diff_inventory_snapshots
+        from .inventory_events import diff_inventory_snapshots
 
         now = utc_now()
         payload_json = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
@@ -348,6 +348,12 @@ class Database:
             snapshot_id = int(cur.lastrowid)
 
             for event in diff_inventory_snapshots(previous, payload):
+                detail = event.get("detail")
+                detail_payload = json.dumps(
+                    detail if detail is not None else {},
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                )
                 conn.execute(
                     """
                     INSERT INTO device_events(
@@ -358,7 +364,7 @@ class Database:
                         device_id,
                         event["type"],
                         event["summary"],
-                        detail_json(event.get("detail")),
+                        detail_payload,
                         now,
                     ),
                 )
@@ -417,7 +423,8 @@ class Database:
                     seen[key] = tag
         return sorted(seen.values(), key=str.casefold)
 
-    def set_device_tags(self, device_id: str, tags: list[str]) -> list[str]:
+    def set_device_tags(self, device_id: str, tags: Any) -> list[str]:
+        """Normalize and persist tags. Sole write-path choke point for tag cleaning."""
         from .device_health import normalize_tags
 
         clean = normalize_tags(tags)
@@ -438,32 +445,21 @@ class Database:
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         limit = max(1, min(int(limit), 500))
+        sql = """
+            SELECT e.id, e.device_id, e.type, e.summary, e.detail_json,
+                   e.created_at, d.hostname
+            FROM device_events e
+            LEFT JOIN devices d ON d.device_id = e.device_id
+        """
+        params: list[Any]
+        if device_id:
+            sql += " WHERE e.device_id = ?"
+            params = [device_id, limit]
+        else:
+            params = [limit]
+        sql += " ORDER BY e.created_at DESC, e.id DESC LIMIT ?"
         with self.connection() as conn:
-            if device_id:
-                rows = conn.execute(
-                    """
-                    SELECT e.id, e.device_id, e.type, e.summary, e.detail_json,
-                           e.created_at, d.hostname
-                    FROM device_events e
-                    LEFT JOIN devices d ON d.device_id = e.device_id
-                    WHERE e.device_id = ?
-                    ORDER BY e.created_at DESC, e.id DESC
-                    LIMIT ?
-                    """,
-                    (device_id, limit),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    """
-                    SELECT e.id, e.device_id, e.type, e.summary, e.detail_json,
-                           e.created_at, d.hostname
-                    FROM device_events e
-                    LEFT JOIN devices d ON d.device_id = e.device_id
-                    ORDER BY e.created_at DESC, e.id DESC
-                    LIMIT ?
-                    """,
-                    (limit,),
-                ).fetchall()
+            rows = conn.execute(sql, params).fetchall()
         result: list[dict[str, Any]] = []
         for row in rows:
             detail: Any = None
@@ -522,7 +518,7 @@ class Database:
             "last_seen_at": device["last_seen_at"],
             "agent_version": device["agent_version"],
             "meta": meta,
-            "tags": self._parse_tags(device["tags_json"] if "tags_json" in device.keys() else None),
+            "tags": self._parse_tags(device["tags_json"]),
             "latest_inventory": inventory,
         }
 
@@ -945,9 +941,7 @@ class Database:
             return None
         override_row = self.get_device_config_override(device_id)
         override = override_row["settings"] if override_row else None
-        tags = self._parse_tags(
-            device["tags_json"] if "tags_json" in device.keys() else None
-        )
+        tags = self._parse_tags(device["tags_json"])
         result = compute_effective_config(
             hostname=device["hostname"],
             meta=self._parse_meta(device["meta_json"]),

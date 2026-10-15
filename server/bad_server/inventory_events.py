@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any, Optional
 
 # Absolute free-space drop (bytes) or relative drop vs previous free.
@@ -25,7 +24,11 @@ def _norm_str(value: Any) -> str:
 
 
 def _sorted_str_list(values: Any) -> list[str]:
-    items = [_norm_str(v) for v in _as_list(values) if _norm_str(v)]
+    items = []
+    for v in _as_list(values):
+        text = _norm_str(v)
+        if text:
+            items.append(text)
     return sorted(set(items), key=str.casefold)
 
 
@@ -224,7 +227,3 @@ def diff_inventory_snapshots(
         )
 
     return events
-
-
-def detail_json(detail: Any) -> str:
-    return json.dumps(detail if detail is not None else {}, separators=(",", ":"), ensure_ascii=False)
