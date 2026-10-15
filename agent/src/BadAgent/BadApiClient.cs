@@ -164,9 +164,14 @@ public sealed class BadApiClient : IDisposable
         }
     }
 
-    public async Task<UpdateCheckResponse> CheckUpdateAsync(string apiKey, string currentVersion, CancellationToken ct)
+    public async Task<UpdateCheckResponse> CheckUpdateAsync(
+        string apiKey,
+        string currentVersion,
+        CancellationToken ct)
     {
-        var url = $"{_baseUrl}/v1/agent/update/check?current={Uri.EscapeDataString(currentVersion)}";
+        // Сервер 0.10 сам берёт target из effective device config (не из query).
+        var url =
+            $"{_baseUrl}/v1/agent/update/check?current={Uri.EscapeDataString(currentVersion)}";
         using var req = new HttpRequestMessage(HttpMethod.Get, url);
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
 

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
@@ -16,8 +16,10 @@ from .agent_config import (
     CONDITION_FIELDS,
     CONDITION_OPS,
     DEFAULT_AGENT_SETTINGS,
+    UPDATE_TARGET_LATEST,
     sanitize_conditions,
     sanitize_settings,
+    sanitize_update_target,
 )
 from .auth import (
     authenticate_web_user,
@@ -37,8 +39,16 @@ from .device_health import device_silence_status, health_snippet
 from .ldap_client import settings_from_row, test_connection
 from .security import api_key_lookup, generate_token, hash_secret, verify_secret
 from .sessions import SESSION_COOKIE, SESSION_MAX_AGE, WebUser, dump_session
-from .agent_update import sync_from_github
+from .agent_update import (
+    delete_msi_version,
+    ingest_uploaded_msi,
+    ops_update_signals,
+    set_latest_msi_version,
+    sync_from_github,
+)
 from .backup import backup_status, run_daily_backup
+from .enrollment_ops import enrollment_status, rotate_enrollment_token
+from .site_bundle import build_site_bundle
 from .smtp_mail import (
     DEFAULT_NOTIFY,
     NOTIFY_LABELS_RU,
@@ -181,12 +191,16 @@ def home(
     settings: Settings = Depends(get_settings),
 ):
     stats = db.overview_stats(stale_after_seconds=settings.device_stale_after_seconds)
+    ops = ops_update_signals(
+        db, stale_after_seconds=settings.device_stale_after_seconds
+    )
     return _html(
         request,
         "overview.html",
         {
             "user": user,
             "stats": stats,
+            "ops": ops,
             "stale_after_seconds": settings.device_stale_after_seconds,
         },
     )
@@ -516,6 +530,7 @@ def _device_config_context(
         "stale_after_seconds": settings.device_stale_after_seconds,
         "duplicates": duplicates,
         "new_api_key": None,
+        "msi_versions": db.list_agent_msi_versions(),
     }
 
 
@@ -670,6 +685,7 @@ def device_config_override_save(
     heartbeat_interval_minutes: str = Form(""),
     update_check_interval_hours: str = Form(""),
     update_enabled: str = Form(""),
+    update_target: str = Form(""),
     collect_hardware: str = Form(""),
     collect_users: str = Form(""),
     collect_software: str = Form(""),
@@ -694,23 +710,15 @@ def device_config_override_save(
         assert ctx is not None
         return _html(request, "device_detail.html", ctx)
 
-    raw: dict = {}
-    for key, raw_val in (
-        ("inventory_interval_hours", inventory_interval_hours),
-        ("heartbeat_interval_minutes", heartbeat_interval_minutes),
-        ("update_check_interval_hours", update_check_interval_hours),
-    ):
-        text = (raw_val or "").strip()
-        if text:
-            raw[key] = text
-    _apply_bool_form_fields(
-        raw,
-        {
-            "update_enabled": update_enabled,
-            "collect_hardware": collect_hardware,
-            "collect_users": collect_users,
-            "collect_software": collect_software,
-        },
+    raw = _settings_raw_from_form(
+        inventory_interval_hours=inventory_interval_hours,
+        heartbeat_interval_minutes=heartbeat_interval_minutes,
+        update_check_interval_hours=update_check_interval_hours,
+        update_enabled=update_enabled,
+        update_target=update_target,
+        collect_hardware=collect_hardware,
+        collect_users=collect_users,
+        collect_software=collect_software,
     )
 
     cleaned = sanitize_settings(raw)
@@ -732,6 +740,13 @@ def device_config_override_save(
         return _html(
             request, "device_detail.html", ctx, status_code=400
         )
+    pin_err = _validate_update_target_pin(db, cleaned)
+    if pin_err:
+        ctx = _device_config_context(
+            db, device_id, user=user, settings=settings, error=pin_err
+        )
+        assert ctx is not None
+        return _html(request, "device_detail.html", ctx, status_code=400)
     try:
         db.set_device_config_override(device_id, cleaned)
     except KeyError:
@@ -895,6 +910,42 @@ def _apply_bool_form_fields(raw: dict, fields: dict[str, str]) -> None:
             raw[key] = text in {"true", "1"}
 
 
+def _settings_raw_from_form(
+    *,
+    inventory_interval_hours: str = "",
+    heartbeat_interval_minutes: str = "",
+    update_check_interval_hours: str = "",
+    update_enabled: str = "",
+    update_target: str = "",
+    collect_hardware: str = "",
+    collect_users: str = "",
+    collect_software: str = "",
+) -> dict:
+    """Общий harvest interval/bool/update_target из HTML-форм (policy + device override)."""
+    raw: dict = {}
+    for key, raw_val in (
+        ("inventory_interval_hours", inventory_interval_hours),
+        ("heartbeat_interval_minutes", heartbeat_interval_minutes),
+        ("update_check_interval_hours", update_check_interval_hours),
+    ):
+        text = (raw_val or "").strip()
+        if text:
+            raw[key] = text
+    _apply_bool_form_fields(
+        raw,
+        {
+            "update_enabled": update_enabled,
+            "collect_hardware": collect_hardware,
+            "collect_users": collect_users,
+            "collect_software": collect_software,
+        },
+    )
+    target = (update_target or "").strip()
+    if target:
+        raw["update_target"] = target
+    return raw
+
+
 def _parse_policy_form(
     *,
     name: str,
@@ -907,6 +958,7 @@ def _parse_policy_form(
     heartbeat_interval_minutes: str,
     update_check_interval_hours: str,
     update_enabled: str,
+    update_target: str = "",
     collect_hardware: str = "",
     collect_users: str = "",
     collect_software: str = "",
@@ -933,23 +985,15 @@ def _parse_policy_form(
     if not conditions:
         return None, "Нужно одно валидное условие (hostname/domain/os_caption/tag)"
 
-    raw: dict = {}
-    for key, raw_val in (
-        ("inventory_interval_hours", inventory_interval_hours),
-        ("heartbeat_interval_minutes", heartbeat_interval_minutes),
-        ("update_check_interval_hours", update_check_interval_hours),
-    ):
-        text = (raw_val or "").strip()
-        if text:
-            raw[key] = text
-    _apply_bool_form_fields(
-        raw,
-        {
-            "update_enabled": update_enabled,
-            "collect_hardware": collect_hardware,
-            "collect_users": collect_users,
-            "collect_software": collect_software,
-        },
+    raw = _settings_raw_from_form(
+        inventory_interval_hours=inventory_interval_hours,
+        heartbeat_interval_minutes=heartbeat_interval_minutes,
+        update_check_interval_hours=update_check_interval_hours,
+        update_enabled=update_enabled,
+        update_target=update_target,
+        collect_hardware=collect_hardware,
+        collect_users=collect_users,
+        collect_software=collect_software,
     )
     settings = sanitize_settings(raw)
     if not settings:
@@ -963,26 +1007,44 @@ def _parse_policy_form(
     }, None
 
 
+def _validate_update_target_pin(db: Database, settings: dict) -> Optional[str]:
+    """Reject pin на версию, которой нет в зеркале (контракт 0.10)."""
+    target = sanitize_update_target(settings.get("update_target"))
+    if not target or target == UPDATE_TARGET_LATEST:
+        return None
+    if not db.get_agent_msi_version(target):
+        return f"update_target={target} нет в зеркале MSI — сначала загрузите версию"
+    return None
+
+
+def _policies_context(
+    db: Database,
+    user: WebUser,
+    *,
+    message: Optional[str] = None,
+    error: Optional[str] = None,
+    edit: Optional[dict] = None,
+) -> dict:
+    return {
+        "user": user,
+        "policies": db.list_agent_policies(),
+        "defaults": dict(DEFAULT_AGENT_SETTINGS),
+        "condition_fields": sorted(CONDITION_FIELDS),
+        "condition_ops": sorted(CONDITION_OPS),
+        "msi_versions": db.list_agent_msi_versions(),
+        "message": message,
+        "error": error,
+        "edit": edit,
+    }
+
+
 @router.get("/settings/policies", response_class=HTMLResponse)
 def policies_page(
     request: Request,
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
 ):
-    return _html(
-        request,
-        "policies.html",
-        {
-            "user": user,
-            "policies": db.list_agent_policies(),
-            "defaults": dict(DEFAULT_AGENT_SETTINGS),
-            "condition_fields": sorted(CONDITION_FIELDS),
-            "condition_ops": sorted(CONDITION_OPS),
-            "message": None,
-            "error": None,
-            "edit": None,
-        },
-    )
+    return _html(request, "policies.html", _policies_context(db, user))
 
 
 @router.get("/settings/policies/{policy_id}", response_class=HTMLResponse)
@@ -996,18 +1058,7 @@ def policy_edit_page(
     if not policy:
         return RedirectResponse(url="/settings/policies", status_code=303)
     return _html(
-        request,
-        "policies.html",
-        {
-            "user": user,
-            "policies": db.list_agent_policies(),
-            "defaults": dict(DEFAULT_AGENT_SETTINGS),
-            "condition_fields": sorted(CONDITION_FIELDS),
-            "condition_ops": sorted(CONDITION_OPS),
-            "message": None,
-            "error": None,
-            "edit": policy,
-        },
+        request, "policies.html", _policies_context(db, user, edit=policy)
     )
 
 
@@ -1026,6 +1077,7 @@ def policy_create(
     heartbeat_interval_minutes: str = Form(""),
     update_check_interval_hours: str = Form(""),
     update_enabled: str = Form(""),
+    update_target: str = Form(""),
     collect_hardware: str = Form(""),
     collect_users: str = Form(""),
     collect_software: str = Form(""),
@@ -1041,6 +1093,7 @@ def policy_create(
         heartbeat_interval_minutes=heartbeat_interval_minutes,
         update_check_interval_hours=update_check_interval_hours,
         update_enabled=update_enabled,
+        update_target=update_target,
         collect_hardware=collect_hardware,
         collect_users=collect_users,
         collect_software=collect_software,
@@ -1049,32 +1102,22 @@ def policy_create(
         return _html(
             request,
             "policies.html",
-            {
-                "user": user,
-                "policies": db.list_agent_policies(),
-                "defaults": dict(DEFAULT_AGENT_SETTINGS),
-                "condition_fields": sorted(CONDITION_FIELDS),
-                "condition_ops": sorted(CONDITION_OPS),
-                "message": None,
-                "error": err,
-                "edit": None,
-            },
+            _policies_context(db, user, error=err),
+            status_code=400,
+        )
+    pin_err = _validate_update_target_pin(db, parsed["settings"])
+    if pin_err:
+        return _html(
+            request,
+            "policies.html",
+            _policies_context(db, user, error=pin_err),
             status_code=400,
         )
     db.create_agent_policy(**parsed)
     return _html(
         request,
         "policies.html",
-        {
-            "user": user,
-            "policies": db.list_agent_policies(),
-            "defaults": dict(DEFAULT_AGENT_SETTINGS),
-            "condition_fields": sorted(CONDITION_FIELDS),
-            "condition_ops": sorted(CONDITION_OPS),
-            "message": "Политика создана",
-            "error": None,
-            "edit": None,
-        },
+        _policies_context(db, user, message="Политика создана"),
     )
 
 
@@ -1094,6 +1137,7 @@ def policy_update(
     heartbeat_interval_minutes: str = Form(""),
     update_check_interval_hours: str = Form(""),
     update_enabled: str = Form(""),
+    update_target: str = Form(""),
     collect_hardware: str = Form(""),
     collect_users: str = Form(""),
     collect_software: str = Form(""),
@@ -1109,25 +1153,28 @@ def policy_update(
         heartbeat_interval_minutes=heartbeat_interval_minutes,
         update_check_interval_hours=update_check_interval_hours,
         update_enabled=update_enabled,
+        update_target=update_target,
         collect_hardware=collect_hardware,
         collect_users=collect_users,
         collect_software=collect_software,
     )
     if err or not parsed:
-        policy = db.get_agent_policy(policy_id)
         return _html(
             request,
             "policies.html",
-            {
-                "user": user,
-                "policies": db.list_agent_policies(),
-                "defaults": dict(DEFAULT_AGENT_SETTINGS),
-                "condition_fields": sorted(CONDITION_FIELDS),
-                "condition_ops": sorted(CONDITION_OPS),
-                "message": None,
-                "error": err,
-                "edit": policy,
-            },
+            _policies_context(
+                db, user, error=err, edit=db.get_agent_policy(policy_id)
+            ),
+            status_code=400,
+        )
+    pin_err = _validate_update_target_pin(db, parsed["settings"])
+    if pin_err:
+        return _html(
+            request,
+            "policies.html",
+            _policies_context(
+                db, user, error=pin_err, edit=db.get_agent_policy(policy_id)
+            ),
             status_code=400,
         )
     updated = db.update_agent_policy(policy_id, **parsed)
@@ -1136,16 +1183,7 @@ def policy_update(
     return _html(
         request,
         "policies.html",
-        {
-            "user": user,
-            "policies": db.list_agent_policies(),
-            "defaults": dict(DEFAULT_AGENT_SETTINGS),
-            "condition_fields": sorted(CONDITION_FIELDS),
-            "condition_ops": sorted(CONDITION_OPS),
-            "message": "Политика обновлена",
-            "error": None,
-            "edit": updated,
-        },
+        _policies_context(db, user, message="Политика обновлена", edit=updated),
     )
 
 
@@ -1604,6 +1642,68 @@ def backups_settings_run(
     )
 
 
+
+@router.get("/settings/backups/site-bundle")
+def backups_site_bundle_download(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    """Скачать site bundle (DB + keys + MSI). Секреты только в файле, не в HTML."""
+    try:
+        payload, filename = build_site_bundle(
+            db=db,
+            db_path=settings.db_path,
+            backup_dir=settings.backup_dir,
+            updates_dir=settings.agent_updates_dir,
+            data_key_file=settings.data_key_file,
+            session_secret_file=settings.session_secret_file,
+            include_msi_files=False,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return _html(
+            request,
+            "backup_settings.html",
+            _backup_context(
+                db, settings, user=user, error=f"Не удалось собрать bundle: {exc}"
+            ),
+            status_code=500,
+        )
+    return StreamingResponse(
+        iter([payload]),
+        media_type="application/gzip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(payload)),
+        },
+    )
+
+
+def _updates_context(
+    db: Database,
+    settings: Settings,
+    *,
+    user: WebUser,
+    message: Optional[str] = None,
+    error: Optional[str] = None,
+    new_enrollment_token: Optional[str] = None,
+) -> dict:
+    return {
+        "user": user,
+        "settings_section": "updates",
+        "agent_update": db.get_agent_update(),
+        "msi_versions": db.list_agent_msi_versions(),
+        "github_repo": settings.github_repo,
+        "updates_dir": str(settings.agent_updates_dir),
+        "sync_interval": settings.agent_update_sync_interval_seconds,
+        "enrollment": enrollment_status(db, settings),
+        "message": message,
+        "error": error,
+        "new_enrollment_token": new_enrollment_token,
+    }
+
+
 @router.get("/settings/updates", response_class=HTMLResponse)
 def updates_settings_page(
     request: Request,
@@ -1614,16 +1714,7 @@ def updates_settings_page(
     return _html(
         request,
         "updates_settings.html",
-        {
-            "user": user,
-            "settings_section": "updates",
-            "agent_update": db.get_agent_update(),
-            "github_repo": settings.github_repo,
-            "updates_dir": str(settings.agent_updates_dir),
-            "sync_interval": settings.agent_update_sync_interval_seconds,
-            "message": None,
-            "error": None,
-        },
+        _updates_context(db, settings, user=user),
     )
 
 
@@ -1644,15 +1735,147 @@ def updates_settings_sync(
     return _html(
         request,
         "updates_settings.html",
-        {
-            "user": user,
-            "settings_section": "updates",
-            "agent_update": db.get_agent_update(),
-            "github_repo": settings.github_repo,
-            "updates_dir": str(settings.agent_updates_dir),
-            "sync_interval": settings.agent_update_sync_interval_seconds,
-            "message": message,
-            "error": error,
-        },
+        _updates_context(db, settings, user=user, message=message, error=error),
         status_code=200 if message else 502,
+    )
+
+
+@router.post("/settings/updates/upload")
+async def updates_settings_upload(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    msi: UploadFile = File(...),
+    version: str = Form(""),
+    sha256: str = Form(""),
+    manifest: Optional[UploadFile] = File(None),
+):
+    raw = await msi.read()
+    if not raw:
+        return _html(
+            request,
+            "updates_settings.html",
+            _updates_context(
+                db, settings, user=user, error="Пустой файл MSI"
+            ),
+            status_code=400,
+        )
+    manifest_text = None
+    if manifest is not None and manifest.filename:
+        try:
+            manifest_text = (await manifest.read()).decode("utf-8")
+        except Exception:  # noqa: BLE001
+            return _html(
+                request,
+                "updates_settings.html",
+                _updates_context(
+                    db, settings, user=user, error="Не удалось прочитать manifest"
+                ),
+                status_code=400,
+            )
+    try:
+        record = ingest_uploaded_msi(
+            db,
+            settings,
+            raw=raw,
+            filename=msi.filename or "",
+            version=version,
+            sha256=sha256,
+            manifest_json=manifest_text,
+        )
+        message = f"Загружено: {record.get('version')} ({record.get('msi_name')})"
+        error = None
+    except Exception as exc:  # noqa: BLE001
+        message = None
+        error = f"Ошибка загрузки: {exc}"
+    return _html(
+        request,
+        "updates_settings.html",
+        _updates_context(db, settings, user=user, message=message, error=error),
+        status_code=200 if message else 400,
+    )
+
+
+@router.post("/settings/updates/delete")
+def updates_settings_delete(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    version: str = Form(...),
+):
+    ver = (version or "").strip()
+    try:
+        delete_msi_version(db, settings, ver)
+        message = f"Удалена версия {ver} из каталога"
+        error = None
+        code = 200
+    except ValueError as exc:
+        message = None
+        error = str(exc)
+        code = 400
+    return _html(
+        request,
+        "updates_settings.html",
+        _updates_context(db, settings, user=user, message=message, error=error),
+        status_code=code,
+    )
+
+
+@router.post("/settings/updates/set-latest")
+def updates_settings_set_latest(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    version: str = Form(...),
+):
+    try:
+        record = set_latest_msi_version(db, version.strip())
+        message = f"Latest → {record.get('version')}"
+        error = None
+        code = 200
+    except ValueError as exc:
+        message = None
+        error = str(exc)
+        code = 400
+    return _html(
+        request,
+        "updates_settings.html",
+        _updates_context(db, settings, user=user, message=message, error=error),
+        status_code=code,
+    )
+
+
+@router.post("/settings/enrollment/rotate")
+def enrollment_rotate(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    custom_token: str = Form(""),
+):
+    custom = (custom_token or "").strip()
+    result = rotate_enrollment_token(
+        db, settings, new_token=custom or None
+    )
+    notes = []
+    if result.get("updated_site_env"):
+        notes.append("site.env обновлён")
+    if result.get("wrote_token_file"):
+        notes.append(f"файл {result.get('token_file')}")
+    elif result.get("wrote_fallback_file"):
+        notes.append("файл рядом с БД")
+    note = "; ".join(notes) if notes else "только hash в SQLite (restart не нужен)"
+    return _html(
+        request,
+        "updates_settings.html",
+        _updates_context(
+            db,
+            settings,
+            user=user,
+            message=f"Enrollment token сменён ({note}). Сохраните значение — больше не показать.",
+            new_enrollment_token=result["token"],
+        ),
     )

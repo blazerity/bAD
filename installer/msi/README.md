@@ -33,7 +33,7 @@ Workflow GitHub Actions [`.github/workflows/release-msi.yml`](../../.github/work
 
 ```powershell
 signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
-  /f .\codesign.pfx /p <password> .\bad-agent-0.9.1.msi
+  /f .\codesign.pfx /p <password> .\bad-agent-0.10.0.msi
 ```
 
 ## Локальная сборка (Windows)
@@ -45,7 +45,7 @@ dotnet tool install --global wix --version 5.0.2
 # 2. Publish агента
 dotnet publish ..\..\agent\src\BadAgent\BadAgent.csproj `
   -c Release -r win-x64 --self-contained true `
-  -p:Version=0.9.1 `
+  -p:Version=0.10.0 `
   -o .\publish
 
 # 3. Скопировать scripts + shim bad.cmd рядом с опубликованным exe
@@ -58,14 +58,14 @@ Copy-Item .\bad.cmd .\publish\
 #    bad.ico рядом с Product.wxs → ARPPRODUCTICON; иконка exe из ApplicationIcon)
 wix build Product.wxs `
   -d AgentPublishDir=publish `
-  -d ProductVersion=0.9.1 `
-  -o bad-agent-0.9.1.msi
+  -d ProductVersion=0.10.0 `
+  -o bad-agent-0.10.0.msi
 ```
 
 ## Установка / апгрейд
 
 ```powershell
-msiexec /i bad-agent-0.9.1.msi `
+msiexec /i bad-agent-0.10.0.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=your-enrollment-token `
   /qn
@@ -74,7 +74,7 @@ msiexec /i bad-agent-0.9.1.msi `
 Опционально: добавить каталог установки в **Machine PATH**, чтобы команда `bad` работала из cmd.exe / Win+R (`bad.cmd` → `BadAgent.exe`). По умолчанию **выключено** (`ADDPATH=0` / не указано).
 
 ```powershell
-msiexec /i bad-agent-0.9.1.msi `
+msiexec /i bad-agent-0.10.0.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=your-enrollment-token `
   ADDPATH=1 `
@@ -95,12 +95,12 @@ Deferred CA `write-config.ps1` **не** получает `ENROLLMENTTOKEN` / `SE
 
 Рекомендации: не включать `/l*v` с секретами в долгоживущие шары; после массового деплоя ротировать site enrollment token; предпочитать защищённый канал доставки MSI-команды (Intune/GPO secret, не chat/wiki).
 
-Тихий self-update агента идёт тем же путём MajorUpgrade. WiX `ServiceControl` останавливает `BlazerityAssetDiscovery` перед заменой файлов и запускает после install. `%ProgramData%\blazerity\bAD\config.json` (API key + device_id) сохраняется при **upgrade** (компонент ProgramData с `Permanent`).
+Тихий self-update / pin-downgrade агента идёт через MajorUpgrade (`AllowDowngrades=yes` с 0.10). WiX `ServiceControl` останавливает `BlazerityAssetDiscovery` перед заменой файлов и запускает после install. `%ProgramData%\blazerity\bAD\config.json` (API key + device_id) сохраняется при **upgrade/downgrade** (компонент ProgramData с `Permanent`).
 
 ### Uninstall
 
 ```powershell
-msiexec /x bad-agent-0.9.1.msi /qn
+msiexec /x bad-agent-0.10.0.msi /qn
 ```
 
 При полном uninstall (не upgrade): служба Stop+Remove, файлы Program Files снимаются, `cleanup-uninstall.ps1` удаляет `config.json`, `queue\`, `logs\` (enrollment leftovers). Запись PATH от `ADDPATH=1` снимается.
@@ -108,8 +108,8 @@ msiexec /x bad-agent-0.9.1.msi /qn
 ## Вырезать релиз
 
 ```bash
-git tag v0.9.1
-git push origin v0.9.1
+git tag v0.10.0
+git push origin v0.10.0
 # → workflow release-msi публикует MSI (+ Authenticode, если secrets) + agent-release.json
 # → on-prem сервер sync'ит с GitHub Release (admin sync или фоновый job)
 # → агенты опрашивают GET /v1/agent/update/check и ставят через msiexec

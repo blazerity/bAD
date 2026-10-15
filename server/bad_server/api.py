@@ -2,9 +2,19 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from fastapi.responses import FileResponse
 
 from . import __version__
@@ -386,23 +396,32 @@ def put_device_tags(
 @router.get("/agent/update/check")
 def agent_update_check(
     current: str = Query(default="", max_length=64),
-    _device=Depends(require_api_key),
+    device=Depends(require_api_key),
     db: Database = Depends(get_db),
 ) -> dict[str, Any]:
-    """Агенты спрашивают, есть ли на сервере зеркало более нового MSI."""
-    return check_update(db, current=current or "0.0.0")
+    """Агенты спрашивают, есть ли целевой MSI (effective update_target)."""
+    return check_update(
+        db,
+        current=current or "0.0.0",
+        device=dict(device) if device is not None else None,
+    )
 
 
 @router.get("/agent/update/msi")
 def agent_update_msi(
+    version: str = Query(default="", max_length=64),
     _device=Depends(require_api_key),
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> FileResponse:
     """Скачать байты зеркалированного MSI (auth: API key агента)."""
     from .github_release import safe_msi_filename
+    from .agent_update import resolve_target_msi
 
-    mirrored = db.get_agent_update()
+    ver = (version or "").strip()
+    mirrored = (
+        db.get_agent_msi_version(ver) if ver else None
+    ) or resolve_target_msi(db, ver or "latest")
     if not mirrored:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -448,6 +467,7 @@ def admin_agent_update_status(
         "updates_dir": str(settings.agent_updates_dir),
         "sync_interval_seconds": settings.agent_update_sync_interval_seconds,
         "mirrored": mirrored,
+        "versions": db.list_agent_msi_versions(),
     }
 
 
@@ -464,7 +484,100 @@ def admin_agent_update_sync(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"GitHub sync failed: {exc}",
         ) from exc
-    return {"status": "ok", "mirrored": record}
+    return {"status": "ok", "mirrored": record, "latest": db.get_agent_update()}
+
+
+@router.post("/admin/agent-update/upload")
+async def admin_agent_update_upload(
+    _admin: str = Depends(require_admin_token),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    msi: UploadFile = File(...),
+    version: str = Form(""),
+    sha256: str = Form(""),
+    set_latest: str = Form("true"),
+    manifest: Optional[UploadFile] = File(None),
+) -> dict[str, Any]:
+    from .agent_update import ingest_uploaded_msi
+
+    raw = await msi.read()
+    manifest_text = None
+    if manifest is not None and manifest.filename:
+        manifest_text = (await manifest.read()).decode("utf-8")
+    try:
+        record = ingest_uploaded_msi(
+            db,
+            settings,
+            raw=raw,
+            filename=msi.filename or "",
+            version=version,
+            sha256=sha256,
+            manifest_json=manifest_text,
+            set_as_latest=str(set_latest).strip().lower()
+            in {"1", "true", "yes", "on"},
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    return {"status": "ok", "mirrored": record, "latest": db.get_agent_update()}
+
+
+@router.post("/admin/agent-update/{version}/set-latest")
+def admin_agent_update_set_latest(
+    version: str,
+    _admin: str = Depends(require_admin_token),
+    db: Database = Depends(get_db),
+) -> dict[str, Any]:
+    from .agent_update import set_latest_msi_version
+
+    try:
+        record = set_latest_msi_version(db, version)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    return {"status": "ok", "latest": record}
+
+
+@router.delete("/admin/agent-update/{version}")
+def admin_agent_update_delete(
+    version: str,
+    _admin: str = Depends(require_admin_token),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    from .agent_update import delete_msi_version
+
+    try:
+        delete_msi_version(db, settings, version)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    return {"status": "ok", "deleted": version, "latest": db.get_agent_update()}
+
+
+@router.post("/admin/enrollment/rotate")
+def admin_enrollment_rotate(
+    _admin: str = Depends(require_admin_token),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    token: str = Query(default="", max_length=256),
+) -> dict[str, Any]:
+    """Сменить enrollment token. Plaintext в ответе один раз; query token= — свой."""
+    from .enrollment_ops import rotate_enrollment_token
+
+    result = rotate_enrollment_token(
+        db, settings, new_token=(token or "").strip() or None
+    )
+    return {
+        "status": "ok",
+        "token": result["token"],
+        "rotated_at": result.get("rotated_at"),
+        "wrote_token_file": result.get("wrote_token_file"),
+        "updated_site_env": result.get("updated_site_env"),
+    }
 
 
 @router.get("/admin/agent-config/defaults")

@@ -106,6 +106,18 @@ CREATE TABLE IF NOT EXISTS agent_update (
   synced_at TEXT NOT NULL
 );
 
+-- Каталог зеркалированных MSI (несколько версий; agent_update = указатель на latest).
+CREATE TABLE IF NOT EXISTS agent_msi_versions (
+  version TEXT PRIMARY KEY,
+  msi_name TEXT NOT NULL,
+  sha256 TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'github',
+  source_tag TEXT,
+  release_url TEXT,
+  mirrored_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS agent_policies (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
@@ -202,6 +214,43 @@ class Database:
                 conn.execute(
                     "ALTER TABLE ldap_settings ADD COLUMN tls_insecure "
                     "INTEGER NOT NULL DEFAULT 0"
+                )
+            # Multi-version MSI mirror (0.10): migrate singleton agent_update → catalog.
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS agent_msi_versions (
+                  version TEXT PRIMARY KEY,
+                  msi_name TEXT NOT NULL,
+                  sha256 TEXT NOT NULL,
+                  file_path TEXT NOT NULL,
+                  source TEXT NOT NULL DEFAULT 'github',
+                  source_tag TEXT,
+                  release_url TEXT,
+                  mirrored_at TEXT NOT NULL
+                )
+                """
+            )
+            legacy = conn.execute(
+                "SELECT version, msi_name, sha256, file_path, source_tag, "
+                "release_url, synced_at FROM agent_update WHERE id = 1"
+            ).fetchone()
+            if legacy:
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO agent_msi_versions(
+                      version, msi_name, sha256, file_path, source,
+                      source_tag, release_url, mirrored_at
+                    ) VALUES (?, ?, ?, ?, 'github', ?, ?, ?)
+                    """,
+                    (
+                        legacy["version"],
+                        legacy["msi_name"],
+                        legacy["sha256"],
+                        legacy["file_path"],
+                        legacy["source_tag"],
+                        legacy["release_url"],
+                        legacy["synced_at"],
+                    ),
                 )
             smtp_cols = {
                 row["name"]
@@ -912,25 +961,186 @@ class Database:
                     ),
                 )
 
-    # --- зеркало agent update ---
+    # --- зеркало agent update (каталог версий + указатель latest) ---
 
-    def get_agent_update(self) -> Optional[dict[str, Any]]:
-        with self.connection() as conn:
-            row = conn.execute(
-                "SELECT version, msi_name, sha256, file_path, source_tag, "
-                "release_url, synced_at FROM agent_update WHERE id = 1"
-            ).fetchone()
-        if not row:
-            return None
+    @staticmethod
+    def _msi_row(row: sqlite3.Row) -> dict[str, Any]:
         return {
             "version": row["version"],
             "msi_name": row["msi_name"],
             "sha256": row["sha256"],
             "file_path": row["file_path"],
+            "source": row["source"] if "source" in row.keys() else "github",
             "source_tag": row["source_tag"],
             "release_url": row["release_url"],
-            "synced_at": row["synced_at"],
+            "mirrored_at": row["mirrored_at"]
+            if "mirrored_at" in row.keys()
+            else row["synced_at"]
+            if "synced_at" in row.keys()
+            else None,
+            "synced_at": row["synced_at"]
+            if "synced_at" in row.keys()
+            else row["mirrored_at"]
+            if "mirrored_at" in row.keys()
+            else None,
         }
+
+    def get_agent_update(self) -> Optional[dict[str, Any]]:
+        """Указатель на latest (или лучшая версия из каталога)."""
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT version, msi_name, sha256, file_path, source_tag, "
+                "release_url, synced_at FROM agent_update WHERE id = 1"
+            ).fetchone()
+        if row:
+            data = self._msi_row(row)
+            data["source"] = "latest-pointer"
+            return data
+        versions = self.list_agent_msi_versions()
+        return versions[0] if versions else None
+
+    def get_agent_msi_version(self, version: str) -> Optional[dict[str, Any]]:
+        ver = (version or "").strip()
+        if not ver:
+            return None
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT version, msi_name, sha256, file_path, source, "
+                "source_tag, release_url, mirrored_at "
+                "FROM agent_msi_versions WHERE version = ?",
+                (ver,),
+            ).fetchone()
+        return self._msi_row(row) if row else None
+
+    def list_agent_msi_versions(self) -> list[dict[str, Any]]:
+        """Все зеркалированные MSI, newest semver first (несортируемые — в конце)."""
+        from .agent_update import parse_semver
+
+        with self.connection() as conn:
+            rows = conn.execute(
+                "SELECT version, msi_name, sha256, file_path, source, "
+                "source_tag, release_url, mirrored_at "
+                "FROM agent_msi_versions"
+            ).fetchall()
+        items = [self._msi_row(r) for r in rows]
+
+        def sort_key(item: dict[str, Any]) -> tuple:
+            parsed = parse_semver(item.get("version") or "")
+            if parsed is None:
+                return (0, (0, 0, 0), item.get("version") or "")
+            return (1, parsed, item.get("version") or "")
+
+        items.sort(key=sort_key, reverse=True)
+        return items
+
+    def upsert_agent_msi_version(
+        self,
+        *,
+        version: str,
+        msi_name: str,
+        sha256: str,
+        file_path: str,
+        source: str = "github",
+        source_tag: Optional[str] = None,
+        release_url: Optional[str] = None,
+        set_as_latest: bool = True,
+        force_latest: bool = False,
+    ) -> dict[str, Any]:
+        """Добавить/обновить версию в каталоге; опционально обновить указатель latest.
+
+        При обычной заливке старой версии указатель latest не понижается.
+        ``force_latest=True`` — явный set-latest / rollback указателя.
+        """
+        from .agent_update import is_newer
+
+        now = utc_now()
+        src = (source or "github").strip() or "github"
+        with self.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO agent_msi_versions(
+                  version, msi_name, sha256, file_path, source,
+                  source_tag, release_url, mirrored_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(version) DO UPDATE SET
+                  msi_name = excluded.msi_name,
+                  sha256 = excluded.sha256,
+                  file_path = excluded.file_path,
+                  source = excluded.source,
+                  source_tag = excluded.source_tag,
+                  release_url = excluded.release_url,
+                  mirrored_at = excluded.mirrored_at
+                """,
+                (
+                    version,
+                    msi_name,
+                    sha256,
+                    file_path,
+                    src,
+                    source_tag,
+                    release_url,
+                    now,
+                ),
+            )
+            if set_as_latest:
+                current = conn.execute(
+                    "SELECT version FROM agent_update WHERE id = 1"
+                ).fetchone()
+                should_point = True
+                if (
+                    not force_latest
+                    and current
+                    and current["version"]
+                    and not is_newer(version, current["version"])
+                    and version != current["version"]
+                ):
+                    # Не понижать указатель latest при обычной заливке старой версии.
+                    should_point = False
+                if should_point:
+                    conn.execute(
+                        """
+                        INSERT INTO agent_update(
+                          id, version, msi_name, sha256, file_path,
+                          source_tag, release_url, synced_at
+                        ) VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(id) DO UPDATE SET
+                          version = excluded.version,
+                          msi_name = excluded.msi_name,
+                          sha256 = excluded.sha256,
+                          file_path = excluded.file_path,
+                          source_tag = excluded.source_tag,
+                          release_url = excluded.release_url,
+                          synced_at = excluded.synced_at
+                        """,
+                        (
+                            version,
+                            msi_name,
+                            sha256,
+                            file_path,
+                            source_tag,
+                            release_url,
+                            now,
+                        ),
+                    )
+                    conn.execute(
+                        """
+                        INSERT INTO site_secrets(key, value) VALUES (?, ?)
+                        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                        """,
+                        ("agent_msi_latest_version", version),
+                    )
+        record = {
+            "version": version,
+            "msi_name": msi_name,
+            "sha256": sha256,
+            "file_path": file_path,
+            "source": src,
+            "source_tag": source_tag,
+            "release_url": release_url,
+            "mirrored_at": now,
+            "synced_at": now,
+        }
+        return record
 
     def set_agent_update(
         self,
@@ -941,35 +1151,51 @@ class Database:
         file_path: str,
         source_tag: Optional[str] = None,
         release_url: Optional[str] = None,
+        source: str = "github",
     ) -> dict[str, Any]:
-        now = utc_now()
+        """Совместимость: upsert в каталог + указатель latest."""
+        return self.upsert_agent_msi_version(
+            version=version,
+            msi_name=msi_name,
+            sha256=sha256,
+            file_path=file_path,
+            source=source,
+            source_tag=source_tag,
+            release_url=release_url,
+            set_as_latest=True,
+        )
+
+    def delete_agent_msi_version(self, version: str) -> bool:
+        """Удалить запись каталога (файл на диске — отдельно). Обновить latest при необходимости."""
+        ver = (version or "").strip()
+        if not ver:
+            return False
         with self.connection() as conn:
-            conn.execute(
-                """
-                INSERT INTO agent_update(
-                  id, version, msi_name, sha256, file_path,
-                  source_tag, release_url, synced_at
-                ) VALUES (1, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                  version = excluded.version,
-                  msi_name = excluded.msi_name,
-                  sha256 = excluded.sha256,
-                  file_path = excluded.file_path,
-                  source_tag = excluded.source_tag,
-                  release_url = excluded.release_url,
-                  synced_at = excluded.synced_at
-                """,
-                (version, msi_name, sha256, file_path, source_tag, release_url, now),
+            cur = conn.execute(
+                "DELETE FROM agent_msi_versions WHERE version = ?", (ver,)
             )
-        return {
-            "version": version,
-            "msi_name": msi_name,
-            "sha256": sha256,
-            "file_path": file_path,
-            "source_tag": source_tag,
-            "release_url": release_url,
-            "synced_at": now,
-        }
+            if cur.rowcount <= 0:
+                return False
+            pointer = conn.execute(
+                "SELECT version FROM agent_update WHERE id = 1"
+            ).fetchone()
+            if pointer and pointer["version"] == ver:
+                conn.execute("DELETE FROM agent_update WHERE id = 1")
+        # Переставить указатель на новую latest.
+        remaining = self.list_agent_msi_versions()
+        if remaining:
+            top = remaining[0]
+            self.upsert_agent_msi_version(
+                version=top["version"],
+                msi_name=top["msi_name"],
+                sha256=top["sha256"],
+                file_path=top["file_path"],
+                source=top.get("source") or "github",
+                source_tag=top.get("source_tag"),
+                release_url=top.get("release_url"),
+                set_as_latest=True,
+            )
+        return True
 
     # --- remote config агента (policies + per-device overrides) ---
 
