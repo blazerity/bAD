@@ -23,6 +23,8 @@
     {% endif %}
   </form>
 
+  <p class="muted">Всего: {{ total }}.</p>
+
   {% if not events %}
   <p class="muted">Пока нет событий. Они появляются, когда следующий inventory заметно отличается от предыдущего.</p>
   {% else %}
@@ -48,6 +50,17 @@
       {% endfor %}
     </tbody>
   </table>
+  {% if pages > 1 %}
+  <nav class="pager" aria-label="Страницы">
+    {% if page > 1 %}
+    <a href="/events?{% if device_filter %}device_id={{ device_filter }}&amp;{% endif %}page={{ page - 1 }}">← Назад</a>
+    {% endif %}
+    <span class="muted">Стр. {{ page }} / {{ pages }}</span>
+    {% if page < pages %}
+    <a href="/events?{% if device_filter %}device_id={{ device_filter }}&amp;{% endif %}page={{ page + 1 }}">Вперёд →</a>
+    {% endif %}
+  </nav>
+  {% endif %}
   {% endif %}
 </section>
 {% endblock %}

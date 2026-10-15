@@ -26,7 +26,7 @@ dotnet tool install --global wix --version 5.0.2
 # 2. Publish agent
 dotnet publish ..\..\agent\src\BadAgent\BadAgent.csproj `
   -c Release -r win-x64 --self-contained true `
-  -p:Version=0.7.0 `
+  -p:Version=0.8.0 `
   -o .\publish
 
 # 3. Copy write-config.ps1 + bad.cmd shim next to the published exe
@@ -37,14 +37,14 @@ Copy-Item .\bad.cmd .\publish\
 #    bad.ico next to Product.wxs → ARPPRODUCTICON; exe icon from ApplicationIcon)
 wix build Product.wxs `
   -d AgentPublishDir=publish `
-  -d ProductVersion=0.7.0 `
-  -o bad-agent-0.7.0.msi
+  -d ProductVersion=0.8.0 `
+  -o bad-agent-0.8.0.msi
 ```
 
 ## Install / upgrade
 
 ```powershell
-msiexec /i bad-agent-0.7.0.msi `
+msiexec /i bad-agent-0.8.0.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=your-enrollment-token `
   /qn
@@ -53,7 +53,7 @@ msiexec /i bad-agent-0.7.0.msi `
 Optional: add install dir to **Machine PATH** so the `bad` command works from cmd.exe / Win+R (`bad.cmd` shim → `BadAgent.exe`). Default is **off** (`ADDPATH=0` / omitted).
 
 ```powershell
-msiexec /i bad-agent-0.7.0.msi `
+msiexec /i bad-agent-0.8.0.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=your-enrollment-token `
   ADDPATH=1 `
@@ -67,8 +67,8 @@ Silent self-update from the agent uses the same MajorUpgrade path. WiX `ServiceC
 ## Cut a release
 
 ```bash
-git tag v0.7.0
-git push origin v0.7.0
+git tag v0.8.0
+git push origin v0.8.0
 # → release-msi workflow publishes MSI + agent-release.json
 # → on-prem server syncs from GitHub Release (admin sync or background job)
 # → agents poll GET /v1/agent/update/check and apply via msiexec

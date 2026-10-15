@@ -1,10 +1,10 @@
-{% extends "base.html" %}
-{% block title %}Настройки LDAP — bAD{% endblock %}
-{% block content %}
+{% extends "settings_base.html" %}
+{% set settings_section = 'ldap' %}
+{% block title %}Доступ / LDAP — bAD{% endblock %}
+{% block settings_content %}
 <section class="settings">
-  <p class="crumb"><a href="/devices">Устройства</a> / Настройки LDAP</p>
-  <h1>Настройки LDAP</h1>
-  <p class="muted">Необязательный вход через каталог. Локальные учётные записи всегда работают. Пароль bind хранится зашифрованным и после сохранения больше не показывается.</p>
+  <h1>Доступ / LDAP</h1>
+  <p class="muted">Необязательный вход через каталог. Локальные учётные записи всегда работают (break-glass). Пароль bind хранится зашифрованным.</p>
   {% if message %}<p class="ok">{{ message }}</p>{% endif %}
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
   {% if test_result %}<p class="{% if test_result.startswith('ОК') or test_result.startswith('OK') %}ok{% else %}error{% endif %}">{{ test_result }}</p>{% endif %}
@@ -54,8 +54,18 @@
     <label for="default_role">Роль по умолчанию для LDAP</label>
     <select id="default_role" name="default_role">
       <option value="operator" {% if ldap.default_role == 'operator' %}selected{% endif %}>operator (только устройства)</option>
-      <option value="admin" {% if ldap.default_role == 'admin' %}selected{% endif %}>admin (включая настройки LDAP)</option>
+      <option value="admin" {% if ldap.default_role == 'admin' %}selected{% endif %}>admin (включая параметры)</option>
     </select>
+
+    <label for="allowed_group">Группа доступа AD</label>
+    <input id="allowed_group" name="allowed_group" type="text"
+      value="{{ ldap.allowed_group }}"
+      placeholder="bAD-Operators"
+      autocomplete="off">
+    <p class="hint">
+      <span class="mono">sAMAccountName</span> группы безопасности AD (или полный DN).
+      Пусто — без ограничения. Локальный admin всегда может войти.
+    </p>
 
     <div class="form-actions">
       <button type="submit">Сохранить</button>

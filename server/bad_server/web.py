@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import csv
+import io
 import json
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 from . import __version__
@@ -27,18 +30,32 @@ from .auth import (
     require_web_user,
 )
 from .config import Settings, get_settings
-from .crypto_util import encrypt_secret
+from .crypto_util import decrypt_secret, encrypt_secret
 from .db import Database
 from .device_health import device_silence_status, health_snippet
 from .ldap_client import settings_from_row, test_connection
-from .security import hash_secret, verify_secret
+from .security import generate_token, hash_secret, verify_secret
 from .sessions import SESSION_COOKIE, SESSION_MAX_AGE, WebUser, dump_session
+from .agent_update import sync_from_github
+from .backup import backup_status, run_daily_backup
+from .smtp_mail import (
+    DEFAULT_NOTIFY,
+    NOTIFY_LABELS_RU,
+    build_hardware_email,
+    dump_notify_flags,
+    parse_notify_flags,
+    parse_recipients,
+    send_email,
+)
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.globals["app_version"] = __version__
 
 router = APIRouter(tags=["web"])
+
+DEVICES_PAGE_SIZE = 50
+EVENTS_PAGE_SIZE = 50
 
 
 def _set_session_cookie(resp: RedirectResponse, secret: str, user: WebUser) -> None:
@@ -72,6 +89,7 @@ class LdapFormData:
         user_filter_template: str = Form("(uid={username})"),
         display_name_attr: str = Form("cn"),
         default_role: str = Form("operator"),
+        allowed_group: str = Form(""),
     ):
         self.enabled = enabled
         self.host = host
@@ -84,11 +102,36 @@ class LdapFormData:
         self.user_filter_template = user_filter_template
         self.display_name_attr = display_name_attr
         self.default_role = default_role
+        self.allowed_group = allowed_group
 
 
 @router.get("/", response_class=HTMLResponse)
-def home(_user: WebUser = Depends(require_web_user)):
-    return RedirectResponse(url="/devices", status_code=303)
+def home(
+    request: Request,
+    user: WebUser = Depends(require_web_user),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    stats = db.overview_stats(stale_after_seconds=settings.device_stale_after_seconds)
+    return templates.TemplateResponse(
+        request,
+        "overview.html",
+        {
+            "user": user,
+            "stats": stats,
+            "stale_after_seconds": settings.device_stale_after_seconds,
+        },
+    )
+
+
+@router.get("/overview", response_class=HTMLResponse)
+def overview_alias(
+    request: Request,
+    user: WebUser = Depends(require_web_user),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    return home(request, user=user, db=db, settings=settings)
 
 
 @router.get("/login", response_class=HTMLResponse)
@@ -98,7 +141,7 @@ def login_page(
     db: Database = Depends(get_db),
 ):
     if user:
-        return RedirectResponse(url="/devices", status_code=303)
+        return RedirectResponse(url="/", status_code=303)
     ldap = db.get_ldap_settings()
     return templates.TemplateResponse(
         request,
@@ -120,20 +163,20 @@ def login_submit(
     data_key: str = Depends(get_data_key),
     session_secret: str = Depends(get_session_secret),
 ):
-    user = authenticate_web_user(db, data_key, username.strip(), password)
+    user, auth_error = authenticate_web_user(db, data_key, username.strip(), password)
     ldap = db.get_ldap_settings()
     if not user:
         return templates.TemplateResponse(
             request,
             "login.html",
             {
-                "error": "Неверное имя пользователя или пароль",
+                "error": auth_error or "Неверное имя пользователя или пароль",
                 "ldap_enabled": bool(ldap.get("enabled")),
                 "user": None,
             },
             status_code=401,
         )
-    dest = "/account/password" if user.must_change_password else "/devices"
+    dest = "/account/password" if user.must_change_password else "/"
     resp = RedirectResponse(url=dest, status_code=303)
     _set_session_cookie(resp, session_secret, user)
     return resp
@@ -155,19 +198,70 @@ def _enrich_device_row(device: dict, settings: Settings) -> dict:
     return device
 
 
+def _devices_query_params(
+    *,
+    tag: Optional[str],
+    q: Optional[str],
+    archive: bool,
+    page: int,
+) -> str:
+    params: dict[str, str] = {}
+    if tag:
+        params["tag"] = tag
+    if q:
+        params["q"] = q
+    if archive:
+        params["archive"] = "1"
+    if page > 1:
+        params["page"] = str(page)
+    return urlencode(params)
+
+
 @router.get("/devices", response_class=HTMLResponse)
 def devices_page(
     request: Request,
     tag: Optional[str] = None,
+    q: Optional[str] = None,
+    archive: Optional[str] = None,
+    page: int = 1,
     user: WebUser = Depends(require_web_user),
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
     tag_filter = (tag or "").strip() or None
+    query = (q or "").strip() or None
+    show_archive = (archive or "").strip() in {"1", "true", "yes"}
+    page_i = max(1, int(page or 1))
+    total = db.count_devices(tag=tag_filter, archived=show_archive, q=query)
+    page_size = DEVICES_PAGE_SIZE
+    pages = max(1, (total + page_size - 1) // page_size)
+    if page_i > pages:
+        page_i = pages
+    offset = (page_i - 1) * page_size
     devices = [
-        _enrich_device_row(d, settings) for d in db.list_devices(tag=tag_filter)
+        _enrich_device_row(d, settings)
+        for d in db.list_devices(
+            tag=tag_filter,
+            archived=show_archive,
+            q=query,
+            offset=offset,
+            limit=page_size,
+        )
     ]
+    # Lightweight duplicate hints for the current page (hostname only in list).
+    host_counts: dict[str, int] = {}
+    for d in db.list_devices(archived=None):
+        hn = (d.get("hostname") or "").strip().casefold()
+        if hn:
+            host_counts[hn] = host_counts.get(hn, 0) + 1
+    for d in devices:
+        hn = (d.get("hostname") or "").strip().casefold()
+        d["hostname_dup"] = bool(hn and host_counts.get(hn, 0) > 1)
+
     agent_update = db.get_agent_update()
+    qs = _devices_query_params(
+        tag=tag_filter, q=query, archive=show_archive, page=page_i
+    )
     return templates.TemplateResponse(
         request,
         "devices.html",
@@ -177,8 +271,61 @@ def devices_page(
             "agent_update": agent_update,
             "github_repo": settings.github_repo,
             "tag_filter": tag_filter or "",
+            "q": query or "",
+            "show_archive": show_archive,
             "all_tags": db.list_all_tags(),
             "stale_after_seconds": settings.device_stale_after_seconds,
+            "page": page_i,
+            "pages": pages,
+            "total": total,
+            "page_size": page_size,
+            "export_qs": qs,
+        },
+    )
+
+
+@router.get("/devices/export.csv")
+def devices_csv_export(
+    tag: Optional[str] = None,
+    q: Optional[str] = None,
+    archive: Optional[str] = None,
+    _user: WebUser = Depends(require_web_user),
+    db: Database = Depends(get_db),
+):
+    tag_filter = (tag or "").strip() or None
+    query = (q or "").strip() or None
+    show_archive = (archive or "").strip() in {"1", "true", "yes"}
+    rows = db.devices_for_csv(
+        tag=tag_filter, archived=show_archive, q=query
+    )
+    buf = io.StringIO()
+    fields = [
+        "device_id",
+        "hostname",
+        "tags",
+        "agent_version",
+        "last_seen_at",
+        "enrolled_at",
+        "archived",
+        "revoked",
+        "serial_number",
+        "model",
+        "manufacturer",
+        "cpu",
+        "ram_bytes",
+        "domain",
+        "os",
+    ]
+    writer = csv.DictWriter(buf, fieldnames=fields, extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(row)
+    data = buf.getvalue().encode("utf-8-sig")
+    return StreamingResponse(
+        iter([data]),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": 'attachment; filename="bad-devices.csv"',
         },
     )
 
@@ -187,11 +334,21 @@ def devices_page(
 def events_page(
     request: Request,
     device_id: Optional[str] = None,
+    page: int = 1,
     user: WebUser = Depends(require_web_user),
     db: Database = Depends(get_db),
 ):
     device_filter = (device_id or "").strip() or None
-    events = db.list_device_events(device_id=device_filter, limit=200)
+    page_i = max(1, int(page or 1))
+    page_size = EVENTS_PAGE_SIZE
+    total = db.count_device_events(device_id=device_filter)
+    pages = max(1, (total + page_size - 1) // page_size)
+    if page_i > pages:
+        page_i = pages
+    offset = (page_i - 1) * page_size
+    events = db.list_device_events(
+        device_id=device_filter, limit=page_size, offset=offset
+    )
     return templates.TemplateResponse(
         request,
         "events.html",
@@ -199,7 +356,11 @@ def events_page(
             "events": events,
             "user": user,
             "device_filter": device_filter or "",
-            "devices": db.list_devices(),
+            "devices": db.list_devices(archived=None),
+            "page": page_i,
+            "pages": pages,
+            "total": total,
+            "page_size": page_size,
         },
     )
 
@@ -235,6 +396,7 @@ def _device_config_context(
         stale_after_seconds=settings.device_stale_after_seconds,
     )
     recent_events = db.list_device_events(device_id=device_id, limit=20)
+    duplicates = db.find_duplicate_devices(device_id)
     return {
         "device": detail,
         "inventory_pretty": inventory_pretty,
@@ -254,6 +416,8 @@ def _device_config_context(
         "recent_events": recent_events,
         "tags_text": ", ".join(detail.get("tags") or []),
         "stale_after_seconds": settings.device_stale_after_seconds,
+        "duplicates": duplicates,
+        "new_api_key": None,
     }
 
 
@@ -274,6 +438,98 @@ def device_detail_page(
             status_code=404,
         )
     return templates.TemplateResponse(request, "device_detail.html", ctx)
+
+
+@router.post("/devices/{device_id}/revoke")
+def device_revoke(
+    device_id: str,
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    if not db.set_device_revoked(device_id, True):
+        return templates.TemplateResponse(
+            request,
+            "device_missing.html",
+            {"device_id": device_id, "user": user},
+            status_code=404,
+        )
+    ctx = _device_config_context(
+        db,
+        device_id,
+        user=user,
+        settings=settings,
+        message="Доступ отозван: агент получит 403 до повторной регистрации или выпуска нового ключа",
+    )
+    assert ctx is not None
+    return templates.TemplateResponse(request, "device_detail.html", ctx)
+
+
+@router.post("/devices/{device_id}/rotate-key")
+def device_rotate_key(
+    device_id: str,
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    if not db.get_device_detail(device_id):
+        return templates.TemplateResponse(
+            request,
+            "device_missing.html",
+            {"device_id": device_id, "user": user},
+            status_code=404,
+        )
+    api_key = generate_token("bad_ak_")
+    db.rotate_device_api_key(device_id, hash_secret(api_key))
+    ctx = _device_config_context(
+        db,
+        device_id,
+        user=user,
+        settings=settings,
+        message="Выпущен новый API-ключ. Сохраните его — повторно показать нельзя.",
+    )
+    assert ctx is not None
+    ctx["new_api_key"] = api_key
+    return templates.TemplateResponse(request, "device_detail.html", ctx)
+
+
+@router.post("/devices/{device_id}/archive")
+def device_archive(
+    device_id: str,
+    user: WebUser = Depends(require_web_user),
+    db: Database = Depends(get_db),
+):
+    if not db.set_device_archived(device_id, True):
+        return RedirectResponse(url="/devices", status_code=303)
+    return RedirectResponse(url=f"/devices/{device_id}", status_code=303)
+
+
+@router.post("/devices/{device_id}/restore")
+def device_restore(
+    device_id: str,
+    user: WebUser = Depends(require_web_user),
+    db: Database = Depends(get_db),
+):
+    if not db.set_device_archived(device_id, False):
+        return RedirectResponse(url="/devices", status_code=303)
+    return RedirectResponse(url=f"/devices/{device_id}", status_code=303)
+
+
+@router.post("/devices/{device_id}/delete")
+def device_delete(
+    device_id: str,
+    confirm: str = Form(""),
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+):
+    if (confirm or "").strip() != device_id:
+        return RedirectResponse(
+            url=f"/devices/{device_id}?delete_error=1", status_code=303
+        )
+    db.delete_device(device_id)
+    return RedirectResponse(url="/devices", status_code=303)
 
 
 @router.post("/devices/{device_id}/tags")
@@ -400,7 +656,7 @@ def password_page(
     user: WebUser = Depends(require_web_user),
 ):
     if user.source != "local":
-        return RedirectResponse(url="/devices", status_code=303)
+        return RedirectResponse(url="/", status_code=303)
     return templates.TemplateResponse(
         request,
         "password.html",
@@ -424,7 +680,7 @@ def password_submit(
     session_secret: str = Depends(get_session_secret),
 ):
     if user.source != "local":
-        return RedirectResponse(url="/devices", status_code=303)
+        return RedirectResponse(url="/", status_code=303)
 
     def render(error: str, status_code: int = 400):
         return templates.TemplateResponse(
@@ -458,7 +714,7 @@ def password_submit(
         must_change_password=False,
         display_name=user.display_name,
     )
-    resp = RedirectResponse(url="/devices", status_code=303)
+    resp = RedirectResponse(url="/", status_code=303)
     _set_session_cookie(resp, session_secret, updated)
     return resp
 
@@ -474,6 +730,7 @@ def _ldap_form_context(
     has_bind_password = bool(row.get("bind_password_enc"))
     return {
         "user": user,
+        "settings_section": "ldap",
         "message": message,
         "error": error,
         "test_result": test_result,
@@ -490,6 +747,7 @@ def _ldap_form_context(
             or "(uid={username})",
             "display_name_attr": row.get("display_name_attr") or "cn",
             "default_role": row.get("default_role") or "operator",
+            "allowed_group": row.get("allowed_group") or "",
         },
     }
 
@@ -519,6 +777,7 @@ def _parse_ldap_form(form: LdapFormData) -> tuple[dict, Optional[str]]:
         "user_filter_template": template,
         "display_name_attr": (form.display_name_attr or "cn").strip() or "cn",
         "default_role": role,
+        "allowed_group": (form.allowed_group or "").strip(),
     }, None
 
 
@@ -840,6 +1099,7 @@ def ldap_settings_save(
         user_filter_template=parsed["user_filter_template"],
         display_name_attr=parsed["display_name_attr"],
         default_role=parsed["default_role"],
+        allowed_group=parsed["allowed_group"],
         bind_password_enc=enc,
     )
     row = db.get_ldap_settings()
@@ -889,6 +1149,7 @@ def ldap_settings_test(
             "user_filter_template": parsed["user_filter_template"],
             "display_name_attr": parsed["display_name_attr"],
             "default_role": parsed["default_role"],
+            "allowed_group": parsed["allowed_group"],
         }
     )
     return templates.TemplateResponse(
@@ -900,4 +1161,454 @@ def ldap_settings_test(
             test_result=("ОК: " if ok else "Ошибка: ") + msg,
             error=None if ok else msg,
         ),
+    )
+
+
+def _smtp_form_context(
+    row: dict,
+    *,
+    user: WebUser,
+    message: Optional[str] = None,
+    error: Optional[str] = None,
+    test_result: Optional[str] = None,
+) -> dict:
+    notify = parse_notify_flags(row.get("notify") or row.get("notify_json"))
+    return {
+        "user": user,
+        "settings_section": "mail",
+        "message": message,
+        "error": error,
+        "test_result": test_result,
+        "has_password": bool(row.get("password_enc")),
+        "notify": notify,
+        "notify_labels": [(k, NOTIFY_LABELS_RU[k]) for k in DEFAULT_NOTIFY],
+        "smtp": {
+            "enabled": bool(row.get("enabled")),
+            "host": row.get("host") or "",
+            "port": int(row.get("port") or 587),
+            "use_ssl": bool(row.get("use_ssl")),
+            "use_starttls": bool(row.get("use_starttls")),
+            "username": row.get("username") or "",
+            "from_addr": row.get("from_addr") or "",
+            "to_addrs": row.get("to_addrs") or "",
+        },
+    }
+
+
+def _parse_smtp_form(
+    *,
+    enabled: Optional[str],
+    host: str,
+    port: str,
+    use_ssl: Optional[str],
+    use_starttls: Optional[str],
+    username: str,
+    password: str,
+    from_addr: str,
+    to_addrs: str,
+    notify_flags: Optional[dict[str, Optional[str]]] = None,
+) -> tuple[dict, Optional[str]]:
+    try:
+        port_i = int(port or "587")
+    except ValueError:
+        return {}, "Порт должен быть целым числом"
+    if port_i < 1 or port_i > 65535:
+        return {}, "Порт должен быть от 1 до 65535"
+    flags = {key: False for key in DEFAULT_NOTIFY}
+    for key, raw in (notify_flags or {}).items():
+        if key in flags and raw is not None:
+            flags[key] = True
+    return {
+        "enabled": enabled is not None,
+        "host": (host or "").strip(),
+        "port": port_i,
+        "use_ssl": use_ssl is not None,
+        "use_starttls": use_starttls is not None,
+        "username": (username or "").strip(),
+        "password": password,
+        "from_addr": (from_addr or "").strip(),
+        "to_addrs": (to_addrs or "").strip(),
+        "notify_json": dump_notify_flags(flags),
+    }, None
+
+
+@router.get("/settings")
+def settings_home(user: WebUser = Depends(require_web_admin)):
+    return RedirectResponse(url="/settings/ldap", status_code=303)
+
+
+@router.get("/settings/retention", response_class=HTMLResponse)
+def retention_settings_page(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+):
+    return templates.TemplateResponse(
+        request,
+        "retention_settings.html",
+        {
+            "user": user,
+            "settings_section": "retention",
+            "retention": db.get_retention_settings(),
+            "message": None,
+            "error": None,
+        },
+    )
+
+
+@router.post("/settings/retention")
+def retention_settings_save(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    events_days: str = Form("90"),
+    inventory_days: str = Form("180"),
+):
+    try:
+        ev = int((events_days or "90").strip())
+        inv = int((inventory_days or "180").strip())
+    except ValueError:
+        return templates.TemplateResponse(
+            request,
+            "retention_settings.html",
+            {
+                "user": user,
+                "settings_section": "retention",
+                "retention": db.get_retention_settings(),
+                "message": None,
+                "error": "Укажите целые числа дней",
+            },
+            status_code=400,
+        )
+    if ev < 1 or inv < 1 or ev > 3650 or inv > 3650:
+        return templates.TemplateResponse(
+            request,
+            "retention_settings.html",
+            {
+                "user": user,
+                "settings_section": "retention",
+                "retention": db.get_retention_settings(),
+                "message": None,
+                "error": "Диапазон: от 1 до 3650 дней",
+            },
+            status_code=400,
+        )
+    db.update_retention_settings(events_days=ev, inventory_days=inv)
+    return templates.TemplateResponse(
+        request,
+        "retention_settings.html",
+        {
+            "user": user,
+            "settings_section": "retention",
+            "retention": db.get_retention_settings(),
+            "message": "Настройки хранения сохранены",
+            "error": None,
+        },
+    )
+
+
+@router.get("/settings/smtp")
+def smtp_settings_redirect():
+    return RedirectResponse(url="/settings/mail", status_code=303)
+
+
+@router.get("/settings/mail", response_class=HTMLResponse)
+def mail_settings_page(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+):
+    return templates.TemplateResponse(
+        request,
+        "smtp_settings.html",
+        _smtp_form_context(db.get_smtp_settings(), user=user),
+    )
+
+
+@router.post("/settings/mail")
+def mail_settings_save(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    data_key: str = Depends(get_data_key),
+    enabled: Optional[str] = Form(None),
+    host: str = Form(""),
+    port: str = Form("587"),
+    use_ssl: Optional[str] = Form(None),
+    use_starttls: Optional[str] = Form(None),
+    username: str = Form(""),
+    password: str = Form(""),
+    from_addr: str = Form(""),
+    to_addrs: str = Form(""),
+    notify_hardware: Optional[str] = Form(None),
+    notify_stale: Optional[str] = Form(None),
+    notify_enroll: Optional[str] = Form(None),
+    notify_hostname: Optional[str] = Form(None),
+    notify_domain: Optional[str] = Form(None),
+):
+    parsed, err = _parse_smtp_form(
+        enabled=enabled,
+        host=host,
+        port=port,
+        use_ssl=use_ssl,
+        use_starttls=use_starttls,
+        username=username,
+        password=password,
+        from_addr=from_addr,
+        to_addrs=to_addrs,
+        notify_flags={
+            "hardware": notify_hardware,
+            "stale": notify_stale,
+            "enroll": notify_enroll,
+            "hostname": notify_hostname,
+            "domain": notify_domain,
+        },
+    )
+    if err:
+        return templates.TemplateResponse(
+            request,
+            "smtp_settings.html",
+            _smtp_form_context(db.get_smtp_settings(), user=user, error=err),
+            status_code=400,
+        )
+    enc: Optional[str] = None
+    if parsed["password"].strip():
+        enc = encrypt_secret(data_key, parsed["password"])
+    db.update_smtp_settings(
+        enabled=parsed["enabled"],
+        host=parsed["host"],
+        port=parsed["port"],
+        use_ssl=parsed["use_ssl"],
+        use_starttls=parsed["use_starttls"],
+        username=parsed["username"],
+        from_addr=parsed["from_addr"],
+        to_addrs=parsed["to_addrs"],
+        notify_json=parsed["notify_json"],
+        password_enc=enc,
+    )
+    return templates.TemplateResponse(
+        request,
+        "smtp_settings.html",
+        _smtp_form_context(
+            db.get_smtp_settings(),
+            user=user,
+            message="Настройки почты сохранены",
+        ),
+    )
+
+
+@router.post("/settings/mail/test")
+def mail_settings_test(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    data_key: str = Depends(get_data_key),
+    enabled: Optional[str] = Form(None),
+    host: str = Form(""),
+    port: str = Form("587"),
+    use_ssl: Optional[str] = Form(None),
+    use_starttls: Optional[str] = Form(None),
+    username: str = Form(""),
+    password: str = Form(""),
+    from_addr: str = Form(""),
+    to_addrs: str = Form(""),
+    notify_hardware: Optional[str] = Form(None),
+    notify_stale: Optional[str] = Form(None),
+    notify_enroll: Optional[str] = Form(None),
+    notify_hostname: Optional[str] = Form(None),
+    notify_domain: Optional[str] = Form(None),
+):
+    parsed, err = _parse_smtp_form(
+        enabled=enabled,
+        host=host,
+        port=port,
+        use_ssl=use_ssl,
+        use_starttls=use_starttls,
+        username=username,
+        password=password,
+        from_addr=from_addr,
+        to_addrs=to_addrs,
+        notify_flags={
+            "hardware": notify_hardware,
+            "stale": notify_stale,
+            "enroll": notify_enroll,
+            "hostname": notify_hostname,
+            "domain": notify_domain,
+        },
+    )
+    row = db.get_smtp_settings()
+    if err:
+        return templates.TemplateResponse(
+            request,
+            "smtp_settings.html",
+            _smtp_form_context(row, user=user, error=err),
+            status_code=400,
+        )
+    pwd = parsed["password"].strip()
+    if not pwd and row.get("password_enc"):
+        pwd = decrypt_secret(data_key, row["password_enc"]) or ""
+    recipients = parse_recipients(parsed["to_addrs"])
+    if not parsed["from_addr"] or not recipients:
+        return templates.TemplateResponse(
+            request,
+            "smtp_settings.html",
+            _smtp_form_context(
+                row,
+                user=user,
+                error="Укажите From и хотя бы одного получателя",
+            ),
+            status_code=400,
+        )
+    msg = build_hardware_email(
+        device_id="test-device",
+        hostname="TEST-HOST",
+        events=[
+            {
+                "type": "cpu_change",
+                "summary": "Тестовое письмо SMTP из панели bAD",
+            }
+        ],
+        from_addr=parsed["from_addr"],
+        to_addrs=recipients,
+    )
+    ok, detail = send_email(
+        host=parsed["host"],
+        port=parsed["port"],
+        username=parsed["username"],
+        password=pwd,
+        use_ssl=parsed["use_ssl"],
+        use_starttls=parsed["use_starttls"],
+        message=msg,
+    )
+    preview = dict(row)
+    preview.update(
+        {
+            "enabled": 1 if parsed["enabled"] else 0,
+            "host": parsed["host"],
+            "port": parsed["port"],
+            "use_ssl": 1 if parsed["use_ssl"] else 0,
+            "use_starttls": 1 if parsed["use_starttls"] else 0,
+            "username": parsed["username"],
+            "from_addr": parsed["from_addr"],
+            "to_addrs": parsed["to_addrs"],
+            "notify_json": parsed["notify_json"],
+        }
+    )
+    return templates.TemplateResponse(
+        request,
+        "smtp_settings.html",
+        _smtp_form_context(
+            preview,
+            user=user,
+            test_result=("ОК: " if ok else "Ошибка: ") + detail,
+            error=None if ok else detail,
+        ),
+    )
+
+
+@router.get("/settings/backups", response_class=HTMLResponse)
+def backups_settings_page(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    return templates.TemplateResponse(
+        request,
+        "backup_settings.html",
+        {
+            "user": user,
+            "settings_section": "backups",
+            "backup": backup_status(settings.backup_dir),
+            "last_backup_at": db.get_site_secret("last_backup_at"),
+            "message": None,
+            "error": None,
+        },
+    )
+
+
+@router.post("/settings/backups/run")
+def backups_settings_run(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    from .db import utc_now
+
+    result = run_daily_backup(settings.db_path, settings.backup_dir)
+    if result.get("ok"):
+        db.set_site_secret("last_backup_at", utc_now())
+        db.set_site_secret("last_backup_path", result.get("path") or "")
+        message = f"Бэкап записан: {result.get('name')}"
+        error = None
+    else:
+        message = None
+        error = result.get("error") or "Ошибка бэкапа"
+    return templates.TemplateResponse(
+        request,
+        "backup_settings.html",
+        {
+            "user": user,
+            "settings_section": "backups",
+            "backup": backup_status(settings.backup_dir),
+            "last_backup_at": db.get_site_secret("last_backup_at"),
+            "message": message,
+            "error": error,
+        },
+        status_code=200 if result.get("ok") else 500,
+    )
+
+
+@router.get("/settings/updates", response_class=HTMLResponse)
+def updates_settings_page(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    return templates.TemplateResponse(
+        request,
+        "updates_settings.html",
+        {
+            "user": user,
+            "settings_section": "updates",
+            "agent_update": db.get_agent_update(),
+            "github_repo": settings.github_repo,
+            "updates_dir": str(settings.agent_updates_dir),
+            "sync_interval": settings.agent_update_sync_interval_seconds,
+            "message": None,
+            "error": None,
+        },
+    )
+
+
+@router.post("/settings/updates/sync")
+def updates_settings_sync(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    try:
+        record = sync_from_github(db, settings)
+        message = f"Синхронизировано: {record.get('version') if record else 'ok'}"
+        error = None
+    except Exception as exc:  # noqa: BLE001
+        message = None
+        error = f"Ошибка sync: {exc}"
+    return templates.TemplateResponse(
+        request,
+        "updates_settings.html",
+        {
+            "user": user,
+            "settings_section": "updates",
+            "agent_update": db.get_agent_update(),
+            "github_repo": settings.github_repo,
+            "updates_dir": str(settings.agent_updates_dir),
+            "sync_interval": settings.agent_update_sync_interval_seconds,
+            "message": message,
+            "error": error,
+        },
+        status_code=200 if message else 502,
     )

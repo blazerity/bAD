@@ -1,6 +1,6 @@
 # Архитектура bAD
 
-**blazerity Asset Discovery** — Windows-агент инвентаризации и on-prem сервер накопления снимков. Документ описывает фактическую архитектуру репозитория. Версия продукта: **0.7.0**.
+**blazerity Asset Discovery** — Windows-агент инвентаризации и on-prem сервер накопления снимков. Документ описывает фактическую архитектуру репозитория. Версия продукта: **0.8.0**.
 
 ## Компоненты
 
@@ -108,10 +108,14 @@ flowchart LR
 | `POST` | `/v1/heartbeat` | API key | `last_seen` + optional health → meta; piggyback `config` если `config_version` устарел |
 | `POST` | `/v1/inventory` | API key | upsert снимка по `device_id` (host/network + optional hardware/users/software); diff → `device_events` |
 | `GET` | `/v1/agent/config` | API key | effective settings только для своего устройства |
-| `GET` | `/v1/devices` | admin Bearer | список устройств (`?tag=` опционально) |
-| `GET` | `/v1/devices/{device_id}` | admin Bearer | meta + tags + последний inventory |
+| `GET` | `/v1/devices` | admin Bearer | список (`?tag=&q=&archived=&page=&page_size=`) |
+| `GET` | `/v1/devices/{device_id}` | admin Bearer | meta + tags + inventory + duplicates hint |
+| `POST` | `/v1/devices/{id}/revoke` | admin | отозвать API key (далее 403) |
+| `POST` | `/v1/devices/{id}/rotate-key` | admin | новый API key (plaintext один раз) |
+| `POST` | `/v1/devices/{id}/archive` / `restore` | admin | скрыть/вернуть в списке |
+| `DELETE` | `/v1/devices/{id}` | admin | hard-delete + связанные строки |
 | `PUT` | `/v1/devices/{device_id}/tags` | admin Bearer | заменить теги устройства |
-| `GET` | `/v1/events` | admin Bearer | события изменений inventory (`?device_id=`) |
+| `GET` | `/v1/events` | admin Bearer | события (`?device_id=&limit=&offset=`) |
 | `GET` | `/v1/agent/update/check` | API key | `{update_available, version, sha256, url}` |
 | `GET` | `/v1/agent/update/msi` | API key | байты зеркалированного MSI |
 | `GET` | `/v1/admin/agent-update` | admin | статус зеркала |
@@ -123,7 +127,8 @@ flowchart LR
 - `schema_version` inventory: сервер принимает `1` и `2` (v2 добавляет optional `software`; hardware fields вроде `serial_number`/`gpus`/`ram_modules` — additive, без bump schema); неизвестные → `400`.
 - Секреты сайта: enrollment и admin tokens (разные); в БД хранятся hash (argon2).
 - Rate limit на `/v1/enroll` (sliding window).
-- Retention: последние 30 снимков на устройство.
+- Count-retention: последние N снимков на устройство (`BAD_SNAPSHOT_RETENTION`, default 30).
+- Day-retention (web): `retention_settings` — events (default 90d) и old snapshots (default 180d); фоновый prune раз в час; новейший снимок устройства не удаляется.
 
 ### TLS и nginx
 
@@ -133,16 +138,23 @@ flowchart LR
 
 ### Web UI и аутентификация
 
-Визуальный язык (с **0.7.0**): светлая оболочка в духе Windows 11 / Fluent — Segoe UI Variable, слоистые полупрозрачные поверхности, радиусы 4px (controls) / 8px (surfaces), акцент Fluent blue (`#0067C0`), UI copy на русском, stroke-иконки секций (без emoji). Стили: `server/bad_server/static/style.css` + `favicon.svg`/`favicon.ico`; локальный HTML-отчёт (`HtmlReportWriter`) — та же семья токенов/иконок. Иконка агента: `agent/assets/bad.ico` (`ApplicationIcon` + WiX `ARPPRODUCTICON`).
+Визуальный язык (с **0.8.0**): светлая оболочка в духе Windows 11 / Fluent — Segoe UI Variable, слоистые полупрозрачные поверхности, радиусы 4px (controls) / 8px (surfaces), акцент Fluent blue (`#0067C0`), UI copy на русском, stroke-иконки секций (без emoji). Стили: `server/bad_server/static/style.css` + `favicon.svg`/`favicon.ico`; локальный HTML-отчёт (`HtmlReportWriter`) — та же семья токенов/иконок. Иконка агента: `agent/assets/bad.ico` (`ApplicationIcon` + WiX `ARPPRODUCTICON`).
 
 | Path | Назначение |
 |------|------------|
+| `/`, `/overview` | обзор: totals, версии агента, последние hardware events |
 | `/login` | username/password (local, затем LDAP если включён) |
 | `/logout` | сброс cookie сессии |
-| `/devices`, `/devices/{id}` | inventory; badge OK/stale по `last_seen_at`; теги; recent events; admin override; на карточке — summary serial/model/GPU/RAM modules + raw JSON |
-| `/events` | список событий изменений inventory (фильтр по устройству) |
-| `/settings/policies` | CRUD условных политик remote config (admin) |
-| `/settings/ldap` | CRUD LDAP + Test connection; только role `admin` |
+| `/devices`, `/devices/{id}` | список (поиск/архив/страницы/CSV); карточка — revoke/rotate, архив, delete, дубли, tags, override, hardware summary |
+| `/devices/export.csv` | CSV устройств с учётом фильтров |
+| `/events` | события inventory + пагинация |
+| `/settings` | редирект в оболочку «Параметры» (левый nav) |
+| `/settings/ldap` | LDAP + группа доступа AD |
+| `/settings/mail` | SMTP + получатели + toggles уведомлений |
+| `/settings/retention` | сроки хранения events/inventory |
+| `/settings/backups` | статус ежедневного SQLite backup + ручной запуск |
+| `/settings/policies` | CRUD политик remote config |
+| `/settings/updates` | статус зеркала MSI + sync |
 | `/account/password` | смена пароля локального пользователя |
 
 **Локальные пользователи**
@@ -153,10 +165,23 @@ flowchart LR
 
 **LDAP (опционально)**
 
-- Настройки в `ldap_settings` (одна строка): host, port, use_ssl / start_tls, bind DN, encrypted bind password, search base, filter template (`{username}`), display name attr, default role.
+- Настройки в `ldap_settings` (одна строка): host, port, use_ssl / start_tls, bind DN, encrypted bind password, search base, filter template (`{username}`), display name attr, default role, **`allowed_group`** (sAMAccountName или DN группы AD; пусто = без ограничения).
 - Bind password шифруется Fernet-ключом из `site_secrets.data_key`; в форме после save — placeholder «unchanged», plaintext не отдаётся.
-- Логин: сначала local match; иначе, если LDAP enabled — search + user bind через `ldap3`.
-- Роль LDAP-пользователей: `operator` (devices) или `admin` (включая LDAP settings) — поле default role.
+- Логин: сначала local match (break-glass); иначе, если LDAP enabled — search + user bind через `ldap3`, затем проверка членства в `allowed_group` (в т.ч. nested via matching rule). Иначе — отказ с русской ошибкой.
+- Роль LDAP-пользователей: `operator` или `admin` — поле default role.
+
+**Почта (SMTP)**
+
+- Таблица `smtp_settings`: host/port/TLS, user, encrypted password, From, To (comma-separated), `notify_json` toggles.
+- Defaults ON: hardware (RAM/CPU/disks/serial/model), stale, enroll. Defaults OFF: hostname, domain. Без webhooks.
+- Soft-fail: ошибки SMTP только в лог, enroll/inventory не ломаются.
+- Stale-алерты — фоновый цикл (~5 мин) с флагом `meta.stale_notified_at`.
+
+**Резервные копии SQLite**
+
+- Каталог `BAD_BACKUP_DIR` (default `/var/lib/bad/backups`).
+- Ежедневно файл `bad-YYYY-MM-DD.db` (sqlite3 backup API); хранятся сегодня + вчера.
+- Restore вручную: остановить сервис, скопировать файл на `BAD_DB_PATH`.
 
 **Сессия**
 
@@ -167,13 +192,13 @@ flowchart LR
 
 ### События inventory
 
-При каждом upsert сравнивается предыдущий и новый snapshot. Пишутся только осмысленные изменения: hostname/domain, logged-on / last_interactive, диск добавлен/удалён, сильное падение free space тома, смена набора IPv4 NIC. Таблица `device_events` (`device_id`, `type`, `summary`, `detail_json`, `created_at`). Первый снимок событий не создаёт.
+При каждом upsert сравнивается предыдущий и новый snapshot. Пишутся осмысленные изменения: hostname/domain, logged-on / last_interactive, диск добавлен/удалён, сильное падение free space тома, смена IPv4 NIC, **CPU / RAM bytes / RAM modules / serial / model / manufacturer**. Таблица `device_events`. Первый снимок событий не создаёт.
 
 ### Данные
 
 - SQLite: `/var/lib/bad/bad.db` (prod), владелец `bad:bad`, WAL.
-- Таблицы: `devices` (+ `tags_json`), `inventory_snapshots`, `device_events`, `site_secrets`, `local_users`, `ldap_settings`, `agent_update`, `agent_policies`, `device_config_overrides`.
-- Каталог MSI: `/var/lib/bad/agent-updates/` (конфиг).
+- Таблицы: `devices` (+ `tags_json`, `revoked`, `archived`), `inventory_snapshots`, `device_events`, `site_secrets`, `local_users`, `ldap_settings` (+ `allowed_group`), `retention_settings`, `smtp_settings`, `agent_update`, `agent_policies`, `device_config_overrides`.
+- Каталог MSI: `/var/lib/bad/agent-updates/`; бэкапы: `/var/lib/bad/backups/`.
 
 ## Enrollment и inventory
 

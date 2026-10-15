@@ -28,6 +28,8 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, updates_dir: Path):
         "test-session-secret-abcdefghijklmnopqrstuvwxyz",
     )
     monkeypatch.setenv("BAD_AGENT_UPDATES_DIR", str(updates_dir))
+    monkeypatch.setenv("BAD_BACKUP_DIR", str(tmp_path / "backups"))
+    monkeypatch.setenv("BAD_BACKUP_INTERVAL_SECONDS", "86400")
     monkeypatch.setenv("BAD_AGENT_UPDATE_SYNC_ON_STARTUP", "false")
     monkeypatch.setenv("BAD_AGENT_UPDATE_SYNC_INTERVAL_SECONDS", "0")
     monkeypatch.setenv("BAD_GITHUB_REPO", "blazerity/bAD")

@@ -4,7 +4,10 @@
 {% block content %}
 <section>
   <h1 class="with-icon">{{ icon('devices') }}Устройства</h1>
-  <p class="muted">Просмотр inventory только для чтения. Зарегистрировано: {{ devices|length }}.</p>
+  <p class="muted">
+    {% if show_archive %}Архив{% else %}Активные{% endif %}:
+    показано {{ devices|length }} из {{ total }}.
+  </p>
   <p class="muted">
     Зеркало MSI агента:
     {% if agent_update %}
@@ -15,12 +18,11 @@
       (<code>POST /v1/admin/agent-update/sync</code>, repo {{ github_repo }})
     {% endif %}
   </p>
-  <p class="muted">
-    Бейдж состояния: ОК, если устройство виделось за последние {{ stale_after_seconds }} с
-    (<code>BAD_DEVICE_STALE_AFTER_SECONDS</code>); иначе — устарел.
-  </p>
 
   <form method="get" action="/devices" class="filter-bar">
+    <label for="q">Поиск</label>
+    <input id="q" name="q" type="search" value="{{ q }}"
+      placeholder="hostname / device_id / serial" maxlength="128">
     <label for="tag">Тег</label>
     <select id="tag" name="tag">
       <option value="">Все теги</option>
@@ -28,16 +30,19 @@
       <option value="{{ t }}" {% if tag_filter == t %}selected{% endif %}>{{ t }}</option>
       {% endfor %}
     </select>
-    <button type="submit">Фильтр</button>
-    {% if tag_filter %}
+    <label class="check">
+      <input type="checkbox" name="archive" value="1" {% if show_archive %}checked{% endif %}>
+      Архив
+    </label>
+    <button type="submit">Найти</button>
+    {% if tag_filter or q or show_archive %}
     <a class="muted" href="/devices">Сбросить</a>
     {% endif %}
+    <a class="btn secondary" href="/devices/export.csv{% if export_qs %}?{{ export_qs }}{% endif %}">CSV</a>
   </form>
 
   {% if not devices %}
-  <p>Пока нет устройств{% if tag_filter %} с тегом <span class="mono">{{ tag_filter }}</span>{% endif %}.
-    {% if not tag_filter %}Установите Windows-агент с SERVERURL и ENROLLMENTTOKEN.{% endif %}
-  </p>
+  <p>Нет устройств{% if q %} по запросу <span class="mono">{{ q }}</span>{% endif %}{% if tag_filter %} с тегом <span class="mono">{{ tag_filter }}</span>{% endif %}.</p>
   {% else %}
   <table class="devices">
     <thead>
@@ -53,7 +58,15 @@
     <tbody>
       {% for d in devices %}
       <tr>
-        <td><a href="/devices/{{ d.device_id }}">{{ d.hostname or "(неизвестно)" }}</a></td>
+        <td>
+          <a href="/devices/{{ d.device_id }}">{{ d.hostname or "(неизвестно)" }}</a>
+          {% if d.hostname_dup %}
+            <span class="badge badge-stale" title="Есть другие устройства с тем же hostname">дубль</span>
+          {% endif %}
+          {% if d.revoked %}
+            <span class="badge badge-stale">отозван</span>
+          {% endif %}
+        </td>
         <td class="mono">{{ d.device_id }}</td>
         <td>
           <span class="badge badge-{{ d.silence.status }}">{{ silence_label(d.silence.status) }}</span>
@@ -73,6 +86,18 @@
       {% endfor %}
     </tbody>
   </table>
+
+  {% if pages > 1 %}
+  <nav class="pager" aria-label="Страницы">
+    {% if page > 1 %}
+    <a href="/devices?{% if q %}q={{ q }}&amp;{% endif %}{% if tag_filter %}tag={{ tag_filter }}&amp;{% endif %}{% if show_archive %}archive=1&amp;{% endif %}page={{ page - 1 }}">← Назад</a>
+    {% endif %}
+    <span class="muted">Стр. {{ page }} / {{ pages }}</span>
+    {% if page < pages %}
+    <a href="/devices?{% if q %}q={{ q }}&amp;{% endif %}{% if tag_filter %}tag={{ tag_filter }}&amp;{% endif %}{% if show_archive %}archive=1&amp;{% endif %}page={{ page + 1 }}">Вперёд →</a>
+    {% endif %}
+  </nav>
+  {% endif %}
   {% endif %}
 </section>
 {% endblock %}

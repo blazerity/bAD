@@ -38,6 +38,24 @@ def _disk_key(disk: dict[str, Any]) -> str:
     return f"{model}|{size if size is not None else '?'}"
 
 
+def _ram_module_key(mod: dict[str, Any]) -> str:
+    parts = [
+        _norm_str(mod.get("part_number")) or "?",
+        _norm_str(mod.get("serial_number")) or "?",
+        _norm_str(mod.get("device_locator") or mod.get("locator")) or "?",
+        str(mod.get("capacity_bytes") if mod.get("capacity_bytes") is not None else "?"),
+        _norm_str(mod.get("bank_label") or mod.get("channel")) or "?",
+    ]
+    return "|".join(parts)
+
+
+def _cpu_label(cpu: dict[str, Any]) -> str:
+    name = _norm_str(cpu.get("name")) or "?"
+    cores = cpu.get("cores")
+    logical = cpu.get("logical")
+    return f"{name} (cores={cores}, logical={logical})"
+
+
 def _volume_key(vol: dict[str, Any]) -> str:
     letter = _norm_str(vol.get("letter"))
     if letter:
@@ -144,6 +162,120 @@ def diff_inventory_snapshots(
 
     prev_hw = _as_dict(previous.get("hardware"))
     cur_hw = _as_dict(current.get("hardware"))
+
+    prev_serial = _norm_str(prev_hw.get("serial_number"))
+    cur_serial = _norm_str(cur_hw.get("serial_number"))
+    if prev_serial != cur_serial and (prev_serial or cur_serial):
+        events.append(
+            {
+                "type": "serial_change",
+                "summary": (
+                    f"Serial: {prev_serial or '(none)'} → {cur_serial or '(none)'}"
+                ),
+                "detail": {"from": prev_serial, "to": cur_serial},
+            }
+        )
+
+    prev_model = _norm_str(prev_hw.get("model"))
+    cur_model = _norm_str(cur_hw.get("model"))
+    if prev_model != cur_model and (prev_model or cur_model):
+        events.append(
+            {
+                "type": "model_change",
+                "summary": (
+                    f"Model: {prev_model or '(none)'} → {cur_model or '(none)'}"
+                ),
+                "detail": {"from": prev_model, "to": cur_model},
+            }
+        )
+
+    prev_mfr = _norm_str(prev_hw.get("manufacturer"))
+    cur_mfr = _norm_str(cur_hw.get("manufacturer"))
+    if prev_mfr != cur_mfr and (prev_mfr or cur_mfr):
+        events.append(
+            {
+                "type": "manufacturer_change",
+                "summary": (
+                    f"Manufacturer: {prev_mfr or '(none)'} → {cur_mfr or '(none)'}"
+                ),
+                "detail": {"from": prev_mfr, "to": cur_mfr},
+            }
+        )
+
+    prev_cpu = _as_dict(prev_hw.get("cpu"))
+    cur_cpu = _as_dict(cur_hw.get("cpu"))
+    if prev_cpu or cur_cpu:
+        prev_cpu_key = (
+            _norm_str(prev_cpu.get("name")),
+            prev_cpu.get("cores"),
+            prev_cpu.get("logical"),
+        )
+        cur_cpu_key = (
+            _norm_str(cur_cpu.get("name")),
+            cur_cpu.get("cores"),
+            cur_cpu.get("logical"),
+        )
+        if prev_cpu_key != cur_cpu_key and (prev_cpu or cur_cpu):
+            events.append(
+                {
+                    "type": "cpu_change",
+                    "summary": (
+                        f"CPU: {_cpu_label(prev_cpu)} → {_cpu_label(cur_cpu)}"
+                    ),
+                    "detail": {"from": prev_cpu, "to": cur_cpu},
+                }
+            )
+
+    prev_ram = prev_hw.get("ram_bytes")
+    cur_ram = cur_hw.get("ram_bytes")
+    if prev_ram != cur_ram and (prev_ram is not None or cur_ram is not None):
+        events.append(
+            {
+                "type": "ram_bytes_change",
+                "summary": f"RAM bytes: {prev_ram} → {cur_ram}",
+                "detail": {"from": prev_ram, "to": cur_ram},
+            }
+        )
+
+    prev_modules = {
+        _ram_module_key(m): m
+        for m in _as_list(prev_hw.get("ram_modules"))
+        if isinstance(m, dict)
+    }
+    cur_modules = {
+        _ram_module_key(m): m
+        for m in _as_list(cur_hw.get("ram_modules"))
+        if isinstance(m, dict)
+    }
+    for key in sorted(cur_modules.keys() - prev_modules.keys()):
+        m = cur_modules[key]
+        label = (
+            _norm_str(m.get("part_number"))
+            or _norm_str(m.get("device_locator") or m.get("locator"))
+            or key
+        )
+        events.append(
+            {
+                "type": "ram_module_added",
+                "summary": f"RAM module added: {label}",
+                "detail": {"module": m},
+            }
+        )
+    for key in sorted(prev_modules.keys() - cur_modules.keys()):
+        m = prev_modules[key]
+        label = (
+            _norm_str(m.get("part_number"))
+            or _norm_str(m.get("device_locator") or m.get("locator"))
+            or key
+        )
+        events.append(
+            {
+                "type": "ram_module_removed",
+                "summary": f"RAM module removed: {label}",
+                "detail": {"module": m},
+            }
+        )
+
     prev_disks = {
         _disk_key(d): d
         for d in _as_list(prev_hw.get("disks"))

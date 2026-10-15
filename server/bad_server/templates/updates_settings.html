@@ -1,0 +1,35 @@
+{% extends "settings_base.html" %}
+{% set settings_section = 'updates' %}
+{% block title %}Обновления агента — bAD{% endblock %}
+{% block settings_content %}
+<section class="settings">
+  <h1>Обновления агента</h1>
+  <p class="muted">
+    Сервер зеркалирует MSI с GitHub Releases. Агенты качают только с этого сервера.
+  </p>
+  {% if message %}<p class="ok">{{ message }}</p>{% endif %}
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+  <dl class="meta">
+    <div><dt>GitHub repo</dt><dd class="mono">{{ github_repo }}</dd></div>
+    <div><dt>Каталог MSI</dt><dd class="mono">{{ updates_dir }}</dd></div>
+    <div><dt>Интервал sync</dt><dd class="mono">{{ sync_interval }} с</dd></div>
+  </dl>
+
+  {% if agent_update %}
+  <h2>Текущее зеркало</h2>
+  <dl class="meta">
+    <div><dt>Версия</dt><dd class="mono">{{ agent_update.version }}</dd></div>
+    <div><dt>Файл</dt><dd class="mono">{{ agent_update.msi_name }}</dd></div>
+    <div><dt>SHA256</dt><dd class="mono">{{ agent_update.sha256 }}</dd></div>
+    <div><dt>Синхронизировано</dt><dd class="mono">{{ agent_update.synced_at }}</dd></div>
+  </dl>
+  {% else %}
+  <p class="muted">Зеркала пока нет. Запустите sync или дождитесь фоновой задачи.</p>
+  {% endif %}
+
+  <form method="post" action="/settings/updates/sync" class="form-actions">
+    <button type="submit">Синхронизировать сейчас</button>
+  </form>
+</section>
+{% endblock %}

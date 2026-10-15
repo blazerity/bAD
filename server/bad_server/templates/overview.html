@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% from "macros/icons.html" import icon %}
+{% block title %}Обзор — bAD{% endblock %}
+{% block content %}
+<section>
+  <h1 class="with-icon">{{ icon('devices') }}Обзор</h1>
+  <p class="muted">Сводка по парку. Устарел — нет контакта дольше {{ stale_after_seconds }} с.</p>
+
+  <div class="stat-row">
+    <div class="stat">
+      <div class="stat-value">{{ stats.total_active }}</div>
+      <div class="stat-label">Активных</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">{{ stats.online }}</div>
+      <div class="stat-label">Онлайн</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">{{ stats.stale }}</div>
+      <div class="stat-label">Устарели</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">{{ stats.archived }}</div>
+      <div class="stat-label">В архиве</div>
+    </div>
+  </div>
+
+  <h2>Версии агента</h2>
+  {% if stats.agent_versions %}
+  <table class="devices">
+    <thead>
+      <tr><th>Версия</th><th>Устройств</th></tr>
+    </thead>
+    <tbody>
+      {% for row in stats.agent_versions %}
+      <tr>
+        <td class="mono">{{ row.version }}</td>
+        <td>{{ row.count }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">Пока нет активных устройств.</p>
+  {% endif %}
+
+  <h2 class="with-icon">{{ icon('events') }}Недавние изменения железа</h2>
+  {% if stats.recent_hardware_events %}
+  <table class="devices">
+    <thead>
+      <tr>
+        <th>Когда</th>
+        <th>Устройство</th>
+        <th>Тип</th>
+        <th>Кратко</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in stats.recent_hardware_events %}
+      <tr>
+        <td class="mono">{{ e.created_at }}</td>
+        <td><a href="/devices/{{ e.device_id }}">{{ e.hostname or e.device_id }}</a></td>
+        <td class="mono">{{ e.type }}</td>
+        <td>{{ e.summary }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">Событий изменения железа пока нет.</p>
+  {% endif %}
+
+  <p class="muted"><a href="/devices">К списку устройств</a> · <a href="/events">Все события</a></p>
+</section>
+{% endblock %}
