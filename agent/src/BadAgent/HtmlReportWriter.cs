@@ -48,6 +48,8 @@ public static class HtmlReportWriter
         sb.AppendLine("<dl class=\"grid\">");
         Kv(sb, "Имя узла", snap.Host?.Hostname);
         Kv(sb, "Домен", snap.Host?.Domain);
+        Kv(sb, "AD OU", snap.Host?.AdOu);
+        Kv(sb, "AD DN", snap.Host?.AdDistinguishedName);
         Kv(sb, "ОС", ReportFormat.FormatOs(snap.Host?.Os, "—"));
         sb.AppendLine("</dl>");
 
@@ -62,6 +64,8 @@ public static class HtmlReportWriter
             Kv(sb, "Производитель", snap.Hardware.Manufacturer, "model");
             Kv(sb, "Модель", snap.Hardware.Model, "model");
             Kv(sb, "Серийный номер", snap.Hardware.SerialNumber, "serial");
+            Kv(sb, "Версия BIOS", snap.Hardware.BiosVersion, "serial");
+            Kv(sb, "Производитель BIOS", snap.Hardware.BiosManufacturer, "serial");
             Kv(sb, "Процессор", snap.Hardware.Cpu?.Name, "cpu");
             Kv(sb, "Ядра", snap.Hardware.Cpu is null
                 ? null
@@ -73,7 +77,34 @@ public static class HtmlReportWriter
                 Kv(sb, "Планки ОЗУ", snap.Hardware.RamModules.Count.ToString(), "ram");
             }
 
+            if (snap.Hardware.Battery is not null)
+            {
+                var bat = snap.Hardware.Battery;
+                Kv(sb, "Батарея", bat.ChargePercent is null ? bat.Status : $"{bat.ChargePercent}% · {bat.Status}");
+                if (bat.EstimatedRuntimeMinutes is not null)
+                {
+                    Kv(sb, "Осталось (мин)", bat.EstimatedRuntimeMinutes.ToString());
+                }
+            }
+
             sb.AppendLine("</dl>");
+
+            if (snap.Hardware.Monitors is { Count: > 0 })
+            {
+                SubHead(sb, "gpu", "Мониторы");
+                sb.AppendLine(
+                    "<table><thead><tr><th>Имя</th><th>Производитель</th><th>Серийный №</th>" +
+                    "<th>Разрешение</th></tr></thead><tbody>");
+                foreach (var m in snap.Hardware.Monitors)
+                {
+                    var res = m.Width is null || m.Height is null ? "—" : $"{m.Width}×{m.Height}";
+                    sb.AppendLine(
+                        $"<tr><td>{Enc(m.Name)}</td><td>{Enc(m.Manufacturer)}</td>" +
+                        $"<td>{Enc(m.SerialNumber)}</td><td>{Enc(res)}</td></tr>");
+                }
+
+                sb.AppendLine("</tbody></table>");
+            }
 
             if (snap.Hardware.Gpus is { Count: > 0 })
             {
@@ -188,6 +219,30 @@ public static class HtmlReportWriter
             }
 
             sb.AppendLine("</tbody></table>");
+        }
+
+        if (snap.Minidumps is not null)
+        {
+            Section(sb, "events", "Минидампы BSOD");
+            sb.AppendLine("<dl class=\"grid\">");
+            Kv(sb, "Файлов в Minidump", snap.Minidumps.Count.ToString());
+            Kv(sb, "Memory.dmp", snap.Minidumps.MemoryDmpPresent ? "есть" : "нет");
+            Kv(sb, "Путь Memory.dmp", snap.Minidumps.MemoryDmpPath);
+            Kv(sb, "Изменён", snap.Minidumps.MemoryDmpModifiedAt);
+            sb.AppendLine("</dl>");
+            if (snap.Minidumps.Files is { Count: > 0 })
+            {
+                sb.AppendLine("<table><thead><tr><th>Имя</th><th>Размер</th><th>Изменён (UTC)</th></tr></thead><tbody>");
+                foreach (var f in snap.Minidumps.Files)
+                {
+                    sb.AppendLine(
+                        $"<tr><td>{Enc(f.Name)}</td><td>{Enc(ReportFormat.FormatBytes(f.SizeBytes, "—"))}</td>" +
+                        $"<td>{Enc(f.ModifiedAt)}</td></tr>");
+                }
+
+                sb.AppendLine("</tbody></table>");
+                sb.AppendLine("<p class=\"muted\">Тела дампов на сервер не загружаются — только метаданные.</p>");
+            }
         }
 
         if (snap.CollectorErrors.Count > 0)

@@ -37,9 +37,14 @@ public sealed class AgentUpdater
         {
             check = await client.CheckUpdateAsync(config.ApiKey!, _agentVersion, ct);
         }
+        catch (AgentApiException ex) when (ex.IsAuthFailure)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Update check failed");
+            WindowsEventLog.WriteWarning("bAD: проверка обновления не удалась", ex);
             return false;
         }
 
@@ -91,6 +96,8 @@ public sealed class AgentUpdater
                 _logger.LogError(
                     "Update MSI sha256 mismatch for {Version}; refusing to install",
                     check.Version);
+                WindowsEventLog.WriteError(
+                    $"bAD: sha256 MSI обновления {check.Version} не совпал — установка отменена.");
                 return false;
             }
 
@@ -128,9 +135,14 @@ public sealed class AgentUpdater
 
             return true;
         }
+        catch (AgentApiException ex) when (ex.IsAuthFailure)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to download/apply update {Version}", check.Version);
+            WindowsEventLog.WriteError($"bAD: сбой загрузки/установки обновления {check.Version}", ex);
             try
             {
                 if (Directory.Exists(tempDir))

@@ -73,7 +73,7 @@ public sealed class BadApiClient : IDisposable
         var body = await resp.Content.ReadAsStringAsync(ct);
         if (!resp.IsSuccessStatusCode)
         {
-            throw new HttpRequestException($"Enroll failed: {(int)resp.StatusCode} {body}");
+            throw new AgentApiException(resp.StatusCode, $"Enroll failed: {(int)resp.StatusCode} {body}");
         }
 
         using var doc = JsonDocument.Parse(body);
@@ -112,7 +112,7 @@ public sealed class BadApiClient : IDisposable
         var body = await resp.Content.ReadAsStringAsync(ct);
         if (!resp.IsSuccessStatusCode)
         {
-            throw new HttpRequestException($"Heartbeat failed: {(int)resp.StatusCode} {body}");
+            throw new AgentApiException(resp.StatusCode, $"Heartbeat failed: {(int)resp.StatusCode} {body}");
         }
 
         try
@@ -141,7 +141,7 @@ public sealed class BadApiClient : IDisposable
         var body = await resp.Content.ReadAsStringAsync(ct);
         if (!resp.IsSuccessStatusCode)
         {
-            throw new HttpRequestException($"Config fetch failed: {(int)resp.StatusCode} {body}");
+            throw new AgentApiException(resp.StatusCode, $"Config fetch failed: {(int)resp.StatusCode} {body}");
         }
 
         return RemoteAgentConfigResponse.FromJson(body)
@@ -161,7 +161,7 @@ public sealed class BadApiClient : IDisposable
         if (!resp.IsSuccessStatusCode)
         {
             var body = await resp.Content.ReadAsStringAsync(ct);
-            throw new HttpRequestException($"Inventory failed: {(int)resp.StatusCode} {body}");
+            throw new AgentApiException(resp.StatusCode, $"Inventory failed: {(int)resp.StatusCode} {body}");
         }
     }
 
@@ -175,7 +175,7 @@ public sealed class BadApiClient : IDisposable
         var body = await resp.Content.ReadAsStringAsync(ct);
         if (!resp.IsSuccessStatusCode)
         {
-            throw new HttpRequestException($"Update check failed: {(int)resp.StatusCode} {body}");
+            throw new AgentApiException(resp.StatusCode, $"Update check failed: {(int)resp.StatusCode} {body}");
         }
 
         return UpdateCheckResponse.FromJson(body);
@@ -194,7 +194,7 @@ public sealed class BadApiClient : IDisposable
         if (!resp.IsSuccessStatusCode)
         {
             var body = await resp.Content.ReadAsStringAsync(ct);
-            throw new HttpRequestException($"Update download failed: {(int)resp.StatusCode} {body}");
+            throw new AgentApiException(resp.StatusCode, $"Update download failed: {(int)resp.StatusCode} {body}");
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);

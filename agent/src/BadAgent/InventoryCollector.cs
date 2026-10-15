@@ -1,3 +1,4 @@
+using System.DirectoryServices;
 using System.Management;
 using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
@@ -17,6 +18,12 @@ public sealed class InventoryCollector : IInventoryCollector
     /// <summary>Макс. физических модулей RAM из Win32_PhysicalMemory.</summary>
     public const int MaxRamModules = 32;
 
+    /// <summary>Макс. мониторов из WmiMonitorID.</summary>
+    public const int MaxMonitors = 8;
+
+    /// <summary>Макс. метаданных minidump-файлов в inventory (тела не читаем).</summary>
+    public const int MaxMinidumpFiles = 20;
+
     public InventorySnapshot Collect(string deviceId, string agentVersion, CollectorOptions? options = null)
     {
         options ??= new CollectorOptions();
@@ -28,23 +35,48 @@ public sealed class InventoryCollector : IInventoryCollector
             AgentVersion = agentVersion
         };
 
-        snap.Host = CollectHost(snap.CollectorErrors);
-        snap.Network = CollectNetwork(snap.CollectorErrors);
-
-        if (options.CollectHardware)
+        var prevPriority = Thread.CurrentThread.Priority;
+        try
         {
-            snap.Hardware = CollectHardware(snap.CollectorErrors);
+            // Низкий приоритет потока сбора — не подвешивать интерактив.
+            Thread.CurrentThread.Priority = ThreadPriority.BelowNormal;
+
+            snap.Host = CollectHost(snap.CollectorErrors);
+            WmiHelper.YieldBriefly();
+            snap.Network = CollectNetwork(snap.CollectorErrors);
+            WmiHelper.YieldBriefly();
+
+            if (options.CollectHardware)
+            {
+                snap.Hardware = CollectHardware(snap.CollectorErrors);
+            }
+            // Выключено: оставить null, без спама collector_errors.
+
+            WmiHelper.YieldBriefly();
+            if (options.CollectUsers)
+            {
+                snap.Users = CollectUsers(snap.CollectorErrors);
+            }
+
+            WmiHelper.YieldBriefly();
+            if (options.CollectSoftware)
+            {
+                snap.Software = CollectSoftware(snap.CollectorErrors);
+            }
+
+            WmiHelper.YieldBriefly();
+            snap.Minidumps = CollectMinidumps(snap.CollectorErrors);
         }
-        // Выключено: оставить null, без спама collector_errors.
-
-        if (options.CollectUsers)
+        finally
         {
-            snap.Users = CollectUsers(snap.CollectorErrors);
-        }
-
-        if (options.CollectSoftware)
-        {
-            snap.Software = CollectSoftware(snap.CollectorErrors);
+            try
+            {
+                Thread.CurrentThread.Priority = prevPriority;
+            }
+            catch
+            {
+                // ignore
+            }
         }
 
         return snap;
@@ -89,6 +121,8 @@ public sealed class InventoryCollector : IInventoryCollector
                 {
                     host.Domain = dnsDomain;
                 }
+
+                CollectAdComputerOu(host, errors);
             }
             else
             {
@@ -107,6 +141,80 @@ public sealed class InventoryCollector : IInventoryCollector
         }
 
         return host;
+    }
+
+    /// <summary>AD distinguishedName / OU path; soft-fail для workgroup.</summary>
+    [SupportedOSPlatform("windows")]
+    private static void CollectAdComputerOu(HostInfo host, List<CollectorError> errors)
+    {
+        try
+        {
+            var partOfDomain = WmiHelper.QueryFirst(
+                "SELECT PartOfDomain FROM Win32_ComputerSystem", "PartOfDomain");
+            if (!string.Equals(partOfDomain, "True", StringComparison.OrdinalIgnoreCase)
+                && partOfDomain != "1")
+            {
+                // Workgroup — не ошибка.
+                return;
+            }
+
+            WmiHelper.YieldBriefly();
+            var sam = Environment.MachineName + "$";
+            using var root = new DirectoryEntry("LDAP://RootDSE");
+            var defaultNc = root.Properties["defaultNamingContext"]?.Value as string;
+            if (string.IsNullOrWhiteSpace(defaultNc))
+            {
+                return;
+            }
+
+            using var searchRoot = new DirectoryEntry("LDAP://" + defaultNc);
+            using var searcher = new DirectorySearcher(searchRoot)
+            {
+                Filter = $"(&(objectCategory=computer)(sAMAccountName={EscapeLdapFilter(sam)}))",
+                SearchScope = SearchScope.Subtree,
+                PageSize = 1
+            };
+            searcher.PropertiesToLoad.Add("distinguishedName");
+            var result = searcher.FindOne();
+            var dn = result?.Properties["distinguishedName"]?[0]?.ToString();
+            if (string.IsNullOrWhiteSpace(dn))
+            {
+                return;
+            }
+
+            host.AdDistinguishedName = dn;
+            host.AdOu = OuPathFromDn(dn);
+        }
+        catch (Exception ex)
+        {
+            errors.Add(new CollectorError
+            {
+                Section = "host.ad_ou",
+                Error = Truncate(ex.Message, 200)
+            });
+        }
+    }
+
+    private static string EscapeLdapFilter(string value)
+    {
+        return value
+            .Replace("\\", "\\5c")
+            .Replace("*", "\\2a")
+            .Replace("(", "\\28")
+            .Replace(")", "\\29")
+            .Replace("\0", "\\00");
+    }
+
+    /// <summary>CN=PC,OU=Laptops,DC=x → OU=Laptops,DC=x</summary>
+    private static string? OuPathFromDn(string dn)
+    {
+        var idx = dn.IndexOf(',');
+        if (idx < 0 || idx + 1 >= dn.Length)
+        {
+            return null;
+        }
+
+        return dn[(idx + 1)..];
     }
 
     private static HardwareInfo CollectHardware(List<CollectorError> errors)
@@ -143,11 +251,23 @@ public sealed class InventoryCollector : IInventoryCollector
         }
 
         CollectHardwareCpu(hw, errors);
+        WmiHelper.YieldBriefly();
         CollectHardwareRamTotal(hw, errors);
+        WmiHelper.YieldBriefly();
         CollectHardwareSystemIdentity(hw, errors);
+        WmiHelper.YieldBriefly();
+        CollectHardwareBios(hw, errors);
+        WmiHelper.YieldBriefly();
+        CollectHardwareBattery(hw, errors);
+        WmiHelper.YieldBriefly();
+        CollectHardwareMonitors(hw, errors);
+        WmiHelper.YieldBriefly();
         CollectHardwareDisks(hw, errors);
+        WmiHelper.YieldBriefly();
         CollectHardwareVolumes(hw, errors);
+        WmiHelper.YieldBriefly();
         CollectHardwareGpus(hw, errors);
+        WmiHelper.YieldBriefly();
         CollectHardwareRamModules(hw, errors);
         return hw;
     }
@@ -278,6 +398,303 @@ public sealed class InventoryCollector : IInventoryCollector
                 Section = "hardware.system",
                 Error = Truncate(ex.Message, 200)
             });
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void CollectHardwareBios(HardwareInfo hw, List<CollectorError> errors)
+    {
+        try
+        {
+            using var bios = new ManagementObjectSearcher(
+                "SELECT SMBIOSBIOSVersion, Version, Manufacturer, ReleaseDate FROM Win32_BIOS");
+            foreach (ManagementObject obj in bios.Get())
+            {
+                using (obj)
+                {
+                    hw.BiosVersion = HardwareMaps.PreferFirst(
+                        HardwareMaps.CleanWmiString(obj["SMBIOSBIOSVersion"]?.ToString()),
+                        HardwareMaps.CleanWmiString(obj["Version"]?.ToString()));
+                    hw.BiosManufacturer = HardwareMaps.CleanWmiString(obj["Manufacturer"]?.ToString());
+                    hw.BiosReleaseDate = HardwareMaps.CleanWmiString(obj["ReleaseDate"]?.ToString());
+                    break;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            errors.Add(new CollectorError
+            {
+                Section = "hardware.bios",
+                Error = Truncate(ex.Message, 200)
+            });
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void CollectHardwareBattery(HardwareInfo hw, List<CollectorError> errors)
+    {
+        try
+        {
+            // Win32_Battery; на десктопах без батареи коллекция пустая — не ошибка.
+            using var searcher = new ManagementObjectSearcher(
+                "SELECT Name, EstimatedChargeRemaining, BatteryStatus, EstimatedRunTime FROM Win32_Battery");
+            foreach (ManagementObject obj in searcher.Get())
+            {
+                using (obj)
+                {
+                    var charge = ToInt(obj["EstimatedChargeRemaining"]);
+                    var statusCode = ToInt(obj["BatteryStatus"]);
+                    var runtime = ToInt(obj["EstimatedRunTime"]);
+                    // 71582788 — «unknown» sentinel в WMI EstimatedRunTime.
+                    if (runtime is >= 71582788 or <= 0)
+                    {
+                        runtime = null;
+                    }
+
+                    hw.Battery = new BatteryInfo
+                    {
+                        Name = HardwareMaps.CleanWmiString(obj["Name"]?.ToString()),
+                        ChargePercent = charge is >= 0 and <= 100 ? charge : null,
+                        StatusCode = statusCode,
+                        Status = MapBatteryStatus(statusCode),
+                        EstimatedRuntimeMinutes = runtime
+                    };
+                    break;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            errors.Add(new CollectorError
+            {
+                Section = "hardware.battery",
+                Error = Truncate(ex.Message, 200)
+            });
+        }
+    }
+
+    private static string? MapBatteryStatus(int? code) => code switch
+    {
+        1 => "other",
+        2 => "unknown",
+        3 => "full",
+        4 => "low",
+        5 => "critical",
+        6 => "charging",
+        7 => "charging",
+        8 => "charging",
+        9 => "charging",
+        10 => "undefined",
+        11 => "partial",
+        _ => code is null ? null : "unknown"
+    };
+
+    [SupportedOSPlatform("windows")]
+    private static void CollectHardwareMonitors(HardwareInfo hw, List<CollectorError> errors)
+    {
+        try
+        {
+            var monitors = new List<MonitorInfo>();
+            // EDID через root\wmi; soft-fail если класс недоступен.
+            using (var searcher = new ManagementObjectSearcher(
+                       @"root\wmi",
+                       "SELECT InstanceName, ManufacturerName, ProductCodeID, SerialNumberID, " +
+                       "UserFriendlyName, UserFriendlyNameLength, WeekOfManufacture, YearOfManufacture " +
+                       "FROM WmiMonitorID WHERE Active=TRUE"))
+            {
+                foreach (ManagementObject obj in searcher.Get())
+                {
+                    using (obj)
+                    {
+                        if (monitors.Count >= MaxMonitors)
+                        {
+                            break;
+                        }
+
+                        var name = DecodeWmiMonitorString(obj["UserFriendlyName"] as ushort[], obj["UserFriendlyNameLength"]);
+                        var mfg = DecodeWmiMonitorString(obj["ManufacturerName"] as ushort[], null);
+                        var serial = DecodeWmiMonitorString(obj["SerialNumberID"] as ushort[], null);
+                        if (name is null && mfg is null && serial is null)
+                        {
+                            continue;
+                        }
+
+                        monitors.Add(new MonitorInfo
+                        {
+                            Name = name,
+                            Manufacturer = mfg,
+                            SerialNumber = serial,
+                            Year = ToInt(obj["YearOfManufacture"]),
+                            Week = ToInt(obj["WeekOfManufacture"])
+                        });
+                    }
+                }
+            }
+
+            WmiHelper.YieldBriefly();
+            // Best-effort разрешение с активного видеоадаптера (одно на все, если один монитор).
+            try
+            {
+                using var vc = new ManagementObjectSearcher(
+                    "SELECT CurrentHorizontalResolution, CurrentVerticalResolution FROM Win32_VideoController " +
+                    "WHERE CurrentHorizontalResolution IS NOT NULL");
+                foreach (ManagementObject obj in vc.Get())
+                {
+                    using (obj)
+                    {
+                        var w = ToInt(obj["CurrentHorizontalResolution"]);
+                        var h = ToInt(obj["CurrentVerticalResolution"]);
+                        if (w is null or 0 || h is null or 0)
+                        {
+                            continue;
+                        }
+
+                        if (monitors.Count == 0)
+                        {
+                            monitors.Add(new MonitorInfo { Width = w, Height = h, Name = "display" });
+                        }
+                        else if (monitors.Count == 1)
+                        {
+                            monitors[0].Width = w;
+                            monitors[0].Height = h;
+                        }
+
+                        break;
+                    }
+                }
+            }
+            catch
+            {
+                // resolution optional
+            }
+
+            hw.Monitors = monitors.Count > 0 ? monitors : null;
+        }
+        catch (Exception ex)
+        {
+            errors.Add(new CollectorError
+            {
+                Section = "hardware.monitors",
+                Error = Truncate(ex.Message, 200)
+            });
+            hw.Monitors = null;
+        }
+    }
+
+    /// <summary>WmiMonitorID хранит строки как UInt16[] (UTF-16 code units).</summary>
+    private static string? DecodeWmiMonitorString(ushort[]? data, object? lengthObj)
+    {
+        if (data is null || data.Length == 0)
+        {
+            return null;
+        }
+
+        var len = data.Length;
+        if (lengthObj is not null)
+        {
+            try
+            {
+                var reported = Convert.ToInt32(lengthObj);
+                if (reported > 0 && reported <= data.Length)
+                {
+                    len = reported;
+                }
+            }
+            catch
+            {
+                // use full array
+            }
+        }
+
+        var chars = new char[len];
+        var n = 0;
+        for (var i = 0; i < len; i++)
+        {
+            var c = (char)data[i];
+            if (c == '\0')
+            {
+                break;
+            }
+
+            chars[n++] = c;
+        }
+
+        if (n == 0)
+        {
+            return null;
+        }
+
+        var s = new string(chars, 0, n).Trim();
+        return string.IsNullOrWhiteSpace(s) ? null : s;
+    }
+
+    private static MinidumpInfo? CollectMinidumps(List<CollectorError> errors)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return null;
+        }
+
+        try
+        {
+            var info = new MinidumpInfo { Files = new List<MinidumpFileInfo>() };
+            var windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+            if (string.IsNullOrWhiteSpace(windowsDir))
+            {
+                windowsDir = Environment.GetEnvironmentVariable("SystemRoot") ?? @"C:\Windows";
+            }
+
+            var memoryDmp = Path.Combine(windowsDir, "Memory.dmp");
+            if (File.Exists(memoryDmp))
+            {
+                info.MemoryDmpPresent = true;
+                info.MemoryDmpPath = memoryDmp;
+                try
+                {
+                    info.MemoryDmpModifiedAt = File.GetLastWriteTimeUtc(memoryDmp)
+                        .ToString("yyyy-MM-dd'T'HH:mm:ss'Z'");
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
+
+            var minidumpDir = Path.Combine(windowsDir, "Minidump");
+            if (Directory.Exists(minidumpDir))
+            {
+                var files = Directory.EnumerateFiles(minidumpDir, "*.dmp")
+                    .Select(p => new FileInfo(p))
+                    .OrderByDescending(f => f.LastWriteTimeUtc)
+                    .ToList();
+                info.Count = files.Count;
+                foreach (var f in files.Take(MaxMinidumpFiles))
+                {
+                    info.Files.Add(new MinidumpFileInfo
+                    {
+                        Name = f.Name,
+                        SizeBytes = f.Exists ? f.Length : null,
+                        ModifiedAt = f.LastWriteTimeUtc.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    });
+                }
+            }
+
+            if (!info.MemoryDmpPresent && info.Count == 0)
+            {
+                return info; // пустой блок — полезно знать, что дампов нет
+            }
+
+            return info;
+        }
+        catch (Exception ex)
+        {
+            errors.Add(new CollectorError
+            {
+                Section = "minidumps",
+                Error = Truncate(ex.Message, 200)
+            });
+            return null;
         }
     }
 

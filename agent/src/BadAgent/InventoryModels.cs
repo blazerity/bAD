@@ -14,7 +14,7 @@ public sealed class InventorySnapshot
     public string CollectedAt { get; set; } = "";
 
     [JsonPropertyName("agent_version")]
-    public string AgentVersion { get; set; } = "0.8.0";
+    public string AgentVersion { get; set; } = "0.9.0";
 
     [JsonPropertyName("host")]
     public HostInfo? Host { get; set; }
@@ -30,6 +30,10 @@ public sealed class InventorySnapshot
 
     [JsonPropertyName("software")]
     public SoftwareInfo? Software { get; set; }
+
+    /// <summary>Метаданные BSOD minidump (имена/время/число) — без тел файлов.</summary>
+    [JsonPropertyName("minidumps")]
+    public MinidumpInfo? Minidumps { get; set; }
 
     [JsonPropertyName("collector_errors")]
     public List<CollectorError> CollectorErrors { get; set; } = new();
@@ -51,6 +55,14 @@ public sealed class HostInfo
 
     [JsonPropertyName("domain")]
     public string? Domain { get; set; }
+
+    /// <summary>distinguishedName компьютера в AD, если domain-joined.</summary>
+    [JsonPropertyName("ad_distinguished_name")]
+    public string? AdDistinguishedName { get; set; }
+
+    /// <summary>Путь OU (без CN=hostname), напр. OU=Laptops,OU=Workstations,DC=contoso,DC=com.</summary>
+    [JsonPropertyName("ad_ou")]
+    public string? AdOu { get; set; }
 
     [JsonPropertyName("os")]
     public OsInfo? Os { get; set; }
@@ -99,6 +111,22 @@ public sealed class HardwareInfo
     [JsonPropertyName("manufacturer")]
     public string? Manufacturer { get; set; }
 
+    /// <summary>Версия BIOS / SMBIOSBIOSVersion из Win32_BIOS.</summary>
+    [JsonPropertyName("bios_version")]
+    public string? BiosVersion { get; set; }
+
+    [JsonPropertyName("bios_manufacturer")]
+    public string? BiosManufacturer { get; set; }
+
+    [JsonPropertyName("bios_release_date")]
+    public string? BiosReleaseDate { get; set; }
+
+    [JsonPropertyName("battery")]
+    public BatteryInfo? Battery { get; set; }
+
+    [JsonPropertyName("monitors")]
+    public List<MonitorInfo>? Monitors { get; set; }
+
     [JsonPropertyName("gpus")]
     public List<GpuInfo>? Gpus { get; set; }
 
@@ -111,6 +139,84 @@ public sealed class HardwareInfo
 
     [JsonPropertyName("volumes")]
     public List<VolumeInfo>? Volumes { get; set; }
+}
+
+public sealed class BatteryInfo
+{
+    /// <summary>Заряд 0–100, если WMI отдаёт EstimatedChargeRemaining.</summary>
+    [JsonPropertyName("charge_percent")]
+    public int? ChargePercent { get; set; }
+
+    /// <summary>charging / discharging / full / unknown / …</summary>
+    [JsonPropertyName("status")]
+    public string? Status { get; set; }
+
+    /// <summary>Сырой BatteryStatus из Win32_Battery.</summary>
+    [JsonPropertyName("status_code")]
+    public int? StatusCode { get; set; }
+
+    /// <summary>Оценка минут работы (EstimatedRunTime), если cheap/available.</summary>
+    [JsonPropertyName("estimated_runtime_minutes")]
+    public int? EstimatedRuntimeMinutes { get; set; }
+
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+}
+
+public sealed class MonitorInfo
+{
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+
+    [JsonPropertyName("manufacturer")]
+    public string? Manufacturer { get; set; }
+
+    [JsonPropertyName("serial_number")]
+    public string? SerialNumber { get; set; }
+
+    [JsonPropertyName("width")]
+    public int? Width { get; set; }
+
+    [JsonPropertyName("height")]
+    public int? Height { get; set; }
+
+    [JsonPropertyName("year")]
+    public int? Year { get; set; }
+
+    [JsonPropertyName("week")]
+    public int? Week { get; set; }
+}
+
+public sealed class MinidumpInfo
+{
+    [JsonPropertyName("count")]
+    public int Count { get; set; }
+
+    /// <summary>Есть ли %SystemRoot%\Memory.dmp (только факт, без содержимого).</summary>
+    [JsonPropertyName("memory_dmp_present")]
+    public bool MemoryDmpPresent { get; set; }
+
+    [JsonPropertyName("memory_dmp_path")]
+    public string? MemoryDmpPath { get; set; }
+
+    [JsonPropertyName("memory_dmp_modified_at")]
+    public string? MemoryDmpModifiedAt { get; set; }
+
+    /// <summary>Метаданные файлов в Minidump\ (cap).</summary>
+    [JsonPropertyName("files")]
+    public List<MinidumpFileInfo>? Files { get; set; }
+}
+
+public sealed class MinidumpFileInfo
+{
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+
+    [JsonPropertyName("size_bytes")]
+    public long? SizeBytes { get; set; }
+
+    [JsonPropertyName("modified_at")]
+    public string? ModifiedAt { get; set; }
 }
 
 public sealed class GpuInfo

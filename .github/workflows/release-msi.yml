@@ -2,8 +2,10 @@
 # Triggers: tag v* (e.g. v0.2.0) or manual workflow_dispatch.
 #
 # Required permissions: contents: write (create/update Release + upload assets).
-# Secrets: none for a public repo — GITHUB_TOKEN is sufficient.
-# Optional later: signing cert secrets (not wired yet).
+# Secrets: GITHUB_TOKEN is sufficient for a public repo.
+# Optional Authenticode (owner cert — do not invent a fake cert):
+#   CODE_SIGN_PFX_BASE64, CODE_SIGN_PFX_PASSWORD, optional CODE_SIGN_TIMESTAMP_URL
+#   If CODE_SIGN_PFX_BASE64 is empty, MSI ships unsigned (build still succeeds).
 #
 # Bootstrap notes (WiX v5 via .NET tool):
 #   - Runs on windows-latest
@@ -75,6 +77,7 @@ jobs:
             -p:Version=${{ steps.ver.outputs.version }} `
             -o $out
           Copy-Item installer/msi/write-config.ps1 $out -Force
+          Copy-Item installer/msi/cleanup-uninstall.ps1 $out -Force
           Copy-Item installer/msi/bad.cmd $out -Force
 
       - name: Install WiX toolset (dotnet tool)
@@ -92,6 +95,36 @@ jobs:
             -d ProductVersion=${{ steps.ver.outputs.version }} `
             -o $msi
           if (-not (Test-Path $msi)) { throw "MSI not produced: $msi" }
+
+      - name: Sign MSI (Authenticode, optional)
+        working-directory: installer/msi
+        env:
+          CODE_SIGN_PFX_BASE64: ${{ secrets.CODE_SIGN_PFX_BASE64 }}
+          CODE_SIGN_PFX_PASSWORD: ${{ secrets.CODE_SIGN_PFX_PASSWORD }}
+          CODE_SIGN_TIMESTAMP_URL: ${{ secrets.CODE_SIGN_TIMESTAMP_URL }}
+        run: |
+          $msi = "${{ steps.ver.outputs.msi_name }}"
+          if ([string]::IsNullOrWhiteSpace($env:CODE_SIGN_PFX_BASE64)) {
+            Write-Host "CODE_SIGN_PFX_BASE64 not set — shipping unsigned MSI (owner cert required for Authenticode)."
+            return
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP "bad-codesign.pfx"
+          try {
+            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:CODE_SIGN_PFX_BASE64.Trim()))
+            $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match '\\x64\\signtool\.exe$' } |
+              Sort-Object FullName -Descending |
+              Select-Object -First 1 -ExpandProperty FullName
+            if (-not $signtool) { throw "signtool.exe not found under Windows Kits" }
+            $ts = if ($env:CODE_SIGN_TIMESTAMP_URL) { $env:CODE_SIGN_TIMESTAMP_URL } else { "http://timestamp.digicert.com" }
+            & $signtool sign /fd SHA256 /td SHA256 /tr $ts /f $pfx /p $env:CODE_SIGN_PFX_PASSWORD $msi
+            if ($LASTEXITCODE -ne 0) { throw "signtool failed with exit $LASTEXITCODE" }
+            & $signtool verify /pa $msi
+            Write-Host "MSI signed successfully"
+          }
+          finally {
+            if (Test-Path $pfx) { Remove-Item -Force $pfx -ErrorAction SilentlyContinue }
+          }
 
       - name: Write agent-release.json + SHA256
         working-directory: installer/msi

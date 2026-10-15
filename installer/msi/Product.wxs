@@ -5,8 +5,9 @@
 
     dotnet publish ..\..\agent\src\BadAgent\BadAgent.csproj -c Release -r win-x64 --self-contained true -o .\publish
     Copy-Item .\write-config.ps1 .\publish\
+    Copy-Item .\cleanup-uninstall.ps1 .\publish\
     Copy-Item .\bad.cmd .\publish\
-    wix build Product.wxs -d AgentPublishDir=publish -d ProductVersion=0.8.0 -o bad-agent-0.8.0.msi
+    wix build Product.wxs -d AgentPublishDir=publish -d ProductVersion=0.9.0 -o bad-agent-0.9.0.msi
 
   Публичные свойства (msiexec):
     SERVERURL=https://bad.example.com
@@ -14,12 +15,14 @@
     ADDPATH=1   (опционально; по умолчанию 0 / отсутствует = не менять PATH)
                 При 1: добавить INSTALLFOLDER в Machine PATH, чтобы `bad` (shim bad.cmd) работал из cmd.exe / Win+R.
 
-  Upgrade сохраняет %ProgramData%\blazerity\bAD\ (API key / device_id).
+  Upgrade сохраняет %ProgramData%\blazerity\bAD\ (API key / device_id) — Permanent CreateFolder.
+  Полный uninstall: ServiceControl Stop+Remove; Program Files; cleanup-uninstall.ps1 чистит
+  config.json / queue / logs (enrollment leftovers). Permanent dir сам по себе не мешает очистке файлов.
   ServiceControl останавливает BlazerityAssetDiscovery перед заменой файлов и запускает после установки.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <?ifndef ProductVersion?>
-    <?define ProductVersion = "0.8.0" ?>
+    <?define ProductVersion = "0.9.0" ?>
   <?endif?>
 
   <Package
@@ -64,11 +67,12 @@
       </Directory>
     </StandardDirectory>
 
-    <!-- Собрать все publish-артефакты (exe + deps + write-config.ps1 + bad.cmd). -->
+    <!-- Собрать все publish-артефакты (exe + deps + write-config.ps1 + cleanup-uninstall.ps1 + bad.cmd). -->
     <ComponentGroup Id="AgentFiles" Directory="INSTALLFOLDER">
       <Files Include="$(AgentPublishDir)\**" />
     </ComponentGroup>
 
+    <!-- Permanent: MajorUpgrade не сносит ProgramData (device_id/api_key). Полный uninstall чистит файлы CA. -->
     <Component Id="ProgramDataDir" Directory="BADDATA" Guid="BADA0003-BADA-4B01-8BAD-BLAZERITY0BAD" Permanent="yes">
       <CreateFolder>
         <PermissionEx Sddl="D:PAI(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)" />
@@ -149,8 +153,24 @@
         Impersonate="no"
         Return="check" />
 
+    <!-- Полный uninstall: очистить config/queue/logs. Не на MajorUpgrade. -->
+    <SetProperty Id="CleanupUninstallCmd"
+                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]cleanup-uninstall.ps1&quot;"
+                 Sequence="execute"
+                 Before="CleanupUninstallAction" />
+
+    <CustomAction
+        Id="CleanupUninstallAction"
+        Directory="INSTALLFOLDER"
+        ExeCommand="[CleanupUninstallCmd]"
+        Execute="deferred"
+        Impersonate="no"
+        Return="ignore" />
+
     <InstallExecuteSequence>
       <Custom Action="WriteConfigAction" After="InstallFiles">NOT REMOVE</Custom>
+      <!-- После StopServices / до RemoveFiles, пока cleanup-uninstall.ps1 ещё на диске. -->
+      <Custom Action="CleanupUninstallAction" Before="RemoveFiles">REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE</Custom>
     </InstallExecuteSequence>
   </Package>
 </Wix>
