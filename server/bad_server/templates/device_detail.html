@@ -1,48 +1,49 @@
 {% extends "base.html" %}
+{% from "macros/icons.html" import icon, silence_label %}
 {% block title %}{{ device.hostname or device.device_id }} — bAD{% endblock %}
 {% block content %}
 <section>
-  <p class="crumb"><a href="/devices">Devices</a> / {{ device.hostname or device.device_id }}</p>
-  <h1>{{ device.hostname or "(unknown host)" }}</h1>
+  <p class="crumb"><a href="/devices">Устройства</a> / {{ device.hostname or device.device_id }}</p>
+  <h1 class="with-icon">{{ icon('host') }}{{ device.hostname or "(неизвестный узел)" }}</h1>
   {% if message %}<p class="ok">{{ message }}</p>{% endif %}
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
   <dl class="meta">
-    <div><dt>Device ID</dt><dd class="mono">{{ device.device_id }}</dd></div>
-    <div><dt>Agent</dt><dd>{{ device.agent_version or "—" }}</dd></div>
-    <div><dt>Enrolled</dt><dd>{{ device.enrolled_at or "—" }}</dd></div>
+    <div><dt>device_id</dt><dd class="mono">{{ device.device_id }}</dd></div>
+    <div><dt>Агент</dt><dd>{{ device.agent_version or "—" }}</dd></div>
+    <div><dt>Зарегистрирован</dt><dd>{{ device.enrolled_at or "—" }}</dd></div>
     <div>
-      <dt>Last seen</dt>
+      <dt>Последний контакт</dt>
       <dd>
         {{ device.last_seen_at or "—" }}
-        <span class="badge badge-{{ silence.status }}">{% if silence.status == "ok" %}OK{% else %}{{ silence.status }}{% endif %}</span>
+        <span class="badge badge-{{ silence.status }}">{{ silence_label(silence.status) }}</span>
       </dd>
     </div>
     <div>
-      <dt>Health</dt>
+      <dt>Состояние</dt>
       <dd class="mono">{{ health_snippet or "—" }}</dd>
     </div>
   </dl>
-  <p class="muted">Stale threshold: {{ stale_after_seconds }}s after last seen.</p>
+  <p class="muted">Порог устаревания: {{ stale_after_seconds }} с после последнего контакта.</p>
 
-  <h2>Tags</h2>
-  <p class="muted">Comma-separated labels. Used for list filter and optional policy condition <span class="mono">tag</span>.</p>
+  <h2>Теги</h2>
+  <p class="muted">Метки через запятую. Используются в фильтре списка и в условии политики <span class="mono">tag</span>.</p>
   <form method="post" action="/devices/{{ device.device_id }}/tags" class="settings-form">
-    <label for="tags">Tags</label>
+    <label for="tags">Теги</label>
     <input id="tags" name="tags" type="text" maxlength="512"
       value="{{ tags_text }}" placeholder="prod, finance" autocomplete="off">
     <div class="form-actions">
-      <button type="submit">Save tags</button>
+      <button type="submit">Сохранить теги</button>
     </div>
   </form>
 
-  <h2>Recent events</h2>
+  <h2 class="with-icon">{{ icon('events') }}Недавние события</h2>
   {% if recent_events %}
   <table class="devices">
     <thead>
       <tr>
-        <th>When</th>
-        <th>Type</th>
-        <th>Summary</th>
+        <th>Когда</th>
+        <th>Тип</th>
+        <th>Кратко</th>
       </tr>
     </thead>
     <tbody>
@@ -55,14 +56,14 @@
       {% endfor %}
     </tbody>
   </table>
-  <p class="muted"><a href="/events?device_id={{ device.device_id }}">All events for this device</a></p>
+  <p class="muted"><a href="/events?device_id={{ device.device_id }}">Все события этого устройства</a></p>
   {% else %}
-  <p class="muted">No change events yet.</p>
+  <p class="muted">Событий изменений пока нет.</p>
   {% endif %}
 
-  <h2>Effective agent config</h2>
+  <h2>Эффективная конфигурация агента</h2>
   <p class="muted">
-    Precedence: defaults &lt; matching policies (by priority) &lt; manual override.
+    Порядок: defaults &lt; совпавшие политики (по priority) &lt; ручное переопределение.
     Version <span class="mono">{{ config_version }}</span>
   </p>
   <dl class="meta">
@@ -75,25 +76,25 @@
     <div><dt>collect_software</dt><dd class="mono">{{ effective.collect_software }}</dd></div>
   </dl>
   <p class="muted">
-    Match context:
+    Контекст совпадения:
     hostname=<span class="mono">{{ match_context.hostname or "—" }}</span>
     · domain=<span class="mono">{{ match_context.domain or "—" }}</span>
     · os_caption=<span class="mono">{{ match_context.os_caption or "—" }}</span>
     · tag=<span class="mono">{% if match_context.tag %}{{ match_context.tag | join(", ") }}{% else %}—{% endif %}</span>
   </p>
   {% if matched_policies %}
-  <p class="muted">Matched policies:
+  <p class="muted">Совпавшие политики:
     {% for p in matched_policies %}
       <a href="/settings/policies/{{ p.id }}">{{ p.name }}</a>{% if not loop.last %}, {% endif %}
     {% endfor %}
   </p>
   {% else %}
-  <p class="muted">No policies matched.</p>
+  <p class="muted">Политики не совпали.</p>
   {% endif %}
 
   {% if user.is_admin %}
-  <h2>Manual override</h2>
-  <p class="muted">Leave a field blank to omit it from the override blob. Clear removes the whole override.</p>
+  <h2>Ручное переопределение</h2>
+  <p class="muted">Пустое поле не попадает в override. «Очистить» удаляет весь override.</p>
   <form method="post" action="/devices/{{ device.device_id }}/config-override" class="settings-form">
     <label for="inventory_interval_hours">inventory_interval_hours</label>
     <input id="inventory_interval_hours" name="inventory_interval_hours" type="number" min="1"
@@ -112,76 +113,76 @@
 
     <label for="update_enabled">update_enabled</label>
     <select id="update_enabled" name="update_enabled">
-      <option value="" {% if override_settings.update_enabled is not defined %}selected{% endif %}>(omit)</option>
+      <option value="" {% if override_settings.update_enabled is not defined %}selected{% endif %}>(не задавать)</option>
       <option value="true" {% if override_settings.update_enabled is defined and override_settings.update_enabled %}selected{% endif %}>true</option>
       <option value="false" {% if override_settings.update_enabled is defined and not override_settings.update_enabled %}selected{% endif %}>false</option>
     </select>
 
     <label for="collect_hardware">collect_hardware</label>
     <select id="collect_hardware" name="collect_hardware">
-      <option value="" {% if override_settings.collect_hardware is not defined %}selected{% endif %}>(omit)</option>
+      <option value="" {% if override_settings.collect_hardware is not defined %}selected{% endif %}>(не задавать)</option>
       <option value="true" {% if override_settings.collect_hardware is defined and override_settings.collect_hardware %}selected{% endif %}>true</option>
       <option value="false" {% if override_settings.collect_hardware is defined and not override_settings.collect_hardware %}selected{% endif %}>false</option>
     </select>
 
     <label for="collect_users">collect_users</label>
     <select id="collect_users" name="collect_users">
-      <option value="" {% if override_settings.collect_users is not defined %}selected{% endif %}>(omit)</option>
+      <option value="" {% if override_settings.collect_users is not defined %}selected{% endif %}>(не задавать)</option>
       <option value="true" {% if override_settings.collect_users is defined and override_settings.collect_users %}selected{% endif %}>true</option>
       <option value="false" {% if override_settings.collect_users is defined and not override_settings.collect_users %}selected{% endif %}>false</option>
     </select>
 
     <label for="collect_software">collect_software</label>
     <select id="collect_software" name="collect_software">
-      <option value="" {% if override_settings.collect_software is not defined %}selected{% endif %}>(omit)</option>
+      <option value="" {% if override_settings.collect_software is not defined %}selected{% endif %}>(не задавать)</option>
       <option value="true" {% if override_settings.collect_software is defined and override_settings.collect_software %}selected{% endif %}>true</option>
       <option value="false" {% if override_settings.collect_software is defined and not override_settings.collect_software %}selected{% endif %}>false</option>
     </select>
 
     <div class="form-actions">
-      <button type="submit">Save override</button>
+      <button type="submit">Сохранить override</button>
       {% if has_override %}
-      <button type="submit" name="clear_override" value="1" class="secondary">Clear override</button>
+      <button type="submit" name="clear_override" value="1" class="secondary">Очистить override</button>
       {% endif %}
     </div>
   </form>
   {% endif %}
 
-  <h2>Latest inventory</h2>
+  <h2>Последний inventory</h2>
   {% if inventory_pretty %}
   <p class="muted">
-    Received {{ device.latest_inventory.received_at }}
+    Получен {{ device.latest_inventory.received_at }}
     · schema {{ device.latest_inventory.schema_version }}
   </p>
   {% if hardware_summary %}
-  <h3>Hardware</h3>
+  <h3 class="with-icon">{{ icon('cpu') }}Оборудование</h3>
   <dl class="meta">
     {% if hardware_summary.manufacturer %}
-    <div><dt>Manufacturer</dt><dd class="mono">{{ hardware_summary.manufacturer }}</dd></div>
+    <div><dt><span class="lbl-icon">{{ icon('model') }}Производитель</span></dt><dd class="mono">{{ hardware_summary.manufacturer }}</dd></div>
     {% endif %}
     {% if hardware_summary.model %}
-    <div><dt>Model</dt><dd class="mono">{{ hardware_summary.model }}</dd></div>
+    <div><dt><span class="lbl-icon">{{ icon('model') }}Модель</span></dt><dd class="mono">{{ hardware_summary.model }}</dd></div>
     {% endif %}
     {% if hardware_summary.serial_number %}
-    <div><dt>Serial</dt><dd class="mono">{{ hardware_summary.serial_number }}</dd></div>
+    <div><dt><span class="lbl-icon">{{ icon('serial') }}Серийный номер</span></dt><dd class="mono">{{ hardware_summary.serial_number }}</dd></div>
     {% endif %}
     {% if hardware_summary.cpu and hardware_summary.cpu.name %}
-    <div><dt>CPU</dt><dd class="mono">{{ hardware_summary.cpu.name }}</dd></div>
+    <div><dt><span class="lbl-icon">{{ icon('cpu') }}Процессор</span></dt><dd class="mono">{{ hardware_summary.cpu.name }}</dd></div>
     {% endif %}
     {% if hardware_summary.ram_bytes is defined and hardware_summary.ram_bytes is not none %}
-    <div><dt>RAM bytes</dt><dd class="mono">{{ hardware_summary.ram_bytes }}</dd></div>
+    <div><dt><span class="lbl-icon">{{ icon('ram') }}ОЗУ (байты)</span></dt><dd class="mono">{{ hardware_summary.ram_bytes }}</dd></div>
     {% endif %}
     {% if hardware_summary.ram_memory_type %}
-    <div><dt>RAM type</dt><dd class="mono">{{ hardware_summary.ram_memory_type }}</dd></div>
+    <div><dt><span class="lbl-icon">{{ icon('ram') }}Тип ОЗУ</span></dt><dd class="mono">{{ hardware_summary.ram_memory_type }}</dd></div>
     {% endif %}
     {% if hardware_summary.ram_modules %}
-    <div><dt>RAM sticks</dt><dd class="mono">{{ hardware_summary.ram_modules|length }}</dd></div>
+    <div><dt><span class="lbl-icon">{{ icon('ram') }}Планки ОЗУ</span></dt><dd class="mono">{{ hardware_summary.ram_modules|length }}</dd></div>
     {% endif %}
   </dl>
   {% if hardware_summary.gpus %}
-  <h3>GPUs</h3>
+  <h3 class="with-icon">{{ icon('gpu') }}Видеоадаптеры</h3>
   <table class="devices">
-    <thead><tr><th>Name</th><th>Vendor</th><th>Driver</th></tr></thead>
+    <thead><tr><th>Имя</th><th>Вендор</th><th>Драйвер</th></tr></thead>
     <tbody>
       {% for g in hardware_summary.gpus %}
       <tr>
@@ -194,9 +195,9 @@
   </table>
   {% endif %}
   {% if hardware_summary.ram_modules %}
-  <h3>RAM modules</h3>
+  <h3 class="with-icon">{{ icon('ram') }}Модули ОЗУ</h3>
   <table class="devices">
-    <thead><tr><th>Part</th><th>Type</th><th>Capacity</th><th>Speed</th><th>Channel</th><th>Locator</th></tr></thead>
+    <thead><tr><th>Part</th><th>Тип</th><th>Ёмкость</th><th>Частота</th><th>Канал</th><th>Locator</th></tr></thead>
     <tbody>
       {% for m in hardware_summary.ram_modules %}
       <tr>
@@ -211,10 +212,25 @@
     </tbody>
   </table>
   {% endif %}
+  {% if hardware_summary.disks %}
+  <h3 class="with-icon">{{ icon('disk') }}Диски</h3>
+  <table class="devices">
+    <thead><tr><th>Модель</th><th>Размер</th><th>Носитель</th></tr></thead>
+    <tbody>
+      {% for d in hardware_summary.disks %}
+      <tr>
+        <td class="mono">{{ d.model or '—' }}</td>
+        <td class="mono">{{ d.size_bytes if d.size_bytes is defined and d.size_bytes is not none else '—' }}</td>
+        <td class="mono">{{ d.media_type or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
   {% endif %}
   <pre class="inventory">{{ inventory_pretty }}</pre>
   {% else %}
-  <p>No inventory snapshot yet.</p>
+  <p>Снимка inventory пока нет.</p>
   {% endif %}
 </section>
 {% endblock %}

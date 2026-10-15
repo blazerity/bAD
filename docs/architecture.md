@@ -1,6 +1,6 @@
 # Архитектура bAD
 
-**blazerity Asset Discovery** — Windows-агент инвентаризации и on-prem сервер накопления снимков. Документ описывает фактическую архитектуру репозитория. Версия продукта: **0.6.0**.
+**blazerity Asset Discovery** — Windows-агент инвентаризации и on-prem сервер накопления снимков. Документ описывает фактическую архитектуру репозитория. Версия продукта: **0.7.0**.
 
 ## Компоненты
 
@@ -43,7 +43,7 @@ flowchart LR
 - HTTPS only; cleartext `http://` отклоняется (кроме явного `BAD_ALLOW_HTTP=1` для локальной разработки).
 - `User-Agent: bad-agent/<semver>`; в payload поле `agent_version`.
 - Heartbeat несёт лёгкий health: `last_inventory_ok` / `last_inventory_error`, `agent_uptime_seconds`, `system_drive_free_bytes` (DriveInfo, без тяжёлого WMI) → device `meta`.
-- Local CLI reports (`bad` / `--html`): ASCII/HTML показывают serial/model/GPU/RAM modules при наличии.
+- Local CLI reports (`bad` / `--html`): ASCII/HTML показывают serial/model/GPU/RAM modules при наличии; HTML визуально согласован с web panel (Win11/Fluent light).
 - Service CLI: `BadAgent.exe service status|start|stop|restart` (elevated); без подкоманды — host службы. См. [agents.md](agents.md).
 
 ## Удалённые настройки агента
@@ -132,6 +132,8 @@ flowchart LR
 - Cert/key: пути при install → symlink в `/etc/bad/tls/`.
 
 ### Web UI и аутентификация
+
+Визуальный язык (с **0.7.0**): светлая оболочка в духе Windows 11 / Fluent — Segoe UI Variable, слоистые полупрозрачные поверхности, радиусы 4px (controls) / 8px (surfaces), акцент Fluent blue (`#0067C0`), UI copy на русском, stroke-иконки секций (без emoji). Стили: `server/bad_server/static/style.css` + `favicon.svg`/`favicon.ico`; локальный HTML-отчёт (`HtmlReportWriter`) — та же семья токенов/иконок. Иконка агента: `agent/assets/bad.ico` (`ApplicationIcon` + WiX `ARPPRODUCTICON`).
 
 | Path | Назначение |
 |------|------------|

@@ -1,14 +1,15 @@
 {% extends "base.html" %}
-{% block title %}Events — bAD{% endblock %}
+{% from "macros/icons.html" import icon %}
+{% block title %}События — bAD{% endblock %}
 {% block content %}
 <section>
-  <h1>Events</h1>
-  <p class="muted">Inventory change events (newest first). Read-only.</p>
+  <h1 class="with-icon">{{ icon('events') }}События</h1>
+  <p class="muted">События изменений inventory (сначала новые). Только чтение.</p>
 
   <form method="get" action="/events" class="filter-bar">
-    <label for="device_id">Device</label>
+    <label for="device_id">Устройство</label>
     <select id="device_id" name="device_id">
-      <option value="">All devices</option>
+      <option value="">Все устройства</option>
       {% for d in devices %}
       <option value="{{ d.device_id }}"
         {% if device_filter == d.device_id %}selected{% endif %}>
@@ -16,22 +17,22 @@
       </option>
       {% endfor %}
     </select>
-    <button type="submit">Filter</button>
+    <button type="submit">Фильтр</button>
     {% if device_filter %}
-    <a class="muted" href="/events">Clear</a>
+    <a class="muted" href="/events">Сбросить</a>
     {% endif %}
   </form>
 
   {% if not events %}
-  <p class="muted">No events yet. They appear when a later inventory differs meaningfully from the previous snapshot.</p>
+  <p class="muted">Пока нет событий. Они появляются, когда следующий inventory заметно отличается от предыдущего.</p>
   {% else %}
   <table class="devices">
     <thead>
       <tr>
-        <th>When</th>
-        <th>Device</th>
-        <th>Type</th>
-        <th>Summary</th>
+        <th>Когда</th>
+        <th>Устройство</th>
+        <th>Тип</th>
+        <th>Кратко</th>
       </tr>
     </thead>
     <tbody>

@@ -133,7 +133,7 @@ def test_agent_config_and_heartbeat_piggyback(client):
         json={
             "schema_version": 1,
             "device_id": "cfg-dev-1",
-            "agent_version": "0.6.0",
+            "agent_version": "0.7.0",
             "collected_at": "2026-10-15T12:00:00Z",
             "host": {
                 "hostname": "CORP-PC",
@@ -195,7 +195,7 @@ def test_agent_config_and_heartbeat_piggyback(client):
         headers={"Authorization": f"Bearer {api_key}"},
         json={
             "device_id": "cfg-dev-1",
-            "agent_version": "0.6.0",
+            "agent_version": "0.7.0",
             "config_version": "stale",
             "last_inventory_ok": True,
             "agent_uptime_seconds": 120,
@@ -222,7 +222,7 @@ def test_agent_config_and_heartbeat_piggyback(client):
         headers={"Authorization": f"Bearer {api_key}"},
         json={
             "device_id": "cfg-dev-1",
-            "agent_version": "0.6.0",
+            "agent_version": "0.7.0",
             "config_version": version,
         },
     )
@@ -279,7 +279,7 @@ def test_web_policies_and_device_override(client):
 
     page = client.get("/settings/policies")
     assert page.status_code == 200
-    assert "Agent policies" in page.text
+    assert "Политики агента" in page.text
 
     created = client.post(
         "/settings/policies",
@@ -296,11 +296,11 @@ def test_web_policies_and_device_override(client):
         follow_redirects=False,
     )
     assert created.status_code == 200
-    assert "Policy created" in created.text
+    assert "Политика создана" in created.text
 
     detail = client.get("/devices/web-cfg-1")
     assert detail.status_code == 200
-    assert "Effective agent config" in detail.text
+    assert "Эффективная конфигурация агента" in detail.text
 
     saved = client.post(
         "/devices/web-cfg-1/config-override",
@@ -315,6 +315,6 @@ def test_web_policies_and_device_override(client):
         },
     )
     assert saved.status_code == 200
-    assert "Manual override saved" in saved.text
+    assert "Ручное переопределение сохранено" in saved.text
     assert ">8<" in saved.text or "inventory_interval_hours</dt><dd class=\"mono\">8" in saved.text
     assert "collect_software</dt><dd class=\"mono\">True" in saved.text

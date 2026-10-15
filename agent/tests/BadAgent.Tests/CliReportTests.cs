@@ -72,7 +72,11 @@ public class CliReportTests
         var html = HtmlReportWriter.Write(snap);
         Assert.Contains("WORKSTATION-01", html, StringComparison.Ordinal);
         Assert.Contains("bAD", html, StringComparison.Ordinal);
-        Assert.Contains("--bg: #0f1419", html, StringComparison.Ordinal);
+        Assert.Contains("--bg: #f3f3f3", html, StringComparison.Ordinal);
+        Assert.Contains("--accent: #0067c0", html, StringComparison.Ordinal);
+        Assert.Contains("Segoe UI Variable", html, StringComparison.Ordinal);
+        Assert.Contains("Система", html, StringComparison.Ordinal);
+        Assert.Contains("ОЗУ", html, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -81,18 +85,18 @@ public class CliReportTests
         var snap = SampleSnapshot();
         var text = AsciiReportWriter.Write(snap, new AgentConfig { ServerUrl = "https://bad.example.com" });
         Assert.Contains("WORKSTATION-01", text, StringComparison.Ordinal);
-        Assert.Contains("Host", text, StringComparison.Ordinal);
-        Assert.Contains("Hardware", text, StringComparison.Ordinal);
+        Assert.Contains("Система", text, StringComparison.Ordinal);
+        Assert.Contains("Оборудование", text, StringComparison.Ordinal);
         Assert.Contains("SRVTAG01", text, StringComparison.Ordinal);
         Assert.Contains("Latitude 5440", text, StringComparison.Ordinal);
-        Assert.Contains("GPUs", text, StringComparison.Ordinal);
+        Assert.Contains("Видеоадаптеры", text, StringComparison.Ordinal);
         Assert.Contains("Intel UHD", text, StringComparison.Ordinal);
-        Assert.Contains("RAM modules", text, StringComparison.Ordinal);
+        Assert.Contains("Модули ОЗУ", text, StringComparison.Ordinal);
         Assert.Contains("DDR4", text, StringComparison.Ordinal);
-        Assert.Contains("Network", text, StringComparison.Ordinal);
-        Assert.Contains("Users", text, StringComparison.Ordinal);
-        Assert.Contains("Software", text, StringComparison.Ordinal);
-        Assert.Contains("local report", text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Сеть", text, StringComparison.Ordinal);
+        Assert.Contains("Пользователи", text, StringComparison.Ordinal);
+        Assert.Contains("ПО", text, StringComparison.Ordinal);
+        Assert.Contains("локальный отчёт", text, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotMatch(new Regex(@"[\u2600-\u27BF]"), text); // no emoji block
     }
 
@@ -102,12 +106,15 @@ public class CliReportTests
         var html = HtmlReportWriter.Write(SampleSnapshot());
         Assert.Contains("SRVTAG01", html, StringComparison.Ordinal);
         Assert.Contains("Latitude 5440", html, StringComparison.Ordinal);
-        Assert.Contains("GPUs", html, StringComparison.Ordinal);
+        Assert.Contains("Видеоадаптеры", html, StringComparison.Ordinal);
         Assert.Contains("NVIDIA RTX", html, StringComparison.Ordinal);
-        Assert.Contains("RAM modules", html, StringComparison.Ordinal);
+        Assert.Contains("Модули ОЗУ", html, StringComparison.Ordinal);
         Assert.Contains("M471A1K43EB1-CWE", html, StringComparison.Ordinal);
         Assert.Contains("DDR4", html, StringComparison.Ordinal);
-        Assert.Contains("RAM type", html, StringComparison.Ordinal);
+        Assert.Contains("Тип ОЗУ", html, StringComparison.Ordinal);
+        Assert.Contains("class=\"icon\"", html, StringComparison.Ordinal);
+        Assert.Contains("Оборудование", html, StringComparison.Ordinal);
+        Assert.Contains("Диски", html, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -181,7 +188,7 @@ public class CliReportTests
     {
         SchemaVersion = 2,
         DeviceId = "dev-sample",
-        AgentVersion = "0.6.0",
+        AgentVersion = "0.7.0",
         CollectedAt = "2026-10-15T17:00:00Z",
         Host = new HostInfo
         {

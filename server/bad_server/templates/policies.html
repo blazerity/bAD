@@ -1,16 +1,17 @@
 {% extends "base.html" %}
-{% block title %}Agent policies — bAD{% endblock %}
+{% from "macros/icons.html" import icon %}
+{% block title %}Политики агента — bAD{% endblock %}
 {% block content %}
 <section class="settings">
-  <p class="crumb"><a href="/devices">Devices</a> / Agent policies</p>
-  <h1>Agent policies</h1>
+  <p class="crumb"><a href="/devices">Устройства</a> / Политики агента</p>
+  <h1 class="with-icon">{{ icon('policies') }}Политики агента</h1>
   <p class="muted">
-    Named rules apply safe agent settings when conditions match.
-    Lower priority number applies first; later matches override earlier ones.
-    Per-device manual override always wins. Defaults:
-    inventory {{ defaults.inventory_interval_hours }}h /
-    heartbeat {{ defaults.heartbeat_interval_minutes }}m /
-    update check {{ defaults.update_check_interval_hours }}h /
+    Именованные правила применяют безопасные настройки агента при совпадении условий.
+    Меньший priority применяется раньше; более поздние совпадения перекрывают предыдущие.
+    Ручное переопределение на устройстве всегда побеждает. По умолчанию:
+    inventory {{ defaults.inventory_interval_hours }}ч /
+    heartbeat {{ defaults.heartbeat_interval_minutes }}м /
+    проверка обновлений {{ defaults.update_check_interval_hours }}ч /
     update_enabled {{ defaults.update_enabled }} /
     collect_hardware {{ defaults.collect_hardware }} /
     collect_users {{ defaults.collect_users }} /
@@ -23,10 +24,10 @@
   <table class="devices">
     <thead>
       <tr>
-        <th>Name</th>
+        <th>Имя</th>
         <th>Priority</th>
-        <th>Enabled</th>
-        <th>Condition</th>
+        <th>Вкл.</th>
+        <th>Условие</th>
         <th>Settings</th>
         <th></th>
       </tr>
@@ -36,7 +37,7 @@
       <tr>
         <td><a href="/settings/policies/{{ p.id }}">{{ p.name }}</a></td>
         <td class="mono">{{ p.priority }}</td>
-        <td>{{ "yes" if p.enabled else "no" }}</td>
+        <td>{{ "да" if p.enabled else "нет" }}</td>
         <td class="mono">
           {% for c in p.conditions %}
             {{ c.field }} {{ c.op }} "{{ c.value }}"{% if not loop.last %}; {% endif %}
@@ -45,7 +46,7 @@
         <td class="mono">{{ p.settings }}</td>
         <td>
           <form method="post" action="/settings/policies/{{ p.id }}/delete" style="display:inline">
-            <button type="submit" class="secondary">Delete</button>
+            <button type="submit" class="secondary">Удалить</button>
           </form>
         </td>
       </tr>
@@ -53,28 +54,28 @@
     </tbody>
   </table>
   {% else %}
-  <p class="muted">No policies yet.</p>
+  <p class="muted">Политик пока нет.</p>
   {% endif %}
 
-  <h2>{% if edit %}Edit policy #{{ edit.id }}{% else %}New policy{% endif %}</h2>
+  <h2>{% if edit %}Редактирование #{{ edit.id }}{% else %}Новая политика{% endif %}</h2>
   <form method="post"
     action="{% if edit %}/settings/policies/{{ edit.id }}{% else %}/settings/policies{% endif %}"
     class="settings-form">
-    <label for="name">Name</label>
+    <label for="name">Имя</label>
     <input id="name" name="name" type="text" required maxlength="128"
       value="{{ edit.name if edit else '' }}" autocomplete="off">
 
     <label class="check">
       <input type="checkbox" name="enabled" value="1"
         {% if not edit or edit.enabled %}checked{% endif %}>
-      Enabled
+      Включена
     </label>
 
-    <label for="priority">Priority (lower first)</label>
+    <label for="priority">Priority (меньше — раньше)</label>
     <input id="priority" name="priority" type="number" min="0" max="1000000"
       value="{{ edit.priority if edit else 100 }}">
 
-    <label for="cond_field">Condition field</label>
+    <label for="cond_field">Поле условия</label>
     <select id="cond_field" name="cond_field">
       {% set cur_field = (edit.conditions[0].field if edit and edit.conditions else 'hostname') %}
       {% for f in condition_fields %}
@@ -82,7 +83,7 @@
       {% endfor %}
     </select>
 
-    <label for="cond_op">Operator</label>
+    <label for="cond_op">Оператор</label>
     <select id="cond_op" name="cond_op">
       {% set cur_op = (edit.conditions[0].op if edit and edit.conditions else 'contains') %}
       {% for o in condition_ops %}
@@ -90,10 +91,10 @@
       {% endfor %}
     </select>
 
-    <label for="cond_value">Value</label>
+    <label for="cond_value">Значение</label>
     <input id="cond_value" name="cond_value" type="text" required
       value="{{ edit.conditions[0].value if edit and edit.conditions else '' }}"
-      placeholder="e.g. CORP or Windows 11" autocomplete="off">
+      placeholder="например CORP или Windows 11" autocomplete="off">
 
     {% set s = edit.settings if edit else {} %}
     <label for="inventory_interval_hours">inventory_interval_hours</label>
@@ -110,35 +111,35 @@
 
     <label for="update_enabled">update_enabled</label>
     <select id="update_enabled" name="update_enabled">
-      <option value="" {% if s.update_enabled is not defined %}selected{% endif %}>(omit)</option>
+      <option value="" {% if s.update_enabled is not defined %}selected{% endif %}>(не задавать)</option>
       <option value="true" {% if s.update_enabled is defined and s.update_enabled %}selected{% endif %}>true</option>
       <option value="false" {% if s.update_enabled is defined and not s.update_enabled %}selected{% endif %}>false</option>
     </select>
 
     <label for="collect_hardware">collect_hardware</label>
     <select id="collect_hardware" name="collect_hardware">
-      <option value="" {% if s.collect_hardware is not defined %}selected{% endif %}>(omit)</option>
+      <option value="" {% if s.collect_hardware is not defined %}selected{% endif %}>(не задавать)</option>
       <option value="true" {% if s.collect_hardware is defined and s.collect_hardware %}selected{% endif %}>true</option>
       <option value="false" {% if s.collect_hardware is defined and not s.collect_hardware %}selected{% endif %}>false</option>
     </select>
 
     <label for="collect_users">collect_users</label>
     <select id="collect_users" name="collect_users">
-      <option value="" {% if s.collect_users is not defined %}selected{% endif %}>(omit)</option>
+      <option value="" {% if s.collect_users is not defined %}selected{% endif %}>(не задавать)</option>
       <option value="true" {% if s.collect_users is defined and s.collect_users %}selected{% endif %}>true</option>
       <option value="false" {% if s.collect_users is defined and not s.collect_users %}selected{% endif %}>false</option>
     </select>
 
     <label for="collect_software">collect_software</label>
     <select id="collect_software" name="collect_software">
-      <option value="" {% if s.collect_software is not defined %}selected{% endif %}>(omit)</option>
+      <option value="" {% if s.collect_software is not defined %}selected{% endif %}>(не задавать)</option>
       <option value="true" {% if s.collect_software is defined and s.collect_software %}selected{% endif %}>true</option>
       <option value="false" {% if s.collect_software is defined and not s.collect_software %}selected{% endif %}>false</option>
     </select>
 
     <div class="form-actions">
-      <button type="submit">{% if edit %}Save policy{% else %}Create policy{% endif %}</button>
-      {% if edit %}<a class="secondary" href="/settings/policies">Cancel edit</a>{% endif %}
+      <button type="submit">{% if edit %}Сохранить политику{% else %}Создать политику{% endif %}</button>
+      {% if edit %}<a class="secondary" href="/settings/policies">Отменить</a>{% endif %}
     </div>
   </form>
 </section>

@@ -127,7 +127,7 @@ def login_submit(
             request,
             "login.html",
             {
-                "error": "Invalid username or password",
+                "error": "Неверное имя пользователя или пароль",
                 "ldap_enabled": bool(ldap.get("enabled")),
                 "user": None,
             },
@@ -295,7 +295,7 @@ def device_tags_save(
             status_code=404,
         )
     ctx = _device_config_context(
-        db, device_id, user=user, settings=settings, message="Tags saved"
+        db, device_id, user=user, settings=settings, message="Теги сохранены"
     )
     assert ctx is not None
     return templates.TemplateResponse(request, "device_detail.html", ctx)
@@ -331,7 +331,7 @@ def device_config_override_save(
             device_id,
             user=user,
             settings=settings,
-            message="Manual override cleared",
+            message="Ручное переопределение очищено",
         )
         assert ctx is not None
         return templates.TemplateResponse(request, "device_detail.html", ctx)
@@ -362,7 +362,7 @@ def device_config_override_save(
             device_id,
             user=user,
             settings=settings,
-            error="Set at least one valid override field (or clear)",
+            error="Укажите хотя бы одно поле override (или очистите)",
         )
         if not ctx:
             return templates.TemplateResponse(
@@ -388,7 +388,7 @@ def device_config_override_save(
         device_id,
         user=user,
         settings=settings,
-        message="Manual override saved",
+        message="Ручное переопределение сохранено",
     )
     assert ctx is not None
     return templates.TemplateResponse(request, "device_detail.html", ctx)
@@ -440,15 +440,15 @@ def password_submit(
         )
 
     if len(new_password) < 8:
-        return render("New password must be at least 8 characters")
+        return render("Новый пароль — не короче 8 символов")
     if new_password != new_password_confirm:
-        return render("New password confirmation does not match")
+        return render("Подтверждение пароля не совпадает")
     if new_password == "admin":
-        return render("Choose a password other than the default")
+        return render("Выберите пароль, отличный от значения по умолчанию")
 
     row = db.get_local_user(user.username)
     if not row or not verify_secret(row["password_hash"], current_password):
-        return render("Current password is incorrect", status_code=401)
+        return render("Текущий пароль неверен", status_code=401)
 
     db.update_local_user_password(user.username, hash_secret(new_password), clear_must_change=True)
     updated = WebUser(
@@ -498,15 +498,15 @@ def _parse_ldap_form(form: LdapFormData) -> tuple[dict, Optional[str]]:
     try:
         port_i = int(form.port or "389")
     except ValueError:
-        return {}, "Port must be an integer"
+        return {}, "Порт должен быть целым числом"
     if port_i < 1 or port_i > 65535:
-        return {}, "Port must be between 1 and 65535"
+        return {}, "Порт должен быть от 1 до 65535"
     role = (form.default_role or "operator").strip().lower()
     if role not in {"admin", "operator"}:
-        return {}, "Default role must be admin or operator"
+        return {}, "Роль по умолчанию: admin или operator"
     template = (form.user_filter_template or "").strip() or "(uid={username})"
     if "{username}" not in template:
-        return {}, "User filter template must contain {username}"
+        return {}, "Шаблон фильтра должен содержать {username}"
     return {
         "enabled": form.enabled is not None,
         "host": (form.host or "").strip(),
@@ -547,13 +547,13 @@ def _parse_policy_form(
 ) -> tuple[Optional[dict], Optional[str]]:
     name_s = (name or "").strip()
     if not name_s:
-        return None, "Name is required"
+        return None, "Укажите имя"
     try:
         priority_i = int((priority or "100").strip())
     except ValueError:
-        return None, "Priority must be an integer"
+        return None, "Priority должен быть целым числом"
     if priority_i < 0 or priority_i > 1_000_000:
-        return None, "Priority out of range"
+        return None, "Priority вне допустимого диапазона"
 
     conditions = sanitize_conditions(
         [
@@ -565,7 +565,7 @@ def _parse_policy_form(
         ]
     )
     if not conditions:
-        return None, "One valid condition is required (hostname/domain/os_caption/tag)"
+        return None, "Нужно одно валидное условие (hostname/domain/os_caption/tag)"
 
     raw: dict = {}
     for key, raw_val in (
@@ -587,7 +587,7 @@ def _parse_policy_form(
     )
     settings = sanitize_settings(raw)
     if not settings:
-        return None, "Set at least one settings field for the policy"
+        return None, "Задайте хотя бы одно поле settings для политики"
     return {
         "name": name_s,
         "enabled": enabled is not None,
@@ -705,7 +705,7 @@ def policy_create(
             "defaults": dict(DEFAULT_AGENT_SETTINGS),
             "condition_fields": sorted(CONDITION_FIELDS),
             "condition_ops": sorted(CONDITION_OPS),
-            "message": "Policy created",
+            "message": "Политика создана",
             "error": None,
             "edit": None,
         },
@@ -776,7 +776,7 @@ def policy_update(
             "defaults": dict(DEFAULT_AGENT_SETTINGS),
             "condition_fields": sorted(CONDITION_FIELDS),
             "condition_ops": sorted(CONDITION_OPS),
-            "message": "Policy updated",
+            "message": "Политика обновлена",
             "error": None,
             "edit": updated,
         },
@@ -846,7 +846,7 @@ def ldap_settings_save(
     return templates.TemplateResponse(
         request,
         "ldap_settings.html",
-        _ldap_form_context(row, user=user, message="LDAP settings saved"),
+        _ldap_form_context(row, user=user, message="Настройки LDAP сохранены"),
     )
 
 
@@ -897,7 +897,7 @@ def ldap_settings_test(
         _ldap_form_context(
             preview,
             user=user,
-            test_result=("OK: " if ok else "Failed: ") + msg,
+            test_result=("ОК: " if ok else "Ошибка: ") + msg,
             error=None if ok else msg,
         ),
     )

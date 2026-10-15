@@ -1,9 +1,11 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}bAD{% endblock %}</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/static/favicon.ico" sizes="any">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -11,29 +13,29 @@
     <a class="brand" href="/devices">bAD</a>
     <span class="tagline">blazerity Asset Discovery</span>
     {% if user is defined and user %}
-    <nav class="nav">
-      <a href="/devices">Devices</a>
-      <a href="/events">Events</a>
+    <nav class="nav" aria-label="Основная навигация">
+      <a href="/devices">Устройства</a>
+      <a href="/events">События</a>
       {% if user.is_admin %}
-      <a href="/settings/policies">Policies</a>
+      <a href="/settings/policies">Политики</a>
       <a href="/settings/ldap">LDAP</a>
       {% endif %}
-      {% if user.source == 'local' %}<a href="/account/password">Password</a>{% endif %}
+      {% if user.source == 'local' %}<a href="/account/password">Пароль</a>{% endif %}
     </nav>
     <form class="logout" method="post" action="/logout">
       <span class="who mono">{{ user.username }}{% if user.source == 'ldap' %} (ldap){% endif %}</span>
-      <button type="submit">Sign out</button>
+      <button type="submit">Выйти</button>
     </form>
     {% endif %}
   </header>
   {% if user is defined and user and user.must_change_password %}
-  <div class="banner">Default password in use — <a href="/account/password">change it now</a>.</div>
+  <div class="banner">Используется пароль по умолчанию — <a href="/account/password">смените его сейчас</a>.</div>
   {% endif %}
   <main>
     {% block content %}{% endblock %}
   </main>
   <footer class="foot">
-    bAD server {{ app_version }}
+    сервер bAD {{ app_version }}
   </footer>
 </body>
 </html>
