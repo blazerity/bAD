@@ -7,7 +7,7 @@
 #   curl -fsSL https://<distribution-host>/bad/install.sh | sudo bash
 set -euo pipefail
 
-BAD_VERSION="${BAD_VERSION:-0.3.0}"
+BAD_VERSION="${BAD_VERSION:-0.4.0}"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "error: must run as root" >&2
