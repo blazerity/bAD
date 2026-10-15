@@ -1,6 +1,6 @@
 # Архитектура bAD
 
-**blazerity Asset Discovery** — Windows-агент инвентаризации и on-prem сервер накопления снимков. Документ описывает фактическую архитектуру репозитория в согласовании с [architecture-plan.md](architecture-plan.md). Версия продукта: **0.5.0**.
+**blazerity Asset Discovery** — Windows-агент инвентаризации и on-prem сервер накопления снимков. Документ описывает фактическую архитектуру репозитория в согласовании с [architecture-plan.md](architecture-plan.md). Версия продукта: **0.6.0**.
 
 ## Компоненты
 
@@ -37,11 +37,13 @@ flowchart LR
 - Жизненный цикл: при старте enroll (если нет API key) → check update → полный inventory → heartbeat (с подтягиванием remote config) → циклы по эффективным интервалам.
 - Remote config: сервер считает effective settings (defaults &lt; matching policies &lt; per-device override); агент применяет только safe knobs, сохраняет в `config.json`. Секреты / `server_url` / `device_id` с сервера не принимаются.
 - `device_id`: MachineGuid (registry), fallback SMBIOS UUID.
-- Collectors: WMI/CIM + .NET (+ Uninstall registry для software); сбой секции → `null` + запись в `collector_errors[]`.
+- Collectors: WMI/CIM + .NET (+ Uninstall registry для software); сбой подсекции → `collector_errors[]` с `section` вроде `hardware.gpus` (остальной snapshot сохраняется).
 - Секции `hardware` / `users` / `software` управляются knobs `collect_*` (disabled → поле `null`/omitted, без error spam).
+- Hardware (когда `collect_hardware`): CPU, `ram_bytes`, disks/volumes **плюс** `serial_number` (BIOS / Dell Service Tag), `model`, `manufacturer`, `gpus[]` (Win32_VideoController, cap 16), `ram_modules[]` (Win32_PhysicalMemory: capacity/speed/`memory_type`/part/channel/locator, cap 32), `ram_memory_type` (consensus DDR4/DDR5/LPDDRx по sticks; WMI `SMBIOSMemoryType` предпочтительнее legacy `MemoryType`). Поля additive внутри `schema_version=2`; старые агенты без них остаются валидны.
 - HTTPS only; cleartext `http://` отклоняется (кроме явного `BAD_ALLOW_HTTP=1` для локальной разработки).
 - `User-Agent: bad-agent/<semver>`; в payload поле `agent_version`.
 - Heartbeat несёт лёгкий health: `last_inventory_ok` / `last_inventory_error`, `agent_uptime_seconds`, `system_drive_free_bytes` (DriveInfo, без тяжёлого WMI) → device `meta`.
+- Local CLI reports (`bad` / `--html`): ASCII/HTML показывают serial/model/GPU/RAM modules при наличии.
 - Service CLI: `BadAgent.exe service status|start|stop|restart` (elevated); без подкоманды — host службы. См. [agents.md](agents.md).
 
 ## Удалённые настройки агента
@@ -118,7 +120,7 @@ flowchart LR
 | `GET` | `/v1/admin/devices/{id}/config` | admin | effective + override + matched |
 | `PUT/DELETE` | `/v1/admin/devices/{id}/config-override` | admin | ручной override |
 
-- `schema_version` inventory: сервер принимает `1` и `2` (v2 добавляет optional `software`); неизвестные → `400`.
+- `schema_version` inventory: сервер принимает `1` и `2` (v2 добавляет optional `software`; hardware fields вроде `serial_number`/`gpus`/`ram_modules` — additive, без bump schema); неизвестные → `400`.
 - Секреты сайта: enrollment и admin tokens (разные); в БД хранятся hash (argon2).
 - Rate limit на `/v1/enroll` (sliding window).
 - Retention: последние 30 снимков на устройство.
@@ -135,7 +137,7 @@ flowchart LR
 |------|------------|
 | `/login` | username/password (local, затем LDAP если включён) |
 | `/logout` | сброс cookie сессии |
-| `/devices`, `/devices/{id}` | inventory; badge OK/stale по `last_seen_at`; теги; recent events; admin override |
+| `/devices`, `/devices/{id}` | inventory; badge OK/stale по `last_seen_at`; теги; recent events; admin override; на карточке — summary serial/model/GPU/RAM modules + raw JSON |
 | `/events` | список событий изменений inventory (фильтр по устройству) |
 | `/settings/policies` | CRUD условных политик remote config (admin) |
 | `/settings/ldap` | CRUD LDAP + Test connection; только role `admin` |

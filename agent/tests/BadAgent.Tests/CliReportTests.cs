@@ -83,11 +83,31 @@ public class CliReportTests
         Assert.Contains("WORKSTATION-01", text, StringComparison.Ordinal);
         Assert.Contains("Host", text, StringComparison.Ordinal);
         Assert.Contains("Hardware", text, StringComparison.Ordinal);
+        Assert.Contains("SRVTAG01", text, StringComparison.Ordinal);
+        Assert.Contains("Latitude 5440", text, StringComparison.Ordinal);
+        Assert.Contains("GPUs", text, StringComparison.Ordinal);
+        Assert.Contains("Intel UHD", text, StringComparison.Ordinal);
+        Assert.Contains("RAM modules", text, StringComparison.Ordinal);
+        Assert.Contains("DDR4", text, StringComparison.Ordinal);
         Assert.Contains("Network", text, StringComparison.Ordinal);
         Assert.Contains("Users", text, StringComparison.Ordinal);
         Assert.Contains("Software", text, StringComparison.Ordinal);
         Assert.Contains("local report", text, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotMatch(new Regex(@"[\u2600-\u27BF]"), text); // no emoji block
+    }
+
+    [Fact]
+    public void HtmlReportWriter_ContainsExtendedHardware()
+    {
+        var html = HtmlReportWriter.Write(SampleSnapshot());
+        Assert.Contains("SRVTAG01", html, StringComparison.Ordinal);
+        Assert.Contains("Latitude 5440", html, StringComparison.Ordinal);
+        Assert.Contains("GPUs", html, StringComparison.Ordinal);
+        Assert.Contains("NVIDIA RTX", html, StringComparison.Ordinal);
+        Assert.Contains("RAM modules", html, StringComparison.Ordinal);
+        Assert.Contains("M471A1K43EB1-CWE", html, StringComparison.Ordinal);
+        Assert.Contains("DDR4", html, StringComparison.Ordinal);
+        Assert.Contains("RAM type", html, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -161,7 +181,7 @@ public class CliReportTests
     {
         SchemaVersion = 2,
         DeviceId = "dev-sample",
-        AgentVersion = "0.5.0",
+        AgentVersion = "0.6.0",
         CollectedAt = "2026-10-15T17:00:00Z",
         Host = new HostInfo
         {
@@ -171,8 +191,29 @@ public class CliReportTests
         },
         Hardware = new HardwareInfo
         {
+            Manufacturer = "Dell Inc.",
+            Model = "Latitude 5440",
+            SerialNumber = "SRVTAG01",
             Cpu = new CpuInfo { Name = "Test CPU", Cores = 4, Logical = 8 },
             RamBytes = 16L * 1024 * 1024 * 1024,
+            RamMemoryType = "DDR4",
+            Gpus = new List<GpuInfo>
+            {
+                new() { Name = "Intel UHD", Vendor = "Intel Corporation" },
+                new() { Name = "NVIDIA RTX", Vendor = "NVIDIA" }
+            },
+            RamModules = new List<RamModuleInfo>
+            {
+                new()
+                {
+                    PartNumber = "M471A1K43EB1-CWE",
+                    CapacityBytes = 8L * 1024 * 1024 * 1024,
+                    SpeedMhz = 3200,
+                    MemoryType = "DDR4",
+                    Channel = "Channel A",
+                    DeviceLocator = "ChannelA-DIMM0"
+                }
+            },
             Disks = new List<DiskInfo> { new() { Model = "SSD", SizeBytes = 512L * 1024 * 1024 * 1024, MediaType = "SSD" } },
             Volumes = new List<VolumeInfo> { new() { Letter = "C:", SizeBytes = 500L * 1024 * 1024 * 1024, FreeBytes = 100L * 1024 * 1024 * 1024 } }
         },

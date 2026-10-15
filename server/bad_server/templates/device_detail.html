@@ -153,6 +153,65 @@
     Received {{ device.latest_inventory.received_at }}
     · schema {{ device.latest_inventory.schema_version }}
   </p>
+  {% if hardware_summary %}
+  <h3>Hardware</h3>
+  <dl class="meta">
+    {% if hardware_summary.manufacturer %}
+    <div><dt>Manufacturer</dt><dd class="mono">{{ hardware_summary.manufacturer }}</dd></div>
+    {% endif %}
+    {% if hardware_summary.model %}
+    <div><dt>Model</dt><dd class="mono">{{ hardware_summary.model }}</dd></div>
+    {% endif %}
+    {% if hardware_summary.serial_number %}
+    <div><dt>Serial</dt><dd class="mono">{{ hardware_summary.serial_number }}</dd></div>
+    {% endif %}
+    {% if hardware_summary.cpu and hardware_summary.cpu.name %}
+    <div><dt>CPU</dt><dd class="mono">{{ hardware_summary.cpu.name }}</dd></div>
+    {% endif %}
+    {% if hardware_summary.ram_bytes is defined and hardware_summary.ram_bytes is not none %}
+    <div><dt>RAM bytes</dt><dd class="mono">{{ hardware_summary.ram_bytes }}</dd></div>
+    {% endif %}
+    {% if hardware_summary.ram_memory_type %}
+    <div><dt>RAM type</dt><dd class="mono">{{ hardware_summary.ram_memory_type }}</dd></div>
+    {% endif %}
+    {% if hardware_summary.ram_modules %}
+    <div><dt>RAM sticks</dt><dd class="mono">{{ hardware_summary.ram_modules|length }}</dd></div>
+    {% endif %}
+  </dl>
+  {% if hardware_summary.gpus %}
+  <h3>GPUs</h3>
+  <table class="devices">
+    <thead><tr><th>Name</th><th>Vendor</th><th>Driver</th></tr></thead>
+    <tbody>
+      {% for g in hardware_summary.gpus %}
+      <tr>
+        <td class="mono">{{ g.name or '—' }}</td>
+        <td class="mono">{{ g.vendor or '—' }}</td>
+        <td class="mono">{{ g.driver_version or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% if hardware_summary.ram_modules %}
+  <h3>RAM modules</h3>
+  <table class="devices">
+    <thead><tr><th>Part</th><th>Type</th><th>Capacity</th><th>Speed</th><th>Channel</th><th>Locator</th></tr></thead>
+    <tbody>
+      {% for m in hardware_summary.ram_modules %}
+      <tr>
+        <td class="mono">{{ m.part_number or m.manufacturer or '—' }}</td>
+        <td class="mono">{{ m.memory_type or '—' }}</td>
+        <td class="mono">{{ m.capacity_bytes if m.capacity_bytes is defined and m.capacity_bytes is not none else '—' }}</td>
+        <td class="mono">{% if m.speed_mhz %}{{ m.speed_mhz }} MHz{% else %}—{% endif %}</td>
+        <td class="mono">{{ m.channel or '—' }}</td>
+        <td class="mono">{{ m.device_locator or m.bank_label or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% endif %}
   <pre class="inventory">{{ inventory_pretty }}</pre>
   {% else %}
   <p>No inventory snapshot yet.</p>

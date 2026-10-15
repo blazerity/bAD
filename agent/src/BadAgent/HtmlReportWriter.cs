@@ -56,12 +56,55 @@ public static class HtmlReportWriter
         else
         {
             sb.AppendLine("<dl class=\"grid\">");
+            Kv(sb, "Manufacturer", snap.Hardware.Manufacturer);
+            Kv(sb, "Model", snap.Hardware.Model);
+            Kv(sb, "Serial", snap.Hardware.SerialNumber);
             Kv(sb, "CPU", snap.Hardware.Cpu?.Name);
             Kv(sb, "Cores", snap.Hardware.Cpu is null
                 ? null
                 : $"{snap.Hardware.Cpu.Cores} / {snap.Hardware.Cpu.Logical} logical");
             Kv(sb, "RAM", ReportFormat.FormatBytes(snap.Hardware.RamBytes, "—"));
+            Kv(sb, "RAM type", snap.Hardware.RamMemoryType);
+            if (snap.Hardware.RamModules is { Count: > 0 })
+            {
+                Kv(sb, "RAM sticks", snap.Hardware.RamModules.Count.ToString());
+            }
+
             sb.AppendLine("</dl>");
+
+            if (snap.Hardware.Gpus is { Count: > 0 })
+            {
+                sb.AppendLine("<h3>GPUs</h3>");
+                sb.AppendLine("<table><thead><tr><th>Name</th><th>Vendor</th><th>Driver</th><th>Adapter RAM</th></tr></thead><tbody>");
+                foreach (var g in snap.Hardware.Gpus)
+                {
+                    sb.AppendLine(
+                        $"<tr><td>{Enc(g.Name)}</td><td>{Enc(g.Vendor)}</td><td>{Enc(g.DriverVersion)}</td>" +
+                        $"<td>{Enc(ReportFormat.FormatBytes(g.AdapterRamBytes, "—"))}</td></tr>");
+                }
+
+                sb.AppendLine("</tbody></table>");
+            }
+
+            if (snap.Hardware.RamModules is { Count: > 0 })
+            {
+                sb.AppendLine("<h3>RAM modules</h3>");
+                sb.AppendLine(
+                    "<table><thead><tr><th>Part</th><th>Type</th><th>Capacity</th><th>Speed</th>" +
+                    "<th>Channel</th><th>Locator</th></tr></thead><tbody>");
+                foreach (var m in snap.Hardware.RamModules)
+                {
+                    var speed = m.SpeedMhz is null ? "—" : $"{m.SpeedMhz} MHz";
+                    sb.AppendLine(
+                        $"<tr><td>{Enc(m.PartNumber ?? m.Manufacturer)}</td>" +
+                        $"<td>{Enc(m.MemoryType)}</td>" +
+                        $"<td>{Enc(ReportFormat.FormatBytes(m.CapacityBytes, "—"))}</td>" +
+                        $"<td>{Enc(speed)}</td><td>{Enc(m.Channel)}</td>" +
+                        $"<td>{Enc(m.DeviceLocator ?? m.BankLabel)}</td></tr>");
+                }
+
+                sb.AppendLine("</tbody></table>");
+            }
 
             if (snap.Hardware.Disks is { Count: > 0 })
             {

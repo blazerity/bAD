@@ -221,9 +221,15 @@ def _device_config_context(
     override = effective.get("override") or {}
     override_settings = override.get("settings") if override else {}
     inventory_pretty = None
+    hardware_summary = None
     latest = detail.get("latest_inventory")
     if latest and latest.get("payload") is not None:
-        inventory_pretty = json.dumps(latest["payload"], indent=2, ensure_ascii=False)
+        payload = latest["payload"]
+        inventory_pretty = json.dumps(payload, indent=2, ensure_ascii=False)
+        if isinstance(payload, dict):
+            hw = payload.get("hardware")
+            if isinstance(hw, dict):
+                hardware_summary = hw
     silence = device_silence_status(
         detail.get("last_seen_at"),
         stale_after_seconds=settings.device_stale_after_seconds,
@@ -232,6 +238,7 @@ def _device_config_context(
     return {
         "device": detail,
         "inventory_pretty": inventory_pretty,
+        "hardware_summary": hardware_summary,
         "user": user,
         "message": message,
         "error": error,
