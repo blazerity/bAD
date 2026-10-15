@@ -23,18 +23,4 @@ internal static class WmiHelper
 
         return null;
     }
-
-    public static IEnumerable<ManagementObject> Query(string wql)
-    {
-        if (!OperatingSystem.IsWindows())
-        {
-            yield break;
-        }
-
-        using var searcher = new ManagementObjectSearcher(wql);
-        foreach (ManagementObject obj in searcher.Get())
-        {
-            yield return obj;
-        }
-    }
 }

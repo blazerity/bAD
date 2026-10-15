@@ -23,12 +23,8 @@ if [[ -f /etc/os-release ]]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# When run from a packaged tarball, server/ sits next to deploy/; when from repo checkout, climb up.
+# Repo checkout or packaged tarball: server/ is two levels above deploy/debian/.
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-if [[ ! -d "${REPO_ROOT}/server/bad_server" ]]; then
-  # Packaged layout: /opt/bad-src/server + /opt/bad-src/deploy/debian
-  REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-fi
 
 prompt() {
   local var="$1" msg="$2"

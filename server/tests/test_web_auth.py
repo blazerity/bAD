@@ -1,41 +1,10 @@
 from __future__ import annotations
 
-import os
-from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 from fastapi.testclient import TestClient
 
-os.environ["BAD_ENROLLMENT_TOKEN"] = "test-enrollment-token-abcdefghijklmnopqrstuvwxyz"
-os.environ["BAD_ADMIN_TOKEN"] = "test-admin-token-abcdefghijklmnopqrstuvwxyz"
-
-
-@pytest.fixture()
-def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    db_path = tmp_path / "bad.db"
-    monkeypatch.setenv("BAD_DB_PATH", str(db_path))
-    monkeypatch.setenv(
-        "BAD_ENROLLMENT_TOKEN",
-        "test-enrollment-token-abcdefghijklmnopqrstuvwxyz",
-    )
-    monkeypatch.setenv(
-        "BAD_ADMIN_TOKEN",
-        "test-admin-token-abcdefghijklmnopqrstuvwxyz",
-    )
-    monkeypatch.setenv("BAD_SESSION_SECRET", "test-session-secret-abcdefghijklmnopqrstuvwxyz")
-
-    from bad_server.config import get_settings
-
-    get_settings.cache_clear()
-
-    from bad_server.app import create_app
-
-    app = create_app()
-    with TestClient(app) as c:
-        yield c
-
-    get_settings.cache_clear()
+from helpers import ADMIN_TOKEN
 
 
 def _login(client: TestClient, username: str = "admin", password: str = "admin"):
@@ -77,7 +46,7 @@ def test_admin_api_token_bearer_only(client: TestClient):
 
     ok = client.get(
         "/v1/devices",
-        headers={"Authorization": "Bearer test-admin-token-abcdefghijklmnopqrstuvwxyz"},
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"},
     )
     assert ok.status_code == 200
 

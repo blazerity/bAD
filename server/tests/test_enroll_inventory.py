@@ -1,44 +1,8 @@
 from __future__ import annotations
 
-import os
-from pathlib import Path
-
-import pytest
 from fastapi.testclient import TestClient
 
-os.environ["BAD_ENROLLMENT_TOKEN"] = "test-enrollment-token-abcdefghijklmnopqrstuvwxyz"
-os.environ["BAD_ADMIN_TOKEN"] = "test-admin-token-abcdefghijklmnopqrstuvwxyz"
-
-
-@pytest.fixture()
-def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    db_path = tmp_path / "bad.db"
-    monkeypatch.setenv("BAD_DB_PATH", str(db_path))
-    monkeypatch.setenv(
-        "BAD_ENROLLMENT_TOKEN",
-        "test-enrollment-token-abcdefghijklmnopqrstuvwxyz",
-    )
-    monkeypatch.setenv(
-        "BAD_ADMIN_TOKEN",
-        "test-admin-token-abcdefghijklmnopqrstuvwxyz",
-    )
-
-    monkeypatch.setenv("BAD_AGENT_UPDATES_DIR", str(tmp_path / "agent-updates"))
-    monkeypatch.setenv("BAD_AGENT_UPDATE_SYNC_ON_STARTUP", "false")
-    monkeypatch.setenv("BAD_AGENT_UPDATE_SYNC_INTERVAL_SECONDS", "0")
-    monkeypatch.setenv("BAD_GITHUB_REPO", "blazerity/bAD")
-
-    from bad_server.config import get_settings
-
-    get_settings.cache_clear()
-
-    from bad_server.app import create_app
-
-    app = create_app()
-    with TestClient(app) as c:
-        yield c
-
-    get_settings.cache_clear()
+from helpers import ADMIN_TOKEN, enroll_device
 
 
 def test_health(client: TestClient):
@@ -50,22 +14,18 @@ def test_health(client: TestClient):
 
 
 def test_enroll_inventory_get_flow(client: TestClient):
-    enroll = client.post(
-        "/v1/enroll",
-        headers={"Authorization": "Bearer test-enrollment-token-abcdefghijklmnopqrstuvwxyz"},
-        json={
-            "device_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-            "hostname": "WS-TEST-01",
-            "agent_version": "1.0.0",
-        },
+    device_id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    api_key = enroll_device(
+        client,
+        device_id=device_id,
+        hostname="WS-TEST-01",
+        agent_version="1.0.0",
     )
-    assert enroll.status_code == 200, enroll.text
-    api_key = enroll.json()["api_key"]
     assert api_key.startswith("bad_ak_")
 
     inventory = {
         "schema_version": 1,
-        "device_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        "device_id": device_id,
         "collected_at": "2026-10-15T14:55:00Z",
         "agent_version": "1.0.0",
         "host": {
@@ -109,7 +69,7 @@ def test_enroll_inventory_get_flow(client: TestClient):
         "/v1/heartbeat",
         headers={"Authorization": f"Bearer {api_key}"},
         json={
-            "device_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+            "device_id": device_id,
             "agent_version": "1.0.0",
             "last_inventory_at": "2026-10-15T14:55:00Z",
         },
@@ -118,20 +78,24 @@ def test_enroll_inventory_get_flow(client: TestClient):
 
     devices = client.get(
         "/v1/devices",
-        headers={"Authorization": "Bearer test-admin-token-abcdefghijklmnopqrstuvwxyz"},
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"},
     )
     assert devices.status_code == 200
     assert len(devices.json()["devices"]) == 1
     assert devices.json()["devices"][0]["hostname"] == "WS-TEST-01"
+    # Heartbeat must merge last_inventory_at without wiping inventory meta (e.g. os).
+    assert devices.json()["devices"][0]["meta"]["os"] == "Microsoft Windows 11 Pro"
+    assert devices.json()["devices"][0]["meta"]["last_inventory_at"] == "2026-10-15T14:55:00Z"
 
     detail = client.get(
-        "/v1/devices/a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-        headers={"Authorization": "Bearer test-admin-token-abcdefghijklmnopqrstuvwxyz"},
+        f"/v1/devices/{device_id}",
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"},
     )
     assert detail.status_code == 200
     body = detail.json()
     assert body["latest_inventory"]["payload"]["schema_version"] == 1
     assert body["latest_inventory"]["payload"]["hardware"]["cpu"]["cores"] == 8
+    assert body["meta"]["os"] == "Microsoft Windows 11 Pro"
 
     # upsert second inventory
     inventory["collected_at"] = "2026-10-15T15:00:00Z"
@@ -143,19 +107,19 @@ def test_enroll_inventory_get_flow(client: TestClient):
     )
     assert inv2.status_code == 200
     detail2 = client.get(
-        "/v1/devices/a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-        headers={"Authorization": "Bearer test-admin-token-abcdefghijklmnopqrstuvwxyz"},
+        f"/v1/devices/{device_id}",
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"},
     )
     assert detail2.json()["latest_inventory"]["payload"]["hardware"]["ram_bytes"] == 34359738368
 
 
 def test_unknown_schema_rejected(client: TestClient):
-    enroll = client.post(
-        "/v1/enroll",
-        headers={"Authorization": "Bearer test-enrollment-token-abcdefghijklmnopqrstuvwxyz"},
-        json={"device_id": "device-schema-test", "hostname": "X", "agent_version": "1.0.0"},
+    api_key = enroll_device(
+        client,
+        device_id="device-schema-test",
+        hostname="X",
+        agent_version="1.0.0",
     )
-    api_key = enroll.json()["api_key"]
     r = client.post(
         "/v1/inventory",
         headers={"Authorization": f"Bearer {api_key}"},
@@ -169,13 +133,12 @@ def test_unknown_schema_rejected(client: TestClient):
 
 
 def test_web_login_and_devices(client: TestClient):
-    # seed a device
-    enroll = client.post(
-        "/v1/enroll",
-        headers={"Authorization": "Bearer test-enrollment-token-abcdefghijklmnopqrstuvwxyz"},
-        json={"device_id": "web-device", "hostname": "WEB-HOST", "agent_version": "0.2.0"},
+    enroll_device(
+        client,
+        device_id="web-device",
+        hostname="WEB-HOST",
+        agent_version="0.2.0",
     )
-    assert enroll.status_code == 200
 
     denied = client.get("/devices", follow_redirects=False)
     assert denied.status_code == 303

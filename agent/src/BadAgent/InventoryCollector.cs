@@ -224,18 +224,6 @@ public sealed class InventoryCollector : IInventoryCollector
                         .Where(a => a.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
                         .Select(a => a.Address.ToString())
                         .ToList();
-                    bool? dhcp = null;
-                    try
-                    {
-                        if (OperatingSystem.IsWindows())
-                        {
-                            dhcp = props.GetIPv4Properties()?.IsDhcpEnabled;
-                        }
-                    }
-                    catch
-                    {
-                        dhcp = null;
-                    }
 
                     net.Nics.Add(new NicInfo
                     {
@@ -243,7 +231,7 @@ public sealed class InventoryCollector : IInventoryCollector
                         Mac = FormatMac(ni.GetPhysicalAddress()),
                         Ipv4 = ipv4,
                         Ipv6 = ipv6,
-                        Dhcp = dhcp
+                        Dhcp = null
                     });
                 }
             }

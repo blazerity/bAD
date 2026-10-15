@@ -119,17 +119,21 @@ def current_web_user(
 def require_web_user(
     user: Optional[WebUser] = Depends(current_web_user),
 ) -> WebUser:
+    """HTML session gate: redirect to login (303) instead of JSON 401."""
     if not user:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+            status_code=status.HTTP_303_SEE_OTHER,
+            headers={"Location": "/login"},
         )
     return user
 
 
 def require_web_admin(user: WebUser = Depends(require_web_user)) -> WebUser:
+    """HTML admin gate: redirect non-admins to /devices."""
     if not user.is_admin:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required"
+            status_code=status.HTTP_303_SEE_OTHER,
+            headers={"Location": "/devices"},
         )
     return user
 
