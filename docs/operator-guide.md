@@ -67,14 +67,21 @@ The service `BlazerityAssetDiscovery` starts automatically, enrolls once, stores
 ## 3. Confirm in the web UI
 
 1. Open `https://bad.example.com/devices` (after signing in)
-2. Find the hostname
-3. Open the device page to view the latest inventory JSON
+2. Find the hostname (health badge: **OK** if last seen within the stale threshold, else **stale**)
+3. Open the device page to view tags, recent change events, and the latest inventory JSON
+4. Optional: open **Events** (`/events`) for a newest-first change log across devices
+
+Tags: edit on the device page (comma-separated). Filter the devices list by tag. Policies can also match `tag equals/contains`.
+
+Stale threshold defaults to 1 hour (`BAD_DEVICE_STALE_AFTER_SECONDS`); set ≈2× heartbeat if you prefer (e.g. `1800` for a 15‑minute heartbeat). Product UI notes for upcoming agent features may mention **0.4.0**; this server tree remains **0.3.0** until the sibling bump lands.
 
 Alternatively (automation — admin API token):
 
 ```bash
 curl -fsS -H "Authorization: Bearer <admin-token>" \
   https://bad.example.com/v1/devices
+curl -fsS -H "Authorization: Bearer <admin-token>" \
+  'https://bad.example.com/v1/events?limit=50'
 ```
 
 ## Notes

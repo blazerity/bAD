@@ -10,8 +10,55 @@
     <div><dt>Device ID</dt><dd class="mono">{{ device.device_id }}</dd></div>
     <div><dt>Agent</dt><dd>{{ device.agent_version or "—" }}</dd></div>
     <div><dt>Enrolled</dt><dd>{{ device.enrolled_at or "—" }}</dd></div>
-    <div><dt>Last seen</dt><dd>{{ device.last_seen_at or "—" }}</dd></div>
+    <div>
+      <dt>Last seen</dt>
+      <dd>
+        {{ device.last_seen_at or "—" }}
+        <span class="badge badge-{{ silence.status }}">{% if silence.status == "ok" %}OK{% else %}{{ silence.status }}{% endif %}</span>
+      </dd>
+    </div>
+    <div>
+      <dt>Health</dt>
+      <dd class="mono">{{ health_snippet or "—" }}</dd>
+    </div>
   </dl>
+  <p class="muted">Stale threshold: {{ stale_after_seconds }}s after last seen.</p>
+
+  <h2>Tags</h2>
+  <p class="muted">Comma-separated labels. Used for list filter and optional policy condition <span class="mono">tag</span>.</p>
+  <form method="post" action="/devices/{{ device.device_id }}/tags" class="settings-form">
+    <label for="tags">Tags</label>
+    <input id="tags" name="tags" type="text" maxlength="512"
+      value="{{ tags_text }}" placeholder="prod, finance" autocomplete="off">
+    <div class="form-actions">
+      <button type="submit">Save tags</button>
+    </div>
+  </form>
+
+  <h2>Recent events</h2>
+  {% if recent_events %}
+  <table class="devices">
+    <thead>
+      <tr>
+        <th>When</th>
+        <th>Type</th>
+        <th>Summary</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in recent_events %}
+      <tr>
+        <td class="mono">{{ e.created_at }}</td>
+        <td class="mono">{{ e.type }}</td>
+        <td>{{ e.summary }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted"><a href="/events?device_id={{ device.device_id }}">All events for this device</a></p>
+  {% else %}
+  <p class="muted">No change events yet.</p>
+  {% endif %}
 
   <h2>Effective agent config</h2>
   <p class="muted">
@@ -32,6 +79,7 @@
     hostname=<span class="mono">{{ match_context.hostname or "—" }}</span>
     · domain=<span class="mono">{{ match_context.domain or "—" }}</span>
     · os_caption=<span class="mono">{{ match_context.os_caption or "—" }}</span>
+    · tag=<span class="mono">{% if match_context.tag %}{{ match_context.tag | join(", ") }}{% else %}—{% endif %}</span>
   </p>
   {% if matched_policies %}
   <p class="muted">Matched policies:

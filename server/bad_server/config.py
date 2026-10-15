@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     enroll_rate_limit_per_minute: int = 30
     snapshot_retention: int = 30
     known_schema_versions: frozenset[int] = frozenset({1, 2})
+    # Web silence badge: last_seen older than this → stale (default 1h).
+    # Operators may set ~2× heartbeat (e.g. 1800 for 15m heartbeat).
+    device_stale_after_seconds: int = 3600
     # Seeded only when no local users exist (fresh DB / first boot).
     default_admin_username: str = "admin"
     default_admin_password: str = "admin"

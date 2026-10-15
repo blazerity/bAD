@@ -234,6 +234,65 @@ pre.inventory {
   max-height: 70vh;
 }
 
+.badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.45rem;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  vertical-align: middle;
+  margin-left: 0.35rem;
+}
+.badge-ok {
+  color: #5dce8a;
+  border-color: #2f6b4a;
+  background: rgba(93, 206, 138, 0.08);
+}
+.badge-stale {
+  color: #f0d9a8;
+  border-color: #5a4420;
+  background: rgba(240, 217, 168, 0.08);
+}
+.badge-unknown {
+  color: var(--muted);
+}
+
+.tag-chip {
+  display: inline-block;
+  margin: 0 0.25rem 0.25rem 0;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-family: var(--mono);
+}
+.tag-chip:hover { color: var(--fg); border-color: var(--muted); text-decoration: none; }
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  margin: 1rem 0 0.25rem;
+}
+.filter-bar label {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.filter-bar select {
+  min-width: 12rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--fg);
+  font: inherit;
+}
+
 @media (max-width: 640px) {
   .tagline { display: none; }
   table.devices th:nth-child(2),

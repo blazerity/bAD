@@ -91,3 +91,7 @@ class DeviceConfigOverrideBody(BaseModel):
         if not cleaned:
             raise ValueError("settings must include at least one allowed key")
         return cleaned
+
+
+class DeviceTagsBody(BaseModel):
+    tags: list[str] | str = Field(default_factory=list)

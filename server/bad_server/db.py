@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS devices (
   enrolled_at TEXT NOT NULL,
   last_seen_at TEXT,
   agent_version TEXT,
-  meta_json TEXT
+  meta_json TEXT,
+  tags_json TEXT NOT NULL DEFAULT '[]'
 );
 
 CREATE TABLE IF NOT EXISTS inventory_snapshots (
@@ -91,6 +92,21 @@ CREATE TABLE IF NOT EXISTS device_config_overrides (
   settings_json TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS device_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  device_id TEXT NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
+  type TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  detail_json TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_device_events_created
+  ON device_events(created_at DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_device_events_device_created
+  ON device_events(device_id, created_at DESC, id DESC);
 """
 
 
@@ -119,6 +135,16 @@ class Database:
             conn.execute(
                 "INSERT OR IGNORE INTO ldap_settings(id) VALUES (1)"
             )
+            # Lightweight migrations for existing DBs (CREATE IF NOT EXISTS
+            # does not add new columns).
+            cols = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(devices)").fetchall()
+            }
+            if "tags_json" not in cols:
+                conn.execute(
+                    "ALTER TABLE devices ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'"
+                )
             conn.commit()
 
     @contextmanager
@@ -203,6 +229,18 @@ class Database:
             return {}
         return meta if isinstance(meta, dict) else {}
 
+    @staticmethod
+    def _parse_tags(raw: Optional[str]) -> list[str]:
+        from .device_health import normalize_tags
+
+        if not raw:
+            return []
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return normalize_tags(raw)
+        return normalize_tags(parsed)
+
     def update_heartbeat(
         self,
         device_id: str,
@@ -253,10 +291,41 @@ class Database:
         meta: Optional[dict[str, Any]],
         retention: int,
     ) -> int:
+        from .inventory_events import diff_inventory_snapshots
+
         now = utc_now()
         payload_json = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
         meta_json = json.dumps(meta or {}, separators=(",", ":"), ensure_ascii=False)
         with self.connection() as conn:
+            prev_row = conn.execute(
+                """
+                SELECT payload_json FROM inventory_snapshots
+                WHERE device_id = ?
+                ORDER BY received_at DESC, id DESC
+                LIMIT 1
+                """,
+                (device_id,),
+            ).fetchone()
+            previous: Optional[dict[str, Any]] = None
+            if prev_row:
+                try:
+                    parsed = json.loads(prev_row["payload_json"])
+                    if isinstance(parsed, dict):
+                        previous = parsed
+                except json.JSONDecodeError:
+                    previous = None
+
+            # Merge inventory meta into existing meta so heartbeat/health keys survive.
+            existing = conn.execute(
+                "SELECT meta_json FROM devices WHERE device_id = ?",
+                (device_id,),
+            ).fetchone()
+            merged_meta = self._parse_meta(existing["meta_json"] if existing else None)
+            merged_meta.update(meta or {})
+            meta_json = json.dumps(
+                merged_meta, separators=(",", ":"), ensure_ascii=False
+            )
+
             conn.execute(
                 """
                 UPDATE devices
@@ -277,6 +346,29 @@ class Database:
                 (device_id, now, schema_version, payload_json),
             )
             snapshot_id = int(cur.lastrowid)
+
+            for event in diff_inventory_snapshots(previous, payload):
+                detail = event.get("detail")
+                detail_payload = json.dumps(
+                    detail if detail is not None else {},
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                )
+                conn.execute(
+                    """
+                    INSERT INTO device_events(
+                      device_id, type, summary, detail_json, created_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        device_id,
+                        event["type"],
+                        event["summary"],
+                        detail_payload,
+                        now,
+                    ),
+                )
+
             # prune older than retention
             conn.execute(
                 """
@@ -293,18 +385,22 @@ class Database:
             )
             return snapshot_id
 
-    def list_devices(self) -> list[dict[str, Any]]:
+    def list_devices(self, tag: Optional[str] = None) -> list[dict[str, Any]]:
         with self.connection() as conn:
             rows = conn.execute(
                 """
                 SELECT device_id, hostname, enrolled_at, last_seen_at,
-                       agent_version, meta_json
+                       agent_version, meta_json, tags_json
                 FROM devices
                 ORDER BY COALESCE(last_seen_at, enrolled_at) DESC
                 """
             ).fetchall()
+        wanted = (tag or "").strip().casefold()
         result: list[dict[str, Any]] = []
         for row in rows:
+            tags = self._parse_tags(row["tags_json"])
+            if wanted and wanted not in {t.casefold() for t in tags}:
+                continue
             result.append(
                 {
                     "device_id": row["device_id"],
@@ -313,6 +409,74 @@ class Database:
                     "last_seen_at": row["last_seen_at"],
                     "agent_version": row["agent_version"],
                     "meta": self._parse_meta(row["meta_json"]),
+                    "tags": tags,
+                }
+            )
+        return result
+
+    def list_all_tags(self) -> list[str]:
+        seen: dict[str, str] = {}
+        for device in self.list_devices():
+            for tag in device.get("tags") or []:
+                key = tag.casefold()
+                if key not in seen:
+                    seen[key] = tag
+        return sorted(seen.values(), key=str.casefold)
+
+    def set_device_tags(self, device_id: str, tags: Any) -> list[str]:
+        """Normalize and persist tags. Sole write-path choke point for tag cleaning."""
+        from .device_health import normalize_tags
+
+        clean = normalize_tags(tags)
+        payload = json.dumps(clean, separators=(",", ":"), ensure_ascii=False)
+        with self.connection() as conn:
+            cur = conn.execute(
+                "UPDATE devices SET tags_json = ? WHERE device_id = ?",
+                (payload, device_id),
+            )
+            if cur.rowcount == 0:
+                raise KeyError(device_id)
+        return clean
+
+    def list_device_events(
+        self,
+        *,
+        device_id: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        limit = max(1, min(int(limit), 500))
+        sql = """
+            SELECT e.id, e.device_id, e.type, e.summary, e.detail_json,
+                   e.created_at, d.hostname
+            FROM device_events e
+            LEFT JOIN devices d ON d.device_id = e.device_id
+        """
+        params: list[Any]
+        if device_id:
+            sql += " WHERE e.device_id = ?"
+            params = [device_id, limit]
+        else:
+            params = [limit]
+        sql += " ORDER BY e.created_at DESC, e.id DESC LIMIT ?"
+        with self.connection() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            detail: Any = None
+            if row["detail_json"]:
+                try:
+                    detail = json.loads(row["detail_json"])
+                except json.JSONDecodeError:
+                    detail = {"_raw": row["detail_json"]}
+            result.append(
+                {
+                    "id": row["id"],
+                    "device_id": row["device_id"],
+                    "hostname": row["hostname"],
+                    "type": row["type"],
+                    "summary": row["summary"],
+                    "detail": detail,
+                    "created_at": row["created_at"],
                 }
             )
         return result
@@ -354,6 +518,7 @@ class Database:
             "last_seen_at": device["last_seen_at"],
             "agent_version": device["agent_version"],
             "meta": meta,
+            "tags": self._parse_tags(device["tags_json"]),
             "latest_inventory": inventory,
         }
 
@@ -776,10 +941,12 @@ class Database:
             return None
         override_row = self.get_device_config_override(device_id)
         override = override_row["settings"] if override_row else None
+        tags = self._parse_tags(device["tags_json"])
         result = compute_effective_config(
             hostname=device["hostname"],
             meta=self._parse_meta(device["meta_json"]),
             inventory_payload=self.latest_inventory_payload(device_id),
+            tags=tags,
             policies=self.list_agent_policies(),
             override=override,
         )

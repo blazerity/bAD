@@ -37,7 +37,7 @@ INT_SETTING_KEYS = frozenset(
     }
 )
 
-CONDITION_FIELDS = frozenset({"hostname", "domain", "os_caption"})
+CONDITION_FIELDS = frozenset({"hostname", "domain", "os_caption", "tag"})
 CONDITION_OPS = frozenset({"equals", "contains"})
 
 _TRUE_STRINGS = frozenset({"1", "true", "yes"})
@@ -108,8 +108,11 @@ def device_match_context(
     hostname: Optional[str] = None,
     meta: Optional[dict[str, Any]] = None,
     inventory_payload: Optional[dict[str, Any]] = None,
-) -> dict[str, str]:
-    """Build lowercase match fields from device row + latest inventory."""
+    tags: Optional[list[str]] = None,
+) -> dict[str, Any]:
+    """Build match fields from device row + latest inventory + tags."""
+    from .device_health import normalize_tags
+
     meta = meta or {}
     host: dict[str, Any] = {}
     if inventory_payload and isinstance(inventory_payload.get("host"), dict):
@@ -127,19 +130,28 @@ def device_match_context(
         domain = str(host.get("domain") or "")
 
     hn = hostname or (str(host.get("hostname") or "") if host else "") or ""
-
+    # tag is a list; equals = membership, contains = substring of any tag.
     return {
         "hostname": hn,
         "domain": domain,
         "os_caption": os_caption,
+        "tag": normalize_tags(tags),
     }
 
 
-def condition_matches(condition: dict[str, str], context: dict[str, str]) -> bool:
+def condition_matches(condition: dict[str, str], context: dict[str, Any]) -> bool:
     field = condition["field"]
     op = condition["op"]
     expected = condition["value"]
-    actual = context.get(field, "") or ""
+    if field == "tag":
+        raw = context.get("tag") or []
+        tags = raw if isinstance(raw, list) else [str(raw)]
+        if op == "equals":
+            return any(str(t).casefold() == expected.casefold() for t in tags)
+        if op == "contains":
+            return any(expected.casefold() in str(t).casefold() for t in tags)
+        return False
+    actual = str(context.get(field, "") or "")
     if op == "equals":
         return actual.casefold() == expected.casefold()
     if op == "contains":
@@ -147,7 +159,7 @@ def condition_matches(condition: dict[str, str], context: dict[str, str]) -> boo
     return False
 
 
-def policy_matches(conditions: list[dict[str, str]], context: dict[str, str]) -> bool:
+def policy_matches(conditions: list[dict[str, str]], context: dict[str, Any]) -> bool:
     """All conditions must match (AND). Empty conditions never match."""
     if not conditions:
         return False
@@ -164,6 +176,7 @@ def compute_effective_config(
     hostname: Optional[str] = None,
     meta: Optional[dict[str, Any]] = None,
     inventory_payload: Optional[dict[str, Any]] = None,
+    tags: Optional[list[str]] = None,
     policies: list[dict[str, Any]],
     override: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
@@ -174,7 +187,10 @@ def compute_effective_config(
     """
     effective = dict(DEFAULT_AGENT_SETTINGS)
     context = device_match_context(
-        hostname=hostname, meta=meta, inventory_payload=inventory_payload
+        hostname=hostname,
+        meta=meta,
+        inventory_payload=inventory_payload,
+        tags=tags,
     )
 
     ordered = sorted(

@@ -15,6 +15,7 @@ from .db import Database
 from .schemas import (
     AgentPolicyBody,
     DeviceConfigOverrideBody,
+    DeviceTagsBody,
     EnrollRequest,
     EnrollResponse,
     HeartbeatRequest,
@@ -146,10 +147,12 @@ def inventory(
 
 @router.get("/devices")
 def list_devices(
+    tag: str | None = Query(default=None, max_length=64),
     _admin: str = Depends(require_admin_token),
     db: Database = Depends(get_db),
 ) -> dict[str, Any]:
-    return {"devices": db.list_devices()}
+    tag_filter = (tag or "").strip() or None
+    return {"devices": db.list_devices(tag=tag_filter)}
 
 
 @router.get("/devices/{device_id}")
@@ -162,6 +165,35 @@ def get_device(
     if not detail:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
     return detail
+
+
+@router.get("/events")
+def list_events(
+    device_id: str | None = Query(default=None, max_length=128),
+    limit: int = Query(default=100, ge=1, le=500),
+    _admin: str = Depends(require_admin_token),
+    db: Database = Depends(get_db),
+) -> dict[str, Any]:
+    device_filter = (device_id or "").strip() or None
+    return {
+        "events": db.list_device_events(device_id=device_filter, limit=limit),
+    }
+
+
+@router.put("/devices/{device_id}/tags")
+def put_device_tags(
+    device_id: str,
+    body: DeviceTagsBody,
+    _admin: str = Depends(require_admin_token),
+    db: Database = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        saved = db.set_device_tags(device_id, body.tags)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Device not found"
+        ) from exc
+    return {"device_id": device_id, "tags": saved}
 
 
 @router.get("/agent/update/check")
