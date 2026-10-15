@@ -23,6 +23,7 @@
       {% if user.source == 'local' %}<a href="/account/password">Пароль</a>{% endif %}
     </nav>
     <form class="logout" method="post" action="/logout">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <span class="who mono">{{ user.username }}{% if user.source == 'ldap' %} (ldap){% endif %}</span>
       <button type="submit">Выйти</button>
     </form>

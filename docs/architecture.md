@@ -1,6 +1,6 @@
 # Архитектура bAD
 
-**blazerity Asset Discovery** — Windows-агент инвентаризации и on-prem сервер накопления снимков. Документ описывает фактическую архитектуру репозитория. Версия продукта: **0.9.0**.
+**blazerity Asset Discovery** — Windows-агент инвентаризации и on-prem сервер накопления снимков. Документ описывает фактическую архитектуру репозитория. Версия продукта: **0.9.1**.
 
 ## Компоненты
 
@@ -35,7 +35,7 @@ flowchart LR
 - Установка: MSI → `%ProgramFiles%\blazerity\bAD\`, служба auto-start под LocalSystem.
 - Конфиг: `%ProgramData%\blazerity\bAD\config.json` (`server_url`, `enrollment_token` временно, `api_key`, `device_id`, интервалы, `update_*`, `remote_config_version`).
 - Жизненный цикл: при старте enroll (если нет API key) → flush offline queue → check update → полный inventory → heartbeat (с подтягиванием remote config) → циклы по эффективным интервалам.
-- Offline queue (0.9.0): при недоступном сервере inventory/heartbeat пишутся в `%ProgramData%\blazerity\bAD\queue\` и уходят с backoff (cap 64 / 14 дней); не молча теряются.
+- Offline queue (0.9.1): при недоступном сервере inventory/heartbeat пишутся в `%ProgramData%\blazerity\bAD\queue\` и уходят с backoff (cap 64 / 14 дней); не молча теряются.
 - Revoked API key (401/403): очистить `api_key`, сохранить `device_id`, запись в Application Event Log, не долбить API до re-enroll / reinstall.
 - Remote config: сервер считает effective settings (defaults &lt; matching policies &lt; per-device override); агент применяет только safe knobs, сохраняет в `config.json`. Секреты / `server_url` / `device_id` с сервера не принимаются.
 - `device_id`: MachineGuid (registry), fallback SMBIOS UUID.
@@ -141,7 +141,7 @@ flowchart LR
 
 ### Web UI и аутентификация
 
-Визуальный язык (с **0.8.0**, актуально в **0.9.0**): светлая оболочка в духе Windows 11 / Fluent — Segoe UI Variable, слоистые полупрозрачные поверхности, радиусы 4px (controls) / 8px (surfaces), акцент Fluent blue (`#0067C0`), UI copy на русском, stroke-иконки секций (без emoji). Стили: `server/bad_server/static/style.css` + `favicon.svg`/`favicon.ico`; локальный HTML-отчёт (`HtmlReportWriter`) — та же семья токенов/иконок. Иконка агента: `agent/assets/bad.ico` (`ApplicationIcon` + WiX `ARPPRODUCTICON`).
+Визуальный язык (с **0.8.0**, актуально в **0.9.1**): светлая оболочка в духе Windows 11 / Fluent — Segoe UI Variable, слоистые полупрозрачные поверхности, радиусы 4px (controls) / 8px (surfaces), акцент Fluent blue (`#0067C0`), UI copy на русском, stroke-иконки секций (без emoji). Стили: `server/bad_server/static/style.css` + `favicon.svg`/`favicon.ico`; локальный HTML-отчёт (`HtmlReportWriter`) — та же семья токенов/иконок. Иконка агента: `agent/assets/bad.ico` (`ApplicationIcon` + WiX `ARPPRODUCTICON`).
 
 | Path | Назначение |
 |------|------------|
@@ -163,13 +163,14 @@ flowchart LR
 **Локальные пользователи**
 
 - Таблица `local_users`; пароли — argon2.
-- Первый boot / пустая таблица: создаётся `admin` / `admin` с флагом `must_change_password` (баннер + редирект на смену пароля).
+- Первый boot / пустая таблица: создаётся `admin` / `admin` с флагом `must_change_password` (сервер блокирует все HTML-маршруты кроме смены пароля и logout).
 - Работает **без** настроенного LDAP.
 
 **LDAP (опционально)**
 
-- Настройки в `ldap_settings` (одна строка): host, port, use_ssl / start_tls, bind DN, encrypted bind password, search base, filter template (`{username}`), display name attr, default role, **`allowed_group`** (sAMAccountName или DN группы AD; пусто = без ограничения).
-- Bind password шифруется Fernet-ключом из `site_secrets.data_key`; в форме после save — placeholder «unchanged», plaintext не отдаётся.
+- Настройки в `ldap_settings` (одна строка): host, port, use_ssl / start_tls, bind DN, encrypted bind password, search base, filter template (`{username}`), display name attr, default role, **`allowed_group`** (sAMAccountName или DN группы AD; пусто = без ограничения), **`tls_insecure`** (default off; lab opt-in to skip cert verify).
+- При `use_ssl` / `start_tls` сертификат LDAP проверяется (`ssl.CERT_REQUIRED`), пока не включён `tls_insecure`.
+- Bind password шифруется Fernet-ключом (`BAD_DATA_KEY` / `/etc/bad/data_key`); в форме после save — placeholder «unchanged», plaintext не отдаётся.
 - Логин: сначала local match (break-glass); иначе, если LDAP enabled — search + user bind через `ldap3`, затем проверка членства в `allowed_group` (в т.ч. nested via matching rule). Иначе — отказ с русской ошибкой.
 - Роль LDAP-пользователей: `operator` или `admin` — поле default role.
 
@@ -185,10 +186,14 @@ flowchart LR
 - Каталог `BAD_BACKUP_DIR` (default `/var/lib/bad/backups`).
 - Ежедневно файл `bad-YYYY-MM-DD.db` (sqlite3 backup API); хранятся сегодня + вчера.
 - Restore вручную: остановить сервис, скопировать файл на `BAD_DB_PATH`.
+- **Важно:** `data_key` / `session_secret` хранятся вне БД (`/etc/bad/data_key`, `/etc/bad/session_secret` или env). Копия `bad.db` / daily backup **не** должна считаться безопасной, если ключи всё ещё лежат в `site_secrets` (legacy). Бэкапьте файлы ключей отдельно (escrow), не кладите их в тот же tar без защиты.
 
 **Сессия**
 
-- Подписанный cookie `bad_session` (itsdangerous, 12h); секрет из `BAD_SESSION_SECRET` или `site_secrets.session_secret`.
+- Подписанный cookie `bad_session` (itsdangerous, 12h); секрет из `BAD_SESSION_SECRET` / `BAD_SESSION_SECRET_FILE` (prefers external; SQLite only legacy fallback).
+- Cookie `Secure` при `BAD_COOKIE_SECURE=1` или `X-Forwarded-Proto: https`.
+- CSRF: double-submit cookie `bad_csrf` + hidden field на всех state-changing POST web-форм.
+- Login: sliding-window rate limit по IP и username (`BAD_LOGIN_RATE_LIMIT_PER_MINUTE`, `BAD_LOGIN_USERNAME_RATE_LIMIT_PER_MINUTE`).
 
 - На `/devices` дополнительно показывается mirrored agent MSI version (из `agent_update`).
 - Silence/health: badge **OK** / **stale** если `last_seen_at` старше `BAD_DEVICE_STALE_AFTER_SECONDS` (default 3600 ≈ 1h; можно выставить ~2× heartbeat). На карточке устройства — last seen + опциональный health snippet из `meta` (`health` / `last_health`, если агент их пришлёт).

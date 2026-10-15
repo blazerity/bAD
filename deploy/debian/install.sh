@@ -7,7 +7,7 @@
 #   curl -fsSL https://<distribution-host>/bad/install.sh | sudo bash
 set -euo pipefail
 
-BAD_VERSION="${BAD_VERSION:-0.9.0}"
+BAD_VERSION="${BAD_VERSION:-0.9.1}"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "error: must run as root" >&2
@@ -81,6 +81,20 @@ python3 -m venv .venv
 .venv/bin/pip install -U pip wheel
 .venv/bin/pip install -e ./server
 
+# Master secrets outside SQLite (SEC-005): Fernet data_key + session cookie secret.
+# Do not store these only in bad.db — a DB/backup copy would decrypt SMTP/LDAP and forge sessions.
+umask 077
+if [[ ! -f /etc/bad/data_key ]]; then
+  /opt/bad/.venv/bin/python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())' > /etc/bad/data_key
+  chown root:bad /etc/bad/data_key
+  chmod 440 /etc/bad/data_key
+fi
+if [[ ! -f /etc/bad/session_secret ]]; then
+  openssl rand -base64 48 | tr -d '\n' > /etc/bad/session_secret
+  chown root:bad /etc/bad/session_secret
+  chmod 440 /etc/bad/session_secret
+fi
+
 # Сгенерировать токены один раз, если site.env ещё нет
 SITE_ENV=/etc/bad/site.env
 if [[ ! -f "${SITE_ENV}" ]]; then
@@ -91,6 +105,9 @@ if [[ ! -f "${SITE_ENV}" ]]; then
 BAD_DB_PATH=/var/lib/bad/bad.db
 BAD_ENROLLMENT_TOKEN=${ENROLLMENT_TOKEN}
 BAD_ADMIN_TOKEN=${ADMIN_TOKEN}
+BAD_DATA_KEY_FILE=/etc/bad/data_key
+BAD_SESSION_SECRET_FILE=/etc/bad/session_secret
+BAD_COOKIE_SECURE=1
 BAD_GITHUB_REPO=${BAD_GITHUB_REPO:-blazerity/bAD}
 BAD_AGENT_UPDATES_DIR=/var/lib/bad/agent-updates
 BAD_AGENT_UPDATE_SYNC_INTERVAL_SECONDS=${BAD_AGENT_UPDATE_SYNC_INTERVAL_SECONDS:-3600}
@@ -105,6 +122,10 @@ else
   ENROLLMENT_TOKEN="${BAD_ENROLLMENT_TOKEN:-}"
   ADMIN_TOKEN="${BAD_ADMIN_TOKEN:-}"
   PRINT_TOKENS=0
+  # Ensure secret file paths are present on upgrades.
+  if ! grep -q '^BAD_DATA_KEY_FILE=' "${SITE_ENV}" 2>/dev/null; then
+    printf '\nBAD_DATA_KEY_FILE=/etc/bad/data_key\nBAD_SESSION_SECRET_FILE=/etc/bad/session_secret\nBAD_COOKIE_SECURE=1\n' >> "${SITE_ENV}"
+  fi
 fi
 
 chown -R bad:bad /opt/bad
@@ -158,6 +179,7 @@ echo " Health:           https://${BAD_DOMAIN}/v1/health"
 echo " Web UI:           https://${BAD_DOMAIN}/login"
 echo " Web login:        admin / admin  (change immediately on first login)"
 echo " DB:               /var/lib/bad/bad.db"
+echo " Secrets:          /etc/bad/data_key + /etc/bad/session_secret (not in DB backups)"
 echo " Logs:             journalctl -u bad-api -f"
 if [[ "${PRINT_TOKENS}" -eq 1 ]]; then
   echo " Enrollment token: ${ENROLLMENT_TOKEN}"

@@ -55,18 +55,22 @@
   <div class="form-actions">
     {% if user.is_admin %}
     <form method="post" action="/devices/{{ device.device_id }}/revoke" onsubmit="return confirm('Отозвать доступ этого агента?');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button type="submit" class="secondary">Отозвать доступ</button>
     </form>
     <form method="post" action="/devices/{{ device.device_id }}/rotate-key" onsubmit="return confirm('Выпустить новый API-ключ? Старый перестанет работать.');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button type="submit">Выпустить новый ключ</button>
     </form>
     {% endif %}
     {% if device.archived %}
     <form method="post" action="/devices/{{ device.device_id }}/restore">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button type="submit" class="secondary">Вернуть из архива</button>
     </form>
     {% else %}
     <form method="post" action="/devices/{{ device.device_id }}/archive">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button type="submit" class="secondary">В архив</button>
     </form>
     {% endif %}
@@ -76,6 +80,7 @@
   <h2>Удаление</h2>
   <p class="muted">Безвозвратно удаляет устройство, inventory, события и override. Для подтверждения введите <span class="mono">{{ device.device_id }}</span>.</p>
   <form method="post" action="/devices/{{ device.device_id }}/delete" class="settings-form"
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     onsubmit="return confirm('Удалить устройство навсегда?');">
     <label for="confirm">Подтверждение</label>
     <input id="confirm" name="confirm" type="text" autocomplete="off" placeholder="{{ device.device_id }}">
@@ -88,6 +93,7 @@
   <h2>Теги</h2>
   <p class="muted">Метки через запятую. Используются в фильтре списка и в условии политики <span class="mono">tag</span>.</p>
   <form method="post" action="/devices/{{ device.device_id }}/tags" class="settings-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label for="tags">Теги</label>
     <input id="tags" name="tags" type="text" maxlength="512"
       value="{{ tags_text }}" placeholder="prod, finance" autocomplete="off">
@@ -156,6 +162,7 @@
   <h2>Ручное переопределение</h2>
   <p class="muted">Пустое поле не попадает в override. «Очистить» удаляет весь override.</p>
   <form method="post" action="/devices/{{ device.device_id }}/config-override" class="settings-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label for="inventory_interval_hours">inventory_interval_hours</label>
     <input id="inventory_interval_hours" name="inventory_interval_hours" type="number" min="1"
       value="{{ override_settings.inventory_interval_hours if override_settings.inventory_interval_hours is defined else '' }}"

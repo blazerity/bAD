@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import secrets
 from typing import Optional
 
@@ -24,6 +26,17 @@ def verify_secret(hashed: str, value: str) -> bool:
         return False
     except Exception:
         return False
+
+
+def api_key_lookup(pepper: str, api_key: str) -> str:
+    """Keyed lookup index so API auth is O(1), not O(n) Argon2."""
+    if not pepper or not api_key:
+        return ""
+    return hmac.new(
+        pepper.encode("utf-8"),
+        api_key.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
 
 
 def constant_time_equals(a: str, b: str) -> bool:
