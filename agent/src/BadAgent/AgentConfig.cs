@@ -23,31 +23,31 @@ public sealed class AgentConfig
     [JsonPropertyName("heartbeat_interval_minutes")]
     public int HeartbeatIntervalMinutes { get; set; } = 15;
 
-    /// <summary>How often to ask the server for a newer MSI (hours). Default 24.</summary>
+    /// <summary>Как часто спрашивать сервер про новый MSI (часы). По умолчанию 24.</summary>
     [JsonPropertyName("update_check_interval_hours")]
     public int UpdateCheckIntervalHours { get; set; } = 24;
 
     [JsonPropertyName("update_enabled")]
     public bool UpdateEnabled { get; set; } = true;
 
-    /// <summary>Collect CPU/RAM/disks/volumes. Default true (preserve prior behavior).</summary>
+    /// <summary>Собирать CPU/RAM/disks/volumes. По умолчанию true (как раньше).</summary>
     [JsonPropertyName("collect_hardware")]
     public bool CollectHardware { get; set; } = true;
 
-    /// <summary>Collect logged_on / last_interactive users. Default true.</summary>
+    /// <summary>Собирать logged_on / last_interactive. По умолчанию true.</summary>
     [JsonPropertyName("collect_users")]
     public bool CollectUsers { get; set; } = true;
 
-    /// <summary>Collect installed programs list. Default false (opt-in).</summary>
+    /// <summary>Собирать список установленных программ. По умолчанию false (opt-in).</summary>
     [JsonPropertyName("collect_software")]
     public bool CollectSoftware { get; set; } = false;
 
-    /// <summary>Last applied remote config version (server hash); not a secret.</summary>
+    /// <summary>Последняя применённая версия remote config (hash сервера); не секрет.</summary>
     [JsonPropertyName("remote_config_version")]
     public string? RemoteConfigVersion { get; set; }
 }
 
-/// <summary>Subset of AgentConfig knobs the server may push remotely.</summary>
+/// <summary>Подмножество knobs AgentConfig, которые сервер может пушить удалённо.</summary>
 public sealed class RemoteAgentSettings
 {
     [JsonPropertyName("inventory_interval_hours")]
@@ -145,8 +145,8 @@ public static class ConfigStore
     }
 
     /// <summary>
-    /// Apply server-pushed safe knobs only. Never touches server_url, api_key, device_id, enrollment_token.
-    /// Returns true when any value changed.
+    /// Применяет только safe knobs с сервера. Не трогает server_url, api_key, device_id, enrollment_token.
+    /// True, если что-то изменилось.
     /// </summary>
     public static bool ApplyRemoteSettings(AgentConfig config, RemoteAgentSettings settings)
     {

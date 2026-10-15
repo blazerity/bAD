@@ -9,12 +9,12 @@ from cryptography.fernet import Fernet, InvalidToken
 
 
 def generate_data_key() -> str:
-    """Return a url-safe Fernet key (base64)."""
+    """Вернуть url-safe ключ Fernet (base64)."""
     return Fernet.generate_key().decode("ascii")
 
 
 def _fernet_from_key(raw_key: str) -> Fernet:
-    # Accept Fernet key or derive one from an arbitrary secret string.
+    # Принять ключ Fernet или вывести из произвольной секретной строки.
     try:
         return Fernet(raw_key.encode("ascii") if isinstance(raw_key, str) else raw_key)
     except Exception:

@@ -83,16 +83,16 @@ public sealed class HardwareInfo
     public long? RamBytes { get; set; }
 
     /// <summary>
-    /// System-level DRAM generation when all sticks agree (e.g. DDR4 / DDR5 / LPDDR5).
+    /// Поколение DRAM на уровне системы, если все планки совпадают (напр. DDR4 / DDR5 / LPDDR5).
     /// </summary>
     [JsonPropertyName("ram_memory_type")]
     public string? RamMemoryType { get; set; }
 
-    /// <summary>System / chassis serial (Dell Service Tag when present).</summary>
+    /// <summary>Серийник системы / корпуса (Dell Service Tag, если есть).</summary>
     [JsonPropertyName("serial_number")]
     public string? SerialNumber { get; set; }
 
-    /// <summary>System product / model string (e.g. Dell Latitude 5440).</summary>
+    /// <summary>Строка продукта / модели (напр. Dell Latitude 5440).</summary>
     [JsonPropertyName("model")]
     public string? Model { get; set; }
 
@@ -102,7 +102,7 @@ public sealed class HardwareInfo
     [JsonPropertyName("gpus")]
     public List<GpuInfo>? Gpus { get; set; }
 
-    /// <summary>Physical RAM sticks from Win32_PhysicalMemory (when available).</summary>
+    /// <summary>Физические планки ОЗУ из Win32_PhysicalMemory (если доступно).</summary>
     [JsonPropertyName("ram_modules")]
     public List<RamModuleInfo>? RamModules { get; set; }
 
@@ -160,7 +160,7 @@ public sealed class RamModuleInfo
     [JsonPropertyName("device_locator")]
     public string? DeviceLocator { get; set; }
 
-    /// <summary>Best-effort channel label derived from locator/bank when WMI exposes it.</summary>
+    /// <summary>Best-effort метка канала из locator/bank, если WMI её отдаёт.</summary>
     [JsonPropertyName("channel")]
     public string? Channel { get; set; }
 }
@@ -234,7 +234,7 @@ public sealed class UsersInfo
     public string? LastInteractive { get; set; }
 }
 
-/// <summary>Lightweight installed-programs list (name + version + publisher).</summary>
+/// <summary>Лёгкий список установленных программ (name + version + publisher).</summary>
 public sealed class SoftwareInfo
 {
     [JsonPropertyName("programs")]
@@ -253,7 +253,7 @@ public sealed class InstalledProgram
     public string? Publisher { get; set; }
 }
 
-/// <summary>Which inventory sections to collect (from AgentConfig / remote knobs).</summary>
+/// <summary>Какие секции inventory собирать (из AgentConfig / remote-настроек).</summary>
 public sealed class CollectorOptions
 {
     public bool CollectHardware { get; set; } = true;

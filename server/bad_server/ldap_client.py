@@ -21,7 +21,7 @@ class LdapSettingsView:
     user_filter_template: str = "(uid={username})"
     display_name_attr: str = "cn"
     default_role: str = "operator"
-    # AD sAMAccountName of the security group that may log in (empty = no gate).
+    # AD sAMAccountName security-группы, которой разрешён вход (пусто = без ограничения).
     allowed_group: str = ""
 
 
@@ -33,7 +33,7 @@ class LdapAuthResult:
 
 
 class LdapGroupDenied(Exception):
-    """User authenticated but is not a member of the configured AD group."""
+    """Пользователь аутентифицирован, но не состоит в настроенной группе AD."""
 
     def __init__(self, group: str) -> None:
         self.group = group
@@ -71,7 +71,7 @@ def _open_bound(settings: LdapSettingsView, user: Optional[str], password: Optio
 
 
 def test_connection(settings: LdapSettingsView) -> tuple[bool, str]:
-    """Bind with the service account. Returns (ok, message)."""
+    """Bind сервисной учёткой. Возвращает (ok, message)."""
     if not settings.host:
         return False, "Укажите хост"
     try:
@@ -80,18 +80,18 @@ def test_connection(settings: LdapSettingsView) -> tuple[bool, str]:
         return True, "Соединение и bind успешны"
     except LDAPException as exc:
         return False, f"Ошибка LDAP: {exc}"
-    except Exception as exc:  # noqa: BLE001 — surface to operator UI
+    except Exception as exc:  # noqa: BLE001 — показать оператору в UI
         return False, f"Ошибка: {exc}"
 
 
 def _resolve_group_dn(
     conn: Connection, group_sam: str, search_base: str
 ) -> Optional[str]:
-    """Resolve AD group sAMAccountName (or DN) to distinguishedName."""
+    """Разрешить AD-группу sAMAccountName (или DN) в distinguishedName."""
     group_sam = (group_sam or "").strip()
     if not group_sam:
         return None
-    # If operator pasted a DN already, use it as-is.
+    # Если оператор уже вставил DN — использовать как есть.
     if group_sam.lower().startswith("cn=") or ",dc=" in group_sam.lower():
         return group_sam
     filt = (
@@ -99,7 +99,7 @@ def _resolve_group_dn(
         f"(sAMAccountName={escape_filter_chars(group_sam)}))"
     )
     bases = [b for b in [search_base, ""] if b is not None]
-    # Prefer configured search base; empty base only as last try.
+    # Предпочитать настроенный search base; пустой base — только в крайнем случае.
     seen: set[str] = set()
     for base in bases:
         key = base or "__root__"
@@ -122,10 +122,10 @@ def _resolve_group_dn(
 def _user_in_group(
     conn: Connection, user_dn: str, group_dn: str, search_base: str
 ) -> bool:
-    """True if user_dn is a (possibly nested) member of group_dn."""
+    """True, если user_dn — (возможно вложенный) член group_dn."""
     from ldap3 import BASE
 
-    # LDAP_MATCHING_RULE_IN_CHAIN — nested group membership on AD.
+    # LDAP_MATCHING_RULE_IN_CHAIN — вложенное членство в группах AD.
     chain = "1.2.840.113556.1.4.1941"
     filt = f"(member:{chain}:={escape_filter_chars(user_dn)})"
     try:
@@ -139,7 +139,7 @@ def _user_in_group(
             return True
     except LDAPException:
         pass
-    # Fallback: direct memberOf on the user entry.
+    # Fallback: прямой memberOf у записи пользователя.
     try:
         conn.search(
             search_base=user_dn,
@@ -160,7 +160,7 @@ def _user_in_group(
         text = v if isinstance(v, str) else str(v)
         if text.casefold() == group_cf:
             return True
-    # Last resort: search group member attribute (direct only).
+    # Крайний случай: поиск по атрибуту member группы (только прямое членство).
     base = search_base or group_dn
     try:
         conn.search(
@@ -180,10 +180,10 @@ def _user_in_group(
 def authenticate_user(
     settings: LdapSettingsView, username: str, password: str
 ) -> Optional[LdapAuthResult]:
-    """Search for user with service bind, then bind as that user to verify password.
+    """Найти пользователя через service bind, затем bind от его имени для проверки пароля.
 
-    When ``allowed_group`` is set (AD sAMAccountName or DN), membership is required
-    or :class:`LdapGroupDenied` is raised.
+    Если задан ``allowed_group`` (AD sAMAccountName или DN), требуется членство,
+    иначе поднимается :class:`LdapGroupDenied`.
     """
     if not settings.enabled or not settings.host or not username or not password:
         return None

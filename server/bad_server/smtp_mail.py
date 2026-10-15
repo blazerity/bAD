@@ -1,4 +1,4 @@
-"""SMTP helpers for operator alerts (soft-fail on misconfig)."""
+"""SMTP-хелперы для алертов оператору (soft-fail при неверной конфигурации)."""
 
 from __future__ import annotations
 
@@ -25,13 +25,13 @@ HARDWARE_ALERT_TYPES = frozenset(
     }
 )
 
-# Toggle keys stored in smtp_settings.notify_json (defaults documented in UI).
+# Ключи-переключатели в smtp_settings.notify_json (defaults описаны в UI).
 DEFAULT_NOTIFY: dict[str, bool] = {
-    "hardware": True,  # RAM / CPU / disks / serial / model
-    "stale": True,  # device went silent
-    "enroll": True,  # new device enrolled
-    "hostname": False,  # hostname change
-    "domain": False,  # domain change
+    "hardware": True,  # ОЗУ / CPU / диски / serial / model
+    "stale": True,  # устройство перестало отвечать
+    "enroll": True,  # новое устройство зарегистрировано
+    "hostname": False,  # смена hostname
+    "domain": False,  # смена domain
 }
 
 NOTIFY_LABELS_RU: dict[str, str] = {
@@ -126,7 +126,7 @@ def build_inventory_events_email(
     )
 
 
-# Back-compat alias used by settings test form.
+# Alias для обратной совместимости (форма тестовой отправки в settings).
 build_hardware_email = build_inventory_events_email
 
 
@@ -167,7 +167,7 @@ def send_email(
                     smtp.ehlo()
                 _login_and_send(smtp)
         return True, "Письмо отправлено"
-    except Exception as exc:  # noqa: BLE001 — soft-fail for operators
+    except Exception as exc:  # noqa: BLE001 — soft-fail для операторов
         return False, f"SMTP ошибка: {exc}"
 
 
@@ -211,7 +211,7 @@ def notify_inventory_events(
     hostname: Optional[str],
     events: list[dict[str, Any]],
 ) -> None:
-    """Best-effort notify for inventory diffs. Never raises."""
+    """Best-effort уведомление по диффам inventory. Никогда не бросает."""
     from_addr, recipients = _smtp_ready(smtp_row)
     if not from_addr:
         return

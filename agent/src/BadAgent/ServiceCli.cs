@@ -4,7 +4,7 @@ using System.ServiceProcess;
 namespace BadAgent;
 
 /// <summary>
-/// Elevated CLI for the Windows service BlazerityAssetDiscovery.
+/// Elevated CLI для Windows-службы BlazerityAssetDiscovery.
 /// Usage: BadAgent.exe service status|start|stop|restart
 /// </summary>
 public static class ServiceCli

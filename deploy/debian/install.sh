@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# bAD one-line installer for Debian 12
-# Usage:
+# Однострочный установщик bAD для Debian 12
+# Использование:
 #   BAD_DOMAIN=bad.example.com BAD_TLS_CERT=/path/fullchain.pem BAD_TLS_KEY=/path/privkey.pem \
 #     sudo -E bash install.sh
-# Or:
+# Или:
 #   curl -fsSL https://<distribution-host>/bad/install.sh | sudo bash
 set -euo pipefail
 
@@ -23,7 +23,7 @@ if [[ -f /etc/os-release ]]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Repo checkout or packaged tarball: server/ is two levels above deploy/debian/.
+# Checkout репозитория или пакетный tarball: server/ на два уровня выше deploy/debian/.
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 prompt() {
@@ -47,7 +47,7 @@ if [[ ! -f "${BAD_TLS_KEY}" ]]; then
   exit 1
 fi
 
-# Best-effort SAN/CN check
+# Best-effort проверка SAN/CN
 if command -v openssl >/dev/null 2>&1; then
   if ! openssl x509 -in "${BAD_TLS_CERT}" -noout -text 2>/dev/null | grep -Eq "DNS:${BAD_DOMAIN}|CN\\s*=\\s*${BAD_DOMAIN}"; then
     echo "warning: certificate may not cover domain ${BAD_DOMAIN}; verify CN/SAN manually" >&2
@@ -65,11 +65,11 @@ chown bad:bad /var/lib/bad /var/lib/bad/agent-updates /var/log/bad
 chmod 750 /var/lib/bad /var/lib/bad/agent-updates /var/log/bad
 chmod 750 /etc/bad
 
-# Symlink customer cert/key into /etc/bad/tls
+# Симлинк клиентского cert/key в /etc/bad/tls
 ln -sfn "${BAD_TLS_CERT}" /etc/bad/tls/fullchain.pem
 ln -sfn "${BAD_TLS_KEY}" /etc/bad/tls/privkey.pem
 
-# Install application into /opt/bad
+# Установить приложение в /opt/bad
 mkdir -p /opt/bad/server
 rm -rf /opt/bad/server/*
 cp -a "${REPO_ROOT}/server/." /opt/bad/server/
@@ -81,7 +81,7 @@ python3 -m venv .venv
 .venv/bin/pip install -U pip wheel
 .venv/bin/pip install -e ./server
 
-# Generate tokens once if site.env missing
+# Сгенерировать токены один раз, если site.env ещё нет
 SITE_ENV=/etc/bad/site.env
 if [[ ! -f "${SITE_ENV}" ]]; then
   ENROLLMENT_TOKEN="bad_en_$(openssl rand -base64 48 | tr -d '/+=' | head -c 48)"
@@ -108,7 +108,7 @@ else
 fi
 
 chown -R bad:bad /opt/bad
-# Keep venv/exec readable by bad
+# Оставить venv/exec читаемыми для bad
 chmod -R u+rwX,g+rX,o-rwx /opt/bad
 
 # systemd
@@ -129,7 +129,7 @@ nginx -t
 systemctl enable --now nginx
 systemctl reload nginx
 
-# ufw basics
+# Базовые правила ufw
 if command -v ufw >/dev/null 2>&1; then
   ufw allow 22/tcp || true
   ufw allow 80/tcp || true
@@ -140,7 +140,7 @@ if command -v ufw >/dev/null 2>&1; then
   fi
 fi
 
-# Wait for health
+# Дождаться health
 for i in $(seq 1 20); do
   if curl -fsS http://127.0.0.1:8000/v1/health >/dev/null 2>&1; then
     break

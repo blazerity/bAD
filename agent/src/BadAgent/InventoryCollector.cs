@@ -8,13 +8,13 @@ namespace BadAgent;
 
 public sealed class InventoryCollector : IInventoryCollector
 {
-    /// <summary>Max installed programs to include (Uninstall registry can be large).</summary>
+    /// <summary>Макс. число установленных программ (Uninstall registry бывает огромным).</summary>
     public const int MaxSoftwarePrograms = 500;
 
-    /// <summary>Max GPUs from Win32_VideoController.</summary>
+    /// <summary>Макс. GPU из Win32_VideoController.</summary>
     public const int MaxGpus = 16;
 
-    /// <summary>Max physical RAM modules from Win32_PhysicalMemory.</summary>
+    /// <summary>Макс. физических модулей RAM из Win32_PhysicalMemory.</summary>
     public const int MaxRamModules = 32;
 
     public InventorySnapshot Collect(string deviceId, string agentVersion, CollectorOptions? options = null)
@@ -35,7 +35,7 @@ public sealed class InventoryCollector : IInventoryCollector
         {
             snap.Hardware = CollectHardware(snap.CollectorErrors);
         }
-        // Disabled: leave null, no collector_errors spam.
+        // Выключено: оставить null, без спама collector_errors.
 
         if (options.CollectUsers)
         {
@@ -266,7 +266,7 @@ public sealed class InventoryCollector : IInventoryCollector
                 }
             }
 
-            // Prefer BIOS / CSP IdentifyingNumber (Dell Service Tag) over baseboard.
+            // Предпочитать BIOS / CSP IdentifyingNumber (Dell Service Tag) вместо baseboard.
             hw.SerialNumber = HardwareMaps.PreferFirst(biosSerial, productSerial, boardSerial);
             hw.Model = HardwareMaps.PreferFirst(csModel, productName);
             hw.Manufacturer = HardwareMaps.PreferFirst(csManufacturer, productVendor);
@@ -365,7 +365,7 @@ public sealed class InventoryCollector : IInventoryCollector
                         continue;
                     }
 
-                    // Skip placeholder / remote display stubs when a real adapter name exists later.
+                    // Пропускать placeholder / remote display stubs, если дальше есть реальное имя адаптера.
                     if (name.Contains("Microsoft Basic Display", StringComparison.OrdinalIgnoreCase)
                         || name.Contains("Remote Desktop", StringComparison.OrdinalIgnoreCase))
                     {
@@ -397,7 +397,7 @@ public sealed class InventoryCollector : IInventoryCollector
     {
         try
         {
-            // Prefer SMBIOSMemoryType; older hosts may reject that column — fall back.
+            // Предпочитать SMBIOSMemoryType; старые хосты могут отвергнуть колонку — fallback.
             const string withSmbios =
                 "SELECT Capacity, Speed, Manufacturer, PartNumber, SerialNumber, FormFactor, " +
                 "MemoryType, SMBIOSMemoryType, BankLabel, DeviceLocator FROM Win32_PhysicalMemory";
@@ -538,7 +538,7 @@ public sealed class InventoryCollector : IInventoryCollector
     }
 
     /// <summary>
-    /// Lightweight installed programs from Uninstall registry (64-bit + 32-bit views).
+    /// Лёгкий список установленных программ из Uninstall registry (views 64-bit + 32-bit).
     /// </summary>
     private static SoftwareInfo CollectSoftware(List<CollectorError> errors)
     {
@@ -547,7 +547,7 @@ public sealed class InventoryCollector : IInventoryCollector
         {
             if (!OperatingSystem.IsWindows())
             {
-                // Opt-in but no Windows registry — omit programs without error spam.
+                // Opt-in, но нет Windows registry — опустить programs без спама ошибок.
                 software.Programs = null;
                 return software;
             }
@@ -597,7 +597,7 @@ public sealed class InventoryCollector : IInventoryCollector
                 continue;
             }
 
-            // Skip quiet/system entries that lack a display name.
+            // Пропускать quiet/system записи без display name.
             var name = sub.GetValue("DisplayName") as string;
             if (string.IsNullOrWhiteSpace(name))
             {
@@ -656,12 +656,12 @@ public sealed class InventoryCollector : IInventoryCollector
                 var bank = HardwareMaps.CleanWmiString(obj["BankLabel"]?.ToString());
                 var locator = HardwareMaps.CleanWmiString(obj["DeviceLocator"]?.ToString());
                 var formFactor = HardwareMaps.FormFactorName(ToInt(obj["FormFactor"]));
-                // Legacy MemoryType is often 0 on modern Dell; SMBIOSMemoryType has DDR4/DDR5/LPDDR*.
+                // Legacy MemoryType на современном Dell часто 0; SMBIOSMemoryType даёт DDR4/DDR5/LPDDR*.
                 var memoryType = HardwareMaps.ResolveMemoryType(
                     ToInt(SafeWmiProperty(obj, "MemoryType")),
                     ToInt(SafeWmiProperty(obj, "SMBIOSMemoryType")));
 
-                // Skip empty rows that carry no useful identity/size.
+                // Пропускать пустые строки без полезного identity/size.
                 if (capacity is null or 0
                     && speed is null
                     && manufacturer is null
@@ -692,7 +692,7 @@ public sealed class InventoryCollector : IInventoryCollector
         return modules;
     }
 
-    /// <summary>Read optional WMI property; missing properties return null (no throw).</summary>
+    /// <summary>Читать опциональное WMI-свойство; отсутствующие → null (без throw).</summary>
     [SupportedOSPlatform("windows")]
     private static object? SafeWmiProperty(ManagementBaseObject obj, string name)
     {

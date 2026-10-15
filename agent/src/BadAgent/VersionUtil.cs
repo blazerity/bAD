@@ -11,7 +11,7 @@ public static class VersionUtil
         @"^\s*v?(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    /// <summary>Assembly version as major.minor.patch, or <paramref name="fallback"/>.</summary>
+    /// <summary>Версия сборки как major.minor.patch или <paramref name="fallback"/>.</summary>
     public static string GetAgentVersion(string fallback = "0.8.0") =>
         Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? fallback;
 
@@ -36,7 +36,7 @@ public static class VersionUtil
         return true;
     }
 
-    /// <summary>True when <paramref name="candidate"/> is a higher semver than <paramref name="current"/>.</summary>
+    /// <summary>True, если <paramref name="candidate"/> новее по semver, чем <paramref name="current"/>.</summary>
     public static bool IsNewer(string? candidate, string? current)
     {
         if (!TryParseSemVer(candidate, out var a))

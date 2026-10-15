@@ -105,7 +105,7 @@ def heartbeat(
         "status": "ok",
         "config_version": effective["version"],
     }
-    # Piggyback full settings when agent has no version yet or it changed.
+    # Подложить полный settings, если у агента ещё нет version или она изменилась.
     if not body.config_version or body.config_version != effective["version"]:
         resp["config"] = {
             "version": effective["version"],
@@ -119,7 +119,7 @@ def agent_config(
     device=Depends(require_api_key),
     db: Database = Depends(get_db),
 ) -> dict[str, Any]:
-    """Enrolled agent pulls its own effective remote settings (API key scoped)."""
+    """Enrolled-агент забирает свои эффективные remote settings (в рамках API key)."""
     effective = db.compute_device_effective_config(device["device_id"])
     assert effective is not None
     return {
@@ -170,7 +170,7 @@ def inventory(
         meta=meta,
         retention=settings.snapshot_retention,
     )
-    # Soft-fail SMTP: never break inventory ingest.
+    # Soft-fail SMTP: никогда не ломать приём inventory.
     try:
         smtp_row = db.get_smtp_settings()
         password = ""
@@ -336,7 +336,7 @@ def agent_update_check(
     _device=Depends(require_api_key),
     db: Database = Depends(get_db),
 ) -> dict[str, Any]:
-    """Agents ask whether a newer MSI is mirrored on this server."""
+    """Агенты спрашивают, есть ли на сервере зеркало более нового MSI."""
     return check_update(db, current=current or "0.0.0")
 
 
@@ -345,7 +345,7 @@ def agent_update_msi(
     _device=Depends(require_api_key),
     db: Database = Depends(get_db),
 ) -> FileResponse:
-    """Download the mirrored MSI bytes (auth: agent API key)."""
+    """Скачать байты зеркалированного MSI (auth: API key агента)."""
     mirrored = db.get_agent_update()
     if not mirrored:
         raise HTTPException(
@@ -388,7 +388,7 @@ def admin_agent_update_sync(
 ) -> dict[str, Any]:
     try:
         record = sync_from_github(db, settings)
-    except Exception as exc:  # noqa: BLE001 — surface sync errors to admin
+    except Exception as exc:  # noqa: BLE001 — показать ошибки sync админу
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"GitHub sync failed: {exc}",

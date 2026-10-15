@@ -1,4 +1,4 @@
-"""Fetch latest agent MSI + manifest from a GitHub Release (server-side only)."""
+"""Скачать последний MSI агента + манифест из GitHub Release (только на сервере)."""
 
 from __future__ import annotations
 
@@ -78,7 +78,7 @@ def _pick_msi(assets: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
     ]
     if not matches:
         return None
-    # Prefer the lexicographically latest name (semver-ish filenames).
+    # Предпочитать лексикографически последнее имя (имена файлов в духе semver).
     matches.sort(key=lambda a: a["name"], reverse=True)
     return matches[0]
 
@@ -88,7 +88,7 @@ def fetch_latest_release_assets(
     token: str = "",
     api_base: str = "https://api.github.com",
 ) -> ReleaseAssets:
-    """Load latest GitHub Release that has agent-release.json + MSI."""
+    """Загрузить последний GitHub Release с agent-release.json + MSI."""
     url = f"{api_base.rstrip('/')}/repos/{repo}/releases/latest"
     data = _request_json(url, token=token)
     assets = data.get("assets") or []
@@ -103,7 +103,7 @@ def fetch_latest_release_assets(
     if not manifest_url:
         raise RuntimeError("Manifest asset has no download URL")
 
-    # Prefer API asset URL (supports private repos with token).
+    # Предпочитать URL asset через API (поддерживает private-репозитории с токеном).
     manifest_bytes = _download_bytes(str(manifest_url), token=token)
     try:
         manifest = json.loads(manifest_bytes.decode("utf-8"))
@@ -120,7 +120,7 @@ def fetch_latest_release_assets(
     if not msi_asset:
         raise RuntimeError(f"Release missing MSI asset {msi_name}")
     if msi_asset.get("name") != msi_name:
-        # Fall back but keep manifest name for consistency checks later.
+        # Fallback, но сохранить имя из манифеста для последующих проверок согласованности.
         logger.warning(
             "Manifest msi_name=%s but using asset %s", msi_name, msi_asset.get("name")
         )
@@ -150,7 +150,7 @@ def mirror_release_to_dir(
     dest_dir: Path,
     token: str = "",
 ) -> Path:
-    """Download MSI, verify sha256, write atomically under dest_dir. Returns MSI path."""
+    """Скачать MSI, проверить sha256, атомарно записать в dest_dir. Вернуть путь к MSI."""
     dest_dir.mkdir(parents=True, exist_ok=True)
     raw = _download_bytes(assets.msi_download_url, token=token)
     digest = sha256_hex(raw)

@@ -18,7 +18,7 @@ public static class DeviceIdentity
             }
             catch
             {
-                // fall through
+                // дальше
             }
 
             try
@@ -32,11 +32,11 @@ public static class DeviceIdentity
             }
             catch
             {
-                // fall through
+                // дальше
             }
         }
 
-        // Non-Windows / fallback for unit tests and Linux CI
+        // Non-Windows / fallback для unit-тестов и Linux CI
         var host = Environment.MachineName;
         return $"fallback-{host}-{Environment.UserName}".ToLowerInvariant();
     }

@@ -4,7 +4,7 @@ using System.Text;
 namespace BadAgent;
 
 /// <summary>
-/// Self-contained HTML inventory report — Win11/Fluent light family, Russian labels, section icons.
+/// Самодостаточный HTML inventory-отчёт — семейство Win11/Fluent light, русские подписи, иконки секций.
 /// </summary>
 public static class HtmlReportWriter
 {

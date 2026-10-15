@@ -23,7 +23,7 @@ class HeartbeatRequest(BaseModel):
     agent_version: Optional[str] = Field(default=None, max_length=64)
     last_inventory_at: Optional[str] = None
     config_version: Optional[str] = Field(default=None, max_length=64)
-    # Light agent health (optional; stored in device meta).
+    # Лёгкий health агента (опционально; хранится в device meta).
     last_inventory_ok: Optional[bool] = None
     last_inventory_error: Optional[str] = Field(default=None, max_length=256)
     agent_uptime_seconds: Optional[int] = Field(default=None, ge=0)

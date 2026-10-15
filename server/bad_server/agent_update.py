@@ -1,4 +1,4 @@
-"""Mirror GitHub Release MSI locally and answer agent update checks."""
+"""Зеркалировать MSI из GitHub Release локально и отвечать на проверки обновлений агента."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ def parse_semver(value: str) -> Optional[tuple[int, int, int]]:
 
 
 def is_newer(candidate: str, current: str) -> bool:
-    """Return True if candidate is a higher semver than current."""
+    """True, если candidate — более высокий semver, чем current."""
     a = parse_semver(candidate)
     b = parse_semver(current)
     if a is None:
@@ -39,11 +39,11 @@ def is_newer(candidate: str, current: str) -> bool:
 
 
 def sync_from_github(db: Database, settings: Settings) -> dict[str, Any]:
-    """Fetch latest Release assets, store MSI under updates dir, record in SQLite."""
+    """Скачать assets последнего Release, сохранить MSI в каталог updates, записать в SQLite."""
     if not settings.github_repo:
         raise RuntimeError("BAD_GITHUB_REPO is not configured")
 
-    # Never log tokens.
+    # Токены в лог не писать.
     logger.info(
         "Syncing agent update from GitHub repo=%s",
         settings.github_repo,

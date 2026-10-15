@@ -2,7 +2,7 @@ using System.Globalization;
 
 namespace BadAgent;
 
-/// <summary>Shared formatting for ASCII/HTML local inventory reports.</summary>
+/// <summary>Общее форматирование для локальных ASCII/HTML-отчётов inventory.</summary>
 public static class ReportFormat
 {
     private static readonly string[] ByteUnits = ["B", "KiB", "MiB", "GiB", "TiB"];

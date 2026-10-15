@@ -1,4 +1,4 @@
-"""Daily SQLite backup: keep today + yesterday under a backups directory."""
+"""Ежедневный бэкап SQLite: сегодня + вчера в каталоге backups."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-KEEP_DAILY = 2  # today + yesterday
+KEEP_DAILY = 2  # сегодня + вчера
 
 
 def utc_today() -> date:
@@ -52,7 +52,7 @@ def backup_status(backup_dir: Path) -> dict[str, Any]:
 
 
 def run_daily_backup(db_path: Path, backup_dir: Path) -> dict[str, Any]:
-    """Create/replace today's snapshot via SQLite Online Backup API; prune old."""
+    """Создать/заменить сегодняшний снимок через SQLite Online Backup API; удалить старые."""
     backup_dir = Path(backup_dir)
     backup_dir.mkdir(parents=True, exist_ok=True)
     try:
@@ -69,7 +69,7 @@ def run_daily_backup(db_path: Path, backup_dir: Path) -> dict[str, Any]:
     try:
         src_conn = sqlite3.connect(str(src))
         try:
-            # Temporary file then replace — safer if process dies mid-copy.
+            # Временный файл, затем replace — безопаснее при обрыве копирования.
             tmp = dest.with_suffix(".db.tmp")
             if tmp.exists():
                 tmp.unlink()
@@ -89,7 +89,7 @@ def run_daily_backup(db_path: Path, backup_dir: Path) -> dict[str, Any]:
         logger.exception("SQLite backup failed")
         return {"ok": False, "error": str(exc), "path": str(dest)}
 
-    # Keep today + yesterday (drop older dated files by name).
+    # Оставить сегодня + вчера (удалить более старые файлы по имени).
     cutoff = today - timedelta(days=KEEP_DAILY - 1)
     removed: list[str] = []
     for f in list_backup_files(backup_dir):

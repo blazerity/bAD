@@ -1,57 +1,57 @@
-# Operator guide — bAD
+# Операторский гайд — bAD
 
-End-to-end path: install server → install Windows agent MSI → see the device in the web UI.
+Путь end-to-end: установить сервер → поставить Windows MSI агента → увидеть устройство в web UI.
 
-## 1. Server (Debian 12)
+## 1. Сервер (Debian 12)
 
-Prepare a TLS certificate and key whose CN/SAN matches the public DNS name.
+Подготовьте TLS-сертификат и ключ, у которых CN/SAN совпадает с публичным DNS-именем.
 
 ```bash
-# From a release tarball or git checkout that contains deploy/debian + server/
+# Из release-тарбола или git checkout с deploy/debian + server/
 BAD_DOMAIN=bad.example.com \
 BAD_TLS_CERT=/etc/ssl/certs/bad.fullchain.pem \
 BAD_TLS_KEY=/etc/ssl/private/bad.privkey.pem \
   sudo -E bash deploy/debian/install.sh
 ```
 
-The script prints (once):
+Скрипт один раз печатает:
 
 - `https://bad.example.com/`
-- enrollment token (agent MSI)
-- admin API token (Bearer automation)
+- enrollment token (для MSI агента)
+- admin API token (Bearer для автоматизации)
 
-Verify:
+Проверка:
 
 ```bash
 curl -fsS https://bad.example.com/v1/health
 # → {"status":"ok","version":"0.8.0"}
 ```
 
-### Web login (local)
+### Вход в web (локальный)
 
-1. Open `https://bad.example.com/login`
-2. Sign in with the default local account: **`admin` / `admin`**
-3. Change the password immediately (`Password` in the header, or the forced redirect)
+1. Откройте `https://bad.example.com/login`
+2. Войдите локальным аккаунтом по умолчанию: **`admin` / `admin`**
+3. Сразу смените пароль (`Пароль` в шапке или принудительный редирект)
 
-This works with **no LDAP configured**. The admin API token is **not** used for the browser UI.
+Работает **без настроенного LDAP**. Admin API token для браузерного UI **не** используется.
 
-Tokens live in `/etc/bad/site.env` (mode `640`, `root:bad`). uvicorn listens on `127.0.0.1:8000` only; nginx terminates TLS on 443.
+Токены лежат в `/etc/bad/site.env` (режим `640`, `root:bad`). uvicorn слушает только `127.0.0.1:8000`; nginx терминирует TLS на 443.
 
-### Optional: LDAP from the UI
+### Опционально: LDAP из UI
 
-1. Sign in as a local **admin**
-2. Open **LDAP** (`/settings/ldap`)
-3. Fill host, port, SSL/StartTLS, bind DN + bind password, user search base, filter template (must include `{username}`), display name attribute, default role
-4. **Save settings**, then **Test connection**
-5. Enable LDAP login; directory users can sign in on `/login` (local users are tried first)
+1. Войдите как локальный **admin**
+2. Откройте **LDAP** (`/settings/ldap`)
+3. Заполните host, port, SSL/StartTLS, bind DN + bind password, user search base, filter template (должен содержать `{username}`), атрибут display name, роль по умолчанию
+4. **Сохранить**, затем **Проверить подключение**
+5. Включите вход по LDAP; пользователи каталога смогут входить на `/login` (сначала пробуются локальные)
 
-Bind passwords are stored encrypted in SQLite and never shown again after save (leave the field blank to keep unchanged).
+Bind password хранится в SQLite зашифрованным и после save больше не показывается (оставьте поле пустым, чтобы не менять).
 
-Security caveat: change the default `admin`/`admin` password before exposing the UI beyond a trusted network.
+Важно: смените пароль `admin`/`admin` до публикации UI за пределы доверенной сети.
 
-## 2. Windows agent (MSI)
+## 2. Windows-агент (MSI)
 
-On a Windows build host, produce the MSI (see `installer/msi/README.md`), then install:
+На Windows build-хосте соберите MSI (см. `installer/msi/README.md`), затем установите:
 
 ```powershell
 msiexec /i bad-agent-0.8.0.msi `
@@ -60,7 +60,7 @@ msiexec /i bad-agent-0.8.0.msi `
   /qn
 ```
 
-Optional PATH for local `bad` CLI (default off):
+Опциональный PATH для локального CLI `bad` (по умолчанию выкл.):
 
 ```powershell
 msiexec /i bad-agent-0.8.0.msi `
@@ -70,20 +70,20 @@ msiexec /i bad-agent-0.8.0.msi `
   /qn
 ```
 
-The service `BlazerityAssetDiscovery` starts automatically, enrolls once, stores the API key under `%ProgramData%\blazerity\bAD\config.json`, and sends inventory on start (then every 6 hours) with heartbeats every 15 minutes. It also checks the server for MSI updates (never GitHub directly). Local CLI (no server needed): `bad` / `bad -h` / `bad -?`. Service CLI: `BadAgent.exe service status|start|stop|restart` (elevated). See [agents.md](./agents.md).
+Служба `BlazerityAssetDiscovery` стартует автоматически, один раз enroll'ится, сохраняет API key в `%ProgramData%\blazerity\bAD\config.json` и шлёт inventory при старте (далее каждые 6 часов), heartbeat каждые 15 минут. Также спрашивает сервер про MSI-обновления (никогда не GitHub напрямую). Локальный CLI (сервер не нужен): `bad` / `bad -h` / `bad -?`. Service CLI: `BadAgent.exe service status|start|stop|restart` (elevated). См. [agents.md](./agents.md).
 
-## 3. Confirm in the web UI
+## 3. Проверка в web UI
 
-1. Open `https://bad.example.com/devices` (after signing in)
-2. Find the hostname (health badge: **OK** if last seen within the stale threshold, else **stale**)
-3. Open the device page to view tags, recent change events, and the latest inventory JSON
-4. Optional: open **Events** (`/events`) for a newest-first change log across devices
+1. Откройте `https://bad.example.com/devices` (после входа)
+2. Найдите hostname (badge здоровья: **OK**, если last seen в пределах stale-порога, иначе **stale**)
+3. Откройте карточку устройства: теги, недавние события изменений, последний inventory JSON
+4. Опционально: **События** (`/events`) — лог изменений по всем устройствам (новее сверху)
 
-Tags: edit on the device page (comma-separated). Filter the devices list by tag. Policies can also match `tag equals/contains`.
+Теги: правка на странице устройства (через запятую). Фильтр списка устройств по тегу. Политики тоже могут матчить `tag equals/contains`.
 
-Stale threshold defaults to 1 hour (`BAD_DEVICE_STALE_AFTER_SECONDS`); set ≈2× heartbeat if you prefer (e.g. `1800` for a 15‑minute heartbeat). Product version **0.8.0**.
+Порог stale по умолчанию 1 час (`BAD_DEVICE_STALE_AFTER_SECONDS`); поставьте ≈2× heartbeat, если удобнее (напр. `1800` при heartbeat 15 мин). Версия продукта **0.8.0**.
 
-Alternatively (automation — admin API token):
+Альтернатива (автоматизация — admin API token):
 
 ```bash
 curl -fsS -H "Authorization: Bearer <admin-token>" \
@@ -92,8 +92,8 @@ curl -fsS -H "Authorization: Bearer <admin-token>" \
   'https://bad.example.com/v1/events?limit=50'
 ```
 
-## Notes
+## Заметки
 
-- MSI upgrades keep ProgramData (API key); re-enrollment is not required.
-- Do not put enrollment or admin tokens in world-readable files.
-- Local demos without TLS: run uvicorn on Linux (`server/README.md`) and point a test agent with `BAD_ALLOW_HTTP=1` at `http://127.0.0.1:8000`.
+- Апгрейд MSI сохраняет ProgramData (API key); повторный enroll не нужен.
+- Не кладите enrollment или admin tokens в world-readable файлы.
+- Локальные демо без TLS: uvicorn на Linux (`server/README.md`) и тестовый агент с `BAD_ALLOW_HTTP=1` на `http://127.0.0.1:8000`.

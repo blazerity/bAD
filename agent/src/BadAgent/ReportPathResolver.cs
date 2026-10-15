@@ -1,19 +1,19 @@
 namespace BadAgent;
 
 /// <summary>
-/// Resolves output path for <c>bad -h/--html [path]</c>.
-/// Desktop default: <c>bad_report_yyyyMMdd_HHmmss.html</c>.
+/// Резолвит путь вывода для <c>bad -h/--html [path]</c>.
+/// По умолчанию на Desktop: <c>bad_report_yyyyMMdd_HHmmss.html</c>.
 /// </summary>
 public static class ReportPathResolver
 {
     public const string DefaultFilePrefix = "bad_report_";
 
     /// <summary>
-    /// Resolve HTML report path.
-    /// <paramref name="pathArg"/> null/empty → Desktop + default filename;
-    /// existing directory (or trailing slash) → that dir + default filename;
-    /// otherwise treat as file path (append <c>.html</c> if missing/wrong).
-    /// <paramref name="now"/> is used only for the default timestamp filename (local or UTC — caller chooses).
+    /// Резолвит путь HTML-отчёта.
+    /// <paramref name="pathArg"/> null/empty → Desktop + имя по умолчанию;
+    /// существующий каталог (или слэш в конце) → этот каталог + имя по умолчанию;
+    /// иначе — путь к файлу (добавить <c>.html</c>, если нет/не тот).
+    /// <paramref name="now"/> только для timestamp в имени по умолчанию (local или UTC — решает вызывающий).
     /// </summary>
     public static string ResolveHtmlPath(string? pathArg, DateTime now, Func<string>? getDesktop = null)
     {
@@ -58,7 +58,7 @@ public static class ReportPathResolver
         }
         catch
         {
-            // fall through to UserProfile
+            // дальше — UserProfile
         }
 
         return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);

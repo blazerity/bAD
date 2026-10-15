@@ -1,4 +1,4 @@
-"""Device silence / health helpers for the web UI."""
+"""Хелперы тишины / health устройств для web UI."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ def device_silence_status(
     stale_after_seconds: int,
     now: Optional[datetime] = None,
 ) -> dict[str, str]:
-    """Return {status: ok|stale|unknown} for badge CSS / display mapping."""
+    """Вернуть {status: ok|stale|unknown} для CSS-бейджа / отображения."""
     threshold = max(1, int(stale_after_seconds))
     seen = parse_utc(last_seen_at)
     if seen is None:
@@ -40,7 +40,7 @@ def device_silence_status(
 
 
 def health_snippet(meta: Optional[dict[str, Any]]) -> Optional[str]:
-    """Short health text from heartbeat fields stored in device meta."""
+    """Короткий текст health из полей heartbeat в device meta."""
     if not meta or not isinstance(meta, dict):
         return None
     parts: list[str] = []
@@ -63,7 +63,7 @@ def health_snippet(meta: Optional[dict[str, Any]]) -> Optional[str]:
 
 
 def normalize_tags(raw: Any) -> list[str]:
-    """Normalize tags from JSON list, comma/semicolon/newline string, or iterable."""
+    """Нормализовать теги из JSON-списка, строки через запятую/точку с запятой/перевод строки или iterable."""
     items: list[str] = []
     if raw is None:
         return []

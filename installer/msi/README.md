@@ -1,47 +1,47 @@
 # bAD Agent MSI (WiX)
 
-Windows-only build. Sources are committed; **Linux CI does not produce an MSI binary**.
+Сборка только на Windows. Исходники в репозитории; **Linux CI MSI-бинарник не выпускает**.
 
-GitHub Actions workflow [`.github/workflows/release-msi.yml`](../../.github/workflows/release-msi.yml) builds on `windows-latest` for tag `v*` (or `workflow_dispatch`) and uploads:
+Workflow GitHub Actions [`.github/workflows/release-msi.yml`](../../.github/workflows/release-msi.yml) собирает на `windows-latest` по тегу `v*` (или `workflow_dispatch`) и загружает:
 
 - `bad-agent-<semver>.msi`
 - `agent-release.json` (`version`, `msi_name`, `sha256`)
 
-to the GitHub Release for that tag.
+в GitHub Release для этого тега.
 
-## Permissions / secrets
+## Права / secrets
 
-| Item | Notes |
-|------|--------|
-| `contents: write` | Workflow permission to create/update the Release and upload assets |
-| `GITHUB_TOKEN` | Default Actions token is enough for this public repo |
-| Optional `BAD_GITHUB_TOKEN` on the **server** | Only if the GitHub repo becomes private later |
+| Что | Заметки |
+|-----|---------|
+| `contents: write` | право workflow создавать/обновлять Release и грузить assets |
+| `GITHUB_TOKEN` | стандартного токена Actions достаточно для этого public repo |
+| Опционально `BAD_GITHUB_TOKEN` на **сервере** | только если репозиторий GitHub позже станет private |
 
-## Local build (Windows)
+## Локальная сборка (Windows)
 
 ```powershell
-# 1. Install WiX v5 as a .NET tool (once)
+# 1. Установить WiX v5 как .NET tool (один раз)
 dotnet tool install --global wix --version 5.0.2
 
-# 2. Publish agent
+# 2. Publish агента
 dotnet publish ..\..\agent\src\BadAgent\BadAgent.csproj `
   -c Release -r win-x64 --self-contained true `
   -p:Version=0.8.0 `
   -o .\publish
 
-# 3. Copy write-config.ps1 + bad.cmd shim next to the published exe
+# 3. Скопировать write-config.ps1 + shim bad.cmd рядом с опубликованным exe
 Copy-Item .\write-config.ps1 .\publish\
 Copy-Item .\bad.cmd .\publish\
 
-# 4. Build MSI (Product.wxs harvests publish\** via <Files>;
-#    bad.ico next to Product.wxs → ARPPRODUCTICON; exe icon from ApplicationIcon)
+# 4. Собрать MSI (Product.wxs harvest'ит publish\** через <Files>;
+#    bad.ico рядом с Product.wxs → ARPPRODUCTICON; иконка exe из ApplicationIcon)
 wix build Product.wxs `
   -d AgentPublishDir=publish `
   -d ProductVersion=0.8.0 `
   -o bad-agent-0.8.0.msi
 ```
 
-## Install / upgrade
+## Установка / апгрейд
 
 ```powershell
 msiexec /i bad-agent-0.8.0.msi `
@@ -50,7 +50,7 @@ msiexec /i bad-agent-0.8.0.msi `
   /qn
 ```
 
-Optional: add install dir to **Machine PATH** so the `bad` command works from cmd.exe / Win+R (`bad.cmd` shim → `BadAgent.exe`). Default is **off** (`ADDPATH=0` / omitted).
+Опционально: добавить каталог установки в **Machine PATH**, чтобы команда `bad` работала из cmd.exe / Win+R (`bad.cmd` → `BadAgent.exe`). По умолчанию **выключено** (`ADDPATH=0` / не указано).
 
 ```powershell
 msiexec /i bad-agent-0.8.0.msi `
@@ -60,16 +60,16 @@ msiexec /i bad-agent-0.8.0.msi `
   /qn
 ```
 
-Public properties: `SERVERURL`, `ENROLLMENTTOKEN`, `ADDPATH` (optional).
+Public properties: `SERVERURL`, `ENROLLMENTTOKEN`, `ADDPATH` (опционально).
 
-Silent self-update from the agent uses the same MajorUpgrade path. WiX `ServiceControl` stops `BlazerityAssetDiscovery` before file replace and starts it after install. `%ProgramData%\blazerity\bAD\config.json` (API key + device_id) is preserved (`Permanent` ProgramData component). PATH entry from `ADDPATH=1` is removed on uninstall.
+Тихий self-update агента идёт тем же путём MajorUpgrade. WiX `ServiceControl` останавливает `BlazerityAssetDiscovery` перед заменой файлов и запускает после install. `%ProgramData%\blazerity\bAD\config.json` (API key + device_id) сохраняется (компонент ProgramData с `Permanent`). Запись PATH от `ADDPATH=1` снимается при uninstall.
 
-## Cut a release
+## Вырезать релиз
 
 ```bash
 git tag v0.8.0
 git push origin v0.8.0
-# → release-msi workflow publishes MSI + agent-release.json
-# → on-prem server syncs from GitHub Release (admin sync or background job)
-# → agents poll GET /v1/agent/update/check and apply via msiexec
+# → workflow release-msi публикует MSI + agent-release.json
+# → on-prem сервер sync'ит с GitHub Release (admin sync или фоновый job)
+# → агенты опрашивают GET /v1/agent/update/check и ставят через msiexec
 ```

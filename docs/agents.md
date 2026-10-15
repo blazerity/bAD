@@ -2,7 +2,7 @@
 
 Практическая карта репозитория: где что лежит, как гонять тесты, что нельзя сломать. Версия продукта: **0.8.0**.
 
-## Layout
+## Структура
 
 ```
 agent/                 # .NET 8 Worker + service CLI
@@ -62,7 +62,7 @@ dotnet run --project src/BadAgent -c Release
 
 На Windows в проде — только MSI + HTTPS.
 
-## Local CLI (`bad`) и Service CLI
+## Локальный CLI (`bad`) и Service CLI
 
 Тот же `BadAgent.exe` (shim `bad.cmd` рядом в MSI). Режим:
 
@@ -95,9 +95,9 @@ BadAgent.exe service status|start|stop|restart
 
 Ключевые файлы: `AgentUpdater.cs`, `VersionUtil.cs`, `server/bad_server/agent_update.py`, `github_release.py`.
 
-## Remote agent config
+## Удалённый конфиг агента
 
-Effective settings: **defaults &lt; matching policies (priority asc) &lt; per-device override**.
+Эффективные настройки: **defaults &lt; matching policies (priority asc) &lt; per-device override**.
 
 | Endpoint | Auth |
 |----------|------|
@@ -107,11 +107,11 @@ Effective settings: **defaults &lt; matching policies (priority asc) &lt; per-de
 | `GET /v1/admin/devices/{id}/config` | admin Bearer |
 | `PUT/DELETE /v1/admin/devices/{id}/config-override` | admin Bearer |
 
-Safe knobs: intervals + `update_enabled` + collector toggles `collect_hardware` / `collect_users` / `collect_software`. Код: `server/bad_server/agent_config.py`, `ConfigStore.ApplyRemoteSettings`, `InventoryCollector` + `CollectorOptions`.
+Safe knobs: интервалы + `update_enabled` + toggles коллекторов `collect_hardware` / `collect_users` / `collect_software`. Код: `server/bad_server/agent_config.py`, `ConfigStore.ApplyRemoteSettings`, `InventoryCollector` + `CollectorOptions`.
 
-Hardware (при `collect_hardware`): помимо CPU/RAM/disks/volumes — `serial_number`, `model`, `manufacturer`, `gpus[]`, `ram_modules[]` (+ per-stick `memory_type`), `ram_memory_type` (system consensus). Тип памяти: map WMI `SMBIOSMemoryType` / `MemoryType` → `DDR4`/`DDR5`/`LPDDR4`/`LPDDR5`/… (`HardwareMaps.ResolveMemoryType`). Soft-fail по подсекциям `hardware.*`. Cap: 16 GPU / 32 DIMM. Код: `InventoryCollector`, `HardwareMaps`, модели в `InventoryModels.cs`.
+Hardware (при `collect_hardware`): помимо CPU/RAM/disks/volumes — `serial_number`, `model`, `manufacturer`, `gpus[]`, `ram_modules[]` (+ `memory_type` на модуль), `ram_memory_type` (системный consensus). Тип памяти: map WMI `SMBIOSMemoryType` / `MemoryType` → `DDR4`/`DDR5`/`LPDDR4`/`LPDDR5`/… (`HardwareMaps.ResolveMemoryType`). Soft-fail по подсекциям `hardware.*`. Cap: 16 GPU / 32 DIMM. Код: `InventoryCollector`, `HardwareMaps`, модели в `InventoryModels.cs`.
 
-Heartbeat health (optional → device meta): `last_inventory_ok`, `last_inventory_error`, `agent_uptime_seconds`, `system_drive_free_bytes`.
+Heartbeat health (опционально → meta устройства): `last_inventory_ok`, `last_inventory_error`, `agent_uptime_seconds`, `system_drive_free_bytes`.
 
 ## Где живёт версия (bump checklist)
 
@@ -190,7 +190,7 @@ Heartbeat health (optional → device meta): `last_inventory_ok`, `last_inventor
 - `.github/workflows/ci.yml`: import-check + ruff в `server/`, `dotnet build` Release в `agent/` (Linux; **без** pytest/dotnet test и **без** MSI). Тесты — local-only.
 - `.github/workflows/release-msi.yml`: Windows, тег `v*` / dispatch → GitHub Release.
 
-## Auth map (не перепутать)
+## Карта auth (не перепутать)
 
 | Механизм | Где | Назначение |
 |----------|-----|------------|
@@ -198,11 +198,11 @@ Heartbeat health (optional → device meta): `last_inventory_ok`, `last_inventor
 | Agent API key | heartbeat / inventory / `GET /v1/agent/config` | per-device |
 | Admin Bearer | `GET /v1/devices*`, policies, overrides | автоматизация / curl |
 | Local user session | web cookie `bad_session` | операторы в браузере |
-| LDAP (optional) | web login fallback | directory users → session |
+| LDAP (опционально) | fallback входа в web | пользователи каталога → session |
 
 Код: `server/bad_server/auth.py`, `sessions.py`, `ldap_client.py`, `web.py`, `crypto_util.py`.
 
-Seed default admin только если `COUNT(local_users)=0`.
+Seed локального admin только если `COUNT(local_users)=0`.
 
 ## Инварианты — не ломать
 
@@ -220,7 +220,7 @@ Seed default admin только если `COUNT(local_users)=0`.
 
 - Источники: `installer/msi/Product.wxs`, `write-config.ps1`.
 - Сборка **только на Windows** (WiX): см. `installer/msi/README.md`.
-- Public properties: `SERVERURL`, `ENROLLMENTTOKEN`; optional `ADDPATH=1` for Machine PATH + `bad.cmd`.
+- Public properties: `SERVERURL`, `ENROLLMENTTOKEN`; опционально `ADDPATH=1` для Machine PATH + `bad.cmd`.
 - UpgradeCode фиксирован; major upgrade, ProgramData не сносить.
 - Артефакт: `bad-agent-0.8.0.msi` (имя по semver).
 
@@ -232,7 +232,7 @@ Seed default admin только если `COUNT(local_users)=0`.
 - Unit: `deploy/debian/systemd/bad-api.service` → `bad-api.service`.
 - nginx template: `deploy/debian/nginx/bad.conf.template`.
 - Печатает enrollment + admin API tokens **один раз** при первом создании `site.env`.
-- Web: после первого старта — local `admin`/`admin` (сменить).
+- Web: после первого старта — локальный `admin`/`admin` (сменить).
 
 ## Полезные файлы
 

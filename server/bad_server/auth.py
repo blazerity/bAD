@@ -107,7 +107,7 @@ def require_admin_token(
     settings: Settings = Depends(get_settings),
     db: Database = Depends(get_db),
 ) -> str:
-    """Bearer-only admin API token (automation / agents). Web UI uses sessions."""
+    """Только Bearer admin API token (automation / агенты). Web UI — через sessions."""
     token = extract_bearer(authorization)
     if not admin_token_valid(token, settings, db):
         raise HTTPException(
@@ -129,7 +129,7 @@ def current_web_user(
 def require_web_user(
     user: Optional[WebUser] = Depends(current_web_user),
 ) -> WebUser:
-    """HTML session gate: redirect to login (303) instead of JSON 401."""
+    """HTML-шлюз сессии: redirect на login (303) вместо JSON 401."""
     if not user:
         raise HTTPException(
             status_code=status.HTTP_303_SEE_OTHER,
@@ -139,7 +139,7 @@ def require_web_user(
 
 
 def require_web_admin(user: WebUser = Depends(require_web_user)) -> WebUser:
-    """HTML admin gate: redirect non-admins to /devices."""
+    """HTML-шлюз admin: redirect не-админов на /devices."""
     if not user.is_admin:
         raise HTTPException(
             status_code=status.HTTP_303_SEE_OTHER,
@@ -149,7 +149,7 @@ def require_web_admin(user: WebUser = Depends(require_web_user)) -> WebUser:
 
 
 def ensure_bootstrap_secrets(db: Database, settings: Settings) -> tuple[str, str]:
-    """Ensure session + data encryption keys exist; return (session_secret, data_key)."""
+    """Гарантировать наличие ключей session + шифрования данных; вернуть (session_secret, data_key)."""
     session_secret = settings.session_secret or db.get_site_secret("session_secret")
     if not session_secret:
         session_secret = generate_session_secret()
@@ -164,7 +164,7 @@ def ensure_bootstrap_secrets(db: Database, settings: Settings) -> tuple[str, str
 
 
 def seed_default_admin(db: Database, settings: Settings) -> None:
-    """Create local admin/admin only when no local users exist."""
+    """Создать локального admin/admin только если локальных пользователей ещё нет."""
     if db.count_local_users() > 0:
         return
     db.create_local_user(
@@ -202,7 +202,7 @@ def try_local_login(db: Database, username: str, password: str) -> Optional[WebU
 def try_ldap_login(
     db: Database, data_key: str, username: str, password: str
 ) -> tuple[Optional[WebUser], Optional[str]]:
-    """Return (user, error). error is set for clear LDAP group denial."""
+    """Вернуть (user, error). error задаётся при ясном отказе по группе LDAP."""
     view = load_ldap_view(db, data_key)
     if not view.enabled:
         return None, None
@@ -230,9 +230,9 @@ def try_ldap_login(
 def authenticate_web_user(
     db: Database, data_key: str, username: str, password: str
 ) -> tuple[Optional[WebUser], Optional[str]]:
-    """Prefer local users; fall back to LDAP when enabled.
+    """Сначала локальные пользователи; fallback на LDAP, если включён.
 
-    Returns (user, error_message). Local break-glass admin is unchanged.
+    Возвращает (user, error_message). Локальный break-glass admin не меняется.
     """
     local = try_local_login(db, username, password)
     if local:

@@ -6,7 +6,7 @@ from collections import defaultdict, deque
 
 
 class SlidingWindowRateLimiter:
-    """Simple in-process sliding window limiter."""
+    """Простой in-process лимитер со скользящим окном."""
 
     def __init__(self, max_calls: int, window_seconds: float = 60.0) -> None:
         self.max_calls = max_calls

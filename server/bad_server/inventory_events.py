@@ -1,11 +1,11 @@
-"""Diff consecutive inventory snapshots into meaningful device events."""
+"""Дифф соседних inventory-снимков в осмысленные события устройства."""
 
 from __future__ import annotations
 
 from typing import Any, Optional
 
-# Absolute free-space drop (bytes) or relative drop vs previous free.
-VOLUME_FREE_DROP_ABS = 5 * 1024**3  # 5 GiB
+# Абсолютное падение свободного места (байты) или относительное к предыдущему free.
+VOLUME_FREE_DROP_ABS = 5 * 1024**3  # 5 ГиБ
 VOLUME_FREE_DROP_REL = 0.20
 
 
@@ -95,9 +95,9 @@ def diff_inventory_snapshots(
     previous: Optional[dict[str, Any]],
     current: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Return event dicts: type, summary, detail (JSON-serializable).
+    """Вернуть dict событий: type, summary, detail (JSON-сериализуемые).
 
-    First snapshot (no previous) yields no events.
+    Первый снимок (без previous) не даёт событий.
     """
     if not previous or not isinstance(previous, dict):
         return []

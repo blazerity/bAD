@@ -35,7 +35,7 @@ public sealed class Worker : BackgroundService
             ConfigStore.Save(config);
         }
 
-        // Check for updates on start (then per update_check_interval_hours).
+        // Проверка обновлений при старте (далее по update_check_interval_hours).
         _nextUpdateCheck = DateTime.UtcNow;
 
         var inventoryEvery = TimeSpan.FromHours(Math.Max(1, config.InventoryIntervalHours));
@@ -157,7 +157,7 @@ public sealed class Worker : BackgroundService
                 ct);
             config.ApiKey = apiKey;
             config.DeviceId = deviceId;
-            config.EnrollmentToken = null; // clear after success
+            config.EnrollmentToken = null; // очищаем после успеха
             ConfigStore.Save(config);
             _logger.LogInformation("Enrollment succeeded; enrollment token cleared from config");
         }
@@ -280,7 +280,7 @@ public sealed class Worker : BackgroundService
         }
     }
 
-    /// <summary>Free bytes on system drive via DriveInfo (no WMI).</summary>
+    /// <summary>Свободные байты системного диска через DriveInfo (без WMI).</summary>
     public static long? TrySystemDriveFreeBytes()
     {
         try
