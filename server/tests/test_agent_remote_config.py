@@ -133,7 +133,7 @@ def test_agent_config_and_heartbeat_piggyback(client):
         json={
             "schema_version": 1,
             "device_id": "cfg-dev-1",
-            "agent_version": "0.7.0",
+            "agent_version": "0.8.0",
             "collected_at": "2026-10-15T12:00:00Z",
             "host": {
                 "hostname": "CORP-PC",
@@ -195,7 +195,7 @@ def test_agent_config_and_heartbeat_piggyback(client):
         headers={"Authorization": f"Bearer {api_key}"},
         json={
             "device_id": "cfg-dev-1",
-            "agent_version": "0.7.0",
+            "agent_version": "0.8.0",
             "config_version": "stale",
             "last_inventory_ok": True,
             "agent_uptime_seconds": 120,
@@ -222,7 +222,7 @@ def test_agent_config_and_heartbeat_piggyback(client):
         headers={"Authorization": f"Bearer {api_key}"},
         json={
             "device_id": "cfg-dev-1",
-            "agent_version": "0.7.0",
+            "agent_version": "0.8.0",
             "config_version": version,
         },
     )

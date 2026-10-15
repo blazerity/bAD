@@ -7,6 +7,9 @@
   <h1 class="with-icon">{{ icon('host') }}{{ device.hostname or "(неизвестный узел)" }}</h1>
   {% if message %}<p class="ok">{{ message }}</p>{% endif %}
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  {% if new_api_key %}
+  <p class="ok warn-box">Новый API-ключ (покажите один раз): <code class="mono">{{ new_api_key }}</code></p>
+  {% endif %}
   <dl class="meta">
     <div><dt>device_id</dt><dd class="mono">{{ device.device_id }}</dd></div>
     <div><dt>Агент</dt><dd>{{ device.agent_version or "—" }}</dd></div>
@@ -16,6 +19,8 @@
       <dd>
         {{ device.last_seen_at or "—" }}
         <span class="badge badge-{{ silence.status }}">{{ silence_label(silence.status) }}</span>
+        {% if device.revoked %}<span class="badge badge-stale">доступ отозван</span>{% endif %}
+        {% if device.archived %}<span class="badge badge-stale">архив</span>{% endif %}
       </dd>
     </div>
     <div>
@@ -24,6 +29,61 @@
     </div>
   </dl>
   <p class="muted">Порог устаревания: {{ stale_after_seconds }} с после последнего контакта.</p>
+
+  {% if duplicates and (duplicates.hostname or duplicates.serial_number) %}
+  <div class="warn-box">
+    <strong>Возможные дубликаты</strong> (автослияния нет):
+    {% if duplicates.hostname %}
+    <p>Тот же hostname:
+      {% for d in duplicates.hostname %}
+        <a href="/devices/{{ d.device_id }}">{{ d.hostname or d.device_id }}</a>{% if not loop.last %}, {% endif %}
+      {% endfor %}
+    </p>
+    {% endif %}
+    {% if duplicates.serial_number %}
+    <p>Тот же serial:
+      {% for d in duplicates.serial_number %}
+        <a href="/devices/{{ d.device_id }}">{{ d.hostname or d.device_id }}</a>{% if not loop.last %}, {% endif %}
+      {% endfor %}
+    </p>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <h2>Доступ агента</h2>
+  <p class="muted">Отзыв блокирует heartbeat/inventory (403). Новый ключ снимает отзыв — пропишите его в конфиг агента или перерегистрируйте устройство.</p>
+  <div class="form-actions">
+    {% if user.is_admin %}
+    <form method="post" action="/devices/{{ device.device_id }}/revoke" onsubmit="return confirm('Отозвать доступ этого агента?');">
+      <button type="submit" class="secondary">Отозвать доступ</button>
+    </form>
+    <form method="post" action="/devices/{{ device.device_id }}/rotate-key" onsubmit="return confirm('Выпустить новый API-ключ? Старый перестанет работать.');">
+      <button type="submit">Выпустить новый ключ</button>
+    </form>
+    {% endif %}
+    {% if device.archived %}
+    <form method="post" action="/devices/{{ device.device_id }}/restore">
+      <button type="submit" class="secondary">Вернуть из архива</button>
+    </form>
+    {% else %}
+    <form method="post" action="/devices/{{ device.device_id }}/archive">
+      <button type="submit" class="secondary">В архив</button>
+    </form>
+    {% endif %}
+  </div>
+
+  {% if user.is_admin %}
+  <h2>Удаление</h2>
+  <p class="muted">Безвозвратно удаляет устройство, inventory, события и override. Для подтверждения введите <span class="mono">{{ device.device_id }}</span>.</p>
+  <form method="post" action="/devices/{{ device.device_id }}/delete" class="settings-form"
+    onsubmit="return confirm('Удалить устройство навсегда?');">
+    <label for="confirm">Подтверждение</label>
+    <input id="confirm" name="confirm" type="text" autocomplete="off" placeholder="{{ device.device_id }}">
+    <div class="form-actions">
+      <button type="submit" class="danger">Удалить устройство</button>
+    </div>
+  </form>
+  {% endif %}
 
   <h2>Теги</h2>
   <p class="muted">Метки через запятую. Используются в фильтре списка и в условии политики <span class="mono">tag</span>.</p>

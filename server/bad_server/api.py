@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,7 @@ from .agent_config import DEFAULT_AGENT_SETTINGS, sanitize_settings
 from .agent_update import check_update, sync_from_github
 from .auth import get_db, require_admin_token, require_api_key, require_enrollment_token
 from .config import Settings, get_settings
+from .crypto_util import decrypt_secret
 from .db import Database
 from .schemas import (
     AgentPolicyBody,
@@ -22,6 +24,9 @@ from .schemas import (
     InventoryRequest,
 )
 from .security import generate_token, hash_secret
+from .smtp_mail import notify_enroll, notify_inventory_events
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1")
 
@@ -49,12 +54,29 @@ def enroll(
 
     api_key = generate_token("bad_ak_")
     api_key_hash = hash_secret(api_key)
-    db.upsert_device_on_enroll(
+    created = db.upsert_device_on_enroll(
         device_id=body.device_id,
         hostname=body.hostname,
         api_key_hash=api_key_hash,
         agent_version=body.agent_version,
     )
+    if created:
+        try:
+            smtp_row = db.get_smtp_settings()
+            password = ""
+            enc = smtp_row.get("password_enc") or ""
+            if enc:
+                data_key = getattr(request.app.state, "data_key", None)
+                if data_key:
+                    password = decrypt_secret(data_key, enc) or ""
+            notify_enroll(
+                smtp_row,
+                password=password,
+                device_id=body.device_id,
+                hostname=body.hostname,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("SMTP enroll alert failed (ignored)")
     return EnrollResponse(api_key=api_key, device_id=body.device_id)
 
 
@@ -110,6 +132,7 @@ def agent_config(
 @router.post("/inventory")
 def inventory(
     body: InventoryRequest,
+    request: Request,
     device=Depends(require_api_key),
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
@@ -129,11 +152,16 @@ def inventory(
     os_meta: dict[str, Any] = {}
     if body.host and isinstance(body.host.get("os"), dict):
         os_meta["os"] = body.host["os"].get("caption")
+    serial = None
+    if body.hardware and isinstance(body.hardware, dict):
+        serial = body.hardware.get("serial_number")
     meta = {
         "last_inventory_at": body.collected_at,
         **os_meta,
     }
-    snapshot_id = db.store_inventory(
+    if serial:
+        meta["serial_number"] = serial
+    stored = db.store_inventory(
         device_id=body.device_id,
         schema_version=body.schema_version,
         payload=payload,
@@ -142,17 +170,54 @@ def inventory(
         meta=meta,
         retention=settings.snapshot_retention,
     )
-    return {"status": "ok", "snapshot_id": snapshot_id}
+    # Soft-fail SMTP: never break inventory ingest.
+    try:
+        smtp_row = db.get_smtp_settings()
+        password = ""
+        enc = smtp_row.get("password_enc") or ""
+        if enc:
+            data_key = getattr(request.app.state, "data_key", None)
+            if data_key:
+                password = decrypt_secret(data_key, enc) or ""
+        notify_inventory_events(
+            smtp_row,
+            password=password,
+            device_id=body.device_id,
+            hostname=hostname or device["hostname"],
+            events=stored.get("events") or [],
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("SMTP hardware alert failed (ignored)")
+    return {"status": "ok", "snapshot_id": stored["snapshot_id"]}
 
 
 @router.get("/devices")
 def list_devices(
     tag: str | None = Query(default=None, max_length=64),
+    q: str | None = Query(default=None, max_length=128),
+    archived: bool = Query(default=False),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
     _admin: str = Depends(require_admin_token),
     db: Database = Depends(get_db),
 ) -> dict[str, Any]:
     tag_filter = (tag or "").strip() or None
-    return {"devices": db.list_devices(tag=tag_filter)}
+    query = (q or "").strip() or None
+    total = db.count_devices(tag=tag_filter, archived=archived, q=query)
+    offset = (page - 1) * page_size
+    devices = db.list_devices(
+        tag=tag_filter,
+        archived=archived,
+        q=query,
+        offset=offset,
+        limit=page_size,
+    )
+    return {
+        "devices": devices,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
 
 
 @router.get("/devices/{device_id}")
@@ -164,19 +229,88 @@ def get_device(
     detail = db.get_device_detail(device_id)
     if not detail:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+    detail["duplicates"] = db.find_duplicate_devices(device_id)
     return detail
+
+
+@router.post("/devices/{device_id}/revoke")
+def revoke_device(
+    device_id: str,
+    _admin: str = Depends(require_admin_token),
+    db: Database = Depends(get_db),
+) -> dict[str, Any]:
+    if not db.set_device_revoked(device_id, True):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+    return {"status": "ok", "device_id": device_id, "revoked": True}
+
+
+@router.post("/devices/{device_id}/rotate-key")
+def rotate_device_key(
+    device_id: str,
+    _admin: str = Depends(require_admin_token),
+    db: Database = Depends(get_db),
+) -> dict[str, Any]:
+    if not db.get_device_detail(device_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+    api_key = generate_token("bad_ak_")
+    db.rotate_device_api_key(device_id, hash_secret(api_key))
+    return {
+        "status": "ok",
+        "device_id": device_id,
+        "api_key": api_key,
+        "revoked": False,
+    }
+
+
+@router.post("/devices/{device_id}/archive")
+def archive_device(
+    device_id: str,
+    _admin: str = Depends(require_admin_token),
+    db: Database = Depends(get_db),
+) -> dict[str, Any]:
+    if not db.set_device_archived(device_id, True):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+    return {"status": "ok", "device_id": device_id, "archived": True}
+
+
+@router.post("/devices/{device_id}/restore")
+def restore_device(
+    device_id: str,
+    _admin: str = Depends(require_admin_token),
+    db: Database = Depends(get_db),
+) -> dict[str, Any]:
+    if not db.set_device_archived(device_id, False):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+    return {"status": "ok", "device_id": device_id, "archived": False}
+
+
+@router.delete("/devices/{device_id}")
+def delete_device(
+    device_id: str,
+    _admin: str = Depends(require_admin_token),
+    db: Database = Depends(get_db),
+) -> dict[str, Any]:
+    if not db.delete_device(device_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+    return {"status": "ok", "device_id": device_id, "deleted": True}
 
 
 @router.get("/events")
 def list_events(
     device_id: str | None = Query(default=None, max_length=128),
     limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     _admin: str = Depends(require_admin_token),
     db: Database = Depends(get_db),
 ) -> dict[str, Any]:
     device_filter = (device_id or "").strip() or None
     return {
-        "events": db.list_device_events(device_id=device_filter, limit=limit),
+        "events": db.list_device_events(
+            device_id=device_filter, limit=limit, offset=offset
+        ),
+        "total": db.count_device_events(device_id=device_filter),
+        "limit": limit,
+        "offset": offset,
     }
 
 

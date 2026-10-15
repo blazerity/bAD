@@ -1,0 +1,75 @@
+{% extends "settings_base.html" %}
+{% set settings_section = 'mail' %}
+{% block title %}Почта и уведомления — bAD{% endblock %}
+{% block settings_content %}
+<section class="settings">
+  <h1>Почта и уведомления</h1>
+  <p class="muted">
+    SMTP для писем администраторам. Webhook нет.
+    Ошибки SMTP не ломают enroll/inventory.
+  </p>
+  {% if message %}<p class="ok">{{ message }}</p>{% endif %}
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  {% if test_result %}<p class="{% if test_result.startswith('ОК') %}ok{% else %}error{% endif %}">{{ test_result }}</p>{% endif %}
+
+  <form method="post" action="/settings/mail" class="settings-form">
+    <label class="check">
+      <input type="checkbox" name="enabled" value="1" {% if smtp.enabled %}checked{% endif %}>
+      Включить отправку писем
+    </label>
+
+    <h2>SMTP</h2>
+    <label for="host">SMTP-хост</label>
+    <input id="host" name="host" type="text" value="{{ smtp.host }}" placeholder="smtp.example.com" autocomplete="off">
+
+    <label for="port">Порт</label>
+    <input id="port" name="port" type="number" min="1" max="65535" value="{{ smtp.port }}">
+
+    <label class="check">
+      <input type="checkbox" name="use_ssl" value="1" {% if smtp.use_ssl %}checked{% endif %}>
+      SSL (SMTPS, обычно порт 465)
+    </label>
+    <label class="check">
+      <input type="checkbox" name="use_starttls" value="1" {% if smtp.use_starttls %}checked{% endif %}>
+      STARTTLS (обычно порт 587)
+    </label>
+
+    <label for="username">Пользователь</label>
+    <input id="username" name="username" type="text" value="{{ smtp.username }}" autocomplete="off">
+
+    <label for="password">Пароль</label>
+    <input id="password" name="password" type="password" value=""
+      placeholder="{% if has_password %}без изменений{% endif %}"
+      autocomplete="new-password">
+    {% if has_password %}
+    <p class="hint">Оставьте пустым, чтобы сохранить текущий пароль.</p>
+    {% endif %}
+
+    <label for="from_addr">From</label>
+    <input id="from_addr" name="from_addr" type="email" value="{{ smtp.from_addr }}" placeholder="bad@example.com">
+
+    <label for="to_addrs">Получатели (админы)</label>
+    <input id="to_addrs" name="to_addrs" type="text" value="{{ smtp.to_addrs }}"
+      placeholder="ops@example.com, oncall@example.com">
+    <p class="hint">Один адрес или несколько через запятую.</p>
+
+    <h2>Какие события слать</h2>
+    <p class="hint">
+      По умолчанию включены: железо, устаревание, новая регистрация.
+      Hostname/domain — выключены.
+    </p>
+    {% for key, label in notify_labels %}
+    <label class="check">
+      <input type="checkbox" name="notify_{{ key }}" value="1"
+        {% if notify[key] %}checked{% endif %}>
+      {{ label }}
+    </label>
+    {% endfor %}
+
+    <div class="form-actions">
+      <button type="submit">Сохранить</button>
+      <button type="submit" formaction="/settings/mail/test" formmethod="post" class="secondary">Отправить тест</button>
+    </div>
+  </form>
+</section>
+{% endblock %}

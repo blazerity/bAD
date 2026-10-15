@@ -56,7 +56,7 @@ def test_ldap_settings_crud_and_test_mocked(client: TestClient):
 
     page = client.get("/settings/ldap")
     assert page.status_code == 200
-    assert "Настройки LDAP" in page.text
+    assert "Доступ / LDAP" in page.text
 
     save = client.post(
         "/settings/ldap",
@@ -147,11 +147,11 @@ def test_change_password_clears_must_change(client: TestClient):
         follow_redirects=False,
     )
     assert ok.status_code == 303
-    assert ok.headers["location"] == "/devices"
+    assert ok.headers["location"] == "/"
 
     fail_old = _login(client, password="admin")
     assert fail_old.status_code == 401
 
     ok2 = _login(client, password="correct-horse-battery")
     assert ok2.status_code == 303
-    assert ok2.headers["location"] == "/devices"
+    assert ok2.headers["location"] == "/"

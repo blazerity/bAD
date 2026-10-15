@@ -1,9 +1,9 @@
-{% extends "base.html" %}
+{% extends "settings_base.html" %}
 {% from "macros/icons.html" import icon %}
+{% set settings_section = 'policies' %}
 {% block title %}Политики агента — bAD{% endblock %}
-{% block content %}
+{% block settings_content %}
 <section class="settings">
-  <p class="crumb"><a href="/devices">Устройства</a> / Политики агента</p>
   <h1 class="with-icon">{{ icon('policies') }}Политики агента</h1>
   <p class="muted">
     Именованные правила применяют безопасные настройки агента при совпадении условий.

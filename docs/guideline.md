@@ -37,18 +37,18 @@
 
 ## Версионирование продукта
 
-- Semver продукта: сейчас **`0.7.0`** (см. корневой `VERSION` и [agents.md](agents.md)).
+- Semver продукта: сейчас **`0.8.0`** (см. корневой `VERSION` и [agents.md](agents.md)).
 - Правило bump: **patch +0.0.1** для hotfix; **minor +0.1.0** для feature; **major** только по явному решению владельца.
 - `schema_version` протокола inventory — отдельный integer, не путать с semver агента/сервера.
 - Агент шлёт `agent_version`; сервер отдаёт `version` в `/v1/health`.
 
 ## Как вырезать релиз агента (MSI)
 
-1. Версия на `main` = нужному semver (сейчас **0.7.0**); checklist в [agents.md](agents.md).
+1. Версия на `main` = нужному semver (сейчас **0.8.0**); checklist в [agents.md](agents.md).
 2. Тег и push:
    ```bash
-   git tag v0.7.0
-   git push origin v0.7.0
+   git tag v0.8.0
+   git push origin v0.8.0
    ```
 3. Workflow **`release-msi`** (`windows-latest`): publish agent → WiX v5 → GitHub Release assets `bad-agent-<ver>.msi` + `agent-release.json`.
 4. Права: `contents: write`. Для public repo достаточно `GITHUB_TOKEN`. Private позже — `BAD_GITHUB_TOKEN` на сервере.
@@ -69,13 +69,26 @@ BAD_AGENT_UPDATES_DIR=/var/lib/bad/agent-updates
 BAD_AGENT_UPDATE_SYNC_INTERVAL_SECONDS=3600
 BAD_AGENT_UPDATE_SYNC_ON_STARTUP=true
 # BAD_GITHUB_TOKEN=...   # только если repo private
+BAD_BACKUP_DIR=/var/lib/bad/backups
+# BAD_BACKUP_INTERVAL_SECONDS=3600
 ```
 
 ## Web UI (admin)
 
-- Просмотр парка / inventory (+ статус mirrored MSI).
-- Редактирование: LDAP settings, agent policies, per-device config override — без «дашборд-шума» и без произвольных команд.
-- Визуальный язык: Windows 11 / Fluent light, русский UI (`static/style.css` + favicon + согласованный `HtmlReportWriter` с иконками секций); не превращать в marketing landing.
+Единый раздел (с **0.8.0**). Не плодить противоречащие описания «без дашборда» — обзорная сводка есть, marketing landing нет.
+
+- **Язык / look**: Windows 11 / Fluent light, русский UI; `static/style.css`, favicon; stroke-иконки секций; HTML-отчёт CLI в той же семье токенов.
+- **Обзор** `/` (`/overview`): totals (активные / онлайн / устарели / архив), breakdown версий агента, последние события железа.
+- **Устройства** `/devices`: поиск (hostname / device_id / serial), теги, архив, пагинация (50), CSV export; на карточке — revoke/rotate key, архив, hard delete, подсказки дублей, inventory summary.
+- **События** `/events`: лента изменений + пагинация.
+- **Параметры** `/settings/*` — оболочка в духе «Параметры Windows 11» (левый список с иконками):
+  - Доступ / LDAP (`allowed_group` = sAMAccountName группы AD)
+  - Почта и уведомления (SMTP + чекбоксы событий; без webhooks)
+  - Хранение и очистка (retention days + фоновый prune)
+  - Резервные копии (ежедневный SQLite backup, today+yesterday)
+  - Политики агента
+  - Обновления агента (зеркало MSI)
+- Login: local first, optional LDAP; local admin — break-glass. Не возвращать paste-admin-token gate.
 
 ## Агент
 
@@ -97,12 +110,6 @@ BAD_AGENT_UPDATE_SYNC_ON_STARTUP=true
 ## Тесты
 
 - Сервер: pytest enroll → inventory → admin get + web login + agent-update + policy/override precedence.
+- Сервисные фичи 0.8.0: revoke/rotate, archive/delete, retention, SMTP notify flags, backup, overview/settings — `server/tests/test_service_features.py`.
 - Агент: xUnit на collector/schema, cleartext reject, semver/sha256, service CLI, ApplyRemoteSettings.
 - Предпочитать узкие регрессии инвариантов (auth, schema, upsert, update compare, config precedence), а не хрупкие snapshot-гиганты.
-
-## Web UI
-
-- Задачи: просмотр парка/inventory + login + LDAP + policies/overrides (admin).
-- Login: username/password (local first, optional LDAP). Не возвращать paste-admin-token gate.
-- Без редактирования активов, графиков, «дашборд-шума».
-- Визуальный язык: Windows 11 / Fluent light (`static/style.css`); HTML-отчёт CLI — та же семья токенов.

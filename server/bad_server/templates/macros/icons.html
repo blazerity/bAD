@@ -47,6 +47,26 @@
 {%- elif name == 'volume' %}
   <path d="M3.5 6.5 10 3.5l6.5 3v7L10 16.5 3.5 13.5v-7z"/>
   <path d="M3.5 6.5 10 9.5l6.5-3M10 9.5v7"/>
+{%- elif name == 'settings' %}
+  <circle cx="10" cy="10" r="2.25"/>
+  <path d="M10 2.75v1.7M10 15.55v1.7M2.75 10h1.7M15.55 10h1.7M4.6 4.6l1.2 1.2M14.2 14.2l1.2 1.2M15.4 4.6l-1.2 1.2M5.8 14.2l-1.2 1.2"/>
+{%- elif name == 'ldap' %}
+  <circle cx="6.5" cy="6.5" r="2.25"/>
+  <circle cx="13.5" cy="6.5" r="2.25"/>
+  <circle cx="10" cy="13.5" r="2.25"/>
+  <path d="M8.2 7.8 9.2 11.5M11.8 7.8 10.8 11.5"/>
+{%- elif name == 'mail' %}
+  <rect x="2.5" y="4.5" width="15" height="11" rx="1.5"/>
+  <path d="M3.25 5.75 10 10.5l6.75-4.75"/>
+{%- elif name == 'retention' %}
+  <path d="M4 6.5h12M4 10h12M4 13.5h8"/>
+  <path d="M14.5 12.5v4M12.75 14.75h3.5"/>
+{%- elif name == 'backup' %}
+  <path d="M10 3.5v8.5M7 9l3 3 3-3"/>
+  <path d="M3.5 14.5h13"/>
+{%- elif name == 'updates' %}
+  <path d="M10 3.5a6.5 6.5 0 1 0 6.1 4.1"/>
+  <path d="M16.5 3.5v4h-4"/>
 {%- else %}
   <circle cx="10" cy="10" r="6"/>
 {%- endif %}

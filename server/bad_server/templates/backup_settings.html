@@ -1,0 +1,45 @@
+{% extends "settings_base.html" %}
+{% set settings_section = 'backups' %}
+{% block title %}Резервные копии — bAD{% endblock %}
+{% block settings_content %}
+<section class="settings">
+  <h1>Резервные копии</h1>
+  <p class="muted">
+    Ежедневный снимок файла SQLite (Online Backup API).
+    Хранятся файлы за сегодня и вчера: <span class="mono">bad-YYYY-MM-DD.db</span>.
+    Восстановление вручную: остановите сервис и скопируйте нужный файл обратно на путь БД.
+  </p>
+  {% if message %}<p class="ok">{{ message }}</p>{% endif %}
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+  <dl class="meta">
+    <div><dt>Каталог</dt><dd class="mono">{{ backup.backup_dir }}</dd></div>
+    <div><dt>Последний бэкап (meta)</dt><dd class="mono">{{ last_backup_at or "—" }}</dd></div>
+    <div><dt>Сегодняшний файл</dt><dd>{% if backup.today_exists %}есть{% else %}ещё нет{% endif %}</dd></div>
+  </dl>
+
+  {% if backup.files %}
+  <h2>Файлы</h2>
+  <table class="devices">
+    <thead>
+      <tr><th>Имя</th><th>Размер</th><th>mtime (UTC)</th></tr>
+    </thead>
+    <tbody>
+      {% for f in backup.files %}
+      <tr>
+        <td class="mono">{{ f.name }}</td>
+        <td class="mono">{{ f.size_bytes }}</td>
+        <td class="mono">{{ f.mtime }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">Пока нет файлов бэкапа. Фоновая задача создаст снимок в течение часа.</p>
+  {% endif %}
+
+  <form method="post" action="/settings/backups/run" class="form-actions">
+    <button type="submit">Сделать бэкап сейчас</button>
+  </form>
+</section>
+{% endblock %}

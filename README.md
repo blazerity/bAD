@@ -16,7 +16,7 @@ server/           # FastAPI app, web UI, agent-update mirror, pytest
 installer/msi/    # WiX sources (MSI built on Windows / GHA release-msi)
 deploy/debian/    # install.sh, systemd, nginx template
 docs/             # architecture, guidelines, agent notes, operator guide
-VERSION           # product semver (0.7.0)
+VERSION           # product semver (0.8.0)
 .github/workflows # ci.yml (Linux) + release-msi.yml (Windows tags)
 ```
 
@@ -72,7 +72,7 @@ Self-update: agents poll the **server** (not GitHub) for a newer mirrored MSI; s
 
 ## Releases (agent MSI)
 
-Tag `v0.7.0` (or run `release-msi` manually) → Windows GHA builds MSI + `agent-release.json` → GitHub Release → server sync → agents upgrade. Linux CI does **not** build MSI. Details: [docs/guideline.md](docs/guideline.md).
+Tag `v0.8.0` (or run `release-msi` manually) → Windows GHA builds MSI + `agent-release.json` → GitHub Release → server sync → agents upgrade. Linux CI does **not** build MSI. Details: [docs/guideline.md](docs/guideline.md).
 
 ## Docs
 

@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     agent_update_sync_interval_seconds: int = 3600  # 0 disables background sync
     agent_update_sync_on_startup: bool = True
 
+    # Daily SQLite backups (today + yesterday kept under this directory).
+    backup_dir: Path = Path(
+        os.environ.get("BAD_BACKUP_DIR", "/var/lib/bad/backups")
+    )
+    backup_interval_seconds: int = 3600  # how often to check; creates at most 1/day
+
 
 @lru_cache
 def get_settings() -> Settings:

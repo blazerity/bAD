@@ -7,7 +7,12 @@ from fastapi import Depends, Header, HTTPException, Request, status
 from .config import Settings, get_settings
 from .crypto_util import decrypt_secret, generate_data_key, generate_session_secret
 from .db import Database
-from .ldap_client import LdapSettingsView, authenticate_user, settings_from_row
+from .ldap_client import (
+    LdapGroupDenied,
+    LdapSettingsView,
+    authenticate_user,
+    settings_from_row,
+)
 from .security import constant_time_equals, extract_bearer, hash_secret, verify_secret
 from .sessions import WebUser, load_session
 
@@ -76,6 +81,11 @@ def require_api_key(
     if not device:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key"
+        )
+    if device["revoked"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="API key revoked; re-enroll or rotate key in web UI",
         )
     return device
 
@@ -189,28 +199,42 @@ def try_local_login(db: Database, username: str, password: str) -> Optional[WebU
     )
 
 
-def try_ldap_login(db: Database, data_key: str, username: str, password: str) -> Optional[WebUser]:
+def try_ldap_login(
+    db: Database, data_key: str, username: str, password: str
+) -> tuple[Optional[WebUser], Optional[str]]:
+    """Return (user, error). error is set for clear LDAP group denial."""
     view = load_ldap_view(db, data_key)
     if not view.enabled:
-        return None
-    result = authenticate_user(view, username, password)
+        return None, None
+    try:
+        result = authenticate_user(view, username, password)
+    except LdapGroupDenied as exc:
+        return None, (
+            f"Нет доступа: пользователь не входит в группу AD «{exc.group}»"
+        )
     if not result:
-        return None
+        return None, None
     role = view.default_role if view.default_role in {"admin", "operator"} else "operator"
-    return WebUser(
-        username=result.username,
-        role=role,
-        source="ldap",
-        must_change_password=False,
-        display_name=result.display_name,
+    return (
+        WebUser(
+            username=result.username,
+            role=role,
+            source="ldap",
+            must_change_password=False,
+            display_name=result.display_name,
+        ),
+        None,
     )
 
 
 def authenticate_web_user(
     db: Database, data_key: str, username: str, password: str
-) -> Optional[WebUser]:
-    """Prefer local users; fall back to LDAP when enabled."""
+) -> tuple[Optional[WebUser], Optional[str]]:
+    """Prefer local users; fall back to LDAP when enabled.
+
+    Returns (user, error_message). Local break-glass admin is unchanged.
+    """
     local = try_local_login(db, username, password)
     if local:
-        return local
+        return local, None
     return try_ldap_login(db, data_key, username, password)

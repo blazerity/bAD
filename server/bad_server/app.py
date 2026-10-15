@@ -12,10 +12,13 @@ from . import __version__
 from .agent_update import sync_from_github
 from .api import router as api_router
 from .auth import ensure_bootstrap_secrets, seed_default_admin
+from .backup import run_daily_backup
 from .config import get_settings
-from .db import Database
+from .crypto_util import decrypt_secret
+from .db import Database, utc_now
 from .rate_limit import SlidingWindowRateLimiter
 from .security import hash_secret
+from .smtp_mail import notify_stale_device
 from .web import router as web_router
 
 logger = logging.getLogger(__name__)
@@ -38,11 +41,98 @@ async def _agent_update_sync_loop(app: FastAPI) -> None:
             raise
 
 
+async def _retention_prune_loop(app: FastAPI) -> None:
+    """Periodically delete expired events / old inventory snapshots."""
+    interval = 3600
+    db: Database = app.state.db
+    while True:
+        try:
+            cfg = db.get_retention_settings()
+            stats = await asyncio.to_thread(
+                db.prune_expired_data,
+                events_days=cfg["events_days"],
+                inventory_days=cfg["inventory_days"],
+            )
+            if stats["events_deleted"] or stats["snapshots_deleted"]:
+                logger.info(
+                    "Retention prune: events=%s snapshots=%s",
+                    stats["events_deleted"],
+                    stats["snapshots_deleted"],
+                )
+        except Exception:  # noqa: BLE001
+            logger.exception("Background retention prune failed")
+        try:
+            await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            raise
+
+
+async def _backup_loop(app: FastAPI) -> None:
+    settings = get_settings()
+    interval = max(60, int(settings.backup_interval_seconds or 3600))
+    db: Database = app.state.db
+    while True:
+        try:
+            result = await asyncio.to_thread(
+                run_daily_backup, settings.db_path, settings.backup_dir
+            )
+            if result.get("ok"):
+                db.set_site_secret("last_backup_at", utc_now())
+                db.set_site_secret("last_backup_path", result.get("path") or "")
+            else:
+                logger.warning("Daily backup skipped/failed: %s", result.get("error"))
+        except Exception:  # noqa: BLE001
+            logger.exception("Background SQLite backup failed")
+        try:
+            await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            raise
+
+
+async def _stale_alert_loop(app: FastAPI) -> None:
+    settings = get_settings()
+    interval = 300  # 5 minutes
+    db: Database = app.state.db
+    while True:
+        try:
+            smtp_row = db.get_smtp_settings()
+            if smtp_row.get("enabled"):
+                password = ""
+                enc = smtp_row.get("password_enc") or ""
+                data_key = getattr(app.state, "data_key", None)
+                if enc and data_key:
+                    password = decrypt_secret(data_key, enc) or ""
+                needing = db.devices_needing_stale_alert(
+                    stale_after_seconds=settings.device_stale_after_seconds
+                )
+                for device in needing:
+                    notify_stale_device(
+                        smtp_row,
+                        password=password,
+                        device_id=device["device_id"],
+                        hostname=device.get("hostname"),
+                        last_seen_at=device.get("last_seen_at"),
+                    )
+                    db.patch_device_meta(
+                        device["device_id"], {"stale_notified_at": utc_now()}
+                    )
+        except Exception:  # noqa: BLE001
+            logger.exception("Background stale alert failed")
+        try:
+            await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            raise
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
     db = Database(settings.db_path)
     settings.agent_updates_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        settings.backup_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        logger.warning("Cannot create backup dir %s", settings.backup_dir)
 
     # Persist hashed site secrets when plaintext tokens provided via env
     if settings.enrollment_token and not db.get_site_secret("enrollment_token_hash"):
@@ -67,7 +157,7 @@ async def lifespan(app: FastAPI):
         window_seconds=60.0,
     )
 
-    sync_task: asyncio.Task | None = None
+    tasks: list[asyncio.Task] = []
     # Background/startup sync is best-effort; disable in tests via env.
     if (
         settings.agent_update_sync_on_startup
@@ -84,14 +174,18 @@ async def lifespan(app: FastAPI):
             )
 
     if settings.agent_update_sync_interval_seconds > 0 and settings.github_repo:
-        sync_task = asyncio.create_task(_agent_update_sync_loop(app))
+        tasks.append(asyncio.create_task(_agent_update_sync_loop(app)))
+
+    tasks.append(asyncio.create_task(_retention_prune_loop(app)))
+    tasks.append(asyncio.create_task(_backup_loop(app)))
+    tasks.append(asyncio.create_task(_stale_alert_loop(app)))
 
     yield
 
-    if sync_task is not None:
-        sync_task.cancel()
+    for task in tasks:
+        task.cancel()
         try:
-            await sync_task
+            await task
         except asyncio.CancelledError:
             pass
 
