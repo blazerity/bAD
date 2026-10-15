@@ -1,19 +1,19 @@
-# Отчёт графа — bAD  (2026-10-15)
+# Graph Report - bAD  (2026-10-15)
 
-## Проверка корпуса
-- режим cluster-only — статистика по файлам недоступна
+## Corpus Check
+- cluster-only mode — file stats not available
 
-## Сводка
-- 850 узлов · 2317 рёбер · 32 сообщества (показано 22, 10 тонких опущено)
-- Извлечение: 86% EXTRACTED · 14% INFERRED · 0% AMBIGUOUS · INFERRED: 319 рёбер (средняя уверенность: 0.9)
-- Стоимость токенов: 0 input · 0 output
+## Summary
+- 845 nodes · 2191 edges · 51 communities (36 shown, 15 thin omitted)
+- Extraction: 86% EXTRACTED · 14% INFERRED · 0% AMBIGUOUS · INFERRED: 301 edges (avg confidence: 0.9)
+- Token cost: 0 input · 0 output
 
-## Актуальность графа
-- Собран с коммита: `12b315f2`
-- Сверьте `git rev-parse HEAD`, чтобы понять, устарел ли граф.
-- После изменений кода: `graphify update .` (без стоимости API).
+## Graph Freshness
+- Built from commit: `1373f3bc`
+- Run `git rev-parse HEAD` and compare to check if the graph is stale.
+- Run `graphify update .` after code changes (no API cost).
 
-## Хабы сообществ (навигация)
+## Community Hubs (Navigation)
 - Community 0
 - Community 1
 - Community 2
@@ -42,144 +42,217 @@
 - Community 25
 - Community 26
 - Community 27
+- Community 28
+- Community 29
+- Community 30
 - Community 31
+- Community 32
+- Community 33
+- Community 34
+- Community 35
+- Community 36
+- Community 39
+- Community 40
+- Community 41
+- Community 42
+- Community 43
+- Community 44
+- Community 45
+- Community 46
+- Community 50
 
-## God-узлы (наиболее связанные — ядро абстракций)
-1. `Database` - 140 edges
-2. `WebUser` - 52 edges
-3. `Settings` - 33 edges
-4. `HardwareInfo` - 30 edges
-5. `AgentConfig` - 30 edges
-6. `InventorySnapshot` - 27 edges
-7. `InventoryCollector` - 26 edges
-8. `enroll_device()` - 23 edges
-9. `diff_inventory_snapshots()` - 20 edges
-10. `BadAgent` - 20 edges
+## God Nodes (most connected - your core abstractions)
+1. `Database` - 139 edges
+2. `WebUser` - 54 edges
+3. `HardwareInfo` - 35 edges
+4. `Settings` - 34 edges
+5. `InventoryCollector` - 31 edges
+6. `AgentConfig` - 28 edges
+7. `InventorySnapshot` - 28 edges
+8. `CollectorError` - 20 edges
+9. `BadAgent` - 20 edges
+10. `OfflineFlushResult` - 19 edges
 
-## Неочевидные связи
+## Surprising Connections (you probably didn't know these)
+- `check_update()` --uses--> `Database`  [INFERRED]
+  server/bad_server/agent_update.py → server/bad_server/db.py
 - `sync_from_github()` --uses--> `Database`  [INFERRED]
   server/bad_server/agent_update.py → server/bad_server/db.py
-- `_agent_update_sync_loop()` --uses--> `Database`  [INFERRED]
-  server/bad_server/app.py → server/bad_server/db.py
-- `_backup_loop()` --uses--> `Database`  [INFERRED]
-  server/bad_server/app.py → server/bad_server/db.py
-- `lifespan()` --uses--> `Database`  [INFERRED]
-  server/bad_server/app.py → server/bad_server/db.py
-- `_retention_prune_loop()` --uses--> `Database`  [INFERRED]
-  server/bad_server/app.py → server/bad_server/db.py
+- `admin_agent_update_status()` --uses--> `Database`  [INFERRED]
+  server/bad_server/api.py → server/bad_server/db.py
+- `admin_agent_update_sync()` --uses--> `Database`  [INFERRED]
+  server/bad_server/api.py → server/bad_server/db.py
+- `admin_create_policy()` --uses--> `Database`  [INFERRED]
+  server/bad_server/api.py → server/bad_server/db.py
 
-## Циклы импорта
-- Не обнаружено.
+## Import Cycles
+- None detected.
 
-## Сообщества (всего 32, 10 тонких опущено)
+## Communities (51 total, 15 thin omitted)
 
 ### Community 0 - "Community 0"
 Cohesion: 0.06
-Nodes (33): check_update(), admin_agent_config_defaults(), admin_agent_update_status(), admin_agent_update_sync(), admin_create_policy(), admin_delete_device_override(), admin_delete_policy(), admin_device_config() (+25 more)
+Nodes (23): check_update(), is_newer(), parse_semver(), sync_from_github(), _agent_update_sync_loop(), _backup_loop(), create_app(), lifespan() (+15 more)
 
 ### Community 1 - "Community 1"
-Cohesion: 0.05
-Nodes (30): sync_from_github(), _agent_update_sync_loop(), _backup_loop(), create_app(), lifespan(), _retention_prune_loop(), _stale_alert_loop(), admin_token_valid() (+22 more)
-
-### Community 2 - "Community 2"
 Cohesion: 0.08
-Nodes (56): authenticate_web_user(), load_ldap_view(), require_web_admin(), try_ldap_login(), Settings, encrypt_secret(), dump_session(), WebUser (+48 more)
+Nodes (32): admin_agent_config_defaults(), admin_agent_update_sync(), admin_create_policy(), admin_device_config(), admin_get_policy(), admin_list_policies(), admin_set_device_override(), admin_update_policy() (+24 more)
 
 ### Community 3 - "Community 3"
-Cohesion: 0.06
-Nodes (37): AgentConfig, ApiKey, CollectHardware, CollectSoftware, CollectUsers, DeviceId, EnrollmentToken, HeartbeatIntervalMinutes (+29 more)
+Cohesion: 0.08
+Nodes (20): compute_effective_config(), condition_matches(), config_version(), device_match_context(), _parse_bool(), policy_matches(), sanitize_conditions(), sanitize_settings() (+12 more)
 
 ### Community 4 - "Community 4"
-Cohesion: 0.08
-Nodes (30): is_newer(), parse_semver(), _download_bytes(), fetch_latest_release_assets(), mirror_release_to_dir(), _pick_asset(), _pick_msi(), ReleaseAssets (+22 more)
+Cohesion: 0.07
+Nodes (21): current_web_user(), get_data_key(), get_db(), get_session_secret(), require_admin_token(), require_api_key(), require_enrollment_token(), require_web_admin() (+13 more)
 
 ### Community 5 - "Community 5"
-Cohesion: 0.09
-Nodes (32): backup_filename(), backup_status(), list_backup_files(), run_daily_backup(), utc_today(), enroll_device(), test_enroll_inventory_get_flow(), test_health() (+24 more)
+Cohesion: 0.14
+Nodes (31): admin_agent_update_status(), require_web_user(), Settings, dump_session(), WebUser, _backup_context(), backups_settings_page(), backups_settings_run() (+23 more)
 
 ### Community 6 - "Community 6"
-Cohesion: 0.08
-Nodes (24): compute_effective_config(), condition_matches(), config_version(), device_match_context(), _parse_bool(), policy_matches(), sanitize_conditions(), sanitize_settings() (+16 more)
+Cohesion: 0.11
+Nodes (9): AsciiReportWriter, BadCli, HtmlReportWriter, CollectorOptions, CollectHardware, CollectSoftware, CollectUsers, IInventoryCollector (+1 more)
 
 ### Community 7 - "Community 7"
-Cohesion: 0.07
-Nodes (4): DeviceIdentity, WmiHelper, BadAgent, BadAgent.Tests
+Cohesion: 0.20
+Nodes (5): InventoryCollector, CollectorError, Error, Section, WmiHelper
 
 ### Community 8 - "Community 8"
-Cohesion: 0.13
-Nodes (21): device_silence_status(), health_snippet(), normalize_tags(), parse_utc(), _as_dict(), _as_list(), _cpu_label(), diff_inventory_snapshots() (+13 more)
+Cohesion: 0.08
+Nodes (24): DiskInfo, MediaType, Model, SizeBytes, HardwareInfo, Battery, BiosManufacturer, BiosReleaseDate (+16 more)
 
 ### Community 9 - "Community 9"
-Cohesion: 0.10
-Nodes (20): CollectorOptions, CollectHardware, CollectSoftware, CollectUsers, InventorySnapshot, AgentVersion, CollectedAt, CollectorErrors (+12 more)
+Cohesion: 0.17
+Nodes (6): OfflineQueue, MetaPath, QueueDir, QueueMeta, ConsecutiveFailures, NextRetryUtc
 
 ### Community 10 - "Community 10"
-Cohesion: 0.28
-Nodes (4): InventoryCollector, CollectorError, Error, Section
+Cohesion: 0.11
+Nodes (12): admin_delete_policy(), delete_device(), _apply_bool_form_fields(), _clear_session_cookie(), device_archive(), device_delete(), device_restore(), logout() (+4 more)
 
 ### Community 11 - "Community 11"
-Cohesion: 0.13
-Nodes (10): authenticate_user(), LdapAuthResult, LdapGroupDenied, LdapSettingsView, _open_bound(), _resolve_group_dn(), _server(), settings_from_row() (+2 more)
-
-### Community 12 - "Community 12"
-Cohesion: 0.21
-Nodes (3): AsciiReportWriter, HtmlReportWriter, ReportFormat
+Cohesion: 0.23
+Nodes (12): build_alert_email(), build_inventory_events_email(), _dispatch(), dump_notify_flags(), filter_events_for_mail(), notify_enroll(), notify_inventory_events(), notify_stale_device() (+4 more)
 
 ### Community 13 - "Community 13"
-Cohesion: 0.10
-Nodes (18): BadAgent, net8.0, BadAgent.Tests, coverlet.collector (6.0.0), Microsoft.Extensions.Hosting (8.0.1), Microsoft.Extensions.Hosting.WindowsServices (8.0.1), Microsoft.NET.Test.Sdk (17.8.0), Microsoft.Win32.Registry (5.0.0) (+10 more)
+Cohesion: 0.12
+Nodes (11): RemoteAgentConfigResponse, Settings, Version, RemoteAgentSettings, CollectHardware, CollectSoftware, CollectUsers, HeartbeatIntervalMinutes (+3 more)
 
 ### Community 14 - "Community 14"
-Cohesion: 0.17
-Nodes (3): CollectorTests, FakeCollector, UpdateAndServiceTests
+Cohesion: 0.11
+Nodes (17): AgentConfig, ApiKey, CollectHardware, CollectSoftware, CollectUsers, DeviceId, EnrollmentToken, HeartbeatIntervalMinutes (+9 more)
 
 ### Community 15 - "Community 15"
-Cohesion: 0.11
-Nodes (19): DiskInfo, MediaType, Model, SizeBytes, HardwareInfo, Cpu, Disks, Gpus (+11 more)
-
-### Community 16 - "Community 16"
 Cohesion: 0.12
-Nodes (16): CpuInfo, Cores, Logical, Name, GpuInfo, AdapterRamBytes, DriverVersion, Name (+8 more)
+Nodes (14): InstalledProgram, Name, Publisher, Version, NetworkInfo, Nics, NicInfo, Dhcp (+6 more)
 
 ### Community 17 - "Community 17"
-Cohesion: 0.17
-Nodes (10): HostInfo, Domain, Hostname, Os, OsInfo, Arch, Build, Caption (+2 more)
+Cohesion: 0.13
+Nodes (13): BadAgent, net8.0, Microsoft.Extensions.Hosting (8.0.1), Microsoft.Extensions.Hosting.WindowsServices (8.0.1), Microsoft.Win32.Registry (5.0.0), Serilog.Extensions.Hosting (8.0.0), Serilog.Sinks.Console (6.0.0), Serilog.Sinks.File (6.0.0) (+5 more)
+
+### Community 18 - "Community 18"
+Cohesion: 0.29
+Nodes (3): AgentApiException, IsAuthFailure, BadApiClient
+
+### Community 19 - "Community 19"
+Cohesion: 0.13
+Nodes (15): InventorySnapshot, AgentVersion, CollectedAt, CollectorErrors, DeviceId, Hardware, Host, Minidumps (+7 more)
 
 ### Community 20 - "Community 20"
+Cohesion: 0.40
+Nodes (11): _as_dict(), _as_list(), _cpu_label(), diff_inventory_snapshots(), _disk_key(), _nic_ipv4_set(), _norm_str(), _ram_module_key() (+3 more)
+
+### Community 21 - "Community 21"
+Cohesion: 0.15
+Nodes (10): OfflineFlushResult, AuthException, AuthFailed, Deferred, Error, Failures, NextRetryUtc, RetryAfter (+2 more)
+
+### Community 22 - "Community 22"
+Cohesion: 0.21
+Nodes (9): authenticate_web_user(), load_ldap_view(), try_ldap_login(), _ldap_form_context(), ldap_settings_save(), ldap_settings_test(), LdapFormData, login_submit() (+1 more)
+
+### Community 24 - "Community 24"
+Cohesion: 0.17
+Nodes (12): HostInfo, AdDistinguishedName, AdOu, Domain, Hostname, Os, OsInfo, Arch (+4 more)
+
+### Community 25 - "Community 25"
+Cohesion: 0.23
+Nodes (9): devices, idx_snapshots_device_received, inventory_snapshots, site_secrets, agent_policies, device_config_overrides, device_events, idx_device_events_created (+1 more)
+
+### Community 26 - "Community 26"
 Cohesion: 0.18
 Nodes (11): RamModuleInfo, BankLabel, CapacityBytes, Channel, DeviceLocator, FormFactor, Manufacturer, MemoryType (+3 more)
 
-### Community 25 - "Community 25"
+### Community 27 - "Community 27"
+Cohesion: 0.20
+Nodes (10): MinidumpFileInfo, ModifiedAt, Name, SizeBytes, MinidumpInfo, Count, Files, MemoryDmpModifiedAt (+2 more)
+
+### Community 30 - "Community 30"
+Cohesion: 0.31
+Nodes (7): encrypt_secret(), mail_settings_page(), mail_settings_save(), mail_settings_test(), _parse_smtp_form(), _smtp_form_context(), SmtpFormData
+
+### Community 31 - "Community 31"
+Cohesion: 0.36
+Nodes (5): admin_delete_device_override(), get_device(), _device_config_context(), device_config_override_save(), device_rotate_key()
+
+### Community 32 - "Community 32"
+Cohesion: 0.25
+Nodes (8): MonitorInfo, Height, Manufacturer, Name, SerialNumber, Week, Width, Year
+
+### Community 33 - "Community 33"
+Cohesion: 0.25
+Nodes (8): HeartbeatQueuePayload, AgentUptimeSeconds, ConfigVersion, DeviceId, LastInventoryAt, LastInventoryError, LastInventoryOk, SystemDriveFreeBytes
+
+### Community 34 - "Community 34"
 Cohesion: 0.25
 Nodes (7): commandName, dotnetRunMessages, environmentVariables, DOTNET_ENVIRONMENT, profiles, BadAgent, $schema
 
-### Community 26 - "Community 26"
-Cohesion: 0.33
-Nodes (6): NicInfo, Dhcp, Ipv4, Ipv6, Mac, Name
+### Community 36 - "Community 36"
+Cohesion: 0.29
+Nodes (6): UpdateCheckResponse, MsiName, Sha256, UpdateAvailable, Url, Version
 
-### Community 27 - "Community 27"
+### Community 39 - "Community 39"
+Cohesion: 0.33
+Nodes (6): BatteryInfo, ChargePercent, EstimatedRuntimeMinutes, Name, Status, StatusCode
+
+### Community 40 - "Community 40"
+Cohesion: 0.33
+Nodes (6): GpuInfo, AdapterRamBytes, DriverVersion, Name, PnpDeviceId, Vendor
+
+### Community 41 - "Community 41"
+Cohesion: 0.33
+Nodes (6): QueueItem, Attempts, Body, CreatedAtUtc, Id, Kind
+
+### Community 43 - "Community 43"
+Cohesion: 0.33
+Nodes (4): admin_token_valid(), try_local_login(), verify_secret(), password_submit()
+
+### Community 44 - "Community 44"
 Cohesion: 0.50
 Nodes (3): DEBIAN_FRONTEND, prompt(), install.sh script
 
-## Пробелы в знаниях
-- **115 изолированных узлов:** `Error`, `Section`, `coverlet.collector (6.0.0)`, `Microsoft.Extensions.Hosting (8.0.1)`, `Microsoft.Extensions.Hosting.WindowsServices (8.0.1)` (+110 more)
-  У этих узлов ≤1 связи — возможны пропущенные рёбра. (Считаются только символы; всего 245 узлов с ≤1 связью, если включить file/concept/rationale.)
-- **10 тонких сообществ (<3 узлов) опущено из отчёта** — смотрите изолированные узлы через `graphify query`.
+### Community 45 - "Community 45"
+Cohesion: 0.50
+Nodes (4): CpuInfo, Cores, Logical, Name
 
-## Предлагаемые вопросы
-_Вопросы, на которые этот граф особенно хорошо отвечает:_
+## Knowledge Gaps
+- **166 isolated node(s):** `Settings`, `Version`, `CollectHardware`, `CollectSoftware`, `CollectUsers` (+161 more)
+  These have ≤1 connection - possible missing edges. (Counts symbols only; 294 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **15 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
-- **Почему `Worker` связывает `Community 3` с `Community 18`, `Community 19`, `Community 14`, `Community 22`?**
-  _Высокая betweenness centrality (0.356) — узел-мост между сообществами._
-- **Верны ли 77 inferred-связей у `Database` (напр. с `check_update()` и `sync_from_github()`)?**
-  _У `Database` 77 рёбер INFERRED — связи по рассуждению модели, нужна проверка._
-- **Что связывает `Error`, `Section`, `coverlet.collector (6.0.0)` с остальной системой?**
-  _Найдено 115 слабо связанных узлов — возможные пробелы в документации или рёбрах._
-- **Стоит ли дробить `Community 0` на более узкие модули?**
-  _Cohesion 0.059157509157509156 — узлы сообщества слабо связаны друг с другом._
-- **Почему `Database` связывает `Community 0` с `Community 1`, `Community 2`, `Community 4`, `Community 5`?**
-  _Высокая betweenness centrality (0.197) — узел-мост между сообществами._
-- **Верны ли 42 inferred-связи у `WebUser` (напр. с `authenticate_web_user()` и `current_web_user()`)?**
-  _У `WebUser` 42 ребра INFERRED — нужна проверка._
-- **Стоит ли дробить `Community 1` на более узкие модули?**
-  _Cohesion 0.05485232067510549 — узлы сообщества слабо связаны друг с другом._
+## Suggested Questions
+_Questions this graph is uniquely positioned to answer:_
+
+- **Why does `Worker` connect `Community 16` to `Community 21`, `Community 12`, `Community 29`, `Community 6`?**
+  _High betweenness centrality (0.271) - this node is a cross-community bridge._
+- **Are the 79 inferred relationships involving `Database` (e.g. with `check_update()` and `sync_from_github()`) actually correct?**
+  _`Database` has 79 INFERRED edges - model-reasoned connections that need verification._
+- **What connects `Settings`, `Version`, `CollectHardware` to the rest of the system?**
+  _166 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `Community 0` be split into smaller, more focused modules?**
+  _Cohesion score 0.05698778833107191 - nodes in this community are weakly interconnected._
+- **Why does `Database` connect `Community 2` to `Community 0`, `Community 1`, `Community 3`, `Community 4`, `Community 5`, `Community 10`, `Community 43`, `Community 22`, `Community 30`, `Community 31`?**
+  _High betweenness centrality (0.176) - this node is a cross-community bridge._
+- **Are the 44 inferred relationships involving `WebUser` (e.g. with `authenticate_web_user()` and `current_web_user()`) actually correct?**
+  _`WebUser` has 44 INFERRED edges - model-reasoned connections that need verification._
+- **Should `Community 1` be split into smaller, more focused modules?**
+  _Cohesion score 0.08484848484848485 - nodes in this community are weakly interconnected._
