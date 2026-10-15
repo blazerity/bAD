@@ -61,50 +61,33 @@
         <a href="?view=overview" class="settings-nav-item {% if view == 'overview' %}active{% endif %}"
            data-device-nav="overview">
           <span class="settings-nav-icon">{{ icon('overview') }}</span>
-          <span>
-            <span class="settings-nav-label">Обзор</span>
-            <span class="settings-nav-desc">Краткая выжимка</span>
-          </span>
+          <span class="settings-nav-label">Обзор</span>
         </a>
 
         {% for item in inventory_nav %}
         <a href="?view={{ item.id }}" class="settings-nav-item {% if view == item.id %}active{% endif %}"
            data-device-nav="{{ item.id }}">
           <span class="settings-nav-icon">{{ icon(item.icon) }}</span>
-          <span>
-            <span class="settings-nav-label">{{ item.title }}</span>
-            {% if item.lines %}
-            <span class="settings-nav-desc">{{ item.lines[0] }}</span>
-            {% endif %}
-          </span>
+          <span class="settings-nav-label">{{ item.title }}</span>
         </a>
         {% endfor %}
 
         <a href="?view=events" class="settings-nav-item {% if view == 'events' %}active{% endif %}"
            data-device-nav="events">
           <span class="settings-nav-icon">{{ icon('events') }}</span>
-          <span>
-            <span class="settings-nav-label">События</span>
-            <span class="settings-nav-desc">Недавние изменения</span>
-          </span>
+          <span class="settings-nav-label">События</span>
         </a>
 
         <a href="?view=config" class="settings-nav-item {% if view == 'config' %}active{% endif %}"
            data-device-nav="config">
           <span class="settings-nav-icon">{{ icon('settings') }}</span>
-          <span>
-            <span class="settings-nav-label">Параметры агента</span>
-            <span class="settings-nav-desc">Политика и override</span>
-          </span>
+          <span class="settings-nav-label">Параметры агента</span>
         </a>
 
         <a href="?view=admin" class="settings-nav-item nav-secondary {% if view == 'admin' %}active{% endif %}"
            data-device-nav="admin">
           <span class="settings-nav-icon">{{ icon('serial') }}</span>
-          <span>
-            <span class="settings-nav-label">Управление записью</span>
-            <span class="settings-nav-desc">Теги, доступ, удаление</span>
-          </span>
+          <span class="settings-nav-label">Управление записью</span>
         </a>
       </nav>
     </aside>
