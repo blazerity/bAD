@@ -19,7 +19,8 @@ uvicorn bad_server.app:app --host 127.0.0.1 --port 8000
 ```
 
 - Health: `http://127.0.0.1:8000/v1/health`
-- Web UI: `http://127.0.0.1:8000/login` (admin token)
+- Web UI: `http://127.0.0.1:8000/login` (local `admin`/`admin` on first boot; optional LDAP via `/settings/ldap`)
+- Admin API token (`BAD_ADMIN_TOKEN`) is Bearer-only for `/v1/devices*` — not used for browser login
 
 ## Tests
 

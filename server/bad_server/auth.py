@@ -5,12 +5,35 @@ from typing import Annotated, Optional
 from fastapi import Depends, Header, HTTPException, Request, status
 
 from .config import Settings, get_settings
+from .crypto_util import decrypt_secret, generate_data_key, generate_session_secret
 from .db import Database
-from .security import constant_time_equals, extract_bearer, verify_secret
+from .ldap_client import LdapSettingsView, authenticate_user, settings_from_row
+from .security import constant_time_equals, extract_bearer, hash_secret, verify_secret
+from .sessions import WebUser, load_session
 
 
 def get_db(request: Request) -> Database:
     return request.app.state.db
+
+
+def get_session_secret(request: Request, settings: Settings = Depends(get_settings)) -> str:
+    secret = getattr(request.app.state, "session_secret", None) or settings.session_secret
+    if not secret:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Session secret not configured",
+        )
+    return secret
+
+
+def get_data_key(request: Request) -> str:
+    key = getattr(request.app.state, "data_key", None)
+    if not key:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Data key not configured",
+        )
+    return key
 
 
 def require_enrollment_token(
@@ -70,16 +93,120 @@ def admin_token_valid(token: Optional[str], settings: Settings, db: Database) ->
 
 
 def require_admin_token(
-    request: Request,
     authorization: Annotated[Optional[str], Header()] = None,
     settings: Settings = Depends(get_settings),
     db: Database = Depends(get_db),
 ) -> str:
+    """Bearer-only admin API token (automation / agents). Web UI uses sessions."""
     token = extract_bearer(authorization)
-    if not token:
-        token = request.cookies.get("bad_admin_token")
     if not admin_token_valid(token, settings, db):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid admin token"
         )
     return token or ""
+
+
+def current_web_user(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    session_secret: str = Depends(get_session_secret),
+) -> Optional[WebUser]:
+    from .sessions import SESSION_COOKIE
+
+    return load_session(session_secret, request.cookies.get(SESSION_COOKIE))
+
+
+def require_web_user(
+    user: Optional[WebUser] = Depends(current_web_user),
+) -> WebUser:
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+        )
+    return user
+
+
+def require_web_admin(user: WebUser = Depends(require_web_user)) -> WebUser:
+    if not user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required"
+        )
+    return user
+
+
+def ensure_bootstrap_secrets(db: Database, settings: Settings) -> tuple[str, str]:
+    """Ensure session + data encryption keys exist; return (session_secret, data_key)."""
+    session_secret = settings.session_secret or db.get_site_secret("session_secret")
+    if not session_secret:
+        session_secret = generate_session_secret()
+        db.set_site_secret("session_secret", session_secret)
+
+    data_key = db.get_site_secret("data_key")
+    if not data_key:
+        data_key = generate_data_key()
+        db.set_site_secret("data_key", data_key)
+
+    return session_secret, data_key
+
+
+def seed_default_admin(db: Database, settings: Settings) -> None:
+    """Create local admin/admin only when no local users exist."""
+    if db.count_local_users() > 0:
+        return
+    db.create_local_user(
+        username=settings.default_admin_username,
+        password_hash=hash_secret(settings.default_admin_password),
+        role="admin",
+        must_change_password=True,
+    )
+
+
+def load_ldap_view(db: Database, data_key: str) -> LdapSettingsView:
+    row = db.get_ldap_settings()
+    password = ""
+    enc = row.get("bind_password_enc") or ""
+    if enc:
+        password = decrypt_secret(data_key, enc) or ""
+    return settings_from_row(row, bind_password=password)
+
+
+def try_local_login(db: Database, username: str, password: str) -> Optional[WebUser]:
+    row = db.get_local_user(username)
+    if not row:
+        return None
+    if not verify_secret(row["password_hash"], password):
+        return None
+    db.touch_local_user_login(row["username"])
+    return WebUser(
+        username=row["username"],
+        role=row["role"] or "admin",
+        source="local",
+        must_change_password=bool(row["must_change_password"]),
+    )
+
+
+def try_ldap_login(db: Database, data_key: str, username: str, password: str) -> Optional[WebUser]:
+    view = load_ldap_view(db, data_key)
+    if not view.enabled:
+        return None
+    result = authenticate_user(view, username, password)
+    if not result:
+        return None
+    role = view.default_role if view.default_role in {"admin", "operator"} else "operator"
+    return WebUser(
+        username=result.username,
+        role=role,
+        source="ldap",
+        must_change_password=False,
+        display_name=result.display_name,
+    )
+
+
+def authenticate_web_user(
+    db: Database, data_key: str, username: str, password: str
+) -> Optional[WebUser]:
+    """Prefer local users; fall back to LDAP when enabled."""
+    local = try_local_login(db, username, password)
+    if local:
+        return local
+    return try_ldap_login(db, data_key, username, password)

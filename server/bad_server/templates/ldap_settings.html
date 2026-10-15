@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}LDAP settings — bAD{% endblock %}
+{% block content %}
+<section class="settings">
+  <p class="crumb"><a href="/devices">Devices</a> / LDAP settings</p>
+  <h1>LDAP settings</h1>
+  <p class="muted">Optional directory login. Local accounts always work. Bind password is stored encrypted and never shown again after save.</p>
+  {% if message %}<p class="ok">{{ message }}</p>{% endif %}
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  {% if test_result %}<p class="{% if test_result.startswith('OK') %}ok{% else %}error{% endif %}">{{ test_result }}</p>{% endif %}
+
+  <form method="post" action="/settings/ldap" class="settings-form">
+    <label class="check">
+      <input type="checkbox" name="enabled" value="1" {% if ldap.enabled %}checked{% endif %}>
+      Enable LDAP login
+    </label>
+
+    <label for="host">Host</label>
+    <input id="host" name="host" type="text" value="{{ ldap.host }}" placeholder="ldap.example.com" autocomplete="off">
+
+    <label for="port">Port</label>
+    <input id="port" name="port" type="number" min="1" max="65535" value="{{ ldap.port }}">
+
+    <label class="check">
+      <input type="checkbox" name="use_ssl" value="1" {% if ldap.use_ssl %}checked{% endif %}>
+      Use LDAPS (SSL)
+    </label>
+    <label class="check">
+      <input type="checkbox" name="start_tls" value="1" {% if ldap.start_tls %}checked{% endif %}>
+      StartTLS
+    </label>
+
+    <label for="bind_dn">Bind DN</label>
+    <input id="bind_dn" name="bind_dn" type="text" value="{{ ldap.bind_dn }}" placeholder="cn=svc-bad,ou=services,dc=example,dc=com" autocomplete="off">
+
+    <label for="bind_password">Bind password</label>
+    <input id="bind_password" name="bind_password" type="password" value=""
+      placeholder="{% if has_bind_password %}unchanged{% else %}{% endif %}"
+      autocomplete="new-password">
+    {% if has_bind_password %}
+    <p class="hint">Leave blank to keep the stored bind password unchanged.</p>
+    {% endif %}
+
+    <label for="user_search_base">User search base</label>
+    <input id="user_search_base" name="user_search_base" type="text" value="{{ ldap.user_search_base }}" placeholder="ou=people,dc=example,dc=com" autocomplete="off">
+
+    <label for="user_filter_template">User filter template</label>
+    <input id="user_filter_template" name="user_filter_template" type="text" value="{{ ldap.user_filter_template }}" placeholder="(uid={username})" autocomplete="off">
+    <p class="hint">Must include <span class="mono">{username}</span>. AD example: <span class="mono">(sAMAccountName={username})</span></p>
+
+    <label for="display_name_attr">Display name attribute</label>
+    <input id="display_name_attr" name="display_name_attr" type="text" value="{{ ldap.display_name_attr }}" placeholder="cn" autocomplete="off">
+
+    <label for="default_role">Default role for LDAP users</label>
+    <select id="default_role" name="default_role">
+      <option value="operator" {% if ldap.default_role == 'operator' %}selected{% endif %}>operator (devices only)</option>
+      <option value="admin" {% if ldap.default_role == 'admin' %}selected{% endif %}>admin (includes LDAP settings)</option>
+    </select>
+
+    <div class="form-actions">
+      <button type="submit">Save settings</button>
+      <button type="submit" formaction="/settings/ldap/test" formmethod="post" class="secondary">Test connection</button>
+    </div>
+  </form>
+</section>
+{% endblock %}

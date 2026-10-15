@@ -8,11 +8,11 @@ public class CollectorTests
     public void InventoryCollector_ProducesSchemaVersion1()
     {
         var collector = new InventoryCollector();
-        var snap = collector.Collect("test-device-id", "0.1.0");
+        var snap = collector.Collect("test-device-id", "0.2.0");
 
         Assert.Equal(1, snap.SchemaVersion);
         Assert.Equal("test-device-id", snap.DeviceId);
-        Assert.Equal("0.1.0", snap.AgentVersion);
+        Assert.Equal("0.2.0", snap.AgentVersion);
         Assert.False(string.IsNullOrWhiteSpace(snap.CollectedAt));
         Assert.NotNull(snap.Host);
         Assert.False(string.IsNullOrWhiteSpace(snap.Host!.Hostname));
@@ -35,7 +35,7 @@ public class CollectorTests
     [Fact]
     public void BadApiClient_RejectsCleartextHttp()
     {
-        Assert.Throws<InvalidOperationException>(() => new BadApiClient("http://evil.example.com", "0.1.0"));
+        Assert.Throws<InvalidOperationException>(() => new BadApiClient("http://evil.example.com", "0.2.0"));
     }
 
     [Fact]

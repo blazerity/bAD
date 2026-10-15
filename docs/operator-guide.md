@@ -1,4 +1,4 @@
-# Operator guide — bAD MVP
+# Operator guide — bAD
 
 End-to-end path: install server → install Windows agent MSI → see the device in the web UI.
 
@@ -17,26 +17,44 @@ BAD_TLS_KEY=/etc/ssl/private/bad.privkey.pem \
 The script prints (once):
 
 - `https://bad.example.com/`
-- enrollment token
-- admin token
+- enrollment token (agent MSI)
+- admin API token (Bearer automation)
 
 Verify:
 
 ```bash
 curl -fsS https://bad.example.com/v1/health
-# → {"status":"ok","version":"0.1.0"}
+# → {"status":"ok","version":"0.2.0"}
 ```
 
-Open `https://bad.example.com/login` and sign in with the **admin token**.
+### Web login (local)
+
+1. Open `https://bad.example.com/login`
+2. Sign in with the default local account: **`admin` / `admin`**
+3. Change the password immediately (`Password` in the header, or the forced redirect)
+
+This works with **no LDAP configured**. The admin API token is **not** used for the browser UI.
 
 Tokens live in `/etc/bad/site.env` (mode `640`, `root:bad`). uvicorn listens on `127.0.0.1:8000` only; nginx terminates TLS on 443.
+
+### Optional: LDAP from the UI
+
+1. Sign in as a local **admin**
+2. Open **LDAP** (`/settings/ldap`)
+3. Fill host, port, SSL/StartTLS, bind DN + bind password, user search base, filter template (must include `{username}`), display name attribute, default role
+4. **Save settings**, then **Test connection**
+5. Enable LDAP login; directory users can sign in on `/login` (local users are tried first)
+
+Bind passwords are stored encrypted in SQLite and never shown again after save (leave the field blank to keep unchanged).
+
+Security caveat: change the default `admin`/`admin` password before exposing the UI beyond a trusted network.
 
 ## 2. Windows agent (MSI)
 
 On a Windows build host, produce the MSI (see `installer/msi/README.md`), then install:
 
 ```powershell
-msiexec /i bad-agent-0.1.0.msi `
+msiexec /i bad-agent-0.2.0.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=<enrollment-token-from-install> `
   /qn
@@ -46,11 +64,11 @@ The service `BlazerityAssetDiscovery` starts automatically, enrolls once, stores
 
 ## 3. Confirm in the web UI
 
-1. Open `https://bad.example.com/devices`
+1. Open `https://bad.example.com/devices` (after signing in)
 2. Find the hostname
 3. Open the device page to view the latest inventory JSON
 
-Alternatively:
+Alternatively (automation — admin API token):
 
 ```bash
 curl -fsS -H "Authorization: Bearer <admin-token>" \

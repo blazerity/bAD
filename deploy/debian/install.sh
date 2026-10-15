@@ -7,7 +7,7 @@
 #   curl -fsSL https://<distribution-host>/bad/install.sh | sudo bash
 set -euo pipefail
 
-BAD_VERSION="${BAD_VERSION:-0.1.0}"
+BAD_VERSION="${BAD_VERSION:-0.2.0}"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "error: must run as root" >&2
@@ -156,11 +156,12 @@ echo " Version:          ${BAD_VERSION}"
 echo " URL:              https://${BAD_DOMAIN}/"
 echo " Health:           https://${BAD_DOMAIN}/v1/health"
 echo " Web UI:           https://${BAD_DOMAIN}/login"
+echo " Web login:        admin / admin  (change immediately on first login)"
 echo " DB:               /var/lib/bad/bad.db"
 echo " Logs:             journalctl -u bad-api -f"
 if [[ "${PRINT_TOKENS}" -eq 1 ]]; then
   echo " Enrollment token: ${ENROLLMENT_TOKEN}"
-  echo " Admin token:      ${ADMIN_TOKEN}"
+  echo " Admin API token:  ${ADMIN_TOKEN}  (Bearer for /v1/devices*; not for web login)"
   echo
   echo " Save these tokens now — they are in /etc/bad/site.env (mode 640, root:bad)."
 else
