@@ -1,13 +1,35 @@
+# Secrets / local env
+.env
+.env.*
+!.env.example
+site.env
+**/config.json
+
 # Python
 **/__pycache__/
 **/*.py[cod]
+*$py.class
 **/.venv/
 **/venv/
 **/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.coverage
+**/htmlcov/
 **/*.egg-info/
+.coverage.*
+coverage.xml
+*.cover
+.tox/
+.nox/
+.hypothesis/
 server/data/
+
+# Local runtime DBs (keep committed fixtures if added under tests/)
 *.db
 *.db-*
+!**/fixtures/**/*.db
+!**/testdata/**/*.db
 
 # .NET
 **/bin/
@@ -15,21 +37,44 @@ server/data/
 **/.vs/
 *.user
 *.suo
+*.userosscache
+*.sln.docstates
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+*.coverage
+*.coveragexml
+coverage*.json
+coverage*.xml
 
 # WiX / MSI build
 installer/msi/publish/
 installer/msi/*.msi
 installer/msi/*.wixpdb
+installer/msi/*.wixobj
 installer/msi/Harvested.wxs
+*.msi
+*.wixobj
+*.wixpdb
 
-# OS / editors
+# Build / dist
+dist/
+build/
+**/dist/
+**/build/
+
+# Logs
+*.log
+logs/
+**/logs/
+
+# OS junk
 .DS_Store
 Thumbs.db
+Desktop.ini
+
+# Editors
 .idea/
 .vscode/
-*.log
-
-# Secrets / local env
-.env
-site.env
-**/config.json
+*.swp
+*.swo
+*~

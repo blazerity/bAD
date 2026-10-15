@@ -7,6 +7,8 @@
 #   curl -fsSL https://<distribution-host>/bad/install.sh | sudo bash
 set -euo pipefail
 
+BAD_VERSION="${BAD_VERSION:-0.1.0}"
+
 if [[ "${EUID}" -ne 0 ]]; then
   echo "error: must run as root" >&2
   exit 1
@@ -148,8 +150,9 @@ done
 
 echo
 echo "========================================"
-echo " bAD server installed"
+echo " bAD server ${BAD_VERSION} installed"
 echo "========================================"
+echo " Version:          ${BAD_VERSION}"
 echo " URL:              https://${BAD_DOMAIN}/"
 echo " Health:           https://${BAD_DOMAIN}/v1/health"
 echo " Web UI:           https://${BAD_DOMAIN}/login"

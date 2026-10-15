@@ -4,7 +4,7 @@
   Build on Windows with the WiX toolset, after publishing the agent:
 
     dotnet publish ..\..\agent\src\BadAgent\BadAgent.csproj -c Release -r win-x64 --self-contained true -o .\publish
-    wix build Product.wxs -d AgentPublishDir=.\publish -o bad-agent-1.0.0.msi
+    wix build Product.wxs -d AgentPublishDir=.\publish -o bad-agent-0.1.0.msi
 
   Public properties (msiexec):
     SERVERURL=https://bad.example.com
@@ -16,7 +16,7 @@
   <Package
       Name="blazerity Asset Discovery Agent"
       Manufacturer="blazerity"
-      Version="1.0.0"
+      Version="0.1.0"
       UpgradeCode="BADA0001-BADA-4B01-8BAD-BLAZERITY0BAD"
       Scope="perMachine">
 

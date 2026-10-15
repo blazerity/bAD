@@ -39,7 +39,9 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 def test_health(client: TestClient):
     r = client.get("/v1/health")
     assert r.status_code == 200
-    assert r.json()["status"] == "ok"
+    body = r.json()
+    assert body["status"] == "ok"
+    assert body["version"] == "0.1.0"
 
 
 def test_enroll_inventory_get_flow(client: TestClient):
