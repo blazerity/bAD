@@ -29,6 +29,7 @@
   {% endif %}
 
   <form method="post" action="/settings/updates/sync" class="form-actions">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button type="submit">Синхронизировать сейчас</button>
   </form>
 </section>

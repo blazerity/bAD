@@ -39,6 +39,7 @@
   {% endif %}
 
   <form method="post" action="/settings/backups/run" class="form-actions">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button type="submit">Сделать бэкап сейчас</button>
   </form>
 </section>

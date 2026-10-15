@@ -1,6 +1,6 @@
 # Заметки для coding agents (bAD)
 
-Практическая карта репозитория: где что лежит, как гонять тесты, что нельзя сломать. Версия продукта: **0.9.0**.
+Практическая карта репозитория: где что лежит, как гонять тесты, что нельзя сломать. Версия продукта: **0.9.1**.
 
 ## Структура
 
@@ -12,7 +12,7 @@ server/                # FastAPI app + agent-update mirror
 installer/msi/         # WiX Product.wxs, write-config.ps1, bad.cmd
 deploy/debian/         # install.sh, systemd/, nginx/
 docs/                  # операторские и архитектурные документы
-VERSION                # канонический semver продукта (сейчас 0.9.0)
+VERSION                # канонический semver продукта (сейчас 0.9.1)
 .github/workflows/     # ci.yml + release-msi.yml
 ```
 
@@ -36,7 +36,7 @@ uvicorn bad_server.app:app --host 127.0.0.1 --port 8000
 # локально, если есть untracked server/tests/: pytest -q
 ```
 
-- Health: `GET /v1/health` → `{"status":"ok","version":"0.9.0"}`
+- Health: `GET /v1/health` → `{"status":"ok","version":"0.9.1"}`
 - Web: `/login` (`admin`/`admin` first boot) → `/` обзор; устройства `/devices` (поиск/CSV/архив); карточка — revoke/rotate/delete
 - Параметры `/settings/*` (Win11 left-nav): LDAP (+ AD group), mail/SMTP toggles, retention, backups, policies, agent updates
 - UI look (0.8.0+): Win11/Fluent light + русский UI — `bad_server/static/style.css`, favicon; CLI HTML report — те же токены/иконки; `agent/assets/bad.ico`
@@ -113,7 +113,7 @@ Hardware (при `collect_hardware`): помимо CPU/RAM/disks/volumes — `se
 
 Heartbeat health (опционально → meta устройства): `last_inventory_ok`, `last_inventory_error`, `agent_uptime_seconds`, `system_drive_free_bytes`.
 
-### Offline queue / revoke (0.9.0)
+### Offline queue / revoke (0.9.1)
 
 - Недоступный сервер → `%ProgramData%\blazerity\bAD\queue\` + backoff (`OfflineQueue`).
 - 401/403 → очистить `api_key`, оставить `device_id`, Event Log, не постить до re-enroll/reinstall (`Worker.HandleAuthFailure`).
@@ -121,7 +121,7 @@ Heartbeat health (опционально → meta устройства): `last_i
 
 ## Где живёт версия (bump checklist)
 
-Канон: корневой файл **`VERSION`** (`0.9.0`). Bump: patch +0.0.1 / minor +0.1.0 / major только по решению владельца. При релизе синхронизировать:
+Канон: корневой файл **`VERSION`** (`0.9.1`). Bump: patch +0.0.1 / minor +0.1.0 / major только по решению владельца. При релизе синхронизировать:
 
 | Место | Поле |
 |-------|------|
@@ -161,7 +161,7 @@ Heartbeat health (опционально → meta устройства): `last_i
 - Public properties: `SERVERURL`, `ENROLLMENTTOKEN` → ProgramData; optional `ADDPATH=1` → Machine PATH + `bad.cmd`.
 - UpgradeCode фиксирован; major upgrade, ProgramData не сносить (`Permanent`); полный uninstall — Stop/Remove службы + `cleanup-uninstall.ps1` (config/queue/logs).
 - Authenticode: secrets `CODE_SIGN_PFX_BASE64` + `CODE_SIGN_PFX_PASSWORD` (optional timestamp URL); без них — unsigned MSI.
-- Артефакт: `bad-agent-0.9.0.msi` + `agent-release.json`.
+- Артефакт: `bad-agent-0.9.1.msi` + `agent-release.json`.
 
 ## Debian install
 
@@ -229,7 +229,7 @@ Seed локального admin только если `COUNT(local_users)=0`.
 - Сборка **только на Windows** (WiX): см. `installer/msi/README.md`.
 - Public properties: `SERVERURL`, `ENROLLMENTTOKEN`; опционально `ADDPATH=1` для Machine PATH + `bad.cmd`.
 - UpgradeCode фиксирован; major upgrade, ProgramData не сносить.
-- Артефакт: `bad-agent-0.9.0.msi` (имя по semver).
+- Артефакт: `bad-agent-0.9.1.msi` (имя по semver).
 
 ## Debian install
 

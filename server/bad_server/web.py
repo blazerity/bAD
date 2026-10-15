@@ -31,10 +31,11 @@ from .auth import (
 )
 from .config import Settings, get_settings
 from .crypto_util import decrypt_secret, encrypt_secret
+from .csrf import cookie_secure_for_request, ensure_csrf, get_csrf_token, set_csrf_cookie
 from .db import Database
 from .device_health import device_silence_status, health_snippet
 from .ldap_client import settings_from_row, test_connection
-from .security import generate_token, hash_secret, verify_secret
+from .security import api_key_lookup, generate_token, hash_secret, verify_secret
 from .sessions import SESSION_COOKIE, SESSION_MAX_AGE, WebUser, dump_session
 from .agent_update import sync_from_github
 from .backup import backup_status, run_daily_backup
@@ -52,18 +53,27 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.globals["app_version"] = __version__
 
-router = APIRouter(tags=["web"])
+router = APIRouter(tags=["web"], dependencies=[Depends(ensure_csrf)])
 
 DEVICES_PAGE_SIZE = 50
 EVENTS_PAGE_SIZE = 50
 
 
-def _set_session_cookie(resp: RedirectResponse, secret: str, user: WebUser) -> None:
+def _set_session_cookie(
+    resp: RedirectResponse,
+    secret: str,
+    user: WebUser,
+    *,
+    request: Request,
+    settings: Settings,
+) -> None:
+    secure = cookie_secure_for_request(request, settings.cookie_secure)
     resp.set_cookie(
         key=SESSION_COOKIE,
         value=dump_session(secret, user),
         httponly=True,
         samesite="lax",
+        secure=secure,
         max_age=SESSION_MAX_AGE,
         path="/",
     )
@@ -71,6 +81,26 @@ def _set_session_cookie(resp: RedirectResponse, secret: str, user: WebUser) -> N
 
 def _clear_session_cookie(resp: RedirectResponse) -> None:
     resp.delete_cookie(SESSION_COOKIE, path="/")
+
+
+def _html(
+    request: Request,
+    name: str,
+    context: dict,
+    status_code: int = 200,
+):
+    """TemplateResponse + CSRF token/cookie (SEC-010)."""
+    token = get_csrf_token(request)
+    ctx = dict(context)
+    ctx["csrf_token"] = token
+    resp = templates.TemplateResponse(request, name, ctx, status_code=status_code)
+    settings = get_settings()
+    set_csrf_cookie(
+        resp,
+        token,
+        secure=cookie_secure_for_request(request, settings.cookie_secure),
+    )
+    return resp
 
 
 class LdapFormData:
@@ -90,6 +120,7 @@ class LdapFormData:
         display_name_attr: str = Form("cn"),
         default_role: str = Form("operator"),
         allowed_group: str = Form(""),
+        tls_insecure: Optional[str] = Form(None),
     ):
         self.enabled = enabled
         self.host = host
@@ -103,6 +134,7 @@ class LdapFormData:
         self.display_name_attr = display_name_attr
         self.default_role = default_role
         self.allowed_group = allowed_group
+        self.tls_insecure = tls_insecure
 
 
 class SmtpFormData:
@@ -149,7 +181,7 @@ def home(
     settings: Settings = Depends(get_settings),
 ):
     stats = db.overview_stats(stale_after_seconds=settings.device_stale_after_seconds)
-    return templates.TemplateResponse(
+    return _html(
         request,
         "overview.html",
         {
@@ -179,7 +211,7 @@ def login_page(
     if user:
         return RedirectResponse(url="/", status_code=303)
     ldap = db.get_ldap_settings()
-    return templates.TemplateResponse(
+    return _html(
         request,
         "login.html",
         {
@@ -198,11 +230,41 @@ def login_submit(
     db: Database = Depends(get_db),
     data_key: str = Depends(get_data_key),
     session_secret: str = Depends(get_session_secret),
+    settings: Settings = Depends(get_settings),
 ):
+    client = request.client.host if request.client else "unknown"
+    user_key = (username or "").strip().casefold() or "-"
+    ip_limiter = getattr(request.app.state, "login_ip_limiter", None)
+    user_limiter = getattr(request.app.state, "login_user_limiter", None)
+    if ip_limiter is not None and not ip_limiter.allow(client):
+        ldap = db.get_ldap_settings()
+        return _html(
+            request,
+            "login.html",
+            {
+                "error": "Слишком много попыток входа с этого адреса. Подождите минуту.",
+                "ldap_enabled": bool(ldap.get("enabled")),
+                "user": None,
+            },
+            status_code=429,
+        )
+    if user_limiter is not None and not user_limiter.allow(f"u:{user_key}"):
+        ldap = db.get_ldap_settings()
+        return _html(
+            request,
+            "login.html",
+            {
+                "error": "Слишком много попыток для этого имени. Подождите минуту.",
+                "ldap_enabled": bool(ldap.get("enabled")),
+                "user": None,
+            },
+            status_code=429,
+        )
+
     user, auth_error = authenticate_web_user(db, data_key, username.strip(), password)
     ldap = db.get_ldap_settings()
     if not user:
-        return templates.TemplateResponse(
+        return _html(
             request,
             "login.html",
             {
@@ -214,7 +276,7 @@ def login_submit(
         )
     dest = "/account/password" if user.must_change_password else "/"
     resp = RedirectResponse(url=dest, status_code=303)
-    _set_session_cookie(resp, session_secret, user)
+    _set_session_cookie(resp, session_secret, user, request=request, settings=settings)
     return resp
 
 
@@ -298,7 +360,7 @@ def devices_page(
     qs = _devices_query_params(
         tag=tag_filter, q=query, archive=show_archive, page=page_i
     )
-    return templates.TemplateResponse(
+    return _html(
         request,
         "devices.html",
         {
@@ -385,7 +447,7 @@ def events_page(
     events = db.list_device_events(
         device_id=device_filter, limit=page_size, offset=offset
     )
-    return templates.TemplateResponse(
+    return _html(
         request,
         "events.html",
         {
@@ -467,13 +529,13 @@ def device_detail_page(
 ):
     ctx = _device_config_context(db, device_id, user=user, settings=settings)
     if not ctx:
-        return templates.TemplateResponse(
+        return _html(
             request,
             "device_missing.html",
             {"device_id": device_id, "user": user},
             status_code=404,
         )
-    return templates.TemplateResponse(request, "device_detail.html", ctx)
+    return _html(request, "device_detail.html", ctx)
 
 
 @router.post("/devices/{device_id}/revoke")
@@ -485,7 +547,7 @@ def device_revoke(
     settings: Settings = Depends(get_settings),
 ):
     if not db.set_device_revoked(device_id, True):
-        return templates.TemplateResponse(
+        return _html(
             request,
             "device_missing.html",
             {"device_id": device_id, "user": user},
@@ -499,7 +561,7 @@ def device_revoke(
         message="Доступ отозван: агент получит 403 до повторной регистрации или выпуска нового ключа",
     )
     assert ctx is not None
-    return templates.TemplateResponse(request, "device_detail.html", ctx)
+    return _html(request, "device_detail.html", ctx)
 
 
 @router.post("/devices/{device_id}/rotate-key")
@@ -511,14 +573,18 @@ def device_rotate_key(
     settings: Settings = Depends(get_settings),
 ):
     if not db.get_device_detail(device_id):
-        return templates.TemplateResponse(
+        return _html(
             request,
             "device_missing.html",
             {"device_id": device_id, "user": user},
             status_code=404,
         )
     api_key = generate_token("bad_ak_")
-    db.rotate_device_api_key(device_id, hash_secret(api_key))
+    data_key = getattr(request.app.state, "data_key", "") or ""
+    lookup = api_key_lookup(data_key, api_key) if data_key else None
+    db.rotate_device_api_key(
+        device_id, hash_secret(api_key), api_key_lookup=lookup
+    )
     ctx = _device_config_context(
         db,
         device_id,
@@ -528,7 +594,7 @@ def device_rotate_key(
     )
     assert ctx is not None
     ctx["new_api_key"] = api_key
-    return templates.TemplateResponse(request, "device_detail.html", ctx)
+    return _html(request, "device_detail.html", ctx)
 
 
 @router.post("/devices/{device_id}/archive")
@@ -580,7 +646,7 @@ def device_tags_save(
     try:
         db.set_device_tags(device_id, tags)
     except KeyError:
-        return templates.TemplateResponse(
+        return _html(
             request,
             "device_missing.html",
             {"device_id": device_id, "user": user},
@@ -590,7 +656,7 @@ def device_tags_save(
         db, device_id, user=user, settings=settings, message="Теги сохранены"
     )
     assert ctx is not None
-    return templates.TemplateResponse(request, "device_detail.html", ctx)
+    return _html(request, "device_detail.html", ctx)
 
 
 @router.post("/devices/{device_id}/config-override")
@@ -611,7 +677,7 @@ def device_config_override_save(
 ):
     if clear_override is not None:
         if not db.get_device_detail(device_id):
-            return templates.TemplateResponse(
+            return _html(
                 request,
                 "device_missing.html",
                 {"device_id": device_id, "user": user},
@@ -626,7 +692,7 @@ def device_config_override_save(
             message="Ручное переопределение очищено",
         )
         assert ctx is not None
-        return templates.TemplateResponse(request, "device_detail.html", ctx)
+        return _html(request, "device_detail.html", ctx)
 
     raw: dict = {}
     for key, raw_val in (
@@ -657,19 +723,19 @@ def device_config_override_save(
             error="Укажите хотя бы одно поле override (или очистите)",
         )
         if not ctx:
-            return templates.TemplateResponse(
+            return _html(
                 request,
                 "device_missing.html",
                 {"device_id": device_id, "user": user},
                 status_code=404,
             )
-        return templates.TemplateResponse(
+        return _html(
             request, "device_detail.html", ctx, status_code=400
         )
     try:
         db.set_device_config_override(device_id, cleaned)
     except KeyError:
-        return templates.TemplateResponse(
+        return _html(
             request,
             "device_missing.html",
             {"device_id": device_id, "user": user},
@@ -683,7 +749,7 @@ def device_config_override_save(
         message="Ручное переопределение сохранено",
     )
     assert ctx is not None
-    return templates.TemplateResponse(request, "device_detail.html", ctx)
+    return _html(request, "device_detail.html", ctx)
 
 
 @router.get("/account/password", response_class=HTMLResponse)
@@ -693,7 +759,7 @@ def password_page(
 ):
     if user.source != "local":
         return RedirectResponse(url="/", status_code=303)
-    return templates.TemplateResponse(
+    return _html(
         request,
         "password.html",
         {
@@ -719,7 +785,7 @@ def password_submit(
         return RedirectResponse(url="/", status_code=303)
 
     def render(error: str, status_code: int = 400):
-        return templates.TemplateResponse(
+        return _html(
             request,
             "password.html",
             {
@@ -751,7 +817,10 @@ def password_submit(
         display_name=user.display_name,
     )
     resp = RedirectResponse(url="/", status_code=303)
-    _set_session_cookie(resp, session_secret, updated)
+    settings = get_settings()
+    _set_session_cookie(
+        resp, session_secret, updated, request=request, settings=settings
+    )
     return resp
 
 
@@ -784,6 +853,7 @@ def _ldap_form_context(
             "display_name_attr": row.get("display_name_attr") or "cn",
             "default_role": row.get("default_role") or "operator",
             "allowed_group": row.get("allowed_group") or "",
+            "tls_insecure": bool(row.get("tls_insecure")),
         },
     }
 
@@ -814,6 +884,7 @@ def _parse_ldap_form(form: LdapFormData) -> tuple[dict, Optional[str]]:
         "display_name_attr": (form.display_name_attr or "cn").strip() or "cn",
         "default_role": role,
         "allowed_group": (form.allowed_group or "").strip(),
+        "tls_insecure": form.tls_insecure is not None,
     }, None
 
 
@@ -898,7 +969,7 @@ def policies_page(
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
 ):
-    return templates.TemplateResponse(
+    return _html(
         request,
         "policies.html",
         {
@@ -924,7 +995,7 @@ def policy_edit_page(
     policy = db.get_agent_policy(policy_id)
     if not policy:
         return RedirectResponse(url="/settings/policies", status_code=303)
-    return templates.TemplateResponse(
+    return _html(
         request,
         "policies.html",
         {
@@ -975,7 +1046,7 @@ def policy_create(
         collect_software=collect_software,
     )
     if err or not parsed:
-        return templates.TemplateResponse(
+        return _html(
             request,
             "policies.html",
             {
@@ -991,7 +1062,7 @@ def policy_create(
             status_code=400,
         )
     db.create_agent_policy(**parsed)
-    return templates.TemplateResponse(
+    return _html(
         request,
         "policies.html",
         {
@@ -1044,7 +1115,7 @@ def policy_update(
     )
     if err or not parsed:
         policy = db.get_agent_policy(policy_id)
-        return templates.TemplateResponse(
+        return _html(
             request,
             "policies.html",
             {
@@ -1062,7 +1133,7 @@ def policy_update(
     updated = db.update_agent_policy(policy_id, **parsed)
     if not updated:
         return RedirectResponse(url="/settings/policies", status_code=303)
-    return templates.TemplateResponse(
+    return _html(
         request,
         "policies.html",
         {
@@ -1095,7 +1166,7 @@ def ldap_settings_page(
     db: Database = Depends(get_db),
 ):
     row = db.get_ldap_settings()
-    return templates.TemplateResponse(
+    return _html(
         request,
         "ldap_settings.html",
         _ldap_form_context(row, user=user),
@@ -1113,7 +1184,7 @@ def ldap_settings_save(
     parsed, err = _parse_ldap_form(form)
     if err:
         row = db.get_ldap_settings()
-        return templates.TemplateResponse(
+        return _html(
             request,
             "ldap_settings.html",
             _ldap_form_context(row, user=user, error=err),
@@ -1136,10 +1207,11 @@ def ldap_settings_save(
         display_name_attr=parsed["display_name_attr"],
         default_role=parsed["default_role"],
         allowed_group=parsed["allowed_group"],
+        tls_insecure=parsed["tls_insecure"],
         bind_password_enc=enc,
     )
     row = db.get_ldap_settings()
-    return templates.TemplateResponse(
+    return _html(
         request,
         "ldap_settings.html",
         _ldap_form_context(row, user=user, message="Настройки LDAP сохранены"),
@@ -1157,7 +1229,7 @@ def ldap_settings_test(
     parsed, err = _parse_ldap_form(form)
     row = db.get_ldap_settings()
     if err:
-        return templates.TemplateResponse(
+        return _html(
             request,
             "ldap_settings.html",
             _ldap_form_context(row, user=user, error=err),
@@ -1186,9 +1258,10 @@ def ldap_settings_test(
             "display_name_attr": parsed["display_name_attr"],
             "default_role": parsed["default_role"],
             "allowed_group": parsed["allowed_group"],
+            "tls_insecure": 1 if parsed["tls_insecure"] else 0,
         }
     )
-    return templates.TemplateResponse(
+    return _html(
         request,
         "ldap_settings.html",
         _ldap_form_context(
@@ -1308,7 +1381,7 @@ def retention_settings_page(
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
 ):
-    return templates.TemplateResponse(
+    return _html(
         request,
         "retention_settings.html",
         _retention_context(db, user=user),
@@ -1327,14 +1400,14 @@ def retention_settings_save(
         ev = int((events_days or "90").strip())
         inv = int((inventory_days or "180").strip())
     except ValueError:
-        return templates.TemplateResponse(
+        return _html(
             request,
             "retention_settings.html",
             _retention_context(db, user=user, error="Укажите целые числа дней"),
             status_code=400,
         )
     if ev < 1 or inv < 1 or ev > 3650 or inv > 3650:
-        return templates.TemplateResponse(
+        return _html(
             request,
             "retention_settings.html",
             _retention_context(
@@ -1343,7 +1416,7 @@ def retention_settings_save(
             status_code=400,
         )
     db.update_retention_settings(events_days=ev, inventory_days=inv)
-    return templates.TemplateResponse(
+    return _html(
         request,
         "retention_settings.html",
         _retention_context(
@@ -1363,7 +1436,7 @@ def mail_settings_page(
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
 ):
-    return templates.TemplateResponse(
+    return _html(
         request,
         "smtp_settings.html",
         _smtp_form_context(db.get_smtp_settings(), user=user),
@@ -1380,7 +1453,7 @@ def mail_settings_save(
 ):
     parsed, err = _parse_smtp_form(form)
     if err:
-        return templates.TemplateResponse(
+        return _html(
             request,
             "smtp_settings.html",
             _smtp_form_context(db.get_smtp_settings(), user=user, error=err),
@@ -1401,7 +1474,7 @@ def mail_settings_save(
         notify_json=parsed["notify_json"],
         password_enc=enc,
     )
-    return templates.TemplateResponse(
+    return _html(
         request,
         "smtp_settings.html",
         _smtp_form_context(
@@ -1423,7 +1496,7 @@ def mail_settings_test(
     parsed, err = _parse_smtp_form(form)
     row = db.get_smtp_settings()
     if err:
-        return templates.TemplateResponse(
+        return _html(
             request,
             "smtp_settings.html",
             _smtp_form_context(row, user=user, error=err),
@@ -1434,7 +1507,7 @@ def mail_settings_test(
         pwd = decrypt_secret(data_key, row["password_enc"]) or ""
     recipients = parse_recipients(parsed["to_addrs"])
     if not parsed["from_addr"] or not recipients:
-        return templates.TemplateResponse(
+        return _html(
             request,
             "smtp_settings.html",
             _smtp_form_context(
@@ -1479,7 +1552,7 @@ def mail_settings_test(
             "notify_json": parsed["notify_json"],
         }
     )
-    return templates.TemplateResponse(
+    return _html(
         request,
         "smtp_settings.html",
         _smtp_form_context(
@@ -1498,7 +1571,7 @@ def backups_settings_page(
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    return templates.TemplateResponse(
+    return _html(
         request,
         "backup_settings.html",
         _backup_context(db, settings, user=user),
@@ -1523,7 +1596,7 @@ def backups_settings_run(
     else:
         message = None
         error = result.get("error") or "Ошибка бэкапа"
-    return templates.TemplateResponse(
+    return _html(
         request,
         "backup_settings.html",
         _backup_context(db, settings, user=user, message=message, error=error),
@@ -1538,7 +1611,7 @@ def updates_settings_page(
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    return templates.TemplateResponse(
+    return _html(
         request,
         "updates_settings.html",
         {
@@ -1568,7 +1641,7 @@ def updates_settings_sync(
     except Exception as exc:  # noqa: BLE001
         message = None
         error = f"Ошибка sync: {exc}"
-    return templates.TemplateResponse(
+    return _html(
         request,
         "updates_settings.html",
         {

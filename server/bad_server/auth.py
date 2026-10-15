@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+from pathlib import Path
 from typing import Annotated, Optional
 
 from fastapi import Depends, Header, HTTPException, Request, status
@@ -13,8 +15,18 @@ from .ldap_client import (
     authenticate_user,
     settings_from_row,
 )
-from .security import constant_time_equals, extract_bearer, hash_secret, verify_secret
+from .security import (
+    api_key_lookup,
+    constant_time_equals,
+    extract_bearer,
+    hash_secret,
+    verify_secret,
+)
 from .sessions import WebUser, load_session
+
+logger = logging.getLogger(__name__)
+
+_PASSWORD_CHANGE_PATHS = frozenset({"/account/password", "/logout"})
 
 
 def get_db(request: Request) -> Database:
@@ -69,6 +81,7 @@ def require_enrollment_token(
 
 
 def require_api_key(
+    request: Request,
     authorization: Annotated[Optional[str], Header()] = None,
     db: Database = Depends(get_db),
 ):
@@ -77,7 +90,9 @@ def require_api_key(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing API key"
         )
-    device = db.find_device_by_api_key(token, verify_secret)
+    pepper = getattr(request.app.state, "data_key", None) or ""
+    lookup = api_key_lookup(pepper, token) if pepper else None
+    device = db.find_device_by_api_key(token, verify_secret, lookup_hash=lookup)
     if not device:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key"
@@ -85,7 +100,7 @@ def require_api_key(
     if device["revoked"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="API key revoked; re-enroll or rotate key in web UI",
+            detail="API key revoked; admin must rotate key in web UI",
         )
     return device
 
@@ -107,7 +122,7 @@ def require_admin_token(
     settings: Settings = Depends(get_settings),
     db: Database = Depends(get_db),
 ) -> str:
-    """Только Bearer admin API token (automation / агенты). Web UI — через sessions."""
+    """Только Bearer admin API token (automation). Web UI — через sessions."""
     token = extract_bearer(authorization)
     if not admin_token_valid(token, settings, db):
         raise HTTPException(
@@ -127,13 +142,19 @@ def current_web_user(
 
 
 def require_web_user(
+    request: Request,
     user: Optional[WebUser] = Depends(current_web_user),
 ) -> WebUser:
-    """HTML-шлюз сессии: redirect на login (303) вместо JSON 401."""
+    """HTML-шлюз сессии: redirect на login; must_change_password → только смена пароля."""
     if not user:
         raise HTTPException(
             status_code=status.HTTP_303_SEE_OTHER,
             headers={"Location": "/login"},
+        )
+    if user.must_change_password and request.url.path not in _PASSWORD_CHANGE_PATHS:
+        raise HTTPException(
+            status_code=status.HTTP_303_SEE_OTHER,
+            headers={"Location": "/account/password"},
         )
     return user
 
@@ -148,17 +169,130 @@ def require_web_admin(user: WebUser = Depends(require_web_user)) -> WebUser:
     return user
 
 
+def _read_secret_file(path: Path) -> Optional[str]:
+    try:
+        if path.is_file():
+            text = path.read_text(encoding="utf-8").strip()
+            return text or None
+    except OSError as exc:
+        logger.warning("Cannot read secret file %s: %s", path, exc)
+    return None
+
+
+def _write_secret_file(path: Path, value: str) -> bool:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(value + "\n", encoding="utf-8")
+        try:
+            path.chmod(0o400)
+        except OSError:
+            try:
+                path.chmod(0o600)
+            except OSError:
+                pass
+        return True
+    except OSError as exc:
+        logger.warning("Cannot write secret file %s: %s", path, exc)
+        return False
+
+
 def ensure_bootstrap_secrets(db: Database, settings: Settings) -> tuple[str, str]:
-    """Гарантировать наличие ключей session + шифрования данных; вернуть (session_secret, data_key)."""
-    session_secret = settings.session_secret or db.get_site_secret("session_secret")
+    """Resolve session_secret + data_key from env/file first, DB only as legacy.
+
+    New secrets are written outside SQLite when possible (SEC-005). A copy of
+    ``bad.db`` / daily backups must not be treated as safe if keys still live
+    only in ``site_secrets``.
+    """
+    env_session = (settings.session_secret or "").strip()
+    env_data = (settings.data_key or "").strip()
+    file_session = _read_secret_file(settings.session_secret_file) or _read_secret_file(
+        settings.db_path.parent / ".session_secret"
+    )
+    file_data = _read_secret_file(settings.data_key_file) or _read_secret_file(
+        settings.db_path.parent / ".data_key"
+    )
+    db_session = db.get_site_secret("session_secret")
+    db_data = db.get_site_secret("data_key")
+
+    session_secret = env_session or file_session or db_session
+    data_key = env_data or file_data or db_data
+    created_session = False
+    created_data = False
     if not session_secret:
         session_secret = generate_session_secret()
-        db.set_site_secret("session_secret", session_secret)
-
-    data_key = db.get_site_secret("data_key")
+        created_session = True
     if not data_key:
         data_key = generate_data_key()
-        db.set_site_secret("data_key", data_key)
+        created_data = True
+
+    def _persist(kind: str, value: str, path: Path, created: bool, from_db_only: bool) -> None:
+        if not settings.prefer_external_secrets:
+            if created:
+                db.set_site_secret(kind, value)
+            return
+        # Env already set — drop any plaintext SQLite copy.
+        if kind == "session_secret" and env_session:
+            if db.get_site_secret(kind):
+                db.delete_site_secret(kind)
+            return
+        if kind == "data_key" and env_data:
+            if db.get_site_secret(kind):
+                db.delete_site_secret(kind)
+            return
+        if path.is_file() and _read_secret_file(path):
+            if db.get_site_secret(kind):
+                db.delete_site_secret(kind)
+                logger.info(
+                    "Removed plaintext %s from SQLite; using file %s", kind, path
+                )
+            return
+        if _write_secret_file(path, value):
+            if db.get_site_secret(kind):
+                db.delete_site_secret(kind)
+            logger.info("Stored %s outside SQLite at %s", kind, path)
+            return
+        # Dev fallback next to DB.
+        fallback = settings.db_path.parent / f".{kind}"
+        if _write_secret_file(fallback, value):
+            if db.get_site_secret(kind):
+                db.delete_site_secret(kind)
+            logger.warning(
+                "Wrote %s to %s (preferred path %s not writable)",
+                kind,
+                fallback,
+                path,
+            )
+            return
+        if created:
+            db.set_site_secret(kind, value)
+            logger.warning(
+                "%s stored in SQLite — DB/backup copies are sensitive. "
+                "Set BAD_%s or create %s (mode 0400).",
+                kind,
+                kind.upper(),
+                path,
+            )
+
+    _persist(
+        "session_secret",
+        session_secret,
+        settings.session_secret_file,
+        created_session,
+        from_db_only=bool(db_session and not env_session and not file_session),
+    )
+    _persist(
+        "data_key",
+        data_key,
+        settings.data_key_file,
+        created_data,
+        from_db_only=bool(db_data and not env_data and not file_data),
+    )
+    if db_data and not env_data and not file_data and not settings.data_key_file.is_file():
+        logger.warning(
+            "data_key loaded from SQLite. Backups of bad.db expose Fernet material "
+            "for SMTP/LDAP passwords. Move key to BAD_DATA_KEY or %s.",
+            settings.data_key_file,
+        )
 
     return session_secret, data_key
 
@@ -230,10 +364,7 @@ def try_ldap_login(
 def authenticate_web_user(
     db: Database, data_key: str, username: str, password: str
 ) -> tuple[Optional[WebUser], Optional[str]]:
-    """Сначала локальные пользователи; fallback на LDAP, если включён.
-
-    Возвращает (user, error_message). Локальный break-glass admin не меняется.
-    """
+    """Сначала локальные пользователи; fallback на LDAP, если включён."""
     local = try_local_login(db, username, password)
     if local:
         return local, None
