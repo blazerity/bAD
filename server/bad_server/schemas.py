@@ -23,6 +23,11 @@ class HeartbeatRequest(BaseModel):
     agent_version: Optional[str] = Field(default=None, max_length=64)
     last_inventory_at: Optional[str] = None
     config_version: Optional[str] = Field(default=None, max_length=64)
+    # Light agent health (optional; stored in device meta).
+    last_inventory_ok: Optional[bool] = None
+    last_inventory_error: Optional[str] = Field(default=None, max_length=256)
+    agent_uptime_seconds: Optional[int] = Field(default=None, ge=0)
+    system_drive_free_bytes: Optional[int] = Field(default=None, ge=0)
 
 
 class InventoryRequest(BaseModel):
@@ -34,6 +39,7 @@ class InventoryRequest(BaseModel):
     hardware: Optional[dict[str, Any]] = None
     network: Optional[dict[str, Any]] = None
     users: Optional[dict[str, Any]] = None
+    software: Optional[dict[str, Any]] = None
     collector_errors: list[Any] = Field(default_factory=list)
 
     model_config = {"extra": "allow"}

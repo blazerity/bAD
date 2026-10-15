@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     session_secret: str = ""
     enroll_rate_limit_per_minute: int = 30
     snapshot_retention: int = 30
-    known_schema_versions: frozenset[int] = frozenset({1})
+    known_schema_versions: frozenset[int] = frozenset({1, 2})
     # Seeded only when no local users exist (fresh DB / first boot).
     default_admin_username: str = "admin"
     default_admin_password: str = "admin"

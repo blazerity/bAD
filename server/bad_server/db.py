@@ -208,16 +208,20 @@ class Database:
         device_id: str,
         agent_version: Optional[str],
         last_inventory_at: Optional[str] = None,
+        health: Optional[dict[str, Any]] = None,
     ) -> None:
         now = utc_now()
+        health = {k: v for k, v in (health or {}).items() if v is not None}
         with self.connection() as conn:
-            if last_inventory_at:
+            if last_inventory_at or health:
                 row = conn.execute(
                     "SELECT meta_json FROM devices WHERE device_id = ?",
                     (device_id,),
                 ).fetchone()
                 meta = self._parse_meta(row["meta_json"] if row else None)
-                meta["last_inventory_at"] = last_inventory_at
+                if last_inventory_at:
+                    meta["last_inventory_at"] = last_inventory_at
+                meta.update(health)
                 conn.execute(
                     """
                     UPDATE devices

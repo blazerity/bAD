@@ -69,6 +69,12 @@ def heartbeat(
         device_id=body.device_id,
         agent_version=body.agent_version,
         last_inventory_at=body.last_inventory_at,
+        health={
+            "last_inventory_ok": body.last_inventory_ok,
+            "last_inventory_error": body.last_inventory_error,
+            "agent_uptime_seconds": body.agent_uptime_seconds,
+            "system_drive_free_bytes": body.system_drive_free_bytes,
+        },
     )
     effective = db.compute_device_effective_config(body.device_id)
     assert effective is not None

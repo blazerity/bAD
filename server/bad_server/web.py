@@ -229,6 +229,9 @@ def device_config_override_save(
     heartbeat_interval_minutes: str = Form(""),
     update_check_interval_hours: str = Form(""),
     update_enabled: str = Form(""),
+    collect_hardware: str = Form(""),
+    collect_users: str = Form(""),
+    collect_software: str = Form(""),
     clear_override: Optional[str] = Form(None),
 ):
     if clear_override is not None:
@@ -255,9 +258,15 @@ def device_config_override_save(
         text = (raw_val or "").strip()
         if text:
             raw[key] = text
-    ue = (update_enabled or "").strip().lower()
-    if ue in {"true", "false", "1", "0"}:
-        raw["update_enabled"] = ue in {"true", "1"}
+    _apply_bool_form_fields(
+        raw,
+        {
+            "update_enabled": update_enabled,
+            "collect_hardware": collect_hardware,
+            "collect_users": collect_users,
+            "collect_software": collect_software,
+        },
+    )
 
     cleaned = sanitize_settings(raw)
     if not cleaned:
@@ -421,6 +430,13 @@ def _parse_ldap_form(form: LdapFormData) -> tuple[dict, Optional[str]]:
     }, None
 
 
+def _apply_bool_form_fields(raw: dict, fields: dict[str, str]) -> None:
+    for key, raw_val in fields.items():
+        text = (raw_val or "").strip().lower()
+        if text in {"true", "false", "1", "0"}:
+            raw[key] = text in {"true", "1"}
+
+
 def _parse_policy_form(
     *,
     name: str,
@@ -433,6 +449,9 @@ def _parse_policy_form(
     heartbeat_interval_minutes: str,
     update_check_interval_hours: str,
     update_enabled: str,
+    collect_hardware: str = "",
+    collect_users: str = "",
+    collect_software: str = "",
 ) -> tuple[Optional[dict], Optional[str]]:
     name_s = (name or "").strip()
     if not name_s:
@@ -465,9 +484,15 @@ def _parse_policy_form(
         text = (raw_val or "").strip()
         if text:
             raw[key] = text
-    ue = (update_enabled or "").strip().lower()
-    if ue in {"true", "false", "1", "0"}:
-        raw["update_enabled"] = ue in {"true", "1"}
+    _apply_bool_form_fields(
+        raw,
+        {
+            "update_enabled": update_enabled,
+            "collect_hardware": collect_hardware,
+            "collect_users": collect_users,
+            "collect_software": collect_software,
+        },
+    )
     settings = sanitize_settings(raw)
     if not settings:
         return None, "Set at least one settings field for the policy"
@@ -543,6 +568,9 @@ def policy_create(
     heartbeat_interval_minutes: str = Form(""),
     update_check_interval_hours: str = Form(""),
     update_enabled: str = Form(""),
+    collect_hardware: str = Form(""),
+    collect_users: str = Form(""),
+    collect_software: str = Form(""),
 ):
     parsed, err = _parse_policy_form(
         name=name,
@@ -555,6 +583,9 @@ def policy_create(
         heartbeat_interval_minutes=heartbeat_interval_minutes,
         update_check_interval_hours=update_check_interval_hours,
         update_enabled=update_enabled,
+        collect_hardware=collect_hardware,
+        collect_users=collect_users,
+        collect_software=collect_software,
     )
     if err or not parsed:
         return templates.TemplateResponse(
@@ -605,6 +636,9 @@ def policy_update(
     heartbeat_interval_minutes: str = Form(""),
     update_check_interval_hours: str = Form(""),
     update_enabled: str = Form(""),
+    collect_hardware: str = Form(""),
+    collect_users: str = Form(""),
+    collect_software: str = Form(""),
 ):
     parsed, err = _parse_policy_form(
         name=name,
@@ -617,6 +651,9 @@ def policy_update(
         heartbeat_interval_minutes=heartbeat_interval_minutes,
         update_check_interval_hours=update_check_interval_hours,
         update_enabled=update_enabled,
+        collect_hardware=collect_hardware,
+        collect_users=collect_users,
+        collect_software=collect_software,
     )
     if err or not parsed:
         policy = db.get_agent_policy(policy_id)

@@ -12,12 +12,50 @@ DEFAULT_AGENT_SETTINGS: dict[str, Any] = {
     "heartbeat_interval_minutes": 15,
     "update_check_interval_hours": 24,
     "update_enabled": True,
+    # Hardware/users stay on by default (preserve prior behavior); software is opt-in.
+    "collect_hardware": True,
+    "collect_users": True,
+    "collect_software": False,
 }
 
 ALLOWED_SETTING_KEYS = frozenset(DEFAULT_AGENT_SETTINGS.keys())
 
+BOOL_SETTING_KEYS = frozenset(
+    {
+        "update_enabled",
+        "collect_hardware",
+        "collect_users",
+        "collect_software",
+    }
+)
+
+INT_SETTING_KEYS = frozenset(
+    {
+        "inventory_interval_hours",
+        "heartbeat_interval_minutes",
+        "update_check_interval_hours",
+    }
+)
+
 CONDITION_FIELDS = frozenset({"hostname", "domain", "os_caption"})
 CONDITION_OPS = frozenset({"equals", "contains"})
+
+_TRUE_STRINGS = frozenset({"1", "true", "yes"})
+_FALSE_STRINGS = frozenset({"0", "false", "no"})
+
+
+def _parse_bool(value: Any) -> Optional[bool]:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in _TRUE_STRINGS:
+            return True
+        if text in _FALSE_STRINGS:
+            return False
+    return None
 
 
 def sanitize_settings(raw: Any) -> dict[str, Any]:
@@ -28,26 +66,12 @@ def sanitize_settings(raw: Any) -> dict[str, Any]:
     for key, value in raw.items():
         if key not in ALLOWED_SETTING_KEYS:
             continue
-        if key == "update_enabled":
-            if isinstance(value, bool):
-                out[key] = value
-            elif isinstance(value, (int, float)) and value in (0, 1):
-                out[key] = bool(value)
-            elif isinstance(value, str) and value.strip().lower() in {
-                "1",
-                "true",
-                "yes",
-                "0",
-                "false",
-                "no",
-            }:
-                out[key] = value.strip().lower() in {"1", "true", "yes"}
+        if key in BOOL_SETTING_KEYS:
+            parsed = _parse_bool(value)
+            if parsed is not None:
+                out[key] = parsed
             continue
-        if key in {
-            "inventory_interval_hours",
-            "heartbeat_interval_minutes",
-            "update_check_interval_hours",
-        }:
+        if key in INT_SETTING_KEYS:
             try:
                 n = int(value)
             except (TypeError, ValueError):

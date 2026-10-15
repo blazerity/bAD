@@ -23,6 +23,9 @@
     <div><dt>heartbeat_interval_minutes</dt><dd class="mono">{{ effective.heartbeat_interval_minutes }}</dd></div>
     <div><dt>update_check_interval_hours</dt><dd class="mono">{{ effective.update_check_interval_hours }}</dd></div>
     <div><dt>update_enabled</dt><dd class="mono">{{ effective.update_enabled }}</dd></div>
+    <div><dt>collect_hardware</dt><dd class="mono">{{ effective.collect_hardware }}</dd></div>
+    <div><dt>collect_users</dt><dd class="mono">{{ effective.collect_users }}</dd></div>
+    <div><dt>collect_software</dt><dd class="mono">{{ effective.collect_software }}</dd></div>
   </dl>
   <p class="muted">
     Match context:
@@ -64,6 +67,27 @@
       <option value="" {% if override_settings.update_enabled is not defined %}selected{% endif %}>(omit)</option>
       <option value="true" {% if override_settings.update_enabled is defined and override_settings.update_enabled %}selected{% endif %}>true</option>
       <option value="false" {% if override_settings.update_enabled is defined and not override_settings.update_enabled %}selected{% endif %}>false</option>
+    </select>
+
+    <label for="collect_hardware">collect_hardware</label>
+    <select id="collect_hardware" name="collect_hardware">
+      <option value="" {% if override_settings.collect_hardware is not defined %}selected{% endif %}>(omit)</option>
+      <option value="true" {% if override_settings.collect_hardware is defined and override_settings.collect_hardware %}selected{% endif %}>true</option>
+      <option value="false" {% if override_settings.collect_hardware is defined and not override_settings.collect_hardware %}selected{% endif %}>false</option>
+    </select>
+
+    <label for="collect_users">collect_users</label>
+    <select id="collect_users" name="collect_users">
+      <option value="" {% if override_settings.collect_users is not defined %}selected{% endif %}>(omit)</option>
+      <option value="true" {% if override_settings.collect_users is defined and override_settings.collect_users %}selected{% endif %}>true</option>
+      <option value="false" {% if override_settings.collect_users is defined and not override_settings.collect_users %}selected{% endif %}>false</option>
+    </select>
+
+    <label for="collect_software">collect_software</label>
+    <select id="collect_software" name="collect_software">
+      <option value="" {% if override_settings.collect_software is not defined %}selected{% endif %}>(omit)</option>
+      <option value="true" {% if override_settings.collect_software is defined and override_settings.collect_software %}selected{% endif %}>true</option>
+      <option value="false" {% if override_settings.collect_software is defined and not override_settings.collect_software %}selected{% endif %}>false</option>
     </select>
 
     <div class="form-actions">
