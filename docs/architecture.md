@@ -98,7 +98,7 @@ flowchart LR
 
 1. **GitHub → MSI** — workflow `release-msi.yml` на тег `v*` / `workflow_dispatch`: `dotnet publish` win-x64 self-contained → WiX v5 (`dotnet tool wix`) → optional Authenticode (`CODE_SIGN_PFX_*`, иначе unsigned) → upload MSI + `agent-release.json` (`version`, `msi_name`, `sha256`). Linux CI MSI **не** собирает. Агент при apply: sanitize `msi_name` (SEC-002) и same-origin download URL (SEC-009).
 2. **Зеркало на сервере** — `BAD_GITHUB_REPO` (default `blazerity/bAD`), опционально `BAD_GITHUB_TOKEN`, интервал sync. Job / `POST /v1/admin/agent-update/sync` кладёт файлы в `BAD_AGENT_UPDATES_DIR` и метаданные в SQLite.
-3. **Агент применяет** — check на старте и по расписанию → download → verify sha256 → `msiexec /i … /qn` → выход процесса; WiX `ServiceControl` / MajorUpgrade останавливает службу, меняет файлы, стартует снова. ProgramData сохраняется. Токены не логируются.
+3. **Агент применяет** — check на старте и по расписанию → follow `target_version` (вкл. downgrade) → download (same-origin) → verify sha256 → `msiexec /i … /qn` → выход; WiX `ServiceControl` / MajorUpgrade (**AllowDowngrades**). Remote knob: `update_target`. Anti-loop pending 2h. Токены не логируются.
 
 ## Сервер
 
@@ -119,7 +119,7 @@ flowchart LR
 | `DELETE` | `/v1/devices/{id}` | admin | hard-delete + связанные строки |
 | `PUT` | `/v1/devices/{device_id}/tags` | admin Bearer | заменить теги устройства |
 | `GET` | `/v1/events` | admin Bearer | события (`?device_id=&limit=&offset=`) |
-| `GET` | `/v1/agent/update/check` | API key | `{update_available, version, sha256, url}` |
+| `GET` | `/v1/agent/update/check?current=` | API key | `{current, target_version, update_available, sha256, url, msi_name, reason}` |
 | `GET` | `/v1/agent/update/msi` | API key | байты зеркалированного MSI |
 | `GET` | `/v1/admin/agent-update` | admin | статус зеркала |
 | `POST` | `/v1/admin/agent-update/sync` | admin | sync с GitHub сейчас |

@@ -89,11 +89,13 @@ BadAgent.exe service status|start|stop|restart
 
 1. GHA `release-msi` публикует MSI + `agent-release.json` в Release.
 2. Сервер sync’ит в `/var/lib/bad/agent-updates/` (+ SQLite `agent_update`).
-3. Агент: `GET /v1/agent/update/check?current=` → download MSI → sha256 → `msiexec /i … /qn` → exit; WiX останавливает/стартует службу.
+3. Агент: `GET /v1/agent/update/check?current=` → follow `target_version` / `update_available` → download MSI (same-origin, `?version=`) → sha256 → `msiexec /i … /qn` → exit; WiX MajorUpgrade (**AllowDowngrades** с 0.10). Gate: не только `IsNewer` — pin ниже current тоже применяется.
 
-Конфиг: `update_enabled` (default true), `update_check_interval_hours` (default 24). Env: `BAD_UPDATE_ENABLED`, `BAD_UPDATE_CHECK_INTERVAL_HOURS`.
+Конфиг: `update_enabled` (default true), `update_check_interval_hours` (default 24), **`update_target`** (`latest` | semver pin; алиас `desired_agent_version`). Env: `BAD_UPDATE_ENABLED`, `BAD_UPDATE_CHECK_INTERVAL_HOURS`, `BAD_UPDATE_TARGET`.
 
-Ключевые файлы: `AgentUpdater.cs`, `VersionUtil.cs`, `server/bad_server/agent_update.py`, `github_release.py`.
+Сценарии (0.10): **upgrade**, **downgrade** (pin↓ / latest→older mirror), **same** (no-op), **latest** (target = site latest). Anti-loop: `pending_update_*` cooldown 2h.
+
+Ключевые файлы: `AgentUpdater.cs`, `VersionUtil.cs`, `UpdatePathUtil.cs`, `server/bad_server/agent_update.py`, `github_release.py`.
 
 ## Удалённый конфиг агента
 
@@ -107,7 +109,7 @@ BadAgent.exe service status|start|stop|restart
 | `GET /v1/admin/devices/{id}/config` | admin Bearer |
 | `PUT/DELETE /v1/admin/devices/{id}/config-override` | admin Bearer |
 
-Safe knobs: интервалы + `update_enabled` + toggles коллекторов `collect_hardware` / `collect_users` / `collect_software`. Код: `server/bad_server/agent_config.py`, `ConfigStore.ApplyRemoteSettings`, `InventoryCollector` + `CollectorOptions`.
+Safe knobs: интервалы + `update_enabled` + **`update_target`** (`latest`|semver) + toggles коллекторов `collect_hardware` / `collect_users` / `collect_software`. Код: `server/bad_server/agent_config.py`, `ConfigStore.ApplyRemoteSettings`, `InventoryCollector` + `CollectorOptions`.
 
 Hardware (при `collect_hardware`): помимо CPU/RAM/disks/volumes — `serial_number`, `model`, `manufacturer`, `bios_version`, `battery`, `monitors[]`, `gpus[]`, `ram_modules[]` (+ `memory_type` на модуль), `ram_memory_type` (системный consensus). Host: `ad_ou` / `ad_distinguished_name` (domain-joined). Top-level `minidumps` — только метаданные BSOD (без upload тел). Low-impact: `ThreadPriority.BelowNormal` + yields между WMI. Soft-fail по подсекциям `hardware.*` / `host.ad_ou` / `minidumps`. Cap: 16 GPU / 32 DIMM / 8 monitors / 20 minidump files. Код: `InventoryCollector`, `HardwareMaps`, `OfflineQueue`, `WindowsEventLog`, модели в `InventoryModels.cs`.
 

@@ -8,7 +8,7 @@
     Copy-Item .\cleanup-uninstall.ps1 .\publish\
     Copy-Item .\bad-paths.ps1 .\publish\
     Copy-Item .\bad.cmd .\publish\
-    wix build Product.wxs -d AgentPublishDir=publish -d ProductVersion=0.9.1 -o bad-agent-0.9.1.msi
+    wix build Product.wxs -d AgentPublishDir=publish -d ProductVersion=0.10.0 -o bad-agent-0.10.0.msi
 
   Публичные свойства (msiexec):
     SERVERURL=https://bad.example.com
@@ -26,7 +26,7 @@
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <?ifndef ProductVersion?>
-    <?define ProductVersion = "0.9.1" ?>
+    <?define ProductVersion = "0.10.0" ?>
   <?endif?>
 
   <Package
@@ -36,8 +36,9 @@
       UpgradeCode="BADA0001-BADA-4B01-8BAD-BLAZERITY0BAD"
       Scope="perMachine">
 
+    <!-- AllowDowngrades: политика pin может откатить агент на более старый MSI (0.10). -->
     <MajorUpgrade
-        DowngradeErrorMessage="A newer version of bAD is already installed."
+        AllowDowngrades="yes"
         Schedule="afterInstallInitialize" />
 
     <MediaTemplate EmbedCab="yes" />

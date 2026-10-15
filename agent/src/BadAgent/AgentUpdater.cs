@@ -1,15 +1,20 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
 
 namespace BadAgent;
 
 /// <summary>
-/// Проверяет на сервере bAD более новый MSI, сверяет sha256, запускает silent msiexec
-/// и выходит, чтобы WiX ServiceControl / MajorUpgrade заменил файлы.
-/// Агенты не ходят на GitHub напрямую.
+/// Проверяет на сервере bAD целевой MSI (upgrade / downgrade / pin / latest),
+/// сверяет sha256, запускает silent msiexec и выходит для MajorUpgrade.
+/// Gate (0.10): server update_available + target≠current + sha256 — не только IsNewer.
+/// Download — только same-origin (SEC-009).
 /// </summary>
 public sealed class AgentUpdater
 {
+    /// <summary>Не долбить msiexec той же целевой версией чаще этого интервала.</summary>
+    public static readonly TimeSpan PendingCooldown = TimeSpan.FromHours(2);
+
     private readonly ILogger _logger;
     private readonly string _agentVersion;
 
@@ -32,10 +37,15 @@ public sealed class AgentUpdater
             return false;
         }
 
+        ClearPendingIfMatched(config);
+
+        var localTarget = VersionUtil.NormalizeDesiredAgentVersion(config.UpdateTarget) ?? "latest";
+
         UpdateCheckResponse check;
         try
         {
-            check = await client.CheckUpdateAsync(config.ApiKey!, _agentVersion, ct);
+            // Сервер 0.10 считает target из effective config; query — подсказка/compat.
+            check = await client.CheckUpdateAsync(config.ApiKey!, _agentVersion, localTarget, ct);
         }
         catch (AgentApiException ex) when (ex.IsAuthFailure)
         {
@@ -48,32 +58,42 @@ public sealed class AgentUpdater
             return false;
         }
 
-        if (!check.UpdateAvailable
-            || string.IsNullOrWhiteSpace(check.Version)
-            || string.IsNullOrWhiteSpace(check.Sha256)
-            || string.IsNullOrWhiteSpace(check.Url))
+        var plan = ResolvePlan(_agentVersion, localTarget, check);
+        if (plan.Action == UpdateAction.None)
         {
             _logger.LogDebug(
-                "No update available (current={Current}, server={Server})",
+                "No agent version change (local={Local}, update_target={Target}, server_target={ServerTarget}, reason={Reason})",
                 _agentVersion,
-                check.Version ?? "(none)");
+                localTarget,
+                check.TargetVersion ?? check.Version ?? "(none)",
+                plan.Reason);
             return false;
         }
 
-        if (!VersionUtil.IsNewer(check.Version, _agentVersion))
+        if (string.IsNullOrWhiteSpace(plan.TargetVersion)
+            || string.IsNullOrWhiteSpace(plan.Sha256)
+            || string.IsNullOrWhiteSpace(plan.Url))
+        {
+            _logger.LogWarning(
+                "Update plan {Action} incomplete (version/sha/url); skipping",
+                plan.Action);
+            return false;
+        }
+
+        if (IsPendingBlocked(config, plan.TargetVersion!))
         {
             _logger.LogInformation(
-                "Server reported update {Server} but it is not newer than local {Local}; skipping",
-                check.Version,
-                _agentVersion);
+                "Pending msiexec for {Target} still within cooldown; not looping",
+                plan.TargetVersion);
             return false;
         }
 
         if (!OperatingSystem.IsWindows())
         {
             _logger.LogWarning(
-                "Update {Version} available but msiexec apply is Windows-only; skipping",
-                check.Version);
+                "Version change {Action} to {Version} available but msiexec is Windows-only; skipping",
+                plan.Action,
+                plan.TargetVersion);
             return false;
         }
 
@@ -82,7 +102,7 @@ public sealed class AgentUpdater
         string msiPath;
         try
         {
-            msiPath = UpdatePathUtil.ResolveSafeMsiPath(tempDir, check.MsiName, check.Version);
+            msiPath = UpdatePathUtil.ResolveSafeMsiPath(tempDir, plan.MsiName ?? check.MsiName, plan.TargetVersion);
         }
         catch (Exception ex)
         {
@@ -94,23 +114,26 @@ public sealed class AgentUpdater
         try
         {
             _logger.LogInformation(
-                "Downloading agent update {Version} from server",
-                check.Version);
-            await client.DownloadUpdateMsiAsync(config.ApiKey!, check.Url!, msiPath, ct);
+                "Downloading agent package for {Action}: {From} → {To}",
+                plan.Action,
+                _agentVersion,
+                plan.TargetVersion);
+            await client.DownloadUpdateMsiAsync(config.ApiKey!, plan.Url!, msiPath, ct);
 
-            if (!VersionUtil.VerifySha256File(msiPath, check.Sha256!))
+            if (!VersionUtil.VerifySha256File(msiPath, plan.Sha256!))
             {
                 _logger.LogError(
                     "Update MSI sha256 mismatch for {Version}; refusing to install",
-                    check.Version);
+                    plan.TargetVersion);
                 WindowsEventLog.WriteError(
-                    $"bAD: sha256 MSI обновления {check.Version} не совпал — установка отменена.");
+                    $"bAD: sha256 MSI {plan.TargetVersion} не совпал — установка отменена.");
                 return false;
             }
 
-            var logPath = Path.Combine(ConfigStore.LogsDir, $"msiexec-upgrade-{check.Version}.log");
-            // Отвязанный msiexec: WiX ServiceControl останавливает службу, меняет файлы, перезапускает.
-            // Выходим сразу, чтобы снять file locks.
+            MarkPending(config, plan.TargetVersion!);
+
+            var kind = plan.Action == UpdateAction.Downgrade ? "downgrade" : "upgrade";
+            var logPath = Path.Combine(ConfigStore.LogsDir, $"msiexec-{kind}-{plan.TargetVersion}.log");
             var psi = new ProcessStartInfo
             {
                 FileName = Path.Combine(
@@ -122,15 +145,21 @@ public sealed class AgentUpdater
             };
 
             _logger.LogInformation(
-                "Starting silent msiexec upgrade to {Version}; agent will exit for file replace",
-                check.Version);
+                "Starting silent msiexec {Action} {From} → {To}; agent will exit for file replace (log {Log})",
+                plan.Action,
+                _agentVersion,
+                plan.TargetVersion,
+                logPath);
+            WindowsEventLog.WriteInfo(
+                $"bAD: msiexec {kind} {_agentVersion} → {plan.TargetVersion}");
+
             if (Process.Start(psi) is null)
             {
                 _logger.LogError("Failed to start msiexec");
+                ClearPending(config);
                 return false;
             }
 
-            // Короткая пауза, чтобы msiexec успел стартовать; затем выход (далее — остановка службы).
             try
             {
                 await Task.Delay(TimeSpan.FromSeconds(2), ct);
@@ -148,8 +177,8 @@ public sealed class AgentUpdater
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to download/apply update {Version}", check.Version);
-            WindowsEventLog.WriteError($"bAD: сбой загрузки/установки обновления {check.Version}", ex);
+            _logger.LogError(ex, "Failed to download/apply {Action} to {Version}", plan.Action, plan.TargetVersion);
+            WindowsEventLog.WriteError($"bAD: сбой {plan.Action} → {plan.TargetVersion}", ex);
             try
             {
                 if (Directory.Exists(tempDir))
@@ -165,15 +194,213 @@ public sealed class AgentUpdater
             return false;
         }
     }
+
+    /// <summary>
+    /// Решение upgrade / downgrade / none.
+    /// Предпочтительно: server <c>update_available</c> + <c>target_version</c> (контракт §3–4).
+    /// Fallback: локальный <c>update_target</c> + mirrored <c>version</c> (single-mirror 0.9.x).
+    /// </summary>
+    public static UpdatePlan ResolvePlan(string localVersion, string localUpdateTarget, UpdateCheckResponse check)
+    {
+        var serverTarget = FirstSemVer(check.TargetVersion, check.Version);
+        var sha = check.Sha256;
+        var url = check.Url;
+        var msiName = check.MsiName;
+
+        // --- Канон 0.10: сервер уже посчитал target ---
+        if (check.UpdateAvailable && serverTarget is not null)
+        {
+            if (VersionUtil.IsSameVersion(localVersion, serverTarget))
+            {
+                return UpdatePlan.None("same");
+            }
+
+            if (string.IsNullOrWhiteSpace(sha))
+            {
+                return UpdatePlan.None("missing_sha");
+            }
+
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                url = $"/v1/agent/update/msi?version={Uri.EscapeDataString(serverTarget)}";
+            }
+
+            if (VersionUtil.IsNewer(serverTarget, localVersion))
+            {
+                return new UpdatePlan(UpdateAction.Upgrade, serverTarget, sha, url, msiName, "server_upgrade");
+            }
+
+            if (VersionUtil.IsOlder(serverTarget, localVersion))
+            {
+                return new UpdatePlan(UpdateAction.Downgrade, serverTarget, sha, url, msiName, "server_downgrade");
+            }
+
+            return UpdatePlan.None("same");
+        }
+
+        if (!string.IsNullOrWhiteSpace(check.Reason)
+            && check.Reason.Contains("broken", StringComparison.OrdinalIgnoreCase))
+        {
+            return UpdatePlan.None("broken_pin");
+        }
+
+        // --- Fallback single-mirror / pre-0.10 server ---
+        var desired = VersionUtil.NormalizeDesiredAgentVersion(localUpdateTarget) ?? "latest";
+        var mirrored = check.Version;
+
+        if (string.Equals(desired, "latest", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(mirrored) || !VersionUtil.IsNewer(mirrored, localVersion))
+            {
+                return UpdatePlan.None("latest_not_newer");
+            }
+
+            if (string.IsNullOrWhiteSpace(sha))
+            {
+                return UpdatePlan.None("latest_missing_sha");
+            }
+
+            url = string.IsNullOrWhiteSpace(url) ? "/v1/agent/update/msi" : url;
+            return new UpdatePlan(UpdateAction.Upgrade, mirrored, sha, url, msiName, "latest_upgrade");
+        }
+
+        if (!VersionUtil.TryParseSemVer(desired, out _))
+        {
+            return UpdatePlan.None("bad_update_target");
+        }
+
+        if (VersionUtil.IsSameVersion(localVersion, desired))
+        {
+            return UpdatePlan.None("same");
+        }
+
+        if (string.IsNullOrWhiteSpace(mirrored) || !VersionUtil.IsSameVersion(mirrored, desired))
+        {
+            return UpdatePlan.None("pin_not_on_mirror");
+        }
+
+        if (string.IsNullOrWhiteSpace(sha))
+        {
+            return UpdatePlan.None("pin_missing_sha");
+        }
+
+        url = string.IsNullOrWhiteSpace(url)
+            ? $"/v1/agent/update/msi?version={Uri.EscapeDataString(desired)}"
+            : url;
+
+        if (VersionUtil.IsNewer(desired, localVersion))
+        {
+            return new UpdatePlan(UpdateAction.Upgrade, desired, sha, url, msiName, "pin_upgrade");
+        }
+
+        if (VersionUtil.IsOlder(desired, localVersion))
+        {
+            return new UpdatePlan(UpdateAction.Downgrade, desired, sha, url, msiName, "pin_downgrade");
+        }
+
+        return UpdatePlan.None("same");
+    }
+
+    private static string? FirstSemVer(params string?[] values)
+    {
+        foreach (var v in values)
+        {
+            if (VersionUtil.TryParseSemVer(v, out var ver))
+            {
+                return $"{ver.Major}.{ver.Minor}.{ver.Build}";
+            }
+        }
+
+        return null;
+    }
+
+    private void ClearPendingIfMatched(AgentConfig config)
+    {
+        if (string.IsNullOrWhiteSpace(config.PendingUpdateVersion))
+        {
+            return;
+        }
+
+        if (VersionUtil.IsSameVersion(_agentVersion, config.PendingUpdateVersion))
+        {
+            _logger.LogInformation(
+                "Pending update {Pending} matches running version; clearing pending",
+                config.PendingUpdateVersion);
+            ClearPending(config);
+        }
+    }
+
+    private static bool IsPendingBlocked(AgentConfig config, string targetVersion)
+    {
+        if (!VersionUtil.IsSameVersion(config.PendingUpdateVersion, targetVersion))
+        {
+            return false;
+        }
+
+        if (!DateTime.TryParse(
+                config.PendingUpdateStartedAt,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind,
+                out var started))
+        {
+            return false;
+        }
+
+        return DateTime.UtcNow - started.ToUniversalTime() < PendingCooldown;
+    }
+
+    private static void MarkPending(AgentConfig config, string targetVersion)
+    {
+        config.PendingUpdateVersion = targetVersion;
+        config.PendingUpdateStartedAt = DateTime.UtcNow.ToString("O");
+        ConfigStore.Save(config);
+    }
+
+    private static void ClearPending(AgentConfig config)
+    {
+        if (config.PendingUpdateVersion is null && config.PendingUpdateStartedAt is null)
+        {
+            return;
+        }
+
+        config.PendingUpdateVersion = null;
+        config.PendingUpdateStartedAt = null;
+        ConfigStore.Save(config);
+    }
+}
+
+public enum UpdateAction
+{
+    None,
+    Upgrade,
+    Downgrade
+}
+
+public readonly record struct UpdatePlan(
+    UpdateAction Action,
+    string? TargetVersion,
+    string? Sha256,
+    string? Url,
+    string? MsiName,
+    string Reason)
+{
+    public static UpdatePlan None(string reason) =>
+        new(UpdateAction.None, null, null, null, null, reason);
 }
 
 public sealed class UpdateCheckResponse
 {
     public bool UpdateAvailable { get; init; }
+    /// <summary>Канон 0.10.</summary>
+    public string? TargetVersion { get; init; }
+    /// <summary>Legacy / mirrored version field.</summary>
     public string? Version { get; init; }
     public string? Sha256 { get; init; }
     public string? Url { get; init; }
     public string? MsiName { get; init; }
+    public string? Action { get; init; }
+    public string? Desired { get; init; }
+    public string? Reason { get; init; }
 
     public static UpdateCheckResponse FromJson(string json)
     {
@@ -181,19 +408,27 @@ public sealed class UpdateCheckResponse
         var root = doc.RootElement;
         return new UpdateCheckResponse
         {
-            UpdateAvailable = root.TryGetProperty("update_available", out var ua) && ua.GetBoolean(),
-            Version = root.TryGetProperty("version", out var v) && v.ValueKind == JsonValueKind.String
-                ? v.GetString()
-                : null,
-            Sha256 = root.TryGetProperty("sha256", out var s) && s.ValueKind == JsonValueKind.String
-                ? s.GetString()
-                : null,
-            Url = root.TryGetProperty("url", out var u) && u.ValueKind == JsonValueKind.String
-                ? u.GetString()
-                : null,
-            MsiName = root.TryGetProperty("msi_name", out var m) && m.ValueKind == JsonValueKind.String
-                ? m.GetString()
-                : null
+            UpdateAvailable = root.TryGetProperty("update_available", out var ua)
+                              && ua.ValueKind is JsonValueKind.True or JsonValueKind.False
+                              && ua.GetBoolean(),
+            TargetVersion = GetString(root, "target_version"),
+            Version = GetString(root, "version"),
+            Sha256 = GetString(root, "sha256"),
+            Url = GetString(root, "url"),
+            MsiName = GetString(root, "msi_name"),
+            Action = GetString(root, "action"),
+            Desired = GetString(root, "desired") ?? GetString(root, "update_target"),
+            Reason = GetString(root, "reason")
         };
+    }
+
+    private static string? GetString(JsonElement root, string name)
+    {
+        if (!root.TryGetProperty(name, out var el) || el.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        return el.GetString();
     }
 }
