@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+  {% from "macros/icons.html" import icon %}
   <header class="top">
     <a class="brand" href="{% if user is defined and user and user.must_change_password %}/account/password{% else %}/{% endif %}">bAD</a>
     <span class="tagline">blazerity Asset Discovery</span>
@@ -16,23 +17,27 @@
       {% if user.must_change_password %}
       {# SEC-004: no nav to other pages until password is changed #}
       <nav class="nav" aria-label="Смена пароля">
-        {% if user.source == 'local' %}<a href="/account/password">Пароль</a>{% endif %}
+        {% if user.source == 'local' %}
+        <a href="/account/password">{{ icon('password') }}<span>Пароль</span></a>
+        {% endif %}
       </nav>
       {% else %}
       <nav class="nav" aria-label="Основная навигация">
-        <a href="/">Обзор</a>
-        <a href="/devices">Устройства</a>
-        <a href="/events">События</a>
+        <a href="/">{{ icon('overview') }}<span>Обзор</span></a>
+        <a href="/devices">{{ icon('devices') }}<span>Устройства</span></a>
+        <a href="/events">{{ icon('events') }}<span>События</span></a>
         {% if user.is_admin %}
-        <a href="/settings">Параметры</a>
+        <a href="/settings">{{ icon('settings') }}<span>Параметры</span></a>
         {% endif %}
-        {% if user.source == 'local' %}<a href="/account/password">Пароль</a>{% endif %}
+        {% if user.source == 'local' %}
+        <a href="/account/password">{{ icon('password') }}<span>Пароль</span></a>
+        {% endif %}
       </nav>
       {% endif %}
     <form class="logout" method="post" action="/logout">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <span class="who mono">{{ user.username }}{% if user.source == 'ldap' %} (ldap){% endif %}</span>
-      <button type="submit">Выйти</button>
+      <button type="submit">{{ icon('signout') }}<span>Выйти</span></button>
     </form>
     {% endif %}
   </header>

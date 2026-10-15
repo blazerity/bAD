@@ -122,6 +122,9 @@ select:focus-visible {
   flex-wrap: wrap;
 }
 .nav a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   color: var(--muted);
   font-size: 0.9rem;
   padding: 0.4rem 0.7rem;
@@ -131,11 +134,19 @@ select:focus-visible {
     background var(--dur-nav) var(--ease),
     color var(--dur-nav) var(--ease);
 }
+.nav a .icon {
+  width: 1.05em;
+  height: 1.05em;
+  margin-right: 0;
+  color: inherit;
+  flex-shrink: 0;
+}
 .nav a:hover {
   color: var(--fg);
   background: var(--smoke);
   text-decoration: none;
 }
+.nav a:hover .icon { color: var(--accent); }
 
 .logout {
   margin-left: auto;
@@ -186,6 +197,15 @@ a.secondary {
   padding: 0.5rem 0.95rem;
   border-radius: var(--radius-control);
 }
+.logout button {
+  gap: 0.4rem;
+}
+.logout button .icon {
+  width: 1.05em;
+  height: 1.05em;
+  margin-right: 0;
+  color: inherit;
+}
 .logout button:hover,
 button.secondary:hover,
 a.secondary:hover {
@@ -194,6 +214,7 @@ a.secondary:hover {
   color: var(--fg);
   text-decoration: none;
 }
+.logout button:hover .icon { color: var(--accent); }
 
 .banner {
   background: var(--warn-bg);
