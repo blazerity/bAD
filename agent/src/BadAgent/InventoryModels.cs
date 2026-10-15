@@ -5,7 +5,7 @@ namespace BadAgent;
 public sealed class InventorySnapshot
 {
     [JsonPropertyName("schema_version")]
-    public int SchemaVersion { get; set; } = 1;
+    public int SchemaVersion { get; set; } = 2;
 
     [JsonPropertyName("device_id")]
     public string DeviceId { get; set; } = "";
@@ -14,7 +14,7 @@ public sealed class InventorySnapshot
     public string CollectedAt { get; set; } = "";
 
     [JsonPropertyName("agent_version")]
-    public string AgentVersion { get; set; } = "0.3.0";
+    public string AgentVersion { get; set; } = "0.4.0";
 
     [JsonPropertyName("host")]
     public HostInfo? Host { get; set; }
@@ -27,6 +27,9 @@ public sealed class InventorySnapshot
 
     [JsonPropertyName("users")]
     public UsersInfo? Users { get; set; }
+
+    [JsonPropertyName("software")]
+    public SoftwareInfo? Software { get; set; }
 
     [JsonPropertyName("collector_errors")]
     public List<CollectorError> CollectorErrors { get; set; } = new();
@@ -155,7 +158,41 @@ public sealed class UsersInfo
     public string? LastInteractive { get; set; }
 }
 
+/// <summary>Lightweight installed-programs list (name + version + publisher).</summary>
+public sealed class SoftwareInfo
+{
+    [JsonPropertyName("programs")]
+    public List<InstalledProgram>? Programs { get; set; }
+}
+
+public sealed class InstalledProgram
+{
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+
+    [JsonPropertyName("version")]
+    public string? Version { get; set; }
+
+    [JsonPropertyName("publisher")]
+    public string? Publisher { get; set; }
+}
+
+/// <summary>Which inventory sections to collect (from AgentConfig / remote knobs).</summary>
+public sealed class CollectorOptions
+{
+    public bool CollectHardware { get; set; } = true;
+    public bool CollectUsers { get; set; } = true;
+    public bool CollectSoftware { get; set; } = false;
+
+    public static CollectorOptions FromConfig(AgentConfig config) => new()
+    {
+        CollectHardware = config.CollectHardware,
+        CollectUsers = config.CollectUsers,
+        CollectSoftware = config.CollectSoftware,
+    };
+}
+
 public interface IInventoryCollector
 {
-    InventorySnapshot Collect(string deviceId, string agentVersion);
+    InventorySnapshot Collect(string deviceId, string agentVersion, CollectorOptions? options = null);
 }

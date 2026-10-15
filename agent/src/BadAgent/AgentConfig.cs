@@ -30,6 +30,18 @@ public sealed class AgentConfig
     [JsonPropertyName("update_enabled")]
     public bool UpdateEnabled { get; set; } = true;
 
+    /// <summary>Collect CPU/RAM/disks/volumes. Default true (preserve prior behavior).</summary>
+    [JsonPropertyName("collect_hardware")]
+    public bool CollectHardware { get; set; } = true;
+
+    /// <summary>Collect logged_on / last_interactive users. Default true.</summary>
+    [JsonPropertyName("collect_users")]
+    public bool CollectUsers { get; set; } = true;
+
+    /// <summary>Collect installed programs list. Default false (opt-in).</summary>
+    [JsonPropertyName("collect_software")]
+    public bool CollectSoftware { get; set; } = false;
+
     /// <summary>Last applied remote config version (server hash); not a secret.</summary>
     [JsonPropertyName("remote_config_version")]
     public string? RemoteConfigVersion { get; set; }
@@ -49,6 +61,15 @@ public sealed class RemoteAgentSettings
 
     [JsonPropertyName("update_enabled")]
     public bool? UpdateEnabled { get; set; }
+
+    [JsonPropertyName("collect_hardware")]
+    public bool? CollectHardware { get; set; }
+
+    [JsonPropertyName("collect_users")]
+    public bool? CollectUsers { get; set; }
+
+    [JsonPropertyName("collect_software")]
+    public bool? CollectSoftware { get; set; }
 }
 
 public sealed class RemoteAgentConfigResponse
@@ -154,6 +175,24 @@ public static class ConfigStore
         if (settings.UpdateEnabled is bool ue && config.UpdateEnabled != ue)
         {
             config.UpdateEnabled = ue;
+            changed = true;
+        }
+
+        if (settings.CollectHardware is bool ch && config.CollectHardware != ch)
+        {
+            config.CollectHardware = ch;
+            changed = true;
+        }
+
+        if (settings.CollectUsers is bool cu && config.CollectUsers != cu)
+        {
+            config.CollectUsers = cu;
+            changed = true;
+        }
+
+        if (settings.CollectSoftware is bool cs && config.CollectSoftware != cs)
+        {
+            config.CollectSoftware = cs;
             changed = true;
         }
 
