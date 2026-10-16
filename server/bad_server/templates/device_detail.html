@@ -21,6 +21,9 @@
       <dd>
         {{ device.last_seen_at or "—" }}
         <span class="badge badge-{{ silence.status }}">{{ silence_label(silence.status) }}</span>
+        {% if host_info and host_info.pending_reboot is true %}
+        <span class="badge badge-pending-reboot" title="Агент сообщает о pending reboot">ожидает перезагрузку</span>
+        {% endif %}
         {% if device.revoked %}<span class="badge badge-stale">доступ отозван</span>{% endif %}
         {% if device.archived %}<span class="badge badge-stale">архив</span>{% endif %}
       </dd>
@@ -34,7 +37,7 @@
     {% endif %}
   </dl>
 
-  {% if duplicates and (duplicates.hostname or duplicates.serial_number) %}
+  {% if duplicates and (duplicates.hostname or duplicates.serial_number or duplicates.smbios_uuid) %}
   <div class="warn-box">
     <strong>Возможные дубликаты</strong> (автослияния нет):
     {% if duplicates.hostname %}
@@ -47,6 +50,13 @@
     {% if duplicates.serial_number %}
     <p>Тот же serial:
       {% for d in duplicates.serial_number %}
+        <a href="/devices/{{ d.device_id }}">{{ d.hostname or d.device_id }}</a>{% if not loop.last %}, {% endif %}
+      {% endfor %}
+    </p>
+    {% endif %}
+    {% if duplicates.smbios_uuid %}
+    <p>Тот же SMBIOS UUID:
+      {% for d in duplicates.smbios_uuid %}
         <a href="/devices/{{ d.device_id }}">{{ d.hostname or d.device_id }}</a>{% if not loop.last %}, {% endif %}
       {% endfor %}
     </p>
@@ -129,14 +139,38 @@
       <div class="device-panel {% if view == 'os' %}is-active{% endif %}" data-device-panel="os">
         <h2 class="with-icon">{{ icon('host') }}Операционная система</h2>
         <dl class="speccy-kv">
-          <div><dt>Имя узла</dt><dd>{{ host_info.hostname or "—" }}</dd></div>
-          <div><dt>Домен</dt><dd>{{ host_info.domain or "—" }}</dd></div>
+          {% if host_info.hostname %}
+          <div><dt>Имя узла</dt><dd>{{ host_info.hostname }}</dd></div>
+          {% endif %}
+          {% if host_info.domain %}
+          <div><dt>Домен</dt><dd>{{ host_info.domain }}</dd></div>
+          {% endif %}
+          {% if host_info.os %}
           <div><dt>ОС</dt><dd>{{ host_info.os|format_os }}</dd></div>
+          {% endif %}
           {% if host_info.os and host_info.os.build %}
           <div><dt>Сборка</dt><dd>{{ host_info.os.build }}</dd></div>
           {% endif %}
           {% if host_info.os and host_info.os.install_date %}
           <div><dt>Установлена</dt><dd>{{ host_info.os.install_date }}</dd></div>
+          {% endif %}
+          {% if host_info.last_boot_at %}
+          <div><dt>Последняя загрузка</dt><dd>{{ host_info.last_boot_at }}</dd></div>
+          {% endif %}
+          {% if host_info.timezone %}
+          <div><dt>Часовой пояс</dt><dd>{{ host_info.timezone }}</dd></div>
+          {% endif %}
+          {% if host_info.pending_reboot is not none %}
+          <div>
+            <dt>Ожидает перезагрузку</dt>
+            <dd>
+              {% if host_info.pending_reboot %}
+              <span class="badge badge-pending-reboot">да</span>
+              {% else %}
+              нет
+              {% endif %}
+            </dd>
+          </div>
           {% endif %}
           {% if host_info.ad_ou %}
           <div><dt>AD OU</dt><dd>{{ host_info.ad_ou }}</dd></div>
@@ -221,16 +255,25 @@
       </div>
       {% endif %}
 
-      {% if hw and (hw.disks or hw.volumes) %}
+      {% if hw and (hw.disks or hw.volumes or hw.chassis_type) %}
       <div class="device-panel {% if view == 'storage' %}is-active{% endif %}" data-device-panel="storage">
         <h2 class="with-icon">{{ icon('disk') }}Накопители</h2>
+        {% if hw.chassis_type %}
+        <dl class="speccy-kv">
+          <div><dt>Тип корпуса</dt><dd>{{ hw.chassis_type|format_chassis }}</dd></div>
+        </dl>
+        {% endif %}
         {% if hw.disks %}
         {% for d in hw.disks %}
         <p class="speccy-group">Диск {{ loop.index }}</p>
         <dl class="speccy-kv">
-          <div><dt>Модель</dt><dd>{{ d.model or "—" }}</dd></div>
+          {% if d.model %}<div><dt>Модель</dt><dd>{{ d.model }}</dd></div>{% endif %}
+          {% if d.size_bytes is defined and d.size_bytes is not none %}
           <div><dt>Размер</dt><dd>{{ d.size_bytes|format_bytes }}</dd></div>
-          <div><dt>Носитель</dt><dd>{{ d.media_type or "—" }}</dd></div>
+          {% endif %}
+          {% if d.media_type %}<div><dt>Носитель</dt><dd>{{ d.media_type }}</dd></div>{% endif %}
+          {% if d.interface_type %}<div><dt>Интерфейс</dt><dd>{{ d.interface_type }}</dd></div>{% endif %}
+          {% if d.serial_number %}<div><dt>Серийный №</dt><dd>{{ d.serial_number }}</dd></div>{% endif %}
         </dl>
         {% endfor %}
         {% endif %}
@@ -331,16 +374,87 @@
       </div>
       {% endif %}
 
+      {% if security_info %}
+      <div class="device-panel {% if view == 'security' %}is-active{% endif %}" data-device-panel="security">
+        <h2 class="with-icon">{{ icon('tls') }}Безопасность</h2>
+        <dl class="speccy-kv">
+          {% if security_info.tpm_present is not none %}
+          <div>
+            <dt>TPM</dt>
+            <dd>
+              {% if security_info.tpm_present %}есть{% else %}нет{% endif %}
+              {% if security_info.tpm_spec_version %}
+              <span class="muted">· {{ security_info.tpm_spec_version }}</span>
+              {% endif %}
+            </dd>
+          </div>
+          {% elif security_info.tpm_spec_version %}
+          <div><dt>TPM</dt><dd>{{ security_info.tpm_spec_version }}</dd></div>
+          {% endif %}
+          {% if security_info.secure_boot is not none %}
+          <div>
+            <dt>Secure Boot</dt>
+            <dd>{% if security_info.secure_boot %}включён{% else %}выключен{% endif %}</dd>
+          </div>
+          {% endif %}
+          {% if security_info.antivirus %}
+          <div>
+            <dt>Антивирус</dt>
+            <dd>
+              {% for a in security_info.antivirus if a.name %}
+              {{ a.name }}{% if not loop.last %}, {% endif %}
+              {% else %}
+              <span class="muted">имена не переданы</span>
+              {% endfor %}
+            </dd>
+          </div>
+          {% endif %}
+        </dl>
+        {% if security_info.tpm_present is none and not security_info.tpm_spec_version
+              and security_info.secure_boot is none and not security_info.antivirus %}
+        <p class="muted">Секция security пуста (soft-fail или ещё не собрана).</p>
+        {% endif %}
+      </div>
+      {% endif %}
+
       {% if minidumps_info %}
       <div class="device-panel {% if view == 'minidumps' %}is-active{% endif %}" data-device-panel="minidumps">
         <h2 class="with-icon">{{ icon('events') }}Минидампы BSOD</h2>
         <dl class="speccy-kv">
-          <div><dt>Файлов</dt><dd>{{ minidumps_info.count if minidumps_info.count is defined else "—" }}</dd></div>
+          {% if minidumps_info.count is defined and minidumps_info.count is not none %}
+          <div><dt>Файлов</dt><dd>{{ minidumps_info.count }}</dd></div>
+          {% endif %}
+          {% if minidumps_info.memory_dmp_present is not none %}
           <div><dt>Memory.dmp</dt><dd>{% if minidumps_info.memory_dmp_present %}есть{% else %}нет{% endif %}</dd></div>
+          {% endif %}
           {% if minidumps_info.memory_dmp_path %}
           <div><dt>Путь</dt><dd>{{ minidumps_info.memory_dmp_path }}</dd></div>
           {% endif %}
         </dl>
+        {% if minidumps_info.files %}
+        {% for f in minidumps_info.files %}
+        <p class="speccy-group">{{ f.name or ("файл " ~ loop.index) }}</p>
+        <dl class="speccy-kv">
+          {% if f.size_bytes is defined and f.size_bytes is not none %}
+          <div><dt>Размер</dt><dd>{{ f.size_bytes|format_bytes }}</dd></div>
+          {% endif %}
+          {% if f.modified_at %}
+          <div><dt>Изменён</dt><dd>{{ f.modified_at }}</dd></div>
+          {% endif %}
+          {% if f.bugcheck_code %}
+          <div><dt>Bugcheck</dt><dd class="mono">{{ f.bugcheck_code }}</dd></div>
+          {% endif %}
+          {% if f.bugcheck_parameters %}
+          <div><dt>Параметры</dt><dd class="mono">{{ f.bugcheck_parameters|join(" ") }}</dd></div>
+          {% endif %}
+          {% if f.bugcheck_message %}
+          <div><dt>Причина</dt><dd>{{ f.bugcheck_message }}</dd></div>
+          {% endif %}
+        </dl>
+        {% endfor %}
+        {% elif not minidumps_info.count %}
+        <p class="muted">Файлов минидампов нет.</p>
+        {% endif %}
       </div>
       {% endif %}
 
@@ -366,7 +480,7 @@
             {% for e in recent_events %}
             <tr>
               <td class="mono">{{ e.created_at }}</td>
-              <td class="mono">{{ e.type }}</td>
+              <td title="{{ e.type }}">{{ e.type|format_event_type }}</td>
               <td>{{ e.summary }}</td>
             </tr>
             {% endfor %}

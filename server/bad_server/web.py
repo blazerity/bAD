@@ -133,8 +133,64 @@ def _format_os(os_info: object, empty: str = "—") -> str:
     return text or empty
 
 
+_CHASSIS_LABELS_RU = {
+    "laptop": "Ноутбук",
+    "desktop": "Десктоп",
+    "server": "Сервер",
+    "vm": "ВМ",
+    "other": "Другое",
+}
+
+# RU-подписи type для ленты (inventory-plus + уже известные).
+_EVENT_TYPE_LABELS_RU = {
+    "last_boot_change": "Перезагрузка",
+    "pending_reboot_change": "Ожидание перезагрузки",
+    "timezone_change": "Часовой пояс",
+    "chassis_type_change": "Тип корпуса",
+    "tpm_change": "TPM",
+    "secure_boot_change": "Secure Boot",
+    "antivirus_change": "Антивирус",
+    "minidump_bugcheck": "BSOD / bugcheck",
+    "disk_added": "Диск добавлен",
+    "disk_removed": "Диск удалён",
+    "hostname_change": "Hostname",
+    "domain_change": "Домен",
+    "serial_change": "Серийный номер",
+    "model_change": "Модель",
+    "manufacturer_change": "Производитель",
+    "cpu_change": "Процессор",
+    "ram_bytes_change": "ОЗУ",
+    "ram_module_added": "Планка ОЗУ+",
+    "ram_module_removed": "Планка ОЗУ−",
+    "volume_free_drop": "Свободное место",
+    "nic_ipv4_change": "IPv4",
+    "logged_on_change": "Пользователи",
+    "last_interactive_change": "Интерактивный вход",
+}
+
+
+def _format_chassis(value: object, empty: str = "") -> str:
+    if value is None:
+        return empty
+    key = str(value).strip().lower()
+    if not key:
+        return empty
+    return _CHASSIS_LABELS_RU.get(key, str(value))
+
+
+def _format_event_type(value: object, empty: str = "") -> str:
+    if value is None:
+        return empty
+    key = str(value).strip()
+    if not key:
+        return empty
+    return _EVENT_TYPE_LABELS_RU.get(key, key)
+
+
 templates.env.filters["format_bytes"] = _format_bytes
 templates.env.filters["format_os"] = _format_os
+templates.env.filters["format_chassis"] = _format_chassis
+templates.env.filters["format_event_type"] = _format_event_type
 
 router = APIRouter(tags=["web"], dependencies=[Depends(ensure_csrf)])
 
@@ -261,7 +317,7 @@ def _device_inventory_nav(
             line1 = f"{len(disks)} диск(ов)" if disks else "тома"
         line2 = f"{len(volumes)} том(ов)" if volumes else (f"{len(disks)} диск(ов)" if len(disks) > 1 else "")
         if hw.get("chassis_type"):
-            chassis = str(hw.get("chassis_type"))
+            chassis = _format_chassis(hw.get("chassis_type")) or str(hw.get("chassis_type"))
             line2 = " · ".join(x for x in (f"корпус {chassis}", line2) if x)
         add("storage", "disk", "Накопители", [line1, line2])
 

@@ -520,6 +520,14 @@ pre.inventory {
   border-color: var(--warn-border);
   background: var(--warn-bg);
 }
+.badge-pending-reboot {
+  color: var(--warn);
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+}
 .badge-unknown {
   color: var(--muted);
 }
@@ -916,6 +924,11 @@ dl.speccy-kv dd {
   color: var(--error);
   margin: 0.5rem 0 0;
   padding-left: 1.2rem;
+}
+.device-panel[data-device-panel="minidumps"] .speccy-kv dd:not(.mono),
+.device-panel[data-device-panel="security"] .speccy-kv dd .muted {
+  font-family: var(--sans);
+  font-size: 0.9rem;
 }
 .raw-inventory {
   margin: 1.25rem 0 0.5rem;
