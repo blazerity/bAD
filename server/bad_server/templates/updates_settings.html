@@ -138,5 +138,15 @@
       <button type="submit">Сменить токен подключения</button>
     </div>
   </form>
+  {% if not (enrollment_rotation and enrollment_rotation.rotation_due) %}
+  <form method="post" action="/settings/enrollment/wave-done" class="settings-form"
+    onsubmit="return confirm('Отметить волну MSI завершённой? Появится напоминание о ротации.');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <p class="muted">Если волна закончилась раньше порога — отметьте вручную.</p>
+    <div class="form-actions">
+      <button type="submit" class="secondary">Волна MSI завершена → предложить ротацию</button>
+    </div>
+  </form>
+  {% endif %}
 </section>
 {% endblock %}
