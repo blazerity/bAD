@@ -194,6 +194,31 @@ PY
   chown -R root:bad "${dest}" 2>/dev/null || true
 }
 
+download_tarball() {
+  # Public: anonymous API / codeload / archive; private: нужен token.
+  local repo="$1" sha="$2" out="$3" api="$4" token="$5"
+  local ua="bad-apply-server-update/1.0"
+  local api_url="${api%/}/repos/${repo}/tarball/${sha}"
+  local codeload_url="https://codeload.github.com/${repo}/tar.gz/${sha}"
+  local archive_url="https://github.com/${repo}/archive/${sha}.tar.gz"
+  local curl_base=(-fsSL -o "${out}" -H "User-Agent: ${ua}")
+  local hdr_api=(-H "Accept: application/vnd.github+json")
+  if [[ -n "${token}" ]]; then
+    hdr_api+=(-H "Authorization: Bearer ${token}")
+  fi
+  if curl "${curl_base[@]}" "${hdr_api[@]}" "${api_url}"; then
+    return 0
+  fi
+  # Anonymous fallbacks (public repos; token не обязателен для check/apply)
+  if curl "${curl_base[@]}" "${codeload_url}"; then
+    return 0
+  fi
+  if curl "${curl_base[@]}" "${archive_url}"; then
+    return 0
+  fi
+  return 1
+}
+
 download_and_fill_slot() {
   local branch="$1" sha="$2"
   local repo api token slot_id dest tarball tmp
@@ -208,13 +233,11 @@ download_and_fill_slot() {
   mkdir -p "${dest}/tree"
   tmp="$(mktemp -d)"
   tarball="${tmp}/src.tgz"
-  local url="${api%/}/repos/${repo}/tarball/${sha}"
-  local curl_args=(-fsSL -o "${tarball}" -H "Accept: application/vnd.github+json" -H "User-Agent: bad-apply-server-update/1.0")
-  if [[ -n "${token}" ]]; then
-    curl_args+=(-H "Authorization: Bearer ${token}")
-  fi
-  if ! curl "${curl_args[@]}" "${url}"; then
+  if ! download_tarball "${repo}" "${sha}" "${tarball}" "${api}" "${token}"; then
     rm -rf "${tmp}"
+    if [[ -z "${token}" ]]; then
+      fail "не удалось скачать ${repo}@${sha:0:12} без token (API/codeload). Private repo — задайте BAD_GITHUB_TOKEN" "apply"
+    fi
     fail "не удалось скачать tarball ${repo}@${sha:0:12}" "apply"
   fi
   mkdir -p "${tmp}/extract"
