@@ -33,12 +33,11 @@ def _table_columns(conn: sqlite3.Connection, table: str) -> list[str]:
     return [r[1] for r in rows]
 
 
-def _pg_count(url: str, table: str) -> int:
-    from .db_backend import connect_postgres
-
-    with connect_postgres(url) as conn:
-        row = conn.execute(f"SELECT COUNT(*) AS c FROM {table}").fetchone()
-        return int(row["c"] if row else 0)
+def _row_count(conn: Any, table: str) -> int:
+    row = conn.execute(f"SELECT COUNT(*) AS c FROM {table}").fetchone()
+    if row is None:
+        return 0
+    return int(row["c"] if not isinstance(row, tuple) else row[0])
 
 
 def import_sqlite_to_postgres(
@@ -49,6 +48,7 @@ def import_sqlite_to_postgres(
 ) -> dict[str, Any]:
     """Копировать все таблицы. Перед import инициализирует PG schema."""
     from .db import Database
+    from .db_backend import connect_postgres
 
     if not sqlite_path.is_file():
         raise FileNotFoundError(sqlite_path)
@@ -61,11 +61,8 @@ def import_sqlite_to_postgres(
     counts: dict[str, dict[str, int]] = {}
 
     try:
-        from .db_backend import connect_postgres
-
         with connect_postgres(database_url) as dst:
             if truncate:
-                # Обратный порядок для FK
                 for table in reversed(TABLES):
                     dst.execute(f"TRUNCATE TABLE {table} CASCADE")
 
@@ -86,15 +83,13 @@ def import_sqlite_to_postgres(
                     for row in rows:
                         dst.execute(sql, tuple(row[c] for c in cols))
                 dst.commit()
-                dst_n = _pg_count(database_url, table)
+                dst_n = _row_count(dst, table)
                 counts[table] = {"src": src_n, "dst": dst_n}
                 logger.info("%s: sqlite=%s pg=%s", table, src_n, dst_n)
     finally:
         src.close()
 
-    mismatches = {
-        t: c for t, c in counts.items() if c["src"] != c["dst"]
-    }
+    mismatches = {t: c for t, c in counts.items() if c["src"] != c["dst"]}
     return {
         "ok": not mismatches,
         "counts": counts,

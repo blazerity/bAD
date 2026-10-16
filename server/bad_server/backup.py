@@ -126,6 +126,13 @@ def _pg_dump_env(database_url: str) -> dict[str, str]:
     return env
 
 
+def _chmod_private(path: Path, mode: int = 0o600) -> None:
+    try:
+        path.chmod(mode)
+    except OSError:
+        pass
+
+
 def run_pg_dump(database_url: str, dest: Path) -> None:
     """pg_dump custom format (-Fc) → dest."""
     pg_dump = shutil.which("pg_dump")
@@ -155,10 +162,7 @@ def run_pg_dump(database_url: str, dest: Path) -> None:
             tmp.unlink()
         raise RuntimeError(proc.stderr.strip() or f"pg_dump exit {proc.returncode}")
     tmp.replace(dest)
-    try:
-        dest.chmod(0o600)
-    except OSError:
-        pass
+    _chmod_private(dest)
 
 
 def run_daily_backup(
@@ -170,10 +174,7 @@ def run_daily_backup(
     """Снимок сегодня + prune старых. Postgres → pg_dump; иначе SQLite Online Backup."""
     backup_dir = Path(backup_dir)
     backup_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        backup_dir.chmod(0o700)
-    except OSError:
-        pass
+    _chmod_private(backup_dir, 0o700)
 
     today = utc_today()
     url = (database_url or "").strip()
@@ -186,16 +187,8 @@ def run_daily_backup(
             return {"ok": False, "error": str(exc), "path": str(dest), "backend": "postgres"}
         removed = _prune_old(backup_dir, today, postgres=True)
         logger.info("pg_dump backup written to %s", dest)
-        return {
-            "ok": True,
-            "path": str(dest),
-            "name": dest.name,
-            "removed": removed,
-            "backend": "postgres",
-            "status": backup_status(backup_dir, database_url=url),
-        }
+        return _ok_backup(dest, removed, backend="postgres", database_url=url)
 
-    # SQLite path
     dest = backup_dir / backup_filename_sqlite(today)
     src = Path(db_path) if db_path else None
     if not src or not src.is_file():
@@ -218,10 +211,7 @@ def run_daily_backup(
             finally:
                 dst_conn.close()
             tmp.replace(dest)
-            try:
-                dest.chmod(0o600)
-            except OSError:
-                pass
+            _chmod_private(dest)
         finally:
             src_conn.close()
     except Exception as exc:  # noqa: BLE001
@@ -230,13 +220,25 @@ def run_daily_backup(
 
     removed = _prune_old(backup_dir, today, postgres=False)
     logger.info("SQLite backup written to %s", dest)
+    return _ok_backup(dest, removed, backend="sqlite")
+
+
+def _ok_backup(
+    dest: Path,
+    removed: list[str],
+    *,
+    backend: str,
+    database_url: Optional[str] = None,
+) -> dict[str, Any]:
     return {
         "ok": True,
         "path": str(dest),
         "name": dest.name,
         "removed": removed,
-        "backend": "sqlite",
-        "status": backup_status(backup_dir),
+        "backend": backend,
+        "status": backup_status(
+            dest.parent, database_url=database_url if backend == "postgres" else None
+        ),
     }
 
 
