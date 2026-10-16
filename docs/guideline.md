@@ -43,14 +43,14 @@
 
 ## Версионирование продукта
 
-- Semver продукта: сейчас **`0.10.0`** (см. корневой `VERSION` и [agents.md](agents.md)).
+- Semver продукта: сейчас **`0.11.0`** (см. корневой `VERSION` и [agents.md](agents.md)).
 - Правило bump: **patch +0.0.1** для hotfix; **minor +0.1.0** для feature; **major** только по явному решению владельца.
 - `schema_version` протокола inventory — отдельный integer, не путать с semver агента/сервера.
 - Агент шлёт `agent_version`; сервер отдаёт `version` в `/v1/health`.
 
 ## Как вырезать релиз агента (MSI)
 
-1. Версия на `main` = нужному semver (сейчас **0.10.0**); checklist в [agents.md](agents.md).
+1. Версия на `main` = нужному semver (сейчас **0.11.0**); checklist в [agents.md](agents.md).
 2. Тег и push:
    ```bash
    git tag v0.10.0
