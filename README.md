@@ -61,7 +61,7 @@ dotnet run --project src/BadAgent -c Release
 
 На Windows установка службы через MSI (`installer/msi/`) с public properties `SERVERURL` (`https://…`) и `ENROLLMENTTOKEN`.
 
-Локальный CLI (консоль): `bad` — ASCII-отчёт; `bad -r` — HTML; `bad -h` — справка; `bad config` — локальные настройки (`server_url`, `collect_*`, интервалы).
+Локальный CLI (консоль): `bad` — ASCII; `bad -r` — HTML; `bad -c` — интерактивная настройка; `bad -h` — справка; `bad config` — просмотр (без секретов).
 
 Управление службой (elevated):
 

@@ -16,6 +16,11 @@ public static class BadCli
                 return 0;
             }
 
+            if (IsInteractiveConfig(args))
+            {
+                return ConfigCli.RunInteractive();
+            }
+
             if (IsConfigCommand(args, out var configArgs))
             {
                 return ConfigCli.Run(configArgs);
@@ -45,12 +50,16 @@ public static class BadCli
     /// <summary>Глаголы/флаги первого аргумента: всегда локальный report CLI (не service host).</summary>
     public static bool IsExplicitCliArg(string arg) =>
         arg is "-?" or "--help" or "help" or "/?" or "-h"
+            or "-c" or "--configure"
             or "-r" or "--report" or "--html" or "html"
             or "report" or "info" or "ascii"
             or "config" or "settings";
 
     private static bool IsHelp(string[] args) =>
         args.Length > 0 && args[0] is "-?" or "--help" or "help" or "/?" or "-h";
+
+    private static bool IsInteractiveConfig(string[] args) =>
+        args.Length > 0 && args[0] is "-c" or "--configure";
 
     private static bool IsAsciiCommand(string cmd) =>
         cmd is "report" or "info" or "ascii";
@@ -135,25 +144,18 @@ public static class BadCli
 Использование / Usage:
   bad                      Локальный ASCII-отчёт inventory (то же: bad report | bad info)
   bad -r [path]            HTML-отчёт (то же: bad --report [path]; устар. --html)
+  bad -c                   Интерактивная настройка агента (рекомендуется)
   bad -h                   Эта справка (то же: bad --help | bad -?)
-  bad config               Локальные настройки config.json
-  bad config set <k> <v>   Изменить allowlisted параметр
-  bad settings             То же, что bad config
+  bad config               Показать текущие настройки (без секретов)
+  bad config set <k> <v>   Power-user: изменить один параметр
 
 Путь для HTML (-r):
-  без path                 Рабочий стол пользователя: bad_report_yyyyMMdd_HHmmss.html
+  без path                 Рабочий стол: bad_report_yyyyMMdd_HHmmss.html
   каталог                  Файл с именем по умолчанию в каталоге
   файл                     Указанное имя (добавляется .html при необходимости)
 
 Служба Windows (elevated):
   bad service status|start|stop|restart
-
-Заметки:
-  Сбор локальный — сервер не требуется. Учитываются collect_* из config.json.
-  bad config set: server_url / collect_* / интервалы; секреты (api_key, enrollment_token) — нельзя.
-  Маркер agent_local_keys / server_url_local → heartbeat config_local.
-  Служба агента в prod принимает только https:// в server_url (не http://).
-  BAD_ALLOW_HTTP=1 — только lab. Код выхода: 0 — успех, иначе ошибка.
 """);
     }
 }
