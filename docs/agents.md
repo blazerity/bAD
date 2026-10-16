@@ -244,7 +244,7 @@ Heartbeat health (опционально → meta устройства): `last_i
 | Local user session | web cookie `bad_session` | операторы в браузере |
 | LDAP (опционально) | fallback входа в web | пользователи каталога → session |
 
-**Transport (API notes):** в prod enroll и agent API — **HTTPS**. Cleartext только lab (`BAD_ALLOW_HTTP=1` на агенте). Серверный отказ enroll на cleartext при HTTPS mode — **TODO** (план: **403**, `detail` ≈ `HTTPS required for enrollment` по `X-Forwarded-Proto`); пока режет только клиент. `POST /v1/admin/enrollment/rotate` — не вызывать и не логировать plaintext `token` по незащищённым каналам. Полный контракт: [architecture.md — API notes](architecture.md#api-notes-transport-https-и-enrollment).
+**Transport (API notes):** в prod enroll и agent API — **HTTPS**. Cleartext только lab (`BAD_ALLOW_HTTP=1` на агенте). При managed TLS cleartext `/v1/enroll` → **403** (`HTTPS required for enrollment…`; lab: `BAD_ALLOW_ENROLL_OVER_HTTP=1`). `POST /v1/admin/enrollment/rotate` — не вызывать и не логировать plaintext `token` по незащищённым каналам. Полный контракт: [architecture.md — API notes](architecture.md#api-notes-transport-https-и-enrollment).
 
 Код: `server/bad_server/auth.py`, `sessions.py`, `ldap_client.py`, `web.py`, `crypto_util.py`.
 

@@ -13,6 +13,7 @@ from fastapi.templating import Jinja2Templates
 
 from . import __version__
 from .agent_config import (
+    ALLOWED_SETTING_KEYS,
     CONDITION_FIELDS,
     CONDITION_OPS,
     DEFAULT_AGENT_SETTINGS,
@@ -49,6 +50,7 @@ from .agent_update import (
 from .backup import backup_status, run_daily_backup
 from .enrollment_ops import enrollment_status, rotate_enrollment_token
 from .http_bootstrap import HTTP_SENSITIVE_MSG, sensitive_over_http_blocked
+from .security_ops import merge_security_into_ops, security_status
 from .site_bundle import build_site_bundle
 from .tls_ops import (
     https_panel_url,
@@ -406,6 +408,8 @@ def home(
     ops = ops_update_signals(
         db, stale_after_seconds=settings.device_stale_after_seconds
     )
+    security = security_status(db, settings)
+    ops = merge_security_into_ops(ops, security)
     return _html(
         request,
         "overview.html",
@@ -413,6 +417,7 @@ def home(
             "user": user,
             "stats": stats,
             "ops": ops,
+            "security": security,
             "stale_after_seconds": settings.device_stale_after_seconds,
         },
     )
@@ -785,6 +790,9 @@ def _device_config_context(
         "agent_local_keys": effective.get("agent_local_keys") or [],
         "has_agent_local": bool(effective.get("has_agent_local")),
         "config_local": effective.get("config_local"),
+        "policy_keys": effective.get("policy_keys") or [],
+        "override_keys": effective.get("override_keys") or [],
+        "match_context": effective.get("context") or {},
         "silence": silence,
         "health_snippet": health_snippet(detail.get("meta")),
         "recent_events": recent_events,
@@ -1308,6 +1316,7 @@ def _policies_context(
         "user": user,
         "policies": db.list_agent_policies(),
         "defaults": dict(DEFAULT_AGENT_SETTINGS),
+        "allowed_setting_keys": sorted(ALLOWED_SETTING_KEYS),
         "condition_fields": sorted(CONDITION_FIELDS),
         "condition_ops": sorted(CONDITION_OPS),
         "msi_versions": db.list_agent_msi_versions(),

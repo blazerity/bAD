@@ -169,12 +169,20 @@ def device_match_context(
         domain = str(host.get("domain") or "")
 
     hn = hostname or (str(host.get("hostname") or "") if host else "") or ""
+    # ad_ou — в inventory (display/context). Match-поле OU в CONDITION_FIELDS
+    # не входит: контракт C = tag|hostname|domain|os_caption (OU — отдельный kickoff).
+    ad_ou = ""
+    if host.get("ad_ou") is not None:
+        ad_ou = str(host.get("ad_ou") or "").strip()
+    if not ad_ou and host.get("ad_distinguished_name") is not None:
+        ad_ou = str(host.get("ad_distinguished_name") or "").strip()
     # tag — список; equals = членство, contains = подстрока любого тега.
     return {
         "hostname": hn,
         "domain": domain,
         "os_caption": os_caption,
         "tag": normalize_tags(tags),
+        "ad_ou": ad_ou,
     }
 
 
