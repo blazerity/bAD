@@ -1376,6 +1376,19 @@ class Database:
         return bool(a and b and a.casefold() == b.casefold())
 
     @classmethod
+    def _matched_identity_keys(
+        cls,
+        keys: tuple[str, ...],
+        left: dict[str, Any],
+        right: dict[str, Any],
+    ) -> list[str]:
+        return [
+            key
+            for key in keys
+            if cls._identity_values_equal(key, left.get(key), right.get(key))
+        ]
+
+    @classmethod
     def merge_identity_matched(
         cls,
         left: Optional[dict[str, Any]],
@@ -1389,20 +1402,11 @@ class Database:
         """
         a = left if isinstance(left, dict) else {}
         b = right if isinstance(right, dict) else {}
-        strong = [
-            key
-            for key in cls.MERGE_STRONG_KEYS
-            if cls._identity_values_equal(key, a.get(key), b.get(key))
-        ]
-        weak = [
-            key
-            for key in cls.MERGE_WEAK_KEYS
-            if cls._identity_values_equal(key, a.get(key), b.get(key))
-        ]
-        if strong:
+        strong = cls._matched_identity_keys(cls.MERGE_STRONG_KEYS, a, b)
+        weak = cls._matched_identity_keys(cls.MERGE_WEAK_KEYS, a, b)
+        # strong непустой → strong+weak; иначе weak только при паре (≥2).
+        if strong or len(weak) >= 2:
             return strong + weak
-        if len(weak) >= 2:
-            return weak
         return []
 
     @staticmethod
