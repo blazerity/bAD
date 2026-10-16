@@ -79,6 +79,7 @@ Self-update: агенты опрашивают **сервер** (не GitHub) н
 
 | Документ | Описание |
 |----------|----------|
+| [docs/api-v1.md](docs/api-v1.md) | Интеграционный гайд `/v1` (1C Itilium, admin Bearer, inventory) |
 | [docs/architecture.md](docs/architecture.md) | Архитектура + web LDAP auth + pipeline обновления агента |
 | [docs/guideline.md](docs/guideline.md) | Инженерные правила + как релизить MSI |
 | [docs/agents.md](docs/agents.md) | Агент, service CLI, version bump, LDAP/web auth map, инварианты |

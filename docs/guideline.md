@@ -13,6 +13,7 @@
 ## API
 
 - Префикс версионирования пути: `/v1/...`.
+- **Additive freeze `/v1`:** breaking только по решению владельца. Интеграционный гайд (1C Itilium): [api-v1.md](api-v1.md).
 - JSON, `Content-Type: application/json`, `Authorization: Bearer <token>`.
 - Разделять enrollment token, agent API key и admin token.
 - Ошибки: осмысленный HTTP status + краткий `detail`; неизвестный `schema_version` → `400`.

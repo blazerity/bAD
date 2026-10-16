@@ -39,6 +39,8 @@ from .smtp_mail import notify_enroll, notify_inventory_events
 
 logger = logging.getLogger(__name__)
 
+# Additive freeze /v1: новые optional поля и эндпоинты ок; breaking — только по решению владельца.
+# Интеграционный гайд (1C Itilium и др.): docs/api-v1.md
 router = APIRouter(prefix="/v1")
 
 # SEC-001: enrollment token alone cannot un-revoke (api early path + DB TOCTOU guard).
