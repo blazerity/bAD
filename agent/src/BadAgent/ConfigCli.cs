@@ -92,6 +92,7 @@ public static class ConfigCli
         output.WriteLine("Интерактивная настройка агента (bad -c)");
         output.WriteLine($"Файл: {ConfigStore.ConfigPath}");
         output.WriteLine("Пустой ввод — оставить текущее значение. Ctrl+C — отмена.");
+        output.WriteLine("server_url в бою — только https:// (http:// лишь с BAD_ALLOW_HTTP=1 для lab).");
         output.WriteLine();
 
         foreach (var key in InteractiveKeys)
@@ -212,6 +213,11 @@ public static class ConfigCli
         Console.WriteLine("Служебные (только чтение):");
         Console.WriteLine($"  device_id={MaskEmpty(cfg.DeviceId)}");
         Console.WriteLine($"  remote_config_version={MaskEmpty(cfg.RemoteConfigVersion)}");
+        // Presence OK (security-cli-config-secrets); plaintext — никогда.
+        Console.WriteLine(
+            $"  api_key={(string.IsNullOrWhiteSpace(cfg.ApiKey) ? "(нет)" : "(задан, скрыт)")}");
+        Console.WriteLine(
+            $"  enrollment_token={(string.IsNullOrWhiteSpace(cfg.EnrollmentToken) ? "(нет)" : "(задан, скрыт)")}");
         return 0;
     }
 
@@ -224,10 +230,17 @@ public static class ConfigCli
         }
 
         var key = NormalizeKey(args[0]);
+        if (key is "api_key" or "enrollment_token")
+        {
+            Console.Error.WriteLine(
+                "error: значения api_key / enrollment_token CLI не печатает (см. bad config — только «нет»/«задан, скрыт»).");
+            return 2;
+        }
+
         if (ForbiddenKeys.Contains(key) || !IsEditable(key))
         {
             Console.Error.WriteLine(
-                $"error: ключ '{args[0]}' нельзя читать через config get " +
+                $"error: ключ '{key}' нельзя читать через config get " +
                 "или он не в списке изменяемых. См. bad -c / bad config.");
             return 2;
         }
@@ -307,18 +320,18 @@ public static class ConfigCli
             return 2;
         }
 
-        if (ForbiddenKeys.Contains(key))
+        if (key is "api_key" or "enrollment_token" || ForbiddenKeys.Contains(key))
         {
             // Не эхоить valueRaw — даже при попытке set секрета.
             Console.Error.WriteLine(
-                $"error: ключ '{key}' запрещён для CLI (секреты и служебные поля не меняются)");
+                $"error: ключ '{key}' запрещён для CLI (секреты и служебные поля не меняются; значение не принято)");
             return 2;
         }
 
         if (!IsEditable(key))
         {
             Console.Error.WriteLine(
-                $"error: неизвестный или неразрешённый ключ '{keyRaw}'. " +
+                $"error: неизвестный или неразрешённый ключ '{key}'. " +
                 $"Допустимо: {string.Join(", ", EditableKeys)}");
             return 2;
         }
@@ -327,6 +340,7 @@ public static class ConfigCli
         var previousServerUrl = cfg.ServerUrl;
         if (!TryApply(cfg, key, valueRaw, out var error))
         {
+            // error — шаблон валидации (ServerUrlRules и т.п.); valueRaw не повторяем.
             Console.Error.WriteLine($"error: {error}");
             return 1;
         }
@@ -428,11 +442,24 @@ public static class ConfigCli
     private static void PrintServerUrlWarning(string previous, string current, TextWriter output)
     {
         output.WriteLine();
-        output.WriteLine("Важно: в production — только https:// (http:// без BAD_ALLOW_HTTP=1 служба отклонит).");
+        if (current.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+        {
+            output.WriteLine(
+                "Предупреждение: http:// принят только из‑за BAD_ALLOW_HTTP=1 (lab). " +
+                "В бою укажите https:// — иначе агент без opt-in не подключится.");
+        }
+        else
+        {
+            output.WriteLine(
+                "Важно: в бою оставляйте server_url на https:// " +
+                "(cleartext без BAD_ALLOW_HTTP=1 служба отклонит — ServerUrlRules).");
+        }
+
         if (!string.Equals(previous, current, StringComparison.OrdinalIgnoreCase))
         {
             output.WriteLine(
-                "Смена server_url может потребовать повторный enroll на новом сервере.");
+                "Смена server_url может потребовать повторный enroll на новом сервере " +
+                "(при 401/403 служба очистит api_key).");
         }
     }
 
@@ -491,12 +518,14 @@ public static class ConfigCli
         Console.WriteLine("""
 Настройки агента:
   bad -c                          Интерактивная настройка (рекомендуется)
-  bad config                      Показать параметры (без секретов)
+  bad config                      Показать параметры (без plaintext секретов)
   bad config set <ключ> <значение>  Power-user
   bad config get|unset <ключ>
 
-Изменяемые: server_url, collect_*, inventory/heartbeat/update_check интервалы.
-Секреты (api_key, enrollment_token) через CLI не показываются и не задаются.
+Изменяемые: server_url (в бою только https://), collect_*, интервалы.
+Значения api_key / enrollment_token CLI не печатает и не принимает в set
+(в bad config — только «(нет)» / «(задан, скрыт)»).
+http:// в server_url — только lab с BAD_ALLOW_HTTP=1 (правила ServerUrlRules).
 """);
     }
 }
