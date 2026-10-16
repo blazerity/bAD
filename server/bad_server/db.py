@@ -1359,6 +1359,52 @@ class Database:
         "baseboard_serial",
     )
 
+    # Merge match (вариант 2, без диска/hostname) — одна функция на список и merge_devices.
+    MERGE_STRONG_KEYS = ("serial_number", "smbios_uuid")
+    MERGE_WEAK_KEYS = ("bios_serial", "identifying_number", "baseboard_serial")
+
+    @classmethod
+    def _identity_values_equal(cls, key: str, left: Any, right: Any) -> bool:
+        if not left or not right:
+            return False
+        if key == "smbios_uuid":
+            a = cls.normalize_smbios_uuid(left)
+            b = cls.normalize_smbios_uuid(right)
+            return bool(a and b and a == b)
+        a = cls.normalize_serial_number(left)
+        b = cls.normalize_serial_number(right)
+        return bool(a and b and a.casefold() == b.casefold())
+
+    @classmethod
+    def merge_identity_matched(
+        cls,
+        left: Optional[dict[str, Any]],
+        right: Optional[dict[str, Any]],
+    ) -> list[str]:
+        """Поля, дающие право на склейку (пусто = кнопки merge нет).
+
+        Сильное: достаточно одного из ``serial_number`` / ``smbios_uuid``.
+        Слабая пара: ≥2 из ``bios_serial`` / ``identifying_number`` / ``baseboard_serial``.
+        Hostname и ``disk_serial*`` не входят. OEM/пустые отсекаются нормализацией.
+        """
+        a = left if isinstance(left, dict) else {}
+        b = right if isinstance(right, dict) else {}
+        strong = [
+            key
+            for key in cls.MERGE_STRONG_KEYS
+            if cls._identity_values_equal(key, a.get(key), b.get(key))
+        ]
+        weak = [
+            key
+            for key in cls.MERGE_WEAK_KEYS
+            if cls._identity_values_equal(key, a.get(key), b.get(key))
+        ]
+        if strong:
+            return strong + weak
+        if len(weak) >= 2:
+            return weak
+        return []
+
     @staticmethod
     def normalize_smbios_uuid(raw: Any) -> Optional[str]:
         """Нормализованный SMBIOS UUID или None для пустых/placeholder (all-F / all-zero)."""
@@ -1625,6 +1671,8 @@ class Database:
         """Другие устройства с совпавшим hostname / hardware id.
 
         Сигналы «та же железка», не PK. Автослияния нет.
+        Бакеты не сужаются; на каждом кандидате ``merge_matched``
+        (``merge_identity_matched``) — пусто = склейка недоступна.
         """
         empty: dict[str, list[dict[str, Any]]] = {
             "hostname": [],
@@ -1657,11 +1705,14 @@ class Database:
             other_signals = self._identity_signals_enriched(
                 other["device_id"], other_meta
             )
+            # Одно правило с merge_devices: пусто = UI без кнопки склейки.
+            merge_matched = self.merge_identity_matched(signals, other_signals)
 
             base = {
                 "device_id": other["device_id"],
                 "hostname": other["hostname"],
                 "archived": other.get("archived"),
+                "merge_matched": list(merge_matched),
             }
 
             other_hn = (other.get("hostname") or "").strip()
@@ -1709,11 +1760,10 @@ class Database:
     ) -> dict[str, Any]:
         """Ручная склейка дублей: история donor → survivor, donor в архив+revoke.
 
-        Критерии (decision §3 «склейка»): совпадение нормализованного
-        ``serial_number`` и/или ``smbios_uuid``; donor — stale или archived
-        (не второй свежий online). Без UNIQUE(serial), PK не меняется.
-        Одна транзакция: archive **и** revoke api_key донора (archived сам
-        по себе auth не режет). Overrides donor не трогаем (остаются на архиве).
+        Identity: ``merge_identity_matched`` (сильное serial/uuid или слабая
+        пара bios/identifying/board). Donor — stale или archived.
+        Hostname/disk в match не входят. Без UNIQUE(serial), PK не меняется.
+        Одна транзакция: archive **и** revoke api_key донора.
 
         Raises ValueError с кодом:
         ``merge_same_device`` · ``merge_survivor_missing`` · ``merge_donor_missing``
@@ -1740,19 +1790,7 @@ class Database:
         s_sig = self._identity_signals_enriched(survivor_id, s_meta)
         d_sig = self._identity_signals_enriched(donor_id, d_meta)
 
-        matched: list[str] = []
-        s_serial = s_sig.get("serial_number")
-        d_serial = d_sig.get("serial_number")
-        if (
-            s_serial
-            and d_serial
-            and str(s_serial).casefold() == str(d_serial).casefold()
-        ):
-            matched.append("serial_number")
-        s_uuid = s_sig.get("smbios_uuid")
-        d_uuid = d_sig.get("smbios_uuid")
-        if s_uuid and d_uuid and s_uuid == d_uuid:
-            matched.append("smbios_uuid")
+        matched = self.merge_identity_matched(s_sig, d_sig)
         if not matched:
             raise ValueError("merge_no_identity_match")
 

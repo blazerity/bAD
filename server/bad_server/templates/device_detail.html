@@ -60,30 +60,49 @@
     </p>
     {% endfor %}
     {% if user.is_admin %}
+    {# Кнопка только при непустом merge_matched (контракт merge-match).
+       Hostname / disk остаются в списках выше без кнопки. #}
+    {% set merge_seen = [] %}
+    {% set merge_rows = [] %}
+    {% for g in duplicate_groups %}
+      {% for d in g.devices %}
+        {% if d.device_id and d.merge_matched and d.device_id not in merge_seen %}
+          {% set _ = merge_seen.append(d.device_id) %}
+          {% set _ = merge_rows.append(d) %}
+        {% endif %}
+      {% endfor %}
+    {% endfor %}
+    {% if merge_rows %}
     <p class="muted dup-merge-hint">
       Объединение переносит события и снимки на <strong>эту</strong> карточку;
       донор уходит в архив. Это не remote-merge конфига агента.
     </p>
     <ul class="dup-merge-list">
-      {% set merge_seen = [] %}
-      {% for g in duplicate_groups %}
-        {% for d in g.devices %}
-          {% if d.device_id and d.device_id not in merge_seen %}
-            {% set _ = merge_seen.append(d.device_id) %}
-            <li class="dup-merge-row">
-              <a href="/devices/{{ d.device_id }}">{{ d.hostname or d.device_id }}</a>
-              <span class="mono muted">{{ d.device_id }}</span>
-              <form method="post" action="/devices/{{ device.device_id }}/merge" class="dup-merge-form"
-                    onsubmit="return confirm('Объединить «{{ d.hostname or d.device_id }}» в эту карточку?\nИстория перейдёт сюда, донор будет в архиве.');">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <input type="hidden" name="donor_id" value="{{ d.device_id }}">
-                <button type="submit" class="subtle">Объединить в эту карточку</button>
-              </form>
-            </li>
+      {% for d in merge_rows %}
+        {% set match_labels = [] %}
+        {% for k in d.merge_matched %}
+          {% if k == 'serial_number' %}{% set _ = match_labels.append('серийник корпуса') %}
+          {% elif k == 'smbios_uuid' %}{% set _ = match_labels.append('SMBIOS UUID') %}
+          {% elif k == 'bios_serial' %}{% set _ = match_labels.append('BIOS serial') %}
+          {% elif k == 'identifying_number' %}{% set _ = match_labels.append('IdentifyingNumber') %}
+          {% elif k == 'baseboard_serial' %}{% set _ = match_labels.append('serial платы') %}
+          {% else %}{% set _ = match_labels.append(k) %}
           {% endif %}
         {% endfor %}
+        <li class="dup-merge-row">
+          <a href="/devices/{{ d.device_id }}">{{ d.hostname or d.device_id }}</a>
+          <span class="mono muted">{{ d.device_id }}</span>
+          <span class="muted dup-merge-matched">совпало: {{ match_labels|join(', ') }}</span>
+          <form method="post" action="/devices/{{ device.device_id }}/merge" class="dup-merge-form"
+                onsubmit="return confirm('Объединить «{{ d.hostname or d.device_id }}» в эту карточку?\nСовпало: {{ match_labels|join(', ') }}\nИстория перейдёт сюда, донор будет в архиве.');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="donor_id" value="{{ d.device_id }}">
+            <button type="submit" class="subtle">Объединить в эту карточку</button>
+          </form>
+        </li>
       {% endfor %}
     </ul>
+    {% endif %}
     {% endif %}
   </div>
   {% endif %}
