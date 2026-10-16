@@ -10,7 +10,7 @@
     {% if wave %}· фильтр волны: <span class="mono">{{ wave }}</span>{% endif %}
   </p>
   <p class="muted">
-    Зеркало MSI агента:
+    Версия агента в зеркале MSI:
     {% if agent_update %}
       <strong>{{ agent_update.version }}</strong>
       ({{ agent_update.msi_name }}, синхр. {{ agent_update.synced_at }})
@@ -61,7 +61,7 @@
         <th>device_id</th>
         <th>Состояние</th>
         <th>Теги</th>
-        <th>Агент</th>
+        <th>Версия агента</th>
         <th>Последний контакт</th>
       </tr>
     </thead>
@@ -93,7 +93,7 @@
             <span class="muted">—</span>
           {% endif %}
         </td>
-        <td>{{ d.agent_version or "—" }}</td>
+        <td class="mono">{{ d.agent_version or "—" }}</td>
         <td>{{ d.last_seen_at or "—" }}</td>
       </tr>
       {% endfor %}

@@ -15,7 +15,7 @@
 
   <dl class="meta identity-meta">
     <div><dt>device_id</dt><dd class="mono">{{ device.device_id }}</dd></div>
-    <div><dt>Агент</dt><dd>{{ device.agent_version or "—" }}</dd></div>
+    <div><dt>Версия агента</dt><dd class="mono">{{ device.agent_version or "—" }}</dd></div>
     <div>
       <dt>Последний контакт</dt>
       <dd>
@@ -497,7 +497,7 @@
               {{ config_source_mark('update_check_interval_hours', sources, agent_local_keys) }}</dd>
           </div>
           <div>
-            <dt>Обновления</dt>
+            <dt>Обновления агента</dt>
             <dd>{% if effective.update_enabled %}вкл{% else %}выкл{% endif %} · цель {{ effective.update_target }}
               {{ config_source_mark('update_enabled', sources, agent_local_keys) }}
               {{ config_source_mark('update_target', sources, agent_local_keys) }}</dd>
@@ -555,7 +555,7 @@
             <option value="false" {% if override_settings.update_enabled is defined and not override_settings.update_enabled %}selected{% endif %}>выключены</option>
           </select>
 
-          <label for="update_target">Цель обновления
+          <label for="update_target">Цель версии агента
             {{ config_source_mark('update_target', sources, agent_local_keys, mode='agent') }}</label>
           <select id="update_target" name="update_target">
             <option value="" {% if override_settings.update_target is not defined %}selected{% endif %}>(не задавать)</option>

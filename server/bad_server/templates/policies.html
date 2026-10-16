@@ -153,10 +153,10 @@
           </select>
         </div>
         <div class="full">
-          <label for="update_target">Цель обновления</label>
+          <label for="update_target">Цель версии агента</label>
           <select id="update_target" name="update_target">
             <option value="" {% if s.update_target is not defined %}selected{% endif %}>(не задавать)</option>
-            <option value="latest" {% if s.update_target is defined and s.update_target == 'latest' %}selected{% endif %}>latest (последняя в зеркале)</option>
+            <option value="latest" {% if s.update_target is defined and s.update_target == 'latest' %}selected{% endif %}>latest (последняя версия агента в зеркале)</option>
             {% for v in msi_versions or [] %}
             <option value="{{ v.version }}" {% if s.update_target is defined and s.update_target == v.version %}selected{% endif %}>{{ v.version }}{% if v.source %} · {{ v.source }}{% endif %}</option>
             {% endfor %}
