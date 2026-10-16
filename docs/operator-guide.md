@@ -87,7 +87,7 @@ BAD_TLS_KEY=/etc/ssl/private/bad.privkey.pem \
 ```bash
 curl -fsS http://bad.example.com/v1/health   # bootstrap без cert
 curl -fsS https://bad.example.com/v1/health  # после TLS / с cert при install
-# → {"status":"ok","version":"1.0.1"}
+# → {"status":"ok","version":"<server VERSION>"}
 ```
 
 ### Вход в web (локальный)
@@ -204,7 +204,7 @@ msiexec /i bad-agent-1.0.1.msi `
 
 Теги: правка на странице устройства (через запятую). Фильтр списка устройств по тегу. Политики тоже могут матчить `tag equals/contains`.
 
-Daily DB backup **не** содержит master-ключи — см. [§ backup](#6-site-backup--restore). Порог stale по умолчанию 1 час (`BAD_DEVICE_STALE_AFTER_SECONDS`); ≈2× heartbeat при необходимости. Версия продукта **1.0.1**.
+Daily DB backup **не** содержит master-ключи — см. [§ backup](#6-site-backup--restore). Порог stale по умолчанию 1 час (`BAD_DEVICE_STALE_AFTER_SECONDS`); ≈2× heartbeat при необходимости. Semver: **сервер** (`VERSION` / health) и **агент** (MSI / `agent_version`) — разные линии; см. [guideline](guideline.md#версионирование-две-линии).
 
 Альтернатива (автоматизация — admin API token):
 
@@ -217,15 +217,15 @@ curl -fsS -H "Authorization: Bearer <admin-token>" \
 
 ## 4. Обновление сервера (из GitHub)
 
-Страница: **Параметры → Обновление сервера** (`/settings/server-update`). Это **self-update панели/API**, не зеркало MSI агента ([§5](#5-обновления-агента-upload-msi-и-выбор-версии)).
+Страница: **Параметры → Обновление сервера** (`/settings/server-update`). Это **self-update панели/API** (линия **server** / корневой `VERSION`), не зеркало MSI агента ([§5](#5-обновления-агента-upload-msi-и-выбор-версии)).
 
 ### Ветка, check, apply
 
 | Шаг | Действие |
 |-----|----------|
 | Ветка | Default **`main`**. Выберите ветку (список из GitHub или ввод) и сохраните. |
-| **Проверить обновления** | Сравнение текущего installed (branch + sha, опц. `VERSION`) с remote HEAD выбранной ветки. |
-| **Установить** | Скачать commit → слот в `/var/lib/bad/server-releases/` → promote `/opt/bad` → **автоrestart** `bad-api`. |
+| **Проверить обновления** | Сравнение текущего installed (branch + sha, опц. server `VERSION`) с remote HEAD выбранной ветки. |
+| **Установить** | Скачать commit → слот в `/var/lib/bad/server-releases/` → promote `/opt/bad` → **автоrestart** `bad-api`. Не бампает `agent/VERSION` / MSI. |
 
 Apply идёт через systemd helper (`bad-server-update-apply.path` → `bad-apply-server-update`) — **как TLS apply**, без пароля sudo в панели и без хранения root password.
 
@@ -249,7 +249,7 @@ Apply идёт через systemd helper (`bad-server-update-apply.path` → `ba
 
 ## 5. Обновления агента: upload MSI и выбор версии
 
-Страница: **Параметры → Обновления агента** (`/settings/updates`). Каталог на диске: `BAD_AGENT_UPDATES_DIR/{version}/bad-agent-{version}.msi` (+ `agent-release.json`). Агенты качают только с этого сервера; цель версии — knob `update_target` в политиках.
+Страница: **Параметры → Обновления агента** (`/settings/updates`). Каталог на диске: `BAD_AGENT_UPDATES_DIR/{version}/bad-agent-{version}.msi` (+ `agent-release.json`) — semver **агента** (`agent/VERSION` / tags `agent-v*`), не server `VERSION`. Агенты качают только с этого сервера; цель — knob `update_target` в политиках.
 
 ### Загрузить MSI (air-gap)
 
