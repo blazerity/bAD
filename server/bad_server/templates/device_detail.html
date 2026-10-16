@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros/icons.html" import icon, silence_label %}
+{% from "macros/icons.html" import icon, silence_label, config_source_mark %}
 {% block title %}{{ device.hostname or device.device_id }} — bAD{% endblock %}
 {% block content %}
 {% set hw = hardware_summary %}
@@ -382,6 +382,10 @@
         <p class="muted">
           Эффективный конфиг (v<span class="mono">{{ config_version }}</span>):
           defaults → политики → ручной override.
+          Источник на панели: <span class="mono">default</span> /
+          <span class="mono">policy</span> /
+          <span class="mono">device_override</span> /
+          <span class="mono">agent_local</span>.
         </p>
 
         <h3 class="with-icon">{{ icon('policies') }}Политика</h3>
@@ -400,47 +404,101 @@
         {% endif %}
 
         <h3>Эффективные значения</h3>
+        {% if has_agent_local %}
+        <p class="config-source-summary">
+          <span class="badge badge-agent-local">задано на агенте</span>
+          Есть knobs, заданные руками в агенте (не default, не политика, не override сервера).
+          {% if config_local and config_local.reported_at %}
+          <span class="muted">· отчёт {{ config_local.reported_at }}</span>
+          {% endif %}
+        </p>
+        {% endif %}
         <dl class="speccy-kv">
-          <div><dt>Inventory</dt><dd>{{ effective.inventory_interval_hours }} ч</dd></div>
-          <div><dt>Heartbeat</dt><dd>{{ effective.heartbeat_interval_minutes }} мин</dd></div>
-          <div><dt>Проверка обновлений</dt><dd>{{ effective.update_check_interval_hours }} ч</dd></div>
-          <div><dt>Обновления</dt><dd>{% if effective.update_enabled %}вкл{% else %}выкл{% endif %} · цель {{ effective.update_target }}</dd></div>
-          <div><dt>Сбор</dt><dd>
-            железо {% if effective.collect_hardware %}да{% else %}нет{% endif %} ·
-            пользователи {% if effective.collect_users %}да{% else %}нет{% endif %} ·
-            ПО {% if effective.collect_software %}да{% else %}нет{% endif %}
-          </dd></div>
+          {% if config_local and config_local.server_url %}
+          <div>
+            <dt>URL сервера</dt>
+            <dd>
+              <span class="mono">{{ config_local.server_url }}</span>
+              <span class="badge badge-agent-local" title="Display-only из отчёта агента">задано на агенте</span>
+            </dd>
+          </div>
+          {% endif %}
+          <div>
+            <dt>Inventory</dt>
+            <dd>{{ effective.inventory_interval_hours }} ч
+              {{ config_source_mark('inventory_interval_hours', sources, agent_local_keys) }}</dd>
+          </div>
+          <div>
+            <dt>Heartbeat</dt>
+            <dd>{{ effective.heartbeat_interval_minutes }} мин
+              {{ config_source_mark('heartbeat_interval_minutes', sources, agent_local_keys) }}</dd>
+          </div>
+          <div>
+            <dt>Проверка обновлений</dt>
+            <dd>{{ effective.update_check_interval_hours }} ч
+              {{ config_source_mark('update_check_interval_hours', sources, agent_local_keys) }}</dd>
+          </div>
+          <div>
+            <dt>Обновления</dt>
+            <dd>{% if effective.update_enabled %}вкл{% else %}выкл{% endif %} · цель {{ effective.update_target }}
+              {{ config_source_mark('update_enabled', sources, agent_local_keys) }}
+              {{ config_source_mark('update_target', sources, agent_local_keys) }}</dd>
+          </div>
+          <div>
+            <dt>Сбор железа</dt>
+            <dd>{% if effective.collect_hardware %}да{% else %}нет{% endif %}
+              {{ config_source_mark('collect_hardware', sources, agent_local_keys) }}</dd>
+          </div>
+          <div>
+            <dt>Сбор пользователей</dt>
+            <dd>{% if effective.collect_users %}да{% else %}нет{% endif %}
+              {{ config_source_mark('collect_users', sources, agent_local_keys) }}</dd>
+          </div>
+          <div>
+            <dt>Сбор ПО</dt>
+            <dd>{% if effective.collect_software %}да{% else %}нет{% endif %}
+              {{ config_source_mark('collect_software', sources, agent_local_keys) }}</dd>
+          </div>
         </dl>
 
         {% if user.is_admin %}
         <h3>Ручной override</h3>
-        <p class="muted">Пустое поле не попадает в override. Перекрывает политики для этого устройства.</p>
+        <p class="muted">
+          Пустое поле не попадает в override. Перекрывает политики для этого устройства.
+          Метка «задано на агенте» на панели важнее override для <em>отображения</em> источника
+          (remote merge не меняется).
+        </p>
         <form method="post" action="/devices/{{ device.device_id }}/config-override" class="settings-form compact-form">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
-          <label for="inventory_interval_hours">Интервал inventory (часы)</label>
+          <label for="inventory_interval_hours">Интервал inventory (часы)
+            {{ config_source_mark('inventory_interval_hours', sources, agent_local_keys, mode='agent') }}</label>
           <input id="inventory_interval_hours" name="inventory_interval_hours" type="number" min="1"
             value="{{ override_settings.inventory_interval_hours if override_settings.inventory_interval_hours is defined else '' }}"
             placeholder="по умолчанию {{ defaults.inventory_interval_hours }}">
 
-          <label for="heartbeat_interval_minutes">Heartbeat (минуты)</label>
+          <label for="heartbeat_interval_minutes">Heartbeat (минуты)
+            {{ config_source_mark('heartbeat_interval_minutes', sources, agent_local_keys, mode='agent') }}</label>
           <input id="heartbeat_interval_minutes" name="heartbeat_interval_minutes" type="number" min="1"
             value="{{ override_settings.heartbeat_interval_minutes if override_settings.heartbeat_interval_minutes is defined else '' }}"
             placeholder="по умолчанию {{ defaults.heartbeat_interval_minutes }}">
 
-          <label for="update_check_interval_hours">Проверка обновлений (часы)</label>
+          <label for="update_check_interval_hours">Проверка обновлений (часы)
+            {{ config_source_mark('update_check_interval_hours', sources, agent_local_keys, mode='agent') }}</label>
           <input id="update_check_interval_hours" name="update_check_interval_hours" type="number" min="1"
             value="{{ override_settings.update_check_interval_hours if override_settings.update_check_interval_hours is defined else '' }}"
             placeholder="по умолчанию {{ defaults.update_check_interval_hours }}">
 
-          <label for="update_enabled">Обновления агента</label>
+          <label for="update_enabled">Обновления агента
+            {{ config_source_mark('update_enabled', sources, agent_local_keys, mode='agent') }}</label>
           <select id="update_enabled" name="update_enabled">
             <option value="" {% if override_settings.update_enabled is not defined %}selected{% endif %}>(не задавать)</option>
             <option value="true" {% if override_settings.update_enabled is defined and override_settings.update_enabled %}selected{% endif %}>включены</option>
             <option value="false" {% if override_settings.update_enabled is defined and not override_settings.update_enabled %}selected{% endif %}>выключены</option>
           </select>
 
-          <label for="update_target">Цель обновления</label>
+          <label for="update_target">Цель обновления
+            {{ config_source_mark('update_target', sources, agent_local_keys, mode='agent') }}</label>
           <select id="update_target" name="update_target">
             <option value="" {% if override_settings.update_target is not defined %}selected{% endif %}>(не задавать)</option>
             <option value="latest" {% if override_settings.update_target is defined and override_settings.update_target == 'latest' %}selected{% endif %}>latest</option>
@@ -449,21 +507,24 @@
             {% endfor %}
           </select>
 
-          <label for="collect_hardware">Собирать железо</label>
+          <label for="collect_hardware">Собирать железо
+            {{ config_source_mark('collect_hardware', sources, agent_local_keys, mode='agent') }}</label>
           <select id="collect_hardware" name="collect_hardware">
             <option value="" {% if override_settings.collect_hardware is not defined %}selected{% endif %}>(не задавать)</option>
             <option value="true" {% if override_settings.collect_hardware is defined and override_settings.collect_hardware %}selected{% endif %}>да</option>
             <option value="false" {% if override_settings.collect_hardware is defined and not override_settings.collect_hardware %}selected{% endif %}>нет</option>
           </select>
 
-          <label for="collect_users">Собирать пользователей</label>
+          <label for="collect_users">Собирать пользователей
+            {{ config_source_mark('collect_users', sources, agent_local_keys, mode='agent') }}</label>
           <select id="collect_users" name="collect_users">
             <option value="" {% if override_settings.collect_users is not defined %}selected{% endif %}>(не задавать)</option>
             <option value="true" {% if override_settings.collect_users is defined and override_settings.collect_users %}selected{% endif %}>да</option>
             <option value="false" {% if override_settings.collect_users is defined and not override_settings.collect_users %}selected{% endif %}>нет</option>
           </select>
 
-          <label for="collect_software">Собирать ПО</label>
+          <label for="collect_software">Собирать ПО
+            {{ config_source_mark('collect_software', sources, agent_local_keys, mode='agent') }}</label>
           <select id="collect_software" name="collect_software">
             <option value="" {% if override_settings.collect_software is not defined %}selected{% endif %}>(не задавать)</option>
             <option value="true" {% if override_settings.collect_software is defined and override_settings.collect_software %}selected{% endif %}>да</option>

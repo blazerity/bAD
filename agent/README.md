@@ -4,6 +4,8 @@ Windows Worker Service (.NET 8) для инвентаризации: enroll / he
 
 HTTP bootstrap панели на сервере ≠ поддержка HTTP у агента: агент по умолчанию принимает только `https://` (`BAD_ALLOW_HTTP=1` — только lab).
 
+Локальные ручные knobs (CLI): `agent_local_keys` / `server_url_local` в `config.json`; в heartbeat уходит `config_local` (source на панели — `agent_local`). Секреты через CLI set не задаются.
+
 ## Сборка
 
 ```bash

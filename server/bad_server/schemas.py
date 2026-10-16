@@ -4,7 +4,12 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
-from .agent_config import sanitize_conditions, sanitize_settings
+from .agent_config import (
+    MAX_CONFIG_LOCAL_SERVER_URL_LEN,
+    sanitize_conditions,
+    sanitize_config_local,
+    sanitize_settings,
+)
 
 
 class EnrollRequest(BaseModel):
@@ -20,6 +25,19 @@ class EnrollResponse(BaseModel):
     device_id: str
 
 
+class ConfigLocalPayload(BaseModel):
+    """Agent-reported manual knobs (agent_local). Strip secrets; keys ⊆ ALLOWED_SETTING_KEYS."""
+
+    keys: list[str] = Field(default_factory=list)
+    settings: Optional[dict[str, Any]] = None
+    server_url: Optional[str] = Field(default=None, max_length=MAX_CONFIG_LOCAL_SERVER_URL_LEN)
+
+    model_config = {"extra": "ignore"}
+
+    def sanitized(self) -> dict[str, Any]:
+        return sanitize_config_local(self.model_dump(exclude_none=False))
+
+
 class HeartbeatRequest(BaseModel):
     device_id: str = Field(min_length=1, max_length=128)
     agent_version: Optional[str] = Field(default=None, max_length=64)
@@ -30,6 +48,8 @@ class HeartbeatRequest(BaseModel):
     last_inventory_error: Optional[str] = Field(default=None, max_length=256)
     agent_uptime_seconds: Optional[int] = Field(default=None, ge=0)
     system_drive_free_bytes: Optional[int] = Field(default=None, ge=0)
+    # Provenance: omit/null → keep previous meta.config_local; keys=[] → clear.
+    config_local: Optional[ConfigLocalPayload] = None
 
 
 class InventoryRequest(BaseModel):

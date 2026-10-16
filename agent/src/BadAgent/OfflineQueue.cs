@@ -321,6 +321,10 @@ public sealed class HeartbeatQueuePayload
 
     [JsonPropertyName("system_drive_free_bytes")]
     public long? SystemDriveFreeBytes { get; set; }
+
+    /// <summary>Provenance: manual / agent_local keys (+ optional settings / server_url).</summary>
+    [JsonPropertyName("config_local")]
+    public ConfigLocalPayload? ConfigLocal { get; set; }
 }
 
 public sealed class OfflineFlushResult

@@ -60,6 +60,39 @@ public sealed class AgentConfig
     /// <summary>Последняя применённая версия remote config (hash сервера); не секрет.</summary>
     [JsonPropertyName("remote_config_version")]
     public string? RemoteConfigVersion { get; set; }
+
+    /// <summary>
+    /// Safe knobs, заданные локально вручную (CLI / правка config). Source для панели: <c>agent_local</c>.
+    /// Не секреты. См. <see cref="ConfigStore.CliManualSettingKeys"/>.
+    /// </summary>
+    [JsonPropertyName("agent_local_keys")]
+    public List<string> AgentLocalKeys { get; set; } = new();
+
+    /// <summary>
+    /// <c>server_url</c> задан локально (CLI). В heartbeat уходит display-only в <c>config_local.server_url</c>,
+    /// не remote knob и не элемент <c>keys</c>.
+    /// </summary>
+    [JsonPropertyName("server_url_local")]
+    public bool ServerUrlLocal { get; set; }
+}
+
+/// <summary>
+/// Inbound heartbeat <c>config_local</c> (контракт API Lead): keys = agent_local safe knobs.
+/// </summary>
+public sealed class ConfigLocalPayload
+{
+    [JsonPropertyName("keys")]
+    public List<string> Keys { get; set; } = new();
+
+    /// <summary>Опционально: текущие значения ключей из <see cref="Keys"/> (для UI).</summary>
+    [JsonPropertyName("settings")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, object?>? Settings { get; set; }
+
+    /// <summary>Display-only; не safe knob / не remote merge.</summary>
+    [JsonPropertyName("server_url")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ServerUrl { get; set; }
 }
 
 /// <summary>Подмножество knobs AgentConfig, которые сервер может пушить удалённо.</summary>
@@ -111,6 +144,33 @@ public sealed class RemoteAgentConfigResponse
 
 public static class ConfigStore
 {
+    /// <summary>Safe knobs, допустимые в <c>config_local.keys</c> / <c>agent_local_keys</c> (как на сервере).</summary>
+    public static readonly HashSet<string> AllowedAgentLocalKeys = new(StringComparer.Ordinal)
+    {
+        "inventory_interval_hours",
+        "heartbeat_interval_minutes",
+        "update_check_interval_hours",
+        "update_enabled",
+        "update_target",
+        "collect_hardware",
+        "collect_users",
+        "collect_software",
+    };
+
+    /// <summary>
+    /// Scope CLI <c>bad … set</c>: <c>server_url</c> (отдельный флаг), <c>collect_*</c>, интервалы.
+    /// Секреты (<c>api_key</c> / <c>enrollment_token</c>) — никогда.
+    /// </summary>
+    public static readonly HashSet<string> CliManualSettingKeys = new(StringComparer.Ordinal)
+    {
+        "inventory_interval_hours",
+        "heartbeat_interval_minutes",
+        "update_check_interval_hours",
+        "collect_hardware",
+        "collect_users",
+        "collect_software",
+    };
+
     public static string ProgramDataDir
     {
         get
@@ -154,12 +214,14 @@ public static class ConfigStore
 
         var json = File.ReadAllText(ConfigPath);
         var cfg = JsonSerializer.Deserialize<AgentConfig>(json) ?? new AgentConfig();
+        cfg.AgentLocalKeys = NormalizeAgentLocalKeys(cfg.AgentLocalKeys);
         return ApplyEnvironment(cfg);
     }
 
     public static void Save(AgentConfig config)
     {
         Directory.CreateDirectory(ProgramDataDir);
+        config.AgentLocalKeys = NormalizeAgentLocalKeys(config.AgentLocalKeys);
         var tmp = ConfigPath + ".tmp";
         var json = JsonSerializer.Serialize(config, JsonOptions);
         File.WriteAllText(tmp, json);
@@ -169,12 +231,14 @@ public static class ConfigStore
 
     /// <summary>
     /// Применяет только safe knobs с сервера. Не трогает server_url, api_key, device_id, enrollment_token.
+    /// Ключи из <see cref="AgentConfig.AgentLocalKeys"/> не перезаписываются (локальный ручной приоритет на агенте).
     /// True, если что-то изменилось.
     /// </summary>
     public static bool ApplyRemoteSettings(AgentConfig config, RemoteAgentSettings settings)
     {
         var changed = false;
         if (settings.InventoryIntervalHours is int inv && inv >= 1
+            && !IsAgentLocalKey(config, "inventory_interval_hours")
             && config.InventoryIntervalHours != inv)
         {
             config.InventoryIntervalHours = inv;
@@ -182,6 +246,7 @@ public static class ConfigStore
         }
 
         if (settings.HeartbeatIntervalMinutes is int hb && hb >= 1
+            && !IsAgentLocalKey(config, "heartbeat_interval_minutes")
             && config.HeartbeatIntervalMinutes != hb)
         {
             config.HeartbeatIntervalMinutes = hb;
@@ -189,13 +254,16 @@ public static class ConfigStore
         }
 
         if (settings.UpdateCheckIntervalHours is int uch && uch >= 1
+            && !IsAgentLocalKey(config, "update_check_interval_hours")
             && config.UpdateCheckIntervalHours != uch)
         {
             config.UpdateCheckIntervalHours = uch;
             changed = true;
         }
 
-        if (settings.UpdateEnabled is bool ue && config.UpdateEnabled != ue)
+        if (settings.UpdateEnabled is bool ue
+            && !IsAgentLocalKey(config, "update_enabled")
+            && config.UpdateEnabled != ue)
         {
             config.UpdateEnabled = ue;
             changed = true;
@@ -204,7 +272,7 @@ public static class ConfigStore
         var targetRaw = FirstNonEmpty(
             settings.UpdateTarget,
             settings.DesiredAgentVersion);
-        if (targetRaw is not null)
+        if (targetRaw is not null && !IsAgentLocalKey(config, "update_target"))
         {
             var normalized = VersionUtil.NormalizeDesiredAgentVersion(targetRaw);
             if (normalized is not null
@@ -215,19 +283,25 @@ public static class ConfigStore
             }
         }
 
-        if (settings.CollectHardware is bool ch && config.CollectHardware != ch)
+        if (settings.CollectHardware is bool ch
+            && !IsAgentLocalKey(config, "collect_hardware")
+            && config.CollectHardware != ch)
         {
             config.CollectHardware = ch;
             changed = true;
         }
 
-        if (settings.CollectUsers is bool cu && config.CollectUsers != cu)
+        if (settings.CollectUsers is bool cu
+            && !IsAgentLocalKey(config, "collect_users")
+            && config.CollectUsers != cu)
         {
             config.CollectUsers = cu;
             changed = true;
         }
 
-        if (settings.CollectSoftware is bool cs && config.CollectSoftware != cs)
+        if (settings.CollectSoftware is bool cs
+            && !IsAgentLocalKey(config, "collect_software")
+            && config.CollectSoftware != cs)
         {
             config.CollectSoftware = cs;
             changed = true;
@@ -235,6 +309,141 @@ public static class ConfigStore
 
         return changed;
     }
+
+    public static bool IsAgentLocalKey(AgentConfig config, string key)
+    {
+        if (config.AgentLocalKeys is null || config.AgentLocalKeys.Count == 0)
+        {
+            return false;
+        }
+
+        foreach (var k in config.AgentLocalKeys)
+        {
+            if (string.Equals(k, key, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Пометить safe knob как заданный вручную (source <c>agent_local</c>).
+    /// False, если ключ не из <see cref="AllowedAgentLocalKeys"/> (секреты / неизвестное).
+    /// </summary>
+    public static bool MarkAgentLocalKey(AgentConfig config, string key)
+    {
+        if (string.IsNullOrWhiteSpace(key) || !AllowedAgentLocalKeys.Contains(key))
+        {
+            return false;
+        }
+
+        config.AgentLocalKeys ??= new List<string>();
+        if (!IsAgentLocalKey(config, key))
+        {
+            config.AgentLocalKeys.Add(key);
+        }
+
+        return true;
+    }
+
+    /// <summary>Снять маркер с одного ключа или со всех (<paramref name="key"/> = null).</summary>
+    public static void ClearAgentLocalKey(AgentConfig config, string? key = null)
+    {
+        if (config.AgentLocalKeys is null)
+        {
+            config.AgentLocalKeys = new List<string>();
+            return;
+        }
+
+        if (key is null)
+        {
+            config.AgentLocalKeys.Clear();
+            return;
+        }
+
+        config.AgentLocalKeys.RemoveAll(k => string.Equals(k, key, StringComparison.Ordinal));
+    }
+
+    public static void MarkServerUrlLocal(AgentConfig config, bool isLocal) =>
+        config.ServerUrlLocal = isLocal;
+
+    /// <summary>
+    /// Payload <c>config_local</c> для heartbeat: всегда (в т.ч. <c>keys: []</c> — сброс на сервере).
+    /// </summary>
+    public static ConfigLocalPayload BuildConfigLocalForHeartbeat(AgentConfig config)
+    {
+        var keys = NormalizeAgentLocalKeys(config.AgentLocalKeys);
+        var payload = new ConfigLocalPayload { Keys = keys };
+        if (keys.Count > 0)
+        {
+            var settings = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (var key in keys)
+            {
+                var value = TryGetSafeKnobValue(config, key);
+                if (value is not null)
+                {
+                    settings[key] = value;
+                }
+            }
+
+            if (settings.Count > 0)
+            {
+                payload.Settings = settings;
+            }
+        }
+
+        if (config.ServerUrlLocal && !string.IsNullOrWhiteSpace(config.ServerUrl))
+        {
+            payload.ServerUrl = config.ServerUrl.Trim().TrimEnd('/');
+        }
+
+        return payload;
+    }
+
+    public static List<string> NormalizeAgentLocalKeys(IEnumerable<string>? keys)
+    {
+        var result = new List<string>();
+        if (keys is null)
+        {
+            return result;
+        }
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var raw in keys)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                continue;
+            }
+
+            var key = raw.Trim();
+            if (!AllowedAgentLocalKeys.Contains(key) || !seen.Add(key))
+            {
+                continue;
+            }
+
+            result.Add(key);
+        }
+
+        result.Sort(StringComparer.Ordinal);
+        return result;
+    }
+
+    public static object? TryGetSafeKnobValue(AgentConfig config, string key) =>
+        key switch
+        {
+            "inventory_interval_hours" => config.InventoryIntervalHours,
+            "heartbeat_interval_minutes" => config.HeartbeatIntervalMinutes,
+            "update_check_interval_hours" => config.UpdateCheckIntervalHours,
+            "update_enabled" => config.UpdateEnabled,
+            "update_target" => config.UpdateTarget,
+            "collect_hardware" => config.CollectHardware,
+            "collect_users" => config.CollectUsers,
+            "collect_software" => config.CollectSoftware,
+            _ => null
+        };
 
     private static AgentConfig ApplyEnvironment(AgentConfig cfg)
     {

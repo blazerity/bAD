@@ -152,6 +152,11 @@ def heartbeat(
 ) -> dict[str, Any]:
     if body.device_id != device["device_id"]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="device_id mismatch")
+    # Omit/null config_local → keep previous; present (incl. keys:[]) → sanitize + store/clear.
+    config_local_provided = body.config_local is not None
+    config_local_payload = (
+        body.config_local.sanitized() if body.config_local is not None else None
+    )
     db.update_heartbeat(
         device_id=body.device_id,
         agent_version=body.agent_version,
@@ -162,6 +167,8 @@ def heartbeat(
             "agent_uptime_seconds": body.agent_uptime_seconds,
             "system_drive_free_bytes": body.system_drive_free_bytes,
         },
+        config_local=config_local_payload,
+        config_local_provided=config_local_provided,
     )
     effective = db.compute_device_effective_config(body.device_id)
     assert effective is not None
@@ -170,6 +177,7 @@ def heartbeat(
         "config_version": effective["version"],
     }
     # Подложить полный settings, если у агента ещё нет version или она изменилась.
+    # config_local does not affect piggyback config / version.
     if not body.config_version or body.config_version != effective["version"]:
         resp["config"] = {
             "version": effective["version"],
@@ -678,6 +686,10 @@ def admin_device_config(
         "context": effective["context"],
         "override": effective.get("override"),
         "has_override": effective["has_override"],
+        "sources": effective.get("sources") or {},
+        "agent_local_keys": effective.get("agent_local_keys") or [],
+        "has_agent_local": bool(effective.get("has_agent_local")),
+        "config_local": effective.get("config_local"),
     }
 
 

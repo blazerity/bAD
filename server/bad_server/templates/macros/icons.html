@@ -104,3 +104,19 @@
 {%- else -%}{{ status }}
 {%- endif -%}
 {%- endmacro %}
+
+
+{# Канон Server Lead: sources[key]==agent_local | has_agent_local | agent_local_keys.
+   mode=full — все источники; mode=agent — только «задано на агенте». #}
+{% macro config_source_mark(key, sources=None, agent_local_keys=None, mode='full') -%}
+{%- set src = (sources or {}).get(key) -%}
+{%- if src == 'agent_local' or (agent_local_keys and key in agent_local_keys) -%}
+<span class="badge badge-agent-local" title="Ручная настройка в агенте (config.json / CLI)">задано на агенте</span>
+{%- elif mode == 'full' and src == 'device_override' -%}
+<span class="badge badge-override" title="Ручной override на сервере">override сервера</span>
+{%- elif mode == 'full' and src == 'policy' -%}
+<span class="badge badge-policy" title="Из совпавшей политики">политика</span>
+{%- elif mode == 'full' and src == 'default' -%}
+<span class="config-source-default">по умолчанию</span>
+{%- endif -%}
+{%- endmacro %}

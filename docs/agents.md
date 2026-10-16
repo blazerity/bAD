@@ -73,12 +73,17 @@ Lab/cleartext (uvicorn без TLS): `BAD_SERVER_URL=http://127.0.0.1:8000` **и*
 
 ```powershell
 bad                     # ASCII-отчёт (то же: bad report | bad info)
-bad -h [path]           # HTML на Desktop или в path (то же: --html)
-bad -?                  # справка (--help)
+bad -r [path]           # HTML на Desktop или в path (--report; устар. --html)
+bad -h                  # справка (то же: --help | -?)
+bad config              # показать локальные настройки
+bad config set <k> <v>  # server_url / collect_* / интервалы
+bad config unset <k>    # снять значение и маркер agent_local
 BadAgent.exe service status|start|stop|restart
 ```
 
-Учитываются `collect_*` из `%ProgramData%\blazerity\bAD\config.json`. Код: `BadCli`, `AsciiReportWriter`, `HtmlReportWriter`, `ReportPathResolver`.
+Учитываются `collect_*` из `%ProgramData%\blazerity\bAD\config.json`. Код: `BadCli`, `ConfigCli`, `AsciiReportWriter`, `HtmlReportWriter`, `ReportPathResolver`.
+
+`bad config set` пишет allowlisted knobs и ставит `agent_local_keys` / `server_url_local` → heartbeat `config_local` (на панели: **«задано на агенте»**). Секреты (`api_key`, `enrollment_token`) через set **не** меняются. Смена `server_url` — только `https://` (+ предупреждение про возможный re-enroll).
 
 Локальные отчёты **не** ходят на сервер и **не** предлагают `http://` как `server_url`. Служба при cleartext без opt-in падает с русской подсказкой (`BadApiClient.CleartextHttpRejectedMessage`: нужен `https://`, `BAD_ALLOW_HTTP=1` только lab).
 
@@ -104,21 +109,24 @@ BadAgent.exe service status|start|stop|restart
 
 ## Удалённый конфиг агента
 
-Эффективные настройки: **defaults &lt; matching policies (priority asc) &lt; per-device override**.
+Эффективные настройки (remote merge): **defaults &lt; matching policies (priority asc) &lt; per-device override**.  
+UI provenance на ключ: **`default` \| `policy` \| `device_override` \| `agent_local`** (`agent_local` только из отчёта агента).
 
 | Endpoint | Auth |
 |----------|------|
 | `GET /v1/agent/config` | agent API key (только своё устройство) |
-| `POST /v1/heartbeat` (+ optional `config_version`) | agent API key; ответ может содержать `config` |
+| `POST /v1/heartbeat` (+ optional `config_version`, optional `config_local`) | agent API key; ответ может содержать `config` |
 | `GET/POST/PUT/DELETE /v1/admin/policies*` | admin Bearer |
-| `GET /v1/admin/devices/{id}/config` | admin Bearer |
+| `GET /v1/admin/devices/{id}/config` | admin Bearer → + `sources` / `agent_local_keys` |
 | `PUT/DELETE /v1/admin/devices/{id}/config-override` | admin Bearer |
 
 Safe knobs: интервалы + `update_enabled` + **`update_target`** (`latest`|semver) + toggles коллекторов `collect_hardware` / `collect_users` / `collect_software`. Код: `server/bad_server/agent_config.py`, `ConfigStore.ApplyRemoteSettings`, `InventoryCollector` + `CollectorOptions`.
 
+**`config_local` (контракт):** агент в heartbeat шлёт `keys` (manual / agent_local safe knobs) + опционально `settings` и display-only `server_url`. Server кладёт в `meta.config_local`, отдаёт `sources` на admin/web. Не путать с server `device_override`. Полный schema: [architecture.md — config source](architecture.md#api-notes-config-source-provenance).
+
 Hardware (при `collect_hardware`): помимо CPU/RAM/disks/volumes — `serial_number`, `model`, `manufacturer`, `bios_version`, `battery`, `monitors[]`, `gpus[]`, `ram_modules[]` (+ `memory_type` на модуль), `ram_memory_type` (системный consensus). Host: `ad_ou` / `ad_distinguished_name` (domain-joined). Top-level `minidumps` — только метаданные BSOD (без upload тел). Low-impact: `ThreadPriority.BelowNormal` + yields между WMI. Soft-fail по подсекциям `hardware.*` / `host.ad_ou` / `minidumps`. Cap: 16 GPU / 32 DIMM / 8 monitors / 20 minidump files. Код: `InventoryCollector`, `HardwareMaps`, `OfflineQueue`, `WindowsEventLog`, модели в `InventoryModels.cs`.
 
-Heartbeat health (опционально → meta устройства): `last_inventory_ok`, `last_inventory_error`, `agent_uptime_seconds`, `system_drive_free_bytes`.
+Heartbeat health (опционально → meta устройства): `last_inventory_ok`, `last_inventory_error`, `agent_uptime_seconds`, `system_drive_free_bytes`. Рядом (отдельно): optional `config_local` → provenance.
 
 ### Web UI security (0.9.1)
 
