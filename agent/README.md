@@ -2,7 +2,7 @@
 
 Windows Worker Service (.NET 8) для инвентаризации: enroll / heartbeat / inventory / self-update через серверное зеркало MSI.
 
-**Версия агента:** канон — [`VERSION`](VERSION) (semver `1.0.x`). Не путать с корневым/server `VERSION`. Сборка читает `agent/VERSION` через `Directory.Build.props`.
+**Версия агента:** канон — [`VERSION`](VERSION) (одна строка semver). Не путать с корневым/server [`VERSION`](../VERSION). Сборка читает `agent/VERSION` через `Directory.Build.props`.
 
 HTTP bootstrap панели ≠ HTTP у агента: в бою `server_url` только `https://`. Reject cleartext без lab opt-in (`BAD_ALLOW_HTTP=1` — точное значение, только lab). Правила общие для службы и `bad config` (`ServerUrlRules`).
 
