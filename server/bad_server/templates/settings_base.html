@@ -13,6 +13,13 @@
           <span class="settings-nav-desc">Каталог и группа AD</span>
         </span>
       </a>
+      <a class="settings-nav-item {% if settings_section == 'tls' %}active{% endif %}" href="/settings/tls">
+        <span class="settings-nav-icon">{{ icon('tls') }}</span>
+        <span>
+          <span class="settings-nav-label">Сертификат</span>
+          <span class="settings-nav-desc">TLS для nginx</span>
+        </span>
+      </a>
       <a class="settings-nav-item {% if settings_section == 'mail' %}active{% endif %}" href="/settings/mail">
         <span class="settings-nav-icon">{{ icon('mail') }}</span>
         <span>
