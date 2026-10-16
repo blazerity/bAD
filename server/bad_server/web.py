@@ -854,6 +854,7 @@ def _device_config_context(
     view = (active_view or "").strip()
     if view not in DEVICE_FIXED_VIEWS and view not in inventory_ids:
         view = "overview"
+    allowed_keys = sorted(ALLOWED_SETTING_KEYS)
     return {
         "device": detail,
         "inventory_pretty": inventory_pretty,
@@ -883,7 +884,7 @@ def _device_config_context(
         "policy_keys": effective.get("policy_keys") or [],
         "override_keys": effective.get("override_keys") or [],
         "match_context": effective.get("context") or {},
-        "allowed_setting_keys": sorted(ALLOWED_SETTING_KEYS),
+        "allowed_setting_keys": allowed_keys,
         "config_winner": build_config_winner(
             effective=effective,
             sources=effective.get("sources") or {},
@@ -891,7 +892,7 @@ def _device_config_context(
             settings_values=effective.get("settings") or {},
             policy_keys=list(effective.get("policy_keys") or []),
             override_keys=list(effective.get("override_keys") or []),
-            allowed_setting_keys=sorted(ALLOWED_SETTING_KEYS),
+            allowed_setting_keys=allowed_keys,
         ),
         "silence": silence,
         "health_snippet": health_snippet(detail.get("meta")),
