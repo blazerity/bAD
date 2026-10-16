@@ -238,6 +238,14 @@ sudo bash deploy/debian/restore-site-bundle.sh /path/to/bad-site-bundle-….tar.
 
 Сигналы «куда смотреть», не marketing dashboard.
 
+## API / интеграция
+
+Внешние системы (в т.ч. **1C Itilium**) читают данные bAD по HTTP JSON API `/v1` с **admin Bearer** — не через cookie web UI и не через agent API key.
+
+Полный интеграционный гайд (base URL, auth, какие эндпоинты для 1C / какие только для агента, пагинация, ошибки, примеры curl, политика additive freeze): **[api-v1.md](api-v1.md)**.
+
+Admin token печатается при install и лежит в `/etc/bad/site.env` (`BAD_ADMIN_TOKEN`). В бою вызывайте API только по **HTTPS**.
+
 ## Безопасность для операторов
 
 Краткий чеклист (детали — [guideline.md](guideline.md), [architecture.md](architecture.md)).
