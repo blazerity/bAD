@@ -22,24 +22,30 @@ HARDWARE_ALERT_TYPES = frozenset(
         "serial_change",
         "model_change",
         "manufacturer_change",
+        "chassis_type_change",
+        # inventory-plus: BSOD bugcheck (mail default on via hardware)
+        "minidump_bugcheck",
     }
 )
 
 # Ключи-переключатели в smtp_settings.notify_json (defaults описаны в UI).
 DEFAULT_NOTIFY: dict[str, bool] = {
-    "hardware": True,  # ОЗУ / CPU / диски / serial / model
+    "hardware": True,  # ОЗУ / CPU / диски / serial / model / BSOD
     "stale": True,  # устройство перестало отвечать
     "enroll": True,  # новое устройство зарегистрировано
     "hostname": False,  # смена hostname
     "domain": False,  # смена domain
+    # inventory-plus: ops-сигнал; default off (не спамить)
+    "pending_reboot": False,
 }
 
 NOTIFY_LABELS_RU: dict[str, str] = {
-    "hardware": "Изменение железа (ОЗУ, CPU, диски, serial/model)",
+    "hardware": "Изменение железа (ОЗУ, CPU, диски, serial/model, BSOD)",
     "stale": "Устройство перестало отвечать (устарело)",
     "enroll": "Новое устройство зарегистрировано",
     "hostname": "Смена hostname",
     "domain": "Смена domain",
+    "pending_reboot": "Ожидание перезагрузки (pending reboot)",
 }
 
 
@@ -82,6 +88,9 @@ def filter_events_for_mail(
         wanted.add("hostname_change")
     if flags.get("domain"):
         wanted.add("domain_change")
+    if flags.get("pending_reboot"):
+        wanted.add("pending_reboot_change")
+    # last_boot_change / timezone_change — в ленте событий, mail default off
     return [e for e in events if e.get("type") in wanted]
 
 

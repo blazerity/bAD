@@ -42,6 +42,7 @@ from .schemas import (
 )
 from .http_bootstrap import ENROLL_CLEARTEXT_MSG, enroll_cleartext_blocked
 from .security import api_key_lookup, generate_token, hash_secret, verify_secret
+from .inventory_events import sanitize_inventory_payload
 from .smtp_mail import notify_enroll, notify_inventory_events
 
 logger = logging.getLogger(__name__)
@@ -232,16 +233,23 @@ def inventory(
             detail=f"Unsupported schema_version: {body.schema_version}",
         )
 
-    payload = body.model_dump()
+    # Additive schema_version=2; strip dump bodies if agent ever sends them.
+    payload = sanitize_inventory_payload(body.model_dump())
     hostname = None
-    if body.host and isinstance(body.host, dict):
-        hostname = body.host.get("hostname")
+    host = payload.get("host") if isinstance(payload.get("host"), dict) else None
+    if host:
+        hostname = host.get("hostname")
     os_meta: dict[str, Any] = {}
-    if body.host and isinstance(body.host.get("os"), dict):
-        os_meta["os"] = body.host["os"].get("caption")
+    if host and isinstance(host.get("os"), dict):
+        os_meta["os"] = host["os"].get("caption")
     serial = None
-    if body.hardware and isinstance(body.hardware, dict):
-        serial = body.hardware.get("serial_number")
+    hardware = (
+        payload.get("hardware")
+        if isinstance(payload.get("hardware"), dict)
+        else None
+    )
+    if hardware:
+        serial = hardware.get("serial_number")
     meta = {
         "last_inventory_at": body.collected_at,
         **os_meta,

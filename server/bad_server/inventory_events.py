@@ -33,9 +33,98 @@ def _sorted_str_list(values: Any) -> list[str]:
 
 
 def _disk_key(disk: dict[str, Any]) -> str:
+    """Ключ диска: serial|model|size если serial есть, иначе legacy model|size."""
     model = _norm_str(disk.get("model")) or "?"
     size = disk.get("size_bytes")
-    return f"{model}|{size if size is not None else '?'}"
+    size_part = size if size is not None else "?"
+    serial = _norm_str(disk.get("serial_number"))
+    if serial:
+        return f"{serial}|{model}|{size_part}"
+    return f"{model}|{size_part}"
+
+
+def _av_name_set(security: dict[str, Any]) -> frozenset[str]:
+    names: set[str] = set()
+    for item in _as_list(security.get("antivirus")):
+        if isinstance(item, dict):
+            text = _norm_str(item.get("name"))
+        else:
+            text = _norm_str(item)
+        if text:
+            names.add(text.casefold())
+    return frozenset(names)
+
+
+def _minidump_files_by_name(minidumps: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    for item in _as_list(minidumps.get("files")):
+        if not isinstance(item, dict):
+            continue
+        name = _norm_str(item.get("name"))
+        if not name:
+            continue
+        out[name.casefold()] = item
+    return out
+
+
+def _bugcheck_code(file_row: dict[str, Any]) -> str:
+    return _norm_str(file_row.get("bugcheck_code"))
+
+
+def sanitize_inventory_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Убрать запрещённые тела дампов/файлов; оставить status/names/codes.
+
+    Additive schema_version=2: не режем неизвестные ключи верхнего уровня,
+    только опасные поля внутри minidumps.files[].
+    """
+    if not isinstance(payload, dict):
+        return payload
+    md = payload.get("minidumps")
+    if not isinstance(md, dict):
+        return payload
+    files = md.get("files")
+    if not isinstance(files, list):
+        return payload
+    banned = {
+        "content",
+        "data",
+        "body",
+        "bytes",
+        "raw",
+        "blob",
+        "dump",
+        "base64",
+        "payload",
+    }
+    cleaned_files: list[Any] = []
+    changed = False
+    for item in files:
+        if not isinstance(item, dict):
+            cleaned_files.append(item)
+            continue
+        row = dict(item)
+        for key in list(row.keys()):
+            if key.casefold() in banned:
+                row.pop(key, None)
+                changed = True
+        # bugcheck_message ≤200 (контракт)
+        msg = row.get("bugcheck_message")
+        if isinstance(msg, str) and len(msg) > 200:
+            row["bugcheck_message"] = msg[:200]
+            changed = True
+        # parameters: max 4
+        params = row.get("bugcheck_parameters")
+        if isinstance(params, list) and len(params) > 4:
+            row["bugcheck_parameters"] = params[:4]
+            changed = True
+        cleaned_files.append(row)
+    if not changed:
+        return payload
+    out = dict(payload)
+    md_out = dict(md)
+    md_out["files"] = cleaned_files
+    out["minidumps"] = md_out
+    return out
 
 
 def _ram_module_key(mod: dict[str, Any]) -> str:
@@ -130,6 +219,45 @@ def diff_inventory_snapshots(
             }
         )
 
+    prev_boot = _norm_str(prev_host.get("last_boot_at"))
+    cur_boot = _norm_str(cur_host.get("last_boot_at"))
+    if prev_boot != cur_boot and (prev_boot or cur_boot):
+        events.append(
+            {
+                "type": "last_boot_change",
+                "summary": (
+                    f"Last boot: {prev_boot or '(none)'} → {cur_boot or '(none)'}"
+                ),
+                "detail": {"from": prev_boot or None, "to": cur_boot or None},
+            }
+        )
+
+    prev_tz = _norm_str(prev_host.get("timezone"))
+    cur_tz = _norm_str(cur_host.get("timezone"))
+    if prev_tz != cur_tz and (prev_tz or cur_tz):
+        events.append(
+            {
+                "type": "timezone_change",
+                "summary": (
+                    f"Timezone: {prev_tz or '(none)'} → {cur_tz or '(none)'}"
+                ),
+                "detail": {"from": prev_tz or None, "to": cur_tz or None},
+            }
+        )
+
+    prev_pending = prev_host.get("pending_reboot")
+    cur_pending = cur_host.get("pending_reboot")
+    if prev_pending != cur_pending and (
+        prev_pending is not None or cur_pending is not None
+    ):
+        events.append(
+            {
+                "type": "pending_reboot_change",
+                "summary": f"Pending reboot: {prev_pending} → {cur_pending}",
+                "detail": {"from": prev_pending, "to": cur_pending},
+            }
+        )
+
     prev_users = _as_dict(previous.get("users"))
     cur_users = _as_dict(current.get("users"))
     prev_logged = _sorted_str_list(prev_users.get("logged_on"))
@@ -199,6 +327,19 @@ def diff_inventory_snapshots(
                     f"Manufacturer: {prev_mfr or '(none)'} → {cur_mfr or '(none)'}"
                 ),
                 "detail": {"from": prev_mfr, "to": cur_mfr},
+            }
+        )
+
+    prev_chassis = _norm_str(prev_hw.get("chassis_type"))
+    cur_chassis = _norm_str(cur_hw.get("chassis_type"))
+    if prev_chassis != cur_chassis and (prev_chassis or cur_chassis):
+        events.append(
+            {
+                "type": "chassis_type_change",
+                "summary": (
+                    f"Chassis: {prev_chassis or '(none)'} → {cur_chassis or '(none)'}"
+                ),
+                "detail": {"from": prev_chassis or None, "to": cur_chassis or None},
             }
         )
 
@@ -357,5 +498,107 @@ def diff_inventory_snapshots(
                 },
             }
         )
+
+    # security (optional top-level; soft-fail на агенте)
+    prev_sec = _as_dict(previous.get("security"))
+    cur_sec = _as_dict(current.get("security"))
+    if prev_sec or cur_sec:
+        prev_tpm = (
+            prev_sec.get("tpm_present"),
+            _norm_str(prev_sec.get("tpm_spec_version")) or None,
+        )
+        cur_tpm = (
+            cur_sec.get("tpm_present"),
+            _norm_str(cur_sec.get("tpm_spec_version")) or None,
+        )
+        if prev_tpm != cur_tpm and (
+            prev_tpm[0] is not None
+            or cur_tpm[0] is not None
+            or prev_tpm[1]
+            or cur_tpm[1]
+        ):
+            events.append(
+                {
+                    "type": "tpm_change",
+                    "summary": (
+                        f"TPM: present={prev_tpm[0]} spec={prev_tpm[1] or '(none)'} → "
+                        f"present={cur_tpm[0]} spec={cur_tpm[1] or '(none)'}"
+                    ),
+                    "detail": {
+                        "from": {
+                            "tpm_present": prev_sec.get("tpm_present"),
+                            "tpm_spec_version": prev_tpm[1],
+                        },
+                        "to": {
+                            "tpm_present": cur_sec.get("tpm_present"),
+                            "tpm_spec_version": cur_tpm[1],
+                        },
+                    },
+                }
+            )
+
+        prev_sb = prev_sec.get("secure_boot")
+        cur_sb = cur_sec.get("secure_boot")
+        if prev_sb != cur_sb and (prev_sb is not None or cur_sb is not None):
+            events.append(
+                {
+                    "type": "secure_boot_change",
+                    "summary": f"Secure Boot: {prev_sb} → {cur_sb}",
+                    "detail": {"from": prev_sb, "to": cur_sb},
+                }
+            )
+
+        prev_av = _av_name_set(prev_sec)
+        cur_av = _av_name_set(cur_sec)
+        if prev_av != cur_av and (prev_av or cur_av):
+            events.append(
+                {
+                    "type": "antivirus_change",
+                    "summary": (
+                        "Antivirus: "
+                        f"{', '.join(sorted(prev_av)) or '(none)'} → "
+                        f"{', '.join(sorted(cur_av)) or '(none)'}"
+                    ),
+                    "detail": {
+                        "from": sorted(prev_av),
+                        "to": sorted(cur_av),
+                    },
+                }
+            )
+
+    # minidump_bugcheck: новый файл с кодом или тот же name с другим code
+    prev_md = _minidump_files_by_name(_as_dict(previous.get("minidumps")))
+    cur_md = _minidump_files_by_name(_as_dict(current.get("minidumps")))
+    for name_key in sorted(cur_md.keys()):
+        cur_file = cur_md[name_key]
+        code = _bugcheck_code(cur_file)
+        if not code:
+            continue
+        prev_file = prev_md.get(name_key)
+        prev_code = _bugcheck_code(prev_file) if prev_file else ""
+        if prev_file is None or prev_code != code:
+            fname = _norm_str(cur_file.get("name")) or name_key
+            msg = _norm_str(cur_file.get("bugcheck_message"))
+            summary = f"BSOD {code}"
+            if msg:
+                summary = f"{summary}: {msg[:120]}"
+            summary = f"{summary} ({fname})"
+            detail: dict[str, Any] = {
+                "bugcheck_code": code,
+                "bugcheck_message": msg or None,
+                "filename": fname,
+            }
+            params = cur_file.get("bugcheck_parameters")
+            if isinstance(params, list):
+                detail["bugcheck_parameters"] = [
+                    _norm_str(p) for p in params[:4] if _norm_str(p)
+                ]
+            events.append(
+                {
+                    "type": "minidump_bugcheck",
+                    "summary": summary,
+                    "detail": detail,
+                }
+            )
 
     return events

@@ -53,6 +53,13 @@ class HeartbeatRequest(BaseModel):
 
 
 class InventoryRequest(BaseModel):
+    """Inventory snapshot (schema_version=2). Additive optional fields allowed.
+
+    Контракт inventory-plus: host.last_boot_at/timezone/pending_reboot,
+    hardware.chassis_* / disks[].serial_number|interface_type,
+    security{}, minidumps.files[].bugcheck_* — без тел дампов.
+    """
+
     schema_version: int
     device_id: str = Field(min_length=1, max_length=128)
     collected_at: Optional[str] = None
@@ -62,6 +69,8 @@ class InventoryRequest(BaseModel):
     network: Optional[dict[str, Any]] = None
     users: Optional[dict[str, Any]] = None
     software: Optional[dict[str, Any]] = None
+    security: Optional[dict[str, Any]] = None
+    minidumps: Optional[dict[str, Any]] = None
     collector_errors: list[Any] = Field(default_factory=list)
 
     model_config = {"extra": "allow"}
