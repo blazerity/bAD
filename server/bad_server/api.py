@@ -252,11 +252,8 @@ def inventory(
         "last_inventory_at": body.collected_at,
         **os_meta,
     }
-    # Кэш сигналов дубля (не PK): serial + smbios_uuid для списка/карточки
-    if identity.get("serial_number"):
-        meta["serial_number"] = identity["serial_number"]
-    if identity.get("smbios_uuid"):
-        meta["smbios_uuid"] = identity["smbios_uuid"]
+    # Кэш сигналов дубля (не PK): serial/uuid/bios/board/disk — без auto-merge
+    meta.update(db.identity_signals_for_meta(identity))
     stored = db.store_inventory(
         device_id=body.device_id,
         schema_version=body.schema_version,

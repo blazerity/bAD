@@ -562,7 +562,7 @@ def filter_devices_by_wave(
             )
             return (silence or {}).get("status") == "stale"
         if wave == "dup":
-            # hostname / serial / smbios_uuid — см. duplicate_signal_index
+            # hostname / serial / uuid / bios / board / disk — см. duplicate_signal_index
             return bool(d.get("is_duplicate"))
         return False
 
