@@ -1,0 +1,154 @@
+{% extends "settings_base.html" %}
+{% set settings_section = 'server_update' %}
+{% block title %}Обновление сервера — bAD{% endblock %}
+{% block settings_content %}
+<section class="settings">
+  <h1>Обновление сервера</h1>
+  <p class="muted">
+    Self-update панели и API из GitHub (не путать с зеркалом MSI агента).
+    Apply идёт через systemd helper без пароля sudo в панели.
+  </p>
+  {% if message %}<p class="ok">{{ message }}</p>{% endif %}
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+  <dl class="meta">
+    <div>
+      <dt>Репозиторий</dt>
+      <dd class="mono">{{ panel.github_repo or "—" }}</dd>
+    </div>
+    <div>
+      <dt>Токен GitHub</dt>
+      <dd>{% if panel.token_configured %}<span class="ok">задан</span>{% else %}<span class="warn">нет</span>{% endif %}</dd>
+    </div>
+    <div>
+      <dt>Каталог слотов</dt>
+      <dd class="mono">{{ panel.releases_dir }}</dd>
+    </div>
+    <div>
+      <dt>Helper</dt>
+      <dd class="mono">{{ panel.helper.path_unit }} → {{ panel.helper.script }}</dd>
+    </div>
+    {% if panel.apply and panel.apply.message %}
+    <div>
+      <dt>Последний apply</dt>
+      <dd>{{ panel.apply.message }}{% if panel.apply.applied_at %} · {{ panel.apply.applied_at }}{% endif %}</dd>
+    </div>
+    {% endif %}
+  </dl>
+
+  <h2>Текущая установка</h2>
+  <dl class="meta">
+    <div><dt>Ветка</dt><dd class="mono">{{ panel.current.branch or "—" }}</dd></div>
+    <div><dt>SHA</dt><dd class="mono">{{ panel.current.sha or "—" }}</dd></div>
+    <div><dt>VERSION</dt><dd class="mono">{{ panel.current.version or "—" }}</dd></div>
+    <div><dt>Установлено</dt><dd class="mono">{{ panel.current.installed_at or "—" }}</dd></div>
+    <div><dt>Слот</dt><dd class="mono">{{ panel.current.slot_id or "—" }}</dd></div>
+  </dl>
+
+  <h2>Ветка обновления</h2>
+  <p class="muted">По умолчанию <span class="mono">main</span>. Список — из GitHub API; можно ввести вручную.</p>
+  <form method="post" action="/settings/server-update/branch" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>
+      Ветка
+      <input name="branch" list="server-update-branches" value="{{ panel.prefs.branch or 'main' }}" required>
+    </label>
+    <datalist id="server-update-branches">
+      {% for b in branches %}
+      <option value="{{ b }}"></option>
+      {% endfor %}
+    </datalist>
+    <p class="form-actions"><button type="submit" class="btn">Сохранить ветку</button></p>
+  </form>
+
+  <h2>Проверить обновления</h2>
+  <form method="post" action="/settings/server-update/check" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="branch" value="{{ panel.prefs.branch or 'main' }}">
+    <p class="form-actions"><button type="submit" class="btn">Проверить</button></p>
+  </form>
+  {% if check %}
+  <dl class="meta">
+    <div><dt>Remote HEAD</dt><dd class="mono">{{ (check.remote.short_sha if check.remote else None) or "—" }}</dd></div>
+    <div><dt>Есть обновление</dt><dd>{% if check.update_available %}да{% else %}нет{% endif %}</dd></div>
+    {% if check.remote and check.remote.message %}
+    <div><dt>Сообщение</dt><dd>{{ check.remote.message }}</dd></div>
+    {% endif %}
+  </dl>
+  {% endif %}
+
+  <h2>Установить</h2>
+  <p class="muted">Скачать commit → слот → promote <span class="mono">/opt/bad</span> → <span class="mono">systemctl try-restart bad-api</span>.</p>
+  <form method="post" action="/settings/server-update/apply" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="branch" value="{{ panel.prefs.branch or 'main' }}">
+    <label>
+      SHA (опционально; пусто = HEAD ветки)
+      <input name="sha" placeholder="оставьте пустым для HEAD" autocomplete="off">
+    </label>
+    <p class="form-actions"><button type="submit" class="btn">Применить обновление</button></p>
+  </form>
+
+  <h2>Откат (≤ {{ panel.max_past_slots }} прошлых)</h2>
+  {% if panel.slots %}
+  <ul class="stack">
+    {% for s in panel.slots %}
+    <li>
+      <span class="mono">{{ s.branch or "?" }} @ {{ (s.sha or "")[:12] }}</span>
+      {% if s.version %} · {{ s.version }}{% endif %}
+      {% if s.installed_at %} · {{ s.installed_at }}{% endif %}
+      <form method="post" action="/settings/server-update/rollback" class="inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="slot_id" value="{{ s.slot_id }}">
+        <button type="submit" class="btn btn-secondary">Откатить</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">Пока нет слотов для отката.</p>
+  {% endif %}
+
+  <h2>Токен GitHub</h2>
+  <p class="muted">Пишется в <span class="mono">site.env</span> через helper. Plaintext обратно не отдаём.</p>
+  <form method="post" action="/settings/server-update/token" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>
+      Новый PAT / fine-scoped token
+      <input type="password" name="token" autocomplete="new-password" required>
+    </label>
+    <p class="form-actions"><button type="submit" class="btn">Сохранить токен</button></p>
+  </form>
+
+  <h2>Собрать MSI на GitHub</h2>
+  <p class="muted">
+    Отдельно от self-update: <span class="mono">workflow_dispatch</span> →
+    <span class="mono">release-msi</span> → после success опционально ingest в зеркало агента.
+  </p>
+  <form method="post" action="/settings/server-update/msi/trigger" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="branch" value="{{ panel.prefs.branch or 'main' }}">
+    <label>
+      Версия (опционально)
+      <input name="version" placeholder="например 1.0.2" autocomplete="off">
+    </label>
+    <p class="form-actions"><button type="submit" class="btn">Запустить сборку MSI</button></p>
+  </form>
+  <form method="post" action="/settings/server-update/msi/poll" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <p class="form-actions"><button type="submit" class="btn btn-secondary">Обновить статус / ingest</button></p>
+  </form>
+  {% if panel.msi_build %}
+  <dl class="meta">
+    <div><dt>Ветка</dt><dd class="mono">{{ panel.msi_build.branch or "—" }}</dd></div>
+    <div><dt>Статус</dt><dd>{{ panel.msi_build.status or "—" }} / {{ panel.msi_build.conclusion or "—" }}</dd></div>
+    {% if panel.msi_build.html_url %}
+    <div><dt>Run</dt><dd><a href="{{ panel.msi_build.html_url }}" rel="noopener">GitHub Actions</a></dd></div>
+    {% endif %}
+    {% if panel.msi_build.ingested %}
+    <div><dt>Ingest</dt><dd class="mono">{{ panel.msi_build.ingested.version }} · {{ panel.msi_build.ingested.msi_name }}</dd></div>
+    {% endif %}
+  </dl>
+  {% endif %}
+</section>
+{% endblock %}

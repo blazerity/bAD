@@ -40,6 +40,10 @@
         <span class="settings-nav-icon">{{ icon('updates') }}</span>
         <span class="settings-nav-label">Обновления агента</span>
       </a>
+      <a class="settings-nav-item {% if settings_section == 'server_update' %}active{% endif %}" href="/settings/server-update">
+        <span class="settings-nav-icon">{{ icon('updates') }}</span>
+        <span class="settings-nav-label">Обновление сервера</span>
+      </a>
       {% if user is defined and user and user.source == 'local' %}
       <a class="settings-nav-item {% if settings_section == 'password' %}active{% endif %}" href="/account/password">
         <span class="settings-nav-icon">{{ icon('password') }}</span>

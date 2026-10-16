@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch bAD server-update apply.request
+
+[Path]
+PathChanged=/var/lib/bad/server-releases/apply.request
+Unit=bad-server-update-apply.service
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=bAD apply server update from GitHub slot and restart bad-api
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/sbin/bad-apply-server-update
+Nice=5
+)
