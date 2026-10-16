@@ -29,13 +29,14 @@
 
   {% if security and security.https_first %}
   <p class="muted security-strip">
-    TLS: <span class="mono">{{ security.https_first.tls_mode }}</span>
-    · cookie: <span class="mono">{{ security.https_first.cookie_secure }}</span>
-    {% if security.secrets %}
-    · keys: <span class="mono">{{ security.secrets.data_key_source }}/{{ security.secrets.session_secret_source }}</span>
+    {% if security.https_first.tls_mode == 'https' %}
+    HTTPS активен
+    {% else %}
+    Без HTTPS —
+    <a href="/settings/tls">Параметры → Сертификат</a>
     {% endif %}
-    {% if ops.enrollment_rotation_due %}
-    · <span class="warn">enrollment rotation due</span>
+    {% if security.secrets %}
+    · ключи: <span class="mono">{{ security.secrets.data_key_source }}/{{ security.secrets.session_secret_source }}</span>
     {% endif %}
   </p>
   {% endif %}

@@ -5,26 +5,38 @@
 <section class="settings">
   <h1>Резервные копии</h1>
   <p class="muted">
-    Ежедневная копия базы (сегодня и вчера). Чтобы вернуть — остановите сервис и подставьте нужный файл.
+    Три разные вещи: ежедневная копия базы, ключи шифрования и полный архив сайта.
+    Одна только база — это не полный disaster recovery.
   </p>
   {% if message %}<p class="ok">{{ message }}</p>{% endif %}
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
 
   {% if tls_mode == 'http' %}
   <div class="warn-box" role="status">
-    Полный архив содержит секреты — не скачивайте, пока сайт без HTTPS.
-    Сначала <a href="/settings/tls">загрузите сертификат</a>.
+    Полный архив и ключи содержат секреты — не скачивайте, пока сайт без HTTPS.
+    Сначала <a href="/settings/tls">Параметры → Сертификат</a>.
   </div>
   {% endif %}
 
+  {% if secrets and secrets.legacy_keys_in_sqlite %}
+  <div class="warn-box" role="status">
+    <strong>Ключи ещё в базе (устаревший режим).</strong>
+    {{ secrets.hint_ru or "Копия базы = компромисс секретов. Вынесите ключи в файлы на сервере." }}
+  </div>
+  {% endif %}
+
+  <h2>Ежедневная копия базы</h2>
+  <p class="muted">
+    Снимки за сегодня и вчера. На свежей установке ключи лежат в файлах отдельно —
+    этой копии недостаточно для полного восстановления.
+  </p>
   <dl class="meta">
     <div><dt>Каталог</dt><dd class="mono">{{ backup.backup_dir }}</dd></div>
-    <div><dt>Последний бэкап (meta)</dt><dd class="mono">{{ last_backup_at or "—" }}</dd></div>
+    <div><dt>Последний бэкап</dt><dd class="mono">{{ last_backup_at or "—" }}</dd></div>
     <div><dt>Сегодняшний файл</dt><dd>{% if backup.today_exists %}есть{% else %}ещё нет{% endif %}</dd></div>
   </dl>
 
   {% if backup.files %}
-  <h2>Файлы</h2>
   <div class="table-scroll">
   <table class="devices">
     <thead>
@@ -42,27 +54,47 @@
   </table>
   </div>
   {% else %}
-  <p class="muted">Пока нет файлов бэкапа. Фоновая задача создаст снимок в течение часа.</p>
+  <p class="muted">Пока нет файлов. Фоновая задача создаст снимок в течение часа.</p>
   {% endif %}
 
   <form method="post" action="/settings/backups/run" class="form-actions">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <button type="submit" {% if tls_mode == 'http' %}disabled title="Доступно после HTTPS"{% endif %}>Сделать бэкап сейчас</button>
+    <button type="submit" {% if tls_mode == 'http' %}disabled title="Доступно после HTTPS"{% endif %}>Сделать бэкап базы сейчас</button>
     {% if tls_mode == 'http' %}
-    <a class="btn secondary" href="/settings/tls">Перейти к сертификату</a>
+    <a class="btn secondary" href="/settings/tls">Параметры → Сертификат</a>
     {% endif %}
   </form>
+
+  <h2>Ключи шифрования</h2>
+  {% if secrets and not secrets.legacy_keys_in_sqlite and secrets.ok %}
+  <p class="muted">
+    Ключи вне базы (как на свежей установке): храните отдельно или берите полный архив.
+  </p>
+  {% elif secrets and secrets.legacy_keys_in_sqlite %}
+  <p class="muted">
+    Пока ключи в базе — любая копия базы содержит секреты. Вынесите их в файлы на сервере.
+  </p>
+  {% else %}
+  <p class="muted">Статус ключей недоступен — проверьте файлы на сервере.</p>
+  {% endif %}
+  {% if secrets %}
+  <dl class="meta">
+    <div><dt>data_key</dt><dd class="mono">{{ secrets.data_key_source }}{% if secrets.data_key_path %} · {{ secrets.data_key_path }}{% endif %}</dd></div>
+    <div><dt>session_secret</dt><dd class="mono">{{ secrets.session_secret_source }}{% if secrets.session_secret_path %} · {{ secrets.session_secret_path }}{% endif %}</dd></div>
+  </dl>
+  {% endif %}
+
   <h2>Полный архив сайта</h2>
   <p class="muted">
-    База, ключи и каталог обновлений агента — для переноса или восстановления после сбоя.
-    Файл секретный, не публикуйте. Восстановление — скриптом
+    База + ключи + каталог обновлений агента — полный disaster recovery.
+    Файл секретный. Восстановление — скриптом
     <span class="mono">restore-site-bundle.sh</span> (сервис будет остановлен).
   </p>
   <p class="form-actions">
     {% if tls_mode == 'http' %}
-    <span class="btn disabled" aria-disabled="true" title="Доступно после HTTPS">Скачать архив (.tar.gz)</span>
+    <span class="btn disabled" aria-disabled="true" title="Доступно после HTTPS">Скачать полный архив (.tar.gz)</span>
     {% else %}
-    <a href="/settings/backups/site-bundle">Скачать архив (.tar.gz)</a>
+    <a href="/settings/backups/site-bundle">Скачать полный архив (.tar.gz)</a>
     {% endif %}
   </p>
 

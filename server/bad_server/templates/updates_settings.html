@@ -15,7 +15,11 @@
   <div class="warn-box">
     <strong>Новый токен подключения</strong> (показать один раз):
     <p class="mono">{{ new_enrollment_token }}</p>
-    <p class="muted">Старый больше не действует. Перезапуск сервера не нужен — обновите установщики.</p>
+    <p class="muted">Старый больше не действует. Перезапуск не нужен — обновите установщики / GPO / Intune.</p>
+    {% if tls_mode == 'http' %}
+    <p class="warn">Лучше скопировать токен уже по HTTPS — сначала
+      <a href="/settings/tls">Параметры → Сертификат</a>.</p>
+    {% endif %}
   </div>
   {% endif %}
 
@@ -100,17 +104,33 @@
     </div>
   </form>
 
-  <h2>Токен подключения агентов</h2>
+  <h2 id="enrollment">Токен подключения агентов</h2>
+  {% if enrollment_rotation and enrollment_rotation.rotation_due and not new_enrollment_token %}
+  <div class="warn-box" role="status">
+    <strong>После волны установок смените токен</strong>
+    <p class="muted" style="margin:0.35rem 0 0">
+      {{ enrollment_rotation.hint_ru or "Новые установки ещё могут пройти со старым токеном." }}
+      Подключений с прошлой смены:
+      <span class="mono">{{ enrollment_rotation.enrolled_since_rotation }}</span>
+      (порог <span class="mono">{{ enrollment_rotation.threshold }}</span>).
+      Уже работающие агенты продолжат по своему ключу.
+    </p>
+  </div>
+  {% else %}
   <p class="muted">
     После волны установки смените токен: новый действует сразу, перезапуск не нужен.
     {% if enrollment.rotated_at %}Последняя смена: <span class="mono">{{ enrollment.rotated_at }}</span>.{% endif %}
   </p>
+  {% endif %}
   <dl class="meta">
     <div><dt>Токен в базе</dt><dd>{% if enrollment.has_hash %}есть{% else %}нет{% endif %}</dd></div>
     <div><dt>Файл токена</dt><dd class="mono">{{ enrollment.token_file }}</dd></div>
+    {% if enrollment_rotation %}
+    <div><dt>С прошлой смены</dt><dd class="mono">{{ enrollment_rotation.enrolled_since_rotation }} / {{ enrollment_rotation.threshold }}</dd></div>
+    {% endif %}
   </dl>
   <form method="post" action="/settings/enrollment/rotate" class="settings-form"
-    onsubmit="return confirm('Сгенерировать новый токен подключения? Старый перестанет работать.');">
+    onsubmit="return confirm('Сгенерировать новый токен подключения? Старый перестанет работать для новых установок.');">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label for="custom_token">Свой токен (пусто = сгенерировать)</label>
     <input id="custom_token" name="custom_token" type="text" autocomplete="off" placeholder="bad_en_…">
