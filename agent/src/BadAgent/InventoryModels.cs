@@ -15,7 +15,7 @@ public sealed class InventorySnapshot
 
     /// <summary>Fallback = <c>agent/VERSION</c> (не server VERSION). В рантайме обычно из assembly.</summary>
     [JsonPropertyName("agent_version")]
-    public string AgentVersion { get; set; } = "1.0.2";
+    public string AgentVersion { get; set; } = "1.0.3";
 
     [JsonPropertyName("host")]
     public HostInfo? Host { get; set; }
@@ -117,9 +117,24 @@ public sealed class HardwareInfo
     [JsonPropertyName("ram_memory_type")]
     public string? RamMemoryType { get; set; }
 
-    /// <summary>Серийник системы / корпуса (Dell Service Tag, если есть).</summary>
+    /// <summary>
+    /// Совместимость: PreferFirst(bios_serial, identifying_number, baseboard_serial).
+    /// Не единственный сигнал «та же железка» — см. отдельные поля ниже.
+    /// </summary>
     [JsonPropertyName("serial_number")]
     public string? SerialNumber { get; set; }
+
+    /// <summary>Win32_BIOS.SerialNumber (после очистки placeholder).</summary>
+    [JsonPropertyName("bios_serial")]
+    public string? BiosSerial { get; set; }
+
+    /// <summary>Win32_ComputerSystemProduct.IdentifyingNumber.</summary>
+    [JsonPropertyName("identifying_number")]
+    public string? IdentifyingNumber { get; set; }
+
+    /// <summary>Win32_BaseBoard.SerialNumber.</summary>
+    [JsonPropertyName("baseboard_serial")]
+    public string? BaseboardSerial { get; set; }
 
     /// <summary>
     /// SMBIOS system UUID (<c>Win32_ComputerSystemProduct.UUID</c>). Не PK / не device_id.

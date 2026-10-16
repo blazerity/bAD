@@ -202,6 +202,37 @@ public static class HardwareMaps
     }
 
     /// <summary>
+    /// Серийники железа для inventory: CleanWmiString + отсев <c>0</c> / all-zero / all-F.
+    /// </summary>
+    public static string? CleanHardwareSerial(string? value)
+    {
+        var text = CleanWmiString(value);
+        if (text is null)
+        {
+            return null;
+        }
+
+        if (text == "0")
+        {
+            return null;
+        }
+
+        var compact = text.Replace("-", "", StringComparison.Ordinal)
+            .Replace(" ", "", StringComparison.Ordinal);
+        if (compact.Length == 0)
+        {
+            return null;
+        }
+
+        if (compact.All(c => c == '0') || compact.All(c => c is 'F' or 'f'))
+        {
+            return null;
+        }
+
+        return text;
+    }
+
+    /// <summary>
     /// SMBIOS UUID для inventory / fallback id: trim; отсев all-F и all-zero.
     /// Не primary <c>device_id</c> (MachineGuid остаётся ключом установки).
     /// </summary>

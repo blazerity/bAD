@@ -439,8 +439,13 @@ public sealed class InventoryCollector : IInventoryCollector
                 }
             }
 
-            // Предпочитать BIOS / CSP IdentifyingNumber (Dell Service Tag) вместо baseboard.
-            hw.SerialNumber = HardwareMaps.PreferFirst(biosSerial, productSerial, boardSerial);
+            // Отдельные сигналы «та же железка» (не PK). Пустые/placeholder не шлём.
+            hw.BiosSerial = HardwareMaps.CleanHardwareSerial(biosSerial);
+            hw.IdentifyingNumber = HardwareMaps.CleanHardwareSerial(productSerial);
+            hw.BaseboardSerial = HardwareMaps.CleanHardwareSerial(boardSerial);
+            // Совместимость: прежнее одно поле — PreferFirst из очищенных.
+            hw.SerialNumber = HardwareMaps.PreferFirst(
+                hw.BiosSerial, hw.IdentifyingNumber, hw.BaseboardSerial);
             hw.Model = HardwareMaps.PreferFirst(csModel, productName);
             hw.Manufacturer = HardwareMaps.PreferFirst(csManufacturer, productVendor);
         }
@@ -857,7 +862,8 @@ public sealed class InventoryCollector : IInventoryCollector
                         Model = HardwareMaps.CleanWmiString(obj["Model"]?.ToString()),
                         SizeBytes = ToLong(obj["Size"]),
                         MediaType = HardwareMaps.CleanWmiString(obj["MediaType"]?.ToString()),
-                        SerialNumber = HardwareMaps.CleanWmiString(obj["SerialNumber"]?.ToString()),
+                        // Уже disks[].serial_number (inventory-plus); не дублировать top-level.
+                        SerialNumber = HardwareMaps.CleanHardwareSerial(obj["SerialNumber"]?.ToString()),
                         InterfaceType = HardwareMaps.CleanWmiString(obj["InterfaceType"]?.ToString())
                     });
                 }

@@ -71,6 +71,9 @@ public static class AsciiReportWriter
             Row(sb, "Производитель", hw.Manufacturer);
             Row(sb, "Модель", hw.Model);
             Row(sb, "Серийный №", hw.SerialNumber);
+            Row(sb, "BIOS serial", hw.BiosSerial);
+            Row(sb, "IdentifyingNumber", hw.IdentifyingNumber);
+            Row(sb, "Baseboard serial", hw.BaseboardSerial);
             Row(sb, "SMBIOS UUID", hw.SmbiosUuid);
             Row(sb, "Корпус", hw.ChassisType);
             Row(sb, "BIOS", hw.BiosVersion);
