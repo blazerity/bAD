@@ -144,8 +144,11 @@ public sealed class RemoteAgentConfigResponse
 
 public static class ConfigStore
 {
-    /// <summary>Safe knobs, допустимые в <c>config_local.keys</c> / <c>agent_local_keys</c> (как на сервере).</summary>
-    public static readonly HashSet<string> AllowedAgentLocalKeys = new(StringComparer.Ordinal)
+    /// <summary>
+    /// Allowlist remote → agent (server <c>ALLOWED_SETTING_KEYS</c>). Тема A/C: не расширять
+    /// unsafe knobs (<c>server_url</c>, secrets, <c>device_id</c>).
+    /// </summary>
+    public static readonly HashSet<string> RemoteSettingsAllowlist = new(StringComparer.Ordinal)
     {
         "inventory_interval_hours",
         "heartbeat_interval_minutes",
@@ -156,6 +159,9 @@ public static class ConfigStore
         "collect_users",
         "collect_software",
     };
+
+    /// <summary>Safe knobs в <c>config_local.keys</c> / <c>agent_local_keys</c> (= remote allowlist).</summary>
+    public static readonly HashSet<string> AllowedAgentLocalKeys = RemoteSettingsAllowlist;
 
     /// <summary>
     /// Scope CLI <c>bad … set</c>: <c>server_url</c> (отдельный флаг), <c>collect_*</c>, интервалы.
@@ -230,48 +236,77 @@ public static class ConfigStore
     }
 
     /// <summary>
-    /// Применяет только safe knobs с сервера. Не трогает server_url, api_key, device_id, enrollment_token.
-    /// Ключи из <see cref="AgentConfig.AgentLocalKeys"/> не перезаписываются (локальный ручной приоритет на агенте).
-    /// True, если что-то изменилось.
+    /// Применяет только knobs из <see cref="RemoteSettingsAllowlist"/>.
+    /// Не трогает server_url, api_key, device_id, enrollment_token (и любые ключи вне allowlist).
+    /// Ключи из <see cref="AgentConfig.AgentLocalKeys"/> не перезаписываются.
     /// </summary>
     public static bool ApplyRemoteSettings(AgentConfig config, RemoteAgentSettings settings)
     {
         var changed = false;
-        changed |= ApplyRemoteInt(config, "inventory_interval_hours", settings.InventoryIntervalHours,
-            () => config.InventoryIntervalHours, v => config.InventoryIntervalHours = v);
-        changed |= ApplyRemoteInt(config, "heartbeat_interval_minutes", settings.HeartbeatIntervalMinutes,
-            () => config.HeartbeatIntervalMinutes, v => config.HeartbeatIntervalMinutes = v);
-        changed |= ApplyRemoteInt(config, "update_check_interval_hours", settings.UpdateCheckIntervalHours,
-            () => config.UpdateCheckIntervalHours, v => config.UpdateCheckIntervalHours = v);
-        changed |= ApplyRemoteBool(config, "update_enabled", settings.UpdateEnabled,
-            () => config.UpdateEnabled, v => config.UpdateEnabled = v);
-
-        var targetRaw = FirstNonEmpty(settings.UpdateTarget, settings.DesiredAgentVersion);
-        if (targetRaw is not null && !IsAgentLocalKey(config, "update_target"))
+        // Явный allowlist-only путь (подготовка к теме C — без unsafe knobs).
+        foreach (var key in RemoteSettingsAllowlist)
         {
-            var normalized = VersionUtil.NormalizeDesiredAgentVersion(targetRaw);
-            if (normalized is not null
-                && !string.Equals(config.UpdateTarget, normalized, StringComparison.OrdinalIgnoreCase))
+            changed |= key switch
             {
-                config.UpdateTarget = normalized;
-                changed = true;
-            }
+                "inventory_interval_hours" => ApplyRemoteInt(
+                    config, key, settings.InventoryIntervalHours,
+                    () => config.InventoryIntervalHours, v => config.InventoryIntervalHours = v),
+                "heartbeat_interval_minutes" => ApplyRemoteInt(
+                    config, key, settings.HeartbeatIntervalMinutes,
+                    () => config.HeartbeatIntervalMinutes, v => config.HeartbeatIntervalMinutes = v),
+                "update_check_interval_hours" => ApplyRemoteInt(
+                    config, key, settings.UpdateCheckIntervalHours,
+                    () => config.UpdateCheckIntervalHours, v => config.UpdateCheckIntervalHours = v),
+                "update_enabled" => ApplyRemoteBool(
+                    config, key, settings.UpdateEnabled,
+                    () => config.UpdateEnabled, v => config.UpdateEnabled = v),
+                "update_target" => ApplyRemoteUpdateTarget(config, settings),
+                "collect_hardware" => ApplyRemoteBool(
+                    config, key, settings.CollectHardware,
+                    () => config.CollectHardware, v => config.CollectHardware = v),
+                "collect_users" => ApplyRemoteBool(
+                    config, key, settings.CollectUsers,
+                    () => config.CollectUsers, v => config.CollectUsers = v),
+                "collect_software" => ApplyRemoteBool(
+                    config, key, settings.CollectSoftware,
+                    () => config.CollectSoftware, v => config.CollectSoftware = v),
+                _ => false
+            };
         }
 
-        changed |= ApplyRemoteBool(config, "collect_hardware", settings.CollectHardware,
-            () => config.CollectHardware, v => config.CollectHardware = v);
-        changed |= ApplyRemoteBool(config, "collect_users", settings.CollectUsers,
-            () => config.CollectUsers, v => config.CollectUsers = v);
-        changed |= ApplyRemoteBool(config, "collect_software", settings.CollectSoftware,
-            () => config.CollectSoftware, v => config.CollectSoftware = v);
-
         return changed;
+    }
+
+    private static bool ApplyRemoteUpdateTarget(AgentConfig config, RemoteAgentSettings settings)
+    {
+        if (IsAgentLocalKey(config, "update_target"))
+        {
+            return false;
+        }
+
+        var targetRaw = FirstNonEmpty(settings.UpdateTarget, settings.DesiredAgentVersion);
+        if (targetRaw is null)
+        {
+            return false;
+        }
+
+        var normalized = VersionUtil.NormalizeDesiredAgentVersion(targetRaw);
+        if (normalized is null
+            || string.Equals(config.UpdateTarget, normalized, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        config.UpdateTarget = normalized;
+        return true;
     }
 
     private static bool ApplyRemoteInt(
         AgentConfig config, string key, int? incoming, Func<int> get, Action<int> set)
     {
-        if (incoming is not int v || v < 1 || IsAgentLocalKey(config, key) || get() == v)
+        if (!RemoteSettingsAllowlist.Contains(key)
+            || incoming is not int v || v < 1
+            || IsAgentLocalKey(config, key) || get() == v)
         {
             return false;
         }
@@ -283,7 +318,9 @@ public static class ConfigStore
     private static bool ApplyRemoteBool(
         AgentConfig config, string key, bool? incoming, Func<bool> get, Action<bool> set)
     {
-        if (incoming is not bool v || IsAgentLocalKey(config, key) || get() == v)
+        if (!RemoteSettingsAllowlist.Contains(key)
+            || incoming is not bool v
+            || IsAgentLocalKey(config, key) || get() == v)
         {
             return false;
         }
