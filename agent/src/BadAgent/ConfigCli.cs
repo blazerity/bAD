@@ -4,11 +4,23 @@ namespace BadAgent;
 
 /// <summary>
 /// Локальный просмотр/изменение knobs в <c>config.json</c>.
-/// Маркеры — через <see cref="ConfigStore.MarkAgentLocalKey"/> /
-/// <see cref="ConfigStore.MarkServerUrlLocal"/> (контракт Windows Agent / API Lead).
+/// Основной UX: <c>bad -c</c> (интерактив). Маркеры —
+/// <see cref="ConfigStore.MarkAgentLocalKey"/> / <see cref="ConfigStore.MarkServerUrlLocal"/>.
 /// </summary>
 public static class ConfigCli
 {
+    /// <summary>Порядок вопросов в <c>bad -c</c>: server_url → collect_* → интервалы.</summary>
+    public static readonly string[] InteractiveKeys =
+    [
+        "server_url",
+        "collect_hardware",
+        "collect_users",
+        "collect_software",
+        "inventory_interval_hours",
+        "heartbeat_interval_minutes",
+        "update_check_interval_hours"
+    ];
+
     /// <summary>Ключи <c>bad config set</c>: safe knobs + <c>server_url</c>.</summary>
     public static IReadOnlyList<string> EditableKeys { get; } =
         ConfigStore.CliManualSettingKeys
@@ -29,6 +41,17 @@ public static class ConfigCli
         "update_enabled",
         "update_target",
         "desired_agent_version"
+    };
+
+    private static readonly Dictionary<string, string> PromptHints = new(StringComparer.Ordinal)
+    {
+        ["server_url"] = "Адрес сервера (https://…)",
+        ["collect_hardware"] = "Собирать оборудование (true/false)",
+        ["collect_users"] = "Собирать пользователей (true/false)",
+        ["collect_software"] = "Собирать список ПО (true/false)",
+        ["inventory_interval_hours"] = "Интервал inventory, часы (≥ 1)",
+        ["heartbeat_interval_minutes"] = "Интервал heartbeat, минуты (≥ 1)",
+        ["update_check_interval_hours"] = "Интервал проверки обновлений, часы (≥ 1)"
     };
 
     public static int Run(string[] args)
@@ -55,6 +78,103 @@ public static class ConfigCli
         };
     }
 
+    /// <summary>Интерактивный мастер <c>bad -c</c>. Пустой ввод — оставить текущее значение.</summary>
+    public static int RunInteractive(TextReader? input = null, TextWriter? output = null)
+    {
+        input ??= Console.In;
+        output ??= Console.Out;
+
+        var cfg = ConfigStore.LoadOrCreate();
+        var previousServerUrl = cfg.ServerUrl;
+        var changedKeys = new List<string>();
+        var serverUrlChanged = false;
+
+        output.WriteLine("Интерактивная настройка агента (bad -c)");
+        output.WriteLine($"Файл: {ConfigStore.ConfigPath}");
+        output.WriteLine("Пустой ввод — оставить текущее значение. Ctrl+C — отмена.");
+        output.WriteLine();
+
+        foreach (var key in InteractiveKeys)
+        {
+            var current = FormatValue(GetEditable(cfg, key));
+            var hint = PromptHints.GetValueOrDefault(key, key);
+            while (true)
+            {
+                output.Write($"{hint} [{current}]: ");
+                output.Flush();
+                var line = input.ReadLine();
+                if (line is null)
+                {
+                    // EOF — прервать без сохранения текущих правок в этом проходе?
+                    // Уже применённые к cfg изменения сохраним ниже, если были.
+                    output.WriteLine();
+                    output.WriteLine("Ввод завершён (EOF).");
+                    goto DonePrompts;
+                }
+
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    output.WriteLine($"  → без изменений ({current})");
+                    break;
+                }
+
+                var raw = line.Trim();
+                if (raw.IndexOfAny(['\n', '\r', '\0']) >= 0
+                    || (key != "server_url" && raw.IndexOfAny(['|', ';', '&', '`', '$']) >= 0))
+                {
+                    output.WriteLine("  error: недопустимые символы, попробуйте ещё раз");
+                    continue;
+                }
+
+                if (!TryApply(cfg, key, raw, out var error))
+                {
+                    output.WriteLine($"  error: {error}");
+                    continue;
+                }
+
+                var next = FormatValue(GetEditable(cfg, key));
+                if (string.Equals(next, current, StringComparison.Ordinal))
+                {
+                    output.WriteLine($"  → без изменений ({current})");
+                }
+                else
+                {
+                    output.WriteLine($"  → {next}");
+                    if (key == "server_url")
+                    {
+                        serverUrlChanged = true;
+                        ConfigStore.MarkServerUrlLocal(cfg, true);
+                    }
+                    else
+                    {
+                        ConfigStore.MarkAgentLocalKey(cfg, key);
+                        changedKeys.Add(key);
+                    }
+                }
+
+                break;
+            }
+        }
+
+        DonePrompts:
+        if (!serverUrlChanged && changedKeys.Count == 0)
+        {
+            output.WriteLine();
+            output.WriteLine("Изменений нет — config.json не перезаписывали.");
+            return 0;
+        }
+
+        ConfigStore.Save(cfg);
+        output.WriteLine();
+        output.WriteLine($"Сохранено: {ConfigStore.ConfigPath}");
+        if (serverUrlChanged)
+        {
+            PrintServerUrlWarning(previousServerUrl, cfg.ServerUrl, output);
+        }
+
+        return 0;
+    }
+
     private static int Unknown(string cmd)
     {
         Console.Error.WriteLine($"error: неизвестная подкоманда config '{cmd}'");
@@ -67,25 +187,17 @@ public static class ConfigCli
         var cfg = ConfigStore.LoadOrCreate();
         Console.WriteLine($"Файл: {ConfigStore.ConfigPath}");
         Console.WriteLine();
-        Console.WriteLine("Изменяемые параметры (bad config set <ключ> <значение>):");
-        foreach (var key in EditableKeys)
+        Console.WriteLine("Параметры (для изменения: bad -c):");
+        foreach (var key in InteractiveKeys)
         {
-            var manual = IsManual(cfg, key) ? "  [вручную на агенте / agent_local]" : "";
+            var manual = IsManual(cfg, key) ? "  [вручную на агенте]" : "";
             Console.WriteLine($"  {key}={FormatValue(GetEditable(cfg, key))}{manual}");
         }
 
         Console.WriteLine();
-        Console.WriteLine("Только чтение / секреты (через CLI не меняются):");
+        Console.WriteLine("Служебные (только чтение):");
         Console.WriteLine($"  device_id={MaskEmpty(cfg.DeviceId)}");
-        Console.WriteLine($"  api_key={(string.IsNullOrWhiteSpace(cfg.ApiKey) ? "(нет)" : "(задан, скрыт)")}");
-        Console.WriteLine(
-            $"  enrollment_token={(string.IsNullOrWhiteSpace(cfg.EnrollmentToken) ? "(нет)" : "(задан, скрыт)")}");
         Console.WriteLine($"  remote_config_version={MaskEmpty(cfg.RemoteConfigVersion)}");
-        Console.WriteLine();
-        Console.WriteLine(
-            $"Маркеры: agent_local_keys=[{string.Join(", ", cfg.AgentLocalKeys ?? [])}] " +
-            $"server_url_local={cfg.ServerUrlLocal}");
-        Console.WriteLine("(в heartbeat уходит config_local → meta.config_local на сервере)");
         return 0;
     }
 
@@ -102,12 +214,12 @@ public static class ConfigCli
         {
             Console.Error.WriteLine(
                 $"error: ключ '{args[0]}' нельзя читать через config get " +
-                "(секреты/служебные) или он не в списке изменяемых. См. bad config.");
+                "или он не в списке изменяемых. См. bad -c / bad config.");
             return 2;
         }
 
         var cfg = ConfigStore.LoadOrCreate();
-        var manual = IsManual(cfg, key) ? " [вручную на агенте / agent_local]" : "";
+        var manual = IsManual(cfg, key) ? " [вручную на агенте]" : "";
         Console.WriteLine($"{key}={FormatValue(GetEditable(cfg, key))}{manual}");
         return 0;
     }
@@ -151,7 +263,6 @@ public static class ConfigCli
         ConfigStore.ClearAgentLocalKey(cfg, key);
         ConfigStore.Save(cfg);
         Console.WriteLine($"ok: снят agent_local для {key} (значение в файле не трогали)");
-        Console.WriteLine("После следующего heartbeat remote policy снова сможет перезаписать этот knob.");
         return 0;
     }
 
@@ -160,6 +271,7 @@ public static class ConfigCli
         if (args.Length < 2)
         {
             Console.Error.WriteLine("error: использование: bad config set <ключ> <значение>");
+            Console.Error.WriteLine("Подсказка: удобнее bad -c (интерактивно).");
             return 2;
         }
 
@@ -181,10 +293,12 @@ public static class ConfigCli
             return 2;
         }
 
-        if (ForbiddenKeys.Contains(key))
+        if (ForbiddenKeys.Contains(key)
+            || key is "api_key" or "enrollment_token")
         {
+            // Не эхоить valueRaw — даже при попытке set секрета.
             Console.Error.WriteLine(
-                $"error: ключ '{keyRaw}' запрещён для CLI (секреты и служебные поля не меняются)");
+                $"error: ключ '{key}' запрещён для CLI (секреты и служебные поля не меняются)");
             return 2;
         }
 
@@ -200,6 +314,7 @@ public static class ConfigCli
         var previousServerUrl = cfg.ServerUrl;
         if (!TryApply(cfg, key, valueRaw, out var error))
         {
+            // error — шаблон валидации без пользовательского секрета.
             Console.Error.WriteLine($"error: {error}");
             return 1;
         }
@@ -215,12 +330,12 @@ public static class ConfigCli
         }
 
         ConfigStore.Save(cfg);
-        Console.WriteLine($"ok: {key}={FormatValue(GetEditable(cfg, key))} [вручную на агенте / agent_local]");
+        Console.WriteLine($"ok: {key}={FormatValue(GetEditable(cfg, key))} [вручную на агенте]");
         Console.WriteLine($"Записано в {ConfigStore.ConfigPath}");
 
         if (key == "server_url")
         {
-            PrintServerUrlWarning(previousServerUrl, cfg.ServerUrl);
+            PrintServerUrlWarning(previousServerUrl, cfg.ServerUrl, Console.Out);
         }
 
         return 0;
@@ -324,7 +439,7 @@ public static class ConfigCli
         if (!url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
             && !url.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
         {
-            error = "server_url: нужен абсолютный URL (https://…; http:// — только lab с BAD_ALLOW_HTTP=1)";
+            error = "server_url: нужен абсолютный URL (https://…)";
             return false;
         }
 
@@ -339,18 +454,14 @@ public static class ConfigCli
         return true;
     }
 
-    private static void PrintServerUrlWarning(string previous, string current)
+    private static void PrintServerUrlWarning(string previous, string current, TextWriter output)
     {
-        Console.WriteLine();
-        Console.WriteLine("Важно:");
-        Console.WriteLine("  • В production указывайте только https:// (не http://).");
-        Console.WriteLine("  • BAD_ALLOW_HTTP=1 — только lab, не для боевых агентов.");
+        output.WriteLine();
+        output.WriteLine("Важно: в production используйте https://.");
         if (!string.Equals(previous, current, StringComparison.OrdinalIgnoreCase))
         {
-            Console.WriteLine(
-                "  • Смена server_url может потребовать повторный enroll на новом сервере");
-            Console.WriteLine(
-                "    (если api_key от другого сайта — служба получит 401/403 и очистит ключ).");
+            output.WriteLine(
+                "Смена server_url может потребовать повторный enroll на новом сервере.");
         }
     }
 
@@ -414,22 +525,14 @@ public static class ConfigCli
     private static void PrintHelp()
     {
         Console.WriteLine("""
-Настройки агента (локальный config.json):
-  bad config                      Показать параметры
-  bad config get <ключ>           Прочитать один ключ
-  bad config set <ключ> <значение>
-  bad config unset <ключ>         Снять маркер agent_local / server_url_local
-  bad settings                    То же, что bad config
+Настройки агента:
+  bad -c                          Интерактивная настройка (рекомендуется)
+  bad config                      Показать параметры (без секретов)
+  bad config set <ключ> <значение>  Power-user
+  bad config get|unset <ключ>
 
-Разрешено:
-  server_url                      https://… (http:// только lab + BAD_ALLOW_HTTP=1)
-  inventory_interval_hours        целое ≥ 1
-  heartbeat_interval_minutes      целое ≥ 1
-  update_check_interval_hours     целое ≥ 1
-  collect_hardware|users|software true|false
-
-Запрещено обычным set: api_key, enrollment_token, device_id.
-После set: MarkAgentLocalKey / MarkServerUrlLocal → heartbeat config_local (панель: agent_local).
+Изменяемые: server_url, collect_*, inventory/heartbeat/update_check интервалы.
+Секреты (api_key, enrollment_token) через CLI не показываются и не задаются.
 """);
     }
 }

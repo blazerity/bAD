@@ -73,17 +73,19 @@ Lab/cleartext (uvicorn без TLS): `BAD_SERVER_URL=http://127.0.0.1:8000` **и*
 
 ```powershell
 bad                     # ASCII-отчёт (то же: bad report | bad info)
-bad -r [path]           # HTML на Desktop или в path (--report; устар. --html)
-bad -h                  # справка (то же: --help | -?)
-bad config              # показать локальные настройки
-bad config set <k> <v>  # server_url / collect_* / интервалы
-bad config unset <k>    # снять значение и маркер agent_local
+bad -r [path]           # HTML-отчёт (--report; устар. --html)
+bad -c                  # интерактивная настройка (рекомендуется)
+bad -h                  # справка (--help | -?)
+bad config              # показать настройки (без api_key / enrollment_token)
+bad config set <k> <v>  # power-user: один knob
 BadAgent.exe service status|start|stop|restart
 ```
 
+> Основной путь настройки: **`bad -c`** (пустой ввод = оставить текущее). `-h` — только справка; HTML: `-r`.
+
 Учитываются `collect_*` из `%ProgramData%\blazerity\bAD\config.json`. Код: `BadCli`, `ConfigCli`, `AsciiReportWriter`, `HtmlReportWriter`, `ReportPathResolver`.
 
-`bad config set` пишет allowlisted knobs и ставит `agent_local_keys` / `server_url_local` → heartbeat `config_local` (на панели: **«задано на агенте»**). Секреты (`api_key`, `enrollment_token`) через set **не** меняются. Смена `server_url` — только `https://` (+ предупреждение про возможный re-enroll).
+`bad -c` / `config set` пишут allowlisted knobs и ставят `agent_local_keys` / `server_url_local` → heartbeat `config_local` (панель: **«задано на агенте»**). Значения `api_key` / `enrollment_token` CLI **не** печатает и не задаёт.
 
 Локальные отчёты **не** ходят на сервер и **не** предлагают `http://` как `server_url`. Служба при cleartext без opt-in падает с русской подсказкой (`BadApiClient.CleartextHttpRejectedMessage`: нужен `https://`, `BAD_ALLOW_HTTP=1` только lab).
 
