@@ -213,7 +213,7 @@ Heartbeat health (опционально → meta устройства): `last_i
 
 | Задача | Файл |
 |--------|------|
-| Маршруты API | `server/bad_server/api.py` |
+| Маршруты API / гайд 1C | `server/bad_server/api.py`, [api-v1.md](api-v1.md) |
 | Remote config / policies | `server/bad_server/agent_config.py` |
 | Agent update mirror | `server/bad_server/agent_update.py`, `github_release.py` |
 | Web routes | `server/bad_server/web.py` |

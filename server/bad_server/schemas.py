@@ -95,7 +95,7 @@ class AgentPolicyBody(BaseModel):
         cleaned = sanitize_conditions(raw)
         if len(cleaned) != len(raw):
             raise ValueError(
-                "conditions must use field in hostname|domain|os_caption "
+                "conditions must use field in hostname|domain|os_caption|tag "
                 "and op in equals|contains"
             )
         if not cleaned:

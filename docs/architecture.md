@@ -110,6 +110,8 @@ flowchart LR
 
 ### API (`/v1`)
 
+Интеграционный гайд (1C Itilium, additive freeze): [api-v1.md](api-v1.md).
+
 | Method | Path | Auth | Назначение |
 |--------|------|------|------------|
 | `GET` | `/v1/health` | нет | liveness + `version` |
