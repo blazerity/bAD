@@ -172,15 +172,17 @@ else
   if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='bad'" | grep -q 1; then
     sudo -u postgres psql -v ON_ERROR_STOP=1 -c "CREATE DATABASE bad OWNER bad;"
   fi
-  # Localhost only — не открывать PG наружу
+  # Localhost only — не открывать PG наружу (listen + hba)
+  sudo -u postgres psql -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET listen_addresses TO 'localhost';"
   PG_HBA="$(sudo -u postgres psql -tAc 'SHOW hba_file' | tr -d '[:space:]')"
   if [[ -n "${PG_HBA}" && -f "${PG_HBA}" ]]; then
     if ! grep -qE '^[[:space:]]*host[[:space:]]+bad[[:space:]]+bad[[:space:]]+127\.0\.0\.1/32' "${PG_HBA}"; then
       echo "host bad bad 127.0.0.1/32 scram-sha-256" >> "${PG_HBA}"
       echo "host bad bad ::1/128 scram-sha-256" >> "${PG_HBA}"
-      systemctl reload postgresql || true
     fi
   fi
+  # listen_addresses требует restart (reload недостаточно)
+  systemctl restart postgresql
   BAD_DATABASE_URL="postgresql://bad:${PG_PASS}@127.0.0.1:5432/bad"
   export BAD_DATABASE_URL
   DB_LINE="BAD_DATABASE_URL=${BAD_DATABASE_URL}"
@@ -233,6 +235,8 @@ else
   if [[ "${USE_SQLITE}" -eq 0 ]] && ! grep -q '^BAD_DATABASE_URL=' "${SITE_ENV}" 2>/dev/null; then
     if [[ -n "${BAD_DATABASE_URL:-}" ]]; then
       printf '\nBAD_DATABASE_URL=%s\n' "${BAD_DATABASE_URL}" >> "${SITE_ENV}"
+      chown root:bad "${SITE_ENV}"
+      chmod 640 "${SITE_ENV}"
     fi
   fi
 fi
