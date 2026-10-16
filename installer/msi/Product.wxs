@@ -187,9 +187,9 @@
 
     <InstallExecuteSequence>
       <!-- После WriteRegistryValues, чтобы Setup\EnrollmentToken уже был в HKLM. -->
-      <Custom Action="WriteConfigAction" After="WriteRegistryValues">NOT REMOVE</Custom>
+      <Custom Action="WriteConfigAction" After="WriteRegistryValues" Condition="NOT REMOVE" />
       <!-- После StopServices / до RemoveFiles, пока cleanup-uninstall.ps1 ещё на диске. -->
-      <Custom Action="CleanupUninstallAction" Before="RemoveFiles">REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="CleanupUninstallAction" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
     </InstallExecuteSequence>
   </Package>
 </Wix>
