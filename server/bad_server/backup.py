@@ -1,12 +1,16 @@
-"""Ежедневный бэкап SQLite: сегодня + вчера в каталоге backups."""
+"""Ежедневный бэкап: SQLite Online Backup или pg_dump (сегодня + вчера)."""
 
 from __future__ import annotations
 
 import logging
+import os
+import shutil
 import sqlite3
+import subprocess
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlparse, unquote
 
 logger = logging.getLogger(__name__)
 
@@ -17,22 +21,44 @@ def utc_today() -> date:
     return datetime.now(timezone.utc).date()
 
 
-def backup_filename(day: date) -> str:
+def backup_filename_sqlite(day: date) -> str:
     return f"bad-{day.isoformat()}.db"
 
 
-def list_backup_files(backup_dir: Path) -> list[Path]:
+def backup_filename_pg(day: date) -> str:
+    return f"bad-{day.isoformat()}.dump"
+
+
+def list_backup_files(backup_dir: Path, *, postgres: bool = False) -> list[Path]:
     if not backup_dir.is_dir():
         return []
-    files = sorted(backup_dir.glob("bad-????-??-??.db"))
-    return files
+    pattern = "bad-????-??-??.dump" if postgres else "bad-????-??-??.db"
+    return sorted(backup_dir.glob(pattern))
 
 
-def backup_status(backup_dir: Path) -> dict[str, Any]:
-    files = list_backup_files(backup_dir)
+def backup_status(
+    backup_dir: Path, *, database_url: Optional[str] = None
+) -> dict[str, Any]:
+    postgres = bool((database_url or "").strip())
+    files = list_backup_files(backup_dir, postgres=postgres)
     latest: Optional[Path] = files[-1] if files else None
+    today_name = (
+        backup_filename_pg(utc_today())
+        if postgres
+        else backup_filename_sqlite(utc_today())
+    )
+    hint = (
+        "Ежедневный pg_dump — данные БД, не полный DR. "
+        "Ключи escrow и site-bundle — отдельно."
+        if postgres
+        else (
+            "Ежедневный снимок SQLite — inventory/метаданные, не полный DR. "
+            "Ключи escrow и site-bundle — отдельно."
+        )
+    )
     return {
         "backup_dir": str(backup_dir),
+        "backend": "postgres" if postgres else "sqlite",
         "files": [
             {
                 "name": f.name,
@@ -47,13 +73,9 @@ def backup_status(backup_dir: Path) -> dict[str, Any]:
             for f in files
         ],
         "latest": latest.name if latest else None,
-        "today_exists": (backup_dir / backup_filename(utc_today())).is_file(),
-        # Daily SQLite alone is never full DR when keys live in files (SEC-005).
+        "today_exists": (backup_dir / today_name).is_file(),
         "daily_is_full_dr": False,
-        "daily_hint_ru": (
-            "Ежедневный снимок SQLite — inventory/метаданные, не полный DR. "
-            "Ключи escrow и site-bundle — отдельно."
-        ),
+        "daily_hint_ru": hint,
     }
 
 
@@ -96,8 +118,56 @@ def backup_keys_status(
     }
 
 
-def run_daily_backup(db_path: Path, backup_dir: Path) -> dict[str, Any]:
-    """Создать/заменить сегодняшний снимок через SQLite Online Backup API; удалить старые."""
+def _pg_dump_env(database_url: str) -> dict[str, str]:
+    env = os.environ.copy()
+    parsed = urlparse(database_url)
+    if parsed.password:
+        env["PGPASSWORD"] = unquote(parsed.password)
+    return env
+
+
+def run_pg_dump(database_url: str, dest: Path) -> None:
+    """pg_dump custom format (-Fc) → dest."""
+    pg_dump = shutil.which("pg_dump")
+    if not pg_dump:
+        raise RuntimeError("pg_dump not found in PATH")
+    tmp = dest.with_suffix(dest.suffix + ".tmp")
+    if tmp.exists():
+        tmp.unlink()
+    cmd = [
+        pg_dump,
+        "--format=custom",
+        "--file",
+        str(tmp),
+        "--no-owner",
+        "--no-acl",
+        database_url,
+    ]
+    proc = subprocess.run(
+        cmd,
+        env=_pg_dump_env(database_url),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        if tmp.exists():
+            tmp.unlink()
+        raise RuntimeError(proc.stderr.strip() or f"pg_dump exit {proc.returncode}")
+    tmp.replace(dest)
+    try:
+        dest.chmod(0o600)
+    except OSError:
+        pass
+
+
+def run_daily_backup(
+    backup_dir: Path,
+    *,
+    db_path: Optional[Path] = None,
+    database_url: Optional[str] = None,
+) -> dict[str, Any]:
+    """Снимок сегодня + prune старых. Postgres → pg_dump; иначе SQLite Online Backup."""
     backup_dir = Path(backup_dir)
     backup_dir.mkdir(parents=True, exist_ok=True)
     try:
@@ -106,15 +176,39 @@ def run_daily_backup(db_path: Path, backup_dir: Path) -> dict[str, Any]:
         pass
 
     today = utc_today()
-    dest = backup_dir / backup_filename(today)
-    src = Path(db_path)
-    if not src.is_file():
-        return {"ok": False, "error": f"DB missing: {src}", "path": str(dest)}
+    url = (database_url or "").strip()
+    if url:
+        dest = backup_dir / backup_filename_pg(today)
+        try:
+            run_pg_dump(url, dest)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("pg_dump backup failed")
+            return {"ok": False, "error": str(exc), "path": str(dest), "backend": "postgres"}
+        removed = _prune_old(backup_dir, today, postgres=True)
+        logger.info("pg_dump backup written to %s", dest)
+        return {
+            "ok": True,
+            "path": str(dest),
+            "name": dest.name,
+            "removed": removed,
+            "backend": "postgres",
+            "status": backup_status(backup_dir, database_url=url),
+        }
+
+    # SQLite path
+    dest = backup_dir / backup_filename_sqlite(today)
+    src = Path(db_path) if db_path else None
+    if not src or not src.is_file():
+        return {
+            "ok": False,
+            "error": f"DB missing: {src}",
+            "path": str(dest),
+            "backend": "sqlite",
+        }
 
     try:
         src_conn = sqlite3.connect(str(src))
         try:
-            # Временный файл, затем replace — безопаснее при обрыве копирования.
             tmp = dest.with_suffix(".db.tmp")
             if tmp.exists():
                 tmp.unlink()
@@ -132,14 +226,27 @@ def run_daily_backup(db_path: Path, backup_dir: Path) -> dict[str, Any]:
             src_conn.close()
     except Exception as exc:  # noqa: BLE001
         logger.exception("SQLite backup failed")
-        return {"ok": False, "error": str(exc), "path": str(dest)}
+        return {"ok": False, "error": str(exc), "path": str(dest), "backend": "sqlite"}
 
-    # Оставить сегодня + вчера (удалить более старые файлы по имени).
+    removed = _prune_old(backup_dir, today, postgres=False)
+    logger.info("SQLite backup written to %s", dest)
+    return {
+        "ok": True,
+        "path": str(dest),
+        "name": dest.name,
+        "removed": removed,
+        "backend": "sqlite",
+        "status": backup_status(backup_dir),
+    }
+
+
+def _prune_old(backup_dir: Path, today: date, *, postgres: bool) -> list[str]:
     cutoff = today - timedelta(days=KEEP_DAILY - 1)
     removed: list[str] = []
-    for f in list_backup_files(backup_dir):
+    for f in list_backup_files(backup_dir, postgres=postgres):
         try:
-            day = date.fromisoformat(f.stem.replace("bad-", "", 1))
+            stem = f.stem.replace("bad-", "", 1)
+            day = date.fromisoformat(stem)
         except ValueError:
             continue
         if day < cutoff:
@@ -148,12 +255,4 @@ def run_daily_backup(db_path: Path, backup_dir: Path) -> dict[str, Any]:
                 removed.append(f.name)
             except OSError:
                 logger.warning("Failed to remove old backup %s", f)
-
-    logger.info("SQLite backup written to %s", dest)
-    return {
-        "ok": True,
-        "path": str(dest),
-        "name": dest.name,
-        "removed": removed,
-        "status": backup_status(backup_dir),
-    }
+    return removed

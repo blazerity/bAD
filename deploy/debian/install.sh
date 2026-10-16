@@ -5,11 +5,19 @@
 #     sudo -E bash install.sh
 # HTTP bootstrap (сертификат позже из UI /settings/tls):
 #   BAD_DOMAIN=bad.example.com sudo -E bash install.sh
+# Lab без Postgres: BAD_USE_SQLITE=1 sudo -E bash install.sh
 # Или:
 #   curl -fsSL https://<distribution-host>/bad/install.sh | sudo bash
 set -euo pipefail
 
 BAD_VERSION="${BAD_VERSION:-1.0.1}"
+TOTAL_STEPS=6
+
+step() {
+  local n="$1"; shift
+  echo
+  echo "[${n}/${TOTAL_STEPS}] $*"
+}
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "error: must run as root" >&2
@@ -38,7 +46,7 @@ prompt() {
 
 prompt BAD_DOMAIN "Public DNS name for this bAD server (cert SAN/CN)"
 
-# TLS optional (0.11): empty = HTTP bootstrap until UI upload at /settings/tls
+# TLS optional: empty = HTTP bootstrap until UI upload at /settings/tls
 if [[ -z "${BAD_TLS_CERT:-}" && -z "${BAD_TLS_KEY:-}" ]]; then
   if [[ -t 0 ]]; then
     read -r -p "TLS fullchain path [Enter = upload later via /settings/tls]: " BAD_TLS_CERT || true
@@ -66,50 +74,71 @@ if [[ -n "${BAD_TLS_CERT:-}" || -n "${BAD_TLS_KEY:-}" ]]; then
   fi
 fi
 
+# --- DB mode ---
+# Fresh install → local Postgres. Lab: BAD_USE_SQLITE=1.
+# Существующий site.env с BAD_DB_PATH без URL — не авто-конвертить (one-shot import отдельно).
+SITE_ENV=/etc/bad/site.env
+USE_SQLITE=0
+if [[ "${BAD_USE_SQLITE:-}" == "1" ]] || [[ "${BAD_USE_SQLITE:-}" == "true" ]]; then
+  USE_SQLITE=1
+fi
+if [[ -f "${SITE_ENV}" ]] && grep -q '^BAD_DB_PATH=' "${SITE_ENV}" \
+  && ! grep -q '^BAD_DATABASE_URL=' "${SITE_ENV}"; then
+  USE_SQLITE=1
+  echo "info: existing SQLite site.env — keep SQLite (no auto-convert)" >&2
+fi
+if [[ -n "${BAD_DATABASE_URL:-}" ]]; then
+  USE_SQLITE=0
+fi
+
+# ========== [1/6] Пакеты ==========
+step 1 "Пакеты"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-apt-get install -y python3 python3-venv python3-pip nginx sqlite3 ufw openssl ca-certificates curl acl
+PKGS=(python3 python3-venv python3-pip nginx sqlite3 ufw openssl ca-certificates curl acl)
+if [[ "${USE_SQLITE}" -eq 0 ]]; then
+  PKGS+=(postgresql postgresql-client)
+fi
+apt-get install -y "${PKGS[@]}"
 
+# ========== [2/6] Пользователь / каталоги / venv ==========
+step 2 "Пользователь / каталоги / venv"
 id -u bad >/dev/null 2>&1 || useradd --system --home /var/lib/bad --shell /usr/sbin/nologin bad
 
-mkdir -p /opt/bad /var/lib/bad /var/lib/bad/agent-updates /etc/bad /etc/bad/tls/staging /var/log/bad
-chown bad:bad /var/lib/bad /var/lib/bad/agent-updates /var/log/bad
+mkdir -p /opt/bad /var/lib/bad /var/lib/bad/agent-updates /var/lib/bad/backups /etc/bad /etc/bad/tls/staging /var/log/bad
+chown bad:bad /var/lib/bad /var/lib/bad/agent-updates /var/lib/bad/backups /var/log/bad
 chmod 750 /var/lib/bad /var/lib/bad/agent-updates /var/log/bad
+chmod 700 /var/lib/bad/backups
 chmod 750 /etc/bad
 chown root:bad /etc/bad/tls
 chmod 770 /etc/bad/tls
 chown bad:bad /etc/bad/tls/staging
 chmod 770 /etc/bad/tls/staging
 
-# Cookie Secure follows X-Forwarded-Proto (no force 0/1 → no ~2s race after TLS apply).
 COOKIE_SECURE=auto
 if [[ "${HAS_TLS}" -eq 1 ]]; then
-  # Симлинк клиентского cert/key в /etc/bad/tls (UI-upload заменит на реальные файлы)
   ln -sfn "${BAD_TLS_CERT}" /etc/bad/tls/fullchain.pem
   ln -sfn "${BAD_TLS_KEY}" /etc/bad/tls/privkey.pem
 else
   rm -f /etc/bad/tls/fullchain.pem /etc/bad/tls/privkey.pem
 fi
 
-# Установить приложение в /opt/bad
 mkdir -p /opt/bad/server
 rm -rf /opt/bad/server/*
 cp -a "${REPO_ROOT}/server/." /opt/bad/server/
 rm -rf /opt/bad/server/.venv /opt/bad/server/data /opt/bad/server/.pytest_cache
 find /opt/bad/server -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
 
-# Nginx templates + TLS apply helper for HTTP→HTTPS and UI reload
 mkdir -p /opt/bad/deploy/debian/nginx
 cp -a "${SCRIPT_DIR}/nginx/." /opt/bad/deploy/debian/nginx/
 install -m 755 "${SCRIPT_DIR}/bad-apply-tls.sh" /usr/local/sbin/bad-apply-tls
+install -m 755 "${SCRIPT_DIR}/restore-site-bundle.sh" /usr/local/sbin/bad-restore-site-bundle
 
 cd /opt/bad
 python3 -m venv .venv
 .venv/bin/pip install -U pip wheel
 .venv/bin/pip install -e ./server
 
-# Master secrets outside SQLite (SEC-005): Fernet data_key + session cookie secret.
-# Do not store these only in bad.db — a DB/backup copy would decrypt SMTP/LDAP and forge sessions.
 umask 077
 if [[ ! -f /etc/bad/data_key ]]; then
   /opt/bad/.venv/bin/python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())' > /etc/bad/data_key
@@ -122,14 +151,52 @@ if [[ ! -f /etc/bad/session_secret ]]; then
   chmod 440 /etc/bad/session_secret
 fi
 
-# Сгенерировать токены один раз, если site.env ещё нет
-SITE_ENV=/etc/bad/site.env
+# ========== [3/6] БД ==========
+step 3 "БД (SQLite path или Postgres role/db + schema)"
+DB_LINE=""
+DB_SUMMARY=""
+
+if [[ "${USE_SQLITE}" -eq 1 ]]; then
+  DB_LINE="BAD_DB_PATH=/var/lib/bad/bad.db"
+  DB_SUMMARY="/var/lib/bad/bad.db (SQLite)"
+  echo "  mode: SQLite (BAD_USE_SQLITE=1)"
+else
+  systemctl enable --now postgresql
+  PG_PASS="$(openssl rand -base64 32 | tr -d '/+=' | head -c 32)"
+  # Role + DB (idempotent-ish)
+  if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='bad'" | grep -q 1; then
+    sudo -u postgres psql -v ON_ERROR_STOP=1 -c "CREATE USER bad WITH PASSWORD '${PG_PASS}';"
+  else
+    sudo -u postgres psql -v ON_ERROR_STOP=1 -c "ALTER USER bad WITH PASSWORD '${PG_PASS}';"
+  fi
+  if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='bad'" | grep -q 1; then
+    sudo -u postgres psql -v ON_ERROR_STOP=1 -c "CREATE DATABASE bad OWNER bad;"
+  fi
+  # Localhost only — не открывать PG наружу
+  PG_HBA="$(sudo -u postgres psql -tAc 'SHOW hba_file' | tr -d '[:space:]')"
+  if [[ -n "${PG_HBA}" && -f "${PG_HBA}" ]]; then
+    if ! grep -qE '^[[:space:]]*host[[:space:]]+bad[[:space:]]+bad[[:space:]]+127\.0\.0\.1/32' "${PG_HBA}"; then
+      echo "host bad bad 127.0.0.1/32 scram-sha-256" >> "${PG_HBA}"
+      echo "host bad bad ::1/128 scram-sha-256" >> "${PG_HBA}"
+      systemctl reload postgresql || true
+    fi
+  fi
+  BAD_DATABASE_URL="postgresql://bad:${PG_PASS}@127.0.0.1:5432/bad"
+  export BAD_DATABASE_URL
+  DB_LINE="BAD_DATABASE_URL=${BAD_DATABASE_URL}"
+  DB_SUMMARY="Postgres local (BAD_DATABASE_URL, localhost only)"
+  echo "  mode: Postgres local → schema via API start"
+  # Init schema early (fail fast)
+  BAD_DATABASE_URL="${BAD_DATABASE_URL}" /opt/bad/.venv/bin/python -c \
+    'from bad_server.db import open_database; open_database(database_url=__import__("os").environ["BAD_DATABASE_URL"]); print("  schema: ok")'
+fi
+
 if [[ ! -f "${SITE_ENV}" ]]; then
   ENROLLMENT_TOKEN="bad_en_$(openssl rand -base64 48 | tr -d '/+=' | head -c 48)"
   ADMIN_TOKEN="bad_ad_$(openssl rand -base64 48 | tr -d '/+=' | head -c 48)"
   umask 077
   cat > "${SITE_ENV}" <<EOF
-BAD_DB_PATH=/var/lib/bad/bad.db
+${DB_LINE}
 BAD_DOMAIN=${BAD_DOMAIN}
 BAD_ENROLLMENT_TOKEN=${ENROLLMENT_TOKEN}
 BAD_ADMIN_TOKEN=${ADMIN_TOKEN}
@@ -138,6 +205,7 @@ BAD_SESSION_SECRET_FILE=/etc/bad/session_secret
 BAD_COOKIE_SECURE=${COOKIE_SECURE}
 BAD_GITHUB_REPO=${BAD_GITHUB_REPO:-blazerity/bAD}
 BAD_AGENT_UPDATES_DIR=/var/lib/bad/agent-updates
+BAD_BACKUP_DIR=/var/lib/bad/backups
 BAD_AGENT_UPDATE_SYNC_INTERVAL_SECONDS=${BAD_AGENT_UPDATE_SYNC_INTERVAL_SECONDS:-3600}
 BAD_AGENT_UPDATE_SYNC_ON_STARTUP=${BAD_AGENT_UPDATE_SYNC_ON_STARTUP:-true}
 EOF
@@ -150,7 +218,6 @@ else
   ENROLLMENT_TOKEN="${BAD_ENROLLMENT_TOKEN:-}"
   ADMIN_TOKEN="${BAD_ADMIN_TOKEN:-}"
   PRINT_TOKENS=0
-  # Ensure secret file paths are present on upgrades.
   if ! grep -q '^BAD_DATA_KEY_FILE=' "${SITE_ENV}" 2>/dev/null; then
     printf '\nBAD_DATA_KEY_FILE=/etc/bad/data_key\nBAD_SESSION_SECRET_FILE=/etc/bad/session_secret\n' >> "${SITE_ENV}"
   fi
@@ -162,13 +229,19 @@ else
   else
     printf '\nBAD_COOKIE_SECURE=%s\n' "${COOKIE_SECURE}" >> "${SITE_ENV}"
   fi
+  # Не авто-конвертить существующий SQLite-сайт: только дописать URL если уже был PG-режим fresh.
+  if [[ "${USE_SQLITE}" -eq 0 ]] && ! grep -q '^BAD_DATABASE_URL=' "${SITE_ENV}" 2>/dev/null; then
+    if [[ -n "${BAD_DATABASE_URL:-}" ]]; then
+      printf '\nBAD_DATABASE_URL=%s\n' "${BAD_DATABASE_URL}" >> "${SITE_ENV}"
+    fi
+  fi
 fi
 
 chown -R bad:bad /opt/bad
-# Оставить venv/exec читаемыми для bad
 chmod -R u+rwX,g+rX,o-rwx /opt/bad
 
-# systemd: API + TLS apply path unit (NoNewPrivileges — apply только через path unit)
+# ========== [4/6] systemd ==========
+step 4 "systemd bad-api (+ tls-apply path)"
 install -m 644 "${SCRIPT_DIR}/systemd/bad-api.service" /etc/systemd/system/bad-api.service
 install -m 644 "${SCRIPT_DIR}/systemd/bad-tls-apply.service" /etc/systemd/system/bad-tls-apply.service
 install -m 644 "${SCRIPT_DIR}/systemd/bad-tls-apply.path" /etc/systemd/system/bad-tls-apply.path
@@ -176,23 +249,23 @@ systemctl daemon-reload
 systemctl enable --now bad-api.service
 systemctl enable --now bad-tls-apply.path
 
-# nginx via apply helper (HTTP-only until managed/symlink cert exists)
+# ========== [5/6] nginx ==========
+step 5 "nginx"
 BAD_NGINX_TEMPLATE_DIR=/opt/bad/deploy/debian/nginx /usr/local/sbin/bad-apply-tls
 systemctl enable --now nginx
 
-# Базовые правила ufw
 if command -v ufw >/dev/null 2>&1; then
   ufw allow 22/tcp || true
   ufw allow 80/tcp || true
   ufw allow 443/tcp || true
+  # Postgres не наружу
   if ufw status | grep -qi inactive; then
     echo "warning: enabling ufw with allow 22,80,443 — ensure SSH access is correct" >&2
     ufw --force enable || true
   fi
 fi
 
-# Дождаться health
-for i in $(seq 1 20); do
+for i in $(seq 1 30); do
   if curl -fsS http://127.0.0.1:8000/v1/health >/dev/null 2>&1; then
     break
   fi
@@ -204,6 +277,8 @@ if [[ "${HAS_TLS}" -eq 0 ]]; then
   SCHEME="http"
 fi
 
+# ========== [6/6] Готово + памятка ==========
+step 6 "Готово"
 echo
 echo "========================================"
 echo " bAD server ${BAD_VERSION} installed"
@@ -218,8 +293,8 @@ else
   echo " TLS:              HTTPS (cert provided at install)"
 fi
 echo " Web login:        admin / admin  (change immediately on first login)"
-echo " DB:               /var/lib/bad/bad.db"
-echo " Secrets:          /etc/bad/data_key + /etc/bad/session_secret (not in DB backups)"
+echo " DB:               ${DB_SUMMARY}"
+echo " Secrets:          /etc/bad/data_key + /etc/bad/session_secret (not in DB dumps)"
 echo " Logs:             journalctl -u bad-api -f"
 if [[ "${PRINT_TOKENS}" -eq 1 ]]; then
   echo " Enrollment token: ${ENROLLMENT_TOKEN}"
@@ -235,3 +310,32 @@ else
   echo " MSI properties:   install agents AFTER TLS upload (SERVERURL=https://${BAD_DOMAIN})"
 fi
 echo "========================================"
+echo
+echo "----------------------------------------"
+echo " Что дальше"
+echo "----------------------------------------"
+if [[ "${HAS_TLS}" -eq 0 ]]; then
+  echo " 1. Откройте панель:  ${SCHEME}://${BAD_DOMAIN}/login"
+  echo "    (без cert при install — только из LAN/VPN/ssh -L, не в интернет)"
+  echo " 2. Войдите admin / admin → сразу смените пароль"
+  echo " 3. Параметры → Сертификат: загрузите fullchain + private key"
+  echo "    → «Установить и перезагрузить nginx»"
+  echo " 4. Откройте https://${BAD_DOMAIN}/ и войдите снова"
+  echo " 5. Только после HTTPS — MSI агентов:"
+  echo "    SERVERURL=https://${BAD_DOMAIN} ENROLLMENTTOKEN=<enrollment>"
+else
+  echo " 1. Откройте панель:  https://${BAD_DOMAIN}/login"
+  echo " 2. Войдите admin / admin → сразу смените пароль"
+  echo " 3. Cert уже при install — ротация позже через Параметры → Сертификат"
+  echo " 4. (уже HTTPS)"
+  echo " 5. MSI агентов:"
+  echo "    SERVERURL=https://${BAD_DOMAIN} ENROLLMENTTOKEN=<enrollment>"
+fi
+echo " 6. После волны MSI — смените enrollment token"
+echo "    (Параметры → Обновления агента → Сменить enrollment token)"
+echo "    и обновите Intune/GPO. Не шарьте msiexec-логи."
+echo
+echo " Ключи: /etc/bad/data_key + session_secret — не в daily DB-бэкапе."
+echo " Полный DR: site bundle (Параметры → Резервные копии), только по HTTPS."
+echo " Подробнее: docs/operator-guide.md"
+echo "----------------------------------------"
