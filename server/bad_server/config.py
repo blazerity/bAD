@@ -72,6 +72,8 @@ class Settings(BaseSettings):
     server_releases_dir: Path = Path(
         os.environ.get("BAD_SERVER_RELEASES_DIR", "/var/lib/bad/server-releases")
     )
+    # Semver агента для MSI dispatch. Пусто → agent/VERSION на диске.
+    agent_package_version: str = ""
 
     # Ежедневные бэкапы pg_dump — сегодня + вчера.
     backup_dir: Path = Path(

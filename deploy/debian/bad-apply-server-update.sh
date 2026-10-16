@@ -223,13 +223,18 @@ download_and_fill_slot() {
     fail "повреждённый tarball" "apply"
   fi
   [[ -d "${tmp}/extract/server" ]] || { rm -rf "${tmp}"; fail "в архиве нет server/" "apply"; }
-  rm -rf "${dest}/tree/server" "${dest}/tree/deploy" "${dest}/tree/VERSION"
+  rm -rf "${dest}/tree/server" "${dest}/tree/deploy" "${dest}/tree/VERSION" "${dest}/tree/agent"
   cp -a "${tmp}/extract/server" "${dest}/tree/server"
   if [[ -d "${tmp}/extract/deploy" ]]; then
     cp -a "${tmp}/extract/deploy" "${dest}/tree/deploy"
   fi
+  # Корневой VERSION = server; agent/VERSION — отдельно (MSI line)
   if [[ -f "${tmp}/extract/VERSION" ]]; then
     cp -a "${tmp}/extract/VERSION" "${dest}/tree/VERSION"
+  fi
+  if [[ -f "${tmp}/extract/agent/VERSION" ]]; then
+    mkdir -p "${dest}/tree/agent"
+    cp -a "${tmp}/extract/agent/VERSION" "${dest}/tree/agent/VERSION"
   fi
   local version=""
   if [[ -f "${dest}/tree/VERSION" ]]; then
@@ -274,6 +279,13 @@ promote_slot() {
   fi
   if [[ -f "${dest}/tree/VERSION" ]]; then
     cp -a "${dest}/tree/VERSION" "${OPT_BAD}/VERSION"
+  fi
+  if [[ -f "${dest}/tree/agent/VERSION" ]]; then
+    mkdir -p "${OPT_BAD}/agent"
+    cp -a "${dest}/tree/agent/VERSION" "${OPT_BAD}/agent/VERSION"
+    chown root:bad "${OPT_BAD}/agent" "${OPT_BAD}/agent/VERSION" 2>/dev/null || true
+    chmod 755 "${OPT_BAD}/agent" 2>/dev/null || true
+    chmod 644 "${OPT_BAD}/agent/VERSION" 2>/dev/null || true
   fi
 
   chown -R bad:bad "${OPT_BAD}/server" 2>/dev/null || true

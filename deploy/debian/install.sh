@@ -9,7 +9,6 @@
 #   curl -fsSL https://<distribution-host>/bad/install.sh | sudo bash
 set -euo pipefail
 
-BAD_VERSION="${BAD_VERSION:-1.0.1}"
 TOTAL_STEPS=6
 
 step() {
@@ -33,6 +32,12 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+# Корневой VERSION = semver **сервера** (не agent/VERSION).
+if [[ -f "${REPO_ROOT}/VERSION" ]]; then
+  BAD_VERSION="${BAD_VERSION:-$(head -1 "${REPO_ROOT}/VERSION" | tr -d '\r\n')}"
+else
+  BAD_VERSION="${BAD_VERSION:-1.0.1}"
+fi
 SITE_ENV=/etc/bad/site.env
 
 prompt() {
@@ -116,6 +121,13 @@ rm -rf /opt/bad/server/*
 cp -a "${REPO_ROOT}/server/." /opt/bad/server/
 rm -rf /opt/bad/server/.venv /opt/bad/server/data /opt/bad/server/.pytest_cache
 find /opt/bad/server -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
+
+# Server VERSION + agent/VERSION (#79) на диск для health / MSI dispatch
+install -m 644 "${REPO_ROOT}/VERSION" /opt/bad/VERSION
+mkdir -p /opt/bad/agent
+if [[ -f "${REPO_ROOT}/agent/VERSION" ]]; then
+  install -m 644 "${REPO_ROOT}/agent/VERSION" /opt/bad/agent/VERSION
+fi
 
 mkdir -p /opt/bad/deploy/debian/nginx
 cp -a "${SCRIPT_DIR}/nginx/." /opt/bad/deploy/debian/nginx/
