@@ -47,10 +47,11 @@ from .agent_update import (
     set_latest_msi_version,
     sync_from_github,
 )
-from .backup import backup_status, run_daily_backup
+from .backup import backup_keys_status, backup_status, run_daily_backup
 from .enrollment_ops import (
     enrollment_rotation_signals,
     enrollment_status,
+    mark_enrollment_wave_done,
     rotate_enrollment_token,
 )
 from .http_bootstrap import HTTP_SENSITIVE_MSG, sensitive_over_http_blocked
@@ -63,7 +64,7 @@ from .ops_panel import (
     normalize_wave_filter,
 )
 from .security_ops import merge_security_into_ops, security_status
-from .site_bundle import build_site_bundle
+from .site_bundle import build_key_escrow_archive, build_site_bundle
 from .tls_ops import (
     https_panel_url,
     read_domain_from_env,
@@ -1958,10 +1959,17 @@ def _backup_context(
     error: Optional[str] = None,
 ) -> dict:
     secrets = security_status(db, settings).get("secrets") or {}
+    keys = backup_keys_status(
+        data_key_file=settings.data_key_file,
+        session_secret_file=settings.session_secret_file,
+        secrets=secrets,
+        last_key_escrow_at=db.get_site_secret("last_key_escrow_at"),
+    )
     return {
         "user": user,
         "settings_section": "backups",
         "backup": backup_status(settings.backup_dir),
+        "keys": keys,
         "last_backup_at": db.get_site_secret("last_backup_at"),
         "secrets": secrets,
         "message": message,
@@ -2258,6 +2266,48 @@ def backups_site_bundle_download(
     )
 
 
+@router.get("/settings/backups/key-escrow")
+def backups_key_escrow_download(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    """Скачать только escrow keys (без DB). SEC-005; только после HTTPS."""
+    from .db import utc_now
+
+    if sensitive_over_http_blocked(settings):
+        return _html(
+            request,
+            "backup_settings.html",
+            _backup_context(db, settings, user=user, error=HTTP_SENSITIVE_MSG),
+            status_code=403,
+        )
+    try:
+        payload, filename = build_key_escrow_archive(
+            data_key_file=settings.data_key_file,
+            session_secret_file=settings.session_secret_file,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return _html(
+            request,
+            "backup_settings.html",
+            _backup_context(
+                db, settings, user=user, error=f"Не удалось собрать key escrow: {exc}"
+            ),
+            status_code=500,
+        )
+    db.set_site_secret("last_key_escrow_at", utc_now())
+    return StreamingResponse(
+        iter([payload]),
+        media_type="application/gzip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(payload)),
+        },
+    )
+
+
 def _updates_context(
     db: Database,
     settings: Settings,
@@ -2457,5 +2507,26 @@ def enrollment_rotate(
             user=user,
             message=f"Enrollment token сменён ({note}). Сохраните значение — больше не показать.",
             new_enrollment_token=result["token"],
+        ),
+    )
+
+
+@router.post("/settings/enrollment/wave-done")
+def enrollment_wave_done(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    """Оператор: волна MSI закончена → rotation_due до следующего rotate."""
+    mark_enrollment_wave_done(db)
+    return _html(
+        request,
+        "updates_settings.html",
+        _updates_context(
+            db,
+            settings,
+            user=user,
+            message="Волна отмечена. Смените enrollment token (лента на Обзоре + секция ниже).",
         ),
     )

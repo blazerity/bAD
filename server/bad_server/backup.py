@@ -48,6 +48,51 @@ def backup_status(backup_dir: Path) -> dict[str, Any]:
         ],
         "latest": latest.name if latest else None,
         "today_exists": (backup_dir / backup_filename(utc_today())).is_file(),
+        # Daily SQLite alone is never full DR when keys live in files (SEC-005).
+        "daily_is_full_dr": False,
+        "daily_hint_ru": (
+            "Ежедневный снимок SQLite — inventory/метаданные, не полный DR. "
+            "Ключи escrow и site-bundle — отдельно."
+        ),
+    }
+
+
+def backup_keys_status(
+    *,
+    data_key_file: Path,
+    session_secret_file: Path,
+    secrets: dict[str, Any],
+    last_key_escrow_at: Optional[str] = None,
+) -> dict[str, Any]:
+    """SEC-005 honesty: keys external vs legacy-in-SQLite for backups UI/API."""
+    data_exists = data_key_file.is_file() and data_key_file.stat().st_size > 0
+    session_exists = (
+        session_secret_file.is_file() and session_secret_file.stat().st_size > 0
+    )
+    legacy = bool(secrets.get("legacy_keys_in_sqlite"))
+    keys_external = bool(secrets.get("ok")) and not legacy
+    return {
+        "keys_external": keys_external,
+        "legacy_keys_in_sqlite": legacy,
+        "data_key_path": str(data_key_file),
+        "session_secret_path": str(session_secret_file),
+        "data_key_exists": data_exists,
+        "session_secret_exists": session_exists,
+        "data_key_source": secrets.get("data_key_source"),
+        "session_secret_source": secrets.get("session_secret_source"),
+        "last_key_escrow_at": last_key_escrow_at,
+        "hint_ru": secrets.get("hint_ru"),
+        "escrow_hint_ru": (
+            "Скачайте escrow ключей отдельно от daily DB; храните как секрет. "
+            "Site bundle = полный DR (DB+keys) — тоже только в сейфе."
+            if keys_external
+            else (
+                "Legacy: keys в SQLite — любой DB backup = полный компромисс. "
+                "Вынесите keys в /etc/bad/* (440)."
+                if legacy
+                else "Файлы ключей не найдены — проверьте /etc/bad/data_key и session_secret."
+            )
+        ),
     }
 
 

@@ -83,10 +83,15 @@ def rotate_enrollment_token(
 
     Возвращает plaintext один раз (+ куда записали). Restart не нужен:
     ``require_enrollment_token`` читает hash из SQLite.
+    После rotate ``rotation_due`` гаснет (счётчик — enrolls с новым ``rotated_at``).
     """
     token = (new_token or "").strip() or generate_token("bad_en_")
+    now = utc_now()
     db.set_site_secret("enrollment_token_hash", hash_secret(token))
-    db.set_site_secret("enrollment_token_rotated_at", utc_now())
+    db.set_site_secret("enrollment_token_rotated_at", now)
+    # Сбросить ручной ack волны, если был (не влияет на count since rotate).
+    if db.get_site_secret("enrollment_wave_ack"):
+        db.delete_site_secret("enrollment_wave_ack")
 
     wrote_file = _write_private_file(enrollment_token_file(settings), token)
     # Dev fallback рядом с БД.
@@ -103,6 +108,8 @@ def rotate_enrollment_token(
         "wrote_fallback_file": wrote_fallback,
         "updated_site_env": updated_env,
         "token_file": str(enrollment_token_file(settings)),
+        "rotation_due": False,
+        "enrolled_since_rotation": 0,
     }
 
 
@@ -132,18 +139,33 @@ def enrollment_rotation_signals(
 
     ``rotation_due`` when active devices enrolled at/after last rotation
     (or all actives if never rotated) reach ``enrollment_rotate_after_enrolls``.
+    Гаснет только после успешного rotate (новый ``rotated_at`` → счётчик 0).
     """
     status = enrollment_status(db, settings)
     rotated_at = status.get("rotated_at") or None
-    threshold = max(1, int(settings.enrollment_rotate_after_enrolls or 1))
+    threshold = max(1, int(settings.enrollment_rotate_after_enrolls or 5))
     enrolled_since = db.count_enrolled_since(rotated_at)
-    due = enrolled_since >= threshold
+    wave_ack = bool(db.get_site_secret("enrollment_wave_ack"))
+    due = enrolled_since >= threshold or wave_ack
     return {
         **status,
         "enrolled_since_rotation": enrolled_since,
+        "enroll_count_since_rotate": enrolled_since,  # alias для контракта/API
         "rotation_due": due,
+        "rotation_recommended": due,  # alias
         "threshold": threshold,
+        "wave_ack": wave_ack,
         "hint_ru": ENROLLMENT_ROTATE_HINT_RU if due else None,
         "ui_path": "/settings/updates",
         "api_path": "/v1/admin/enrollment/rotate",
+    }
+
+
+def mark_enrollment_wave_done(db: Database) -> dict[str, Any]:
+    """Оператор: «волна MSI закончена» → rotation_due до следующего rotate."""
+    db.set_site_secret("enrollment_wave_ack", utc_now())
+    return {
+        "status": "ok",
+        "wave_ack": True,
+        "acked_at": db.get_site_secret("enrollment_wave_ack"),
     }

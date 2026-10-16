@@ -45,6 +45,55 @@ def _add_file(tar: tarfile.TarFile, arcname: str, path: Path) -> Optional[dict[s
     }
 
 
+def build_key_escrow_archive(
+    *,
+    data_key_file: Path,
+    session_secret_file: Path,
+    extra_key_files: Optional[list[Path]] = None,
+) -> tuple[bytes, str]:
+    """Маленький tar.gz только key files (SEC-005 escrow, без DB)."""
+    key_paths: list[Path] = []
+    for p in (
+        data_key_file,
+        session_secret_file,
+        *(extra_key_files or []),
+    ):
+        if p and Path(p) not in key_paths:
+            key_paths.append(Path(p))
+
+    included: list[dict[str, Any]] = []
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        for path in key_paths:
+            if not path.is_file():
+                continue
+            info = _add_file(tar, f"keys/{path.name}", path)
+            if info:
+                included.append({**info, "kind": "key"})
+        if not included:
+            raise RuntimeError(
+                "Нет файлов ключей для escrow "
+                f"({data_key_file}, {session_secret_file})"
+            )
+        manifest = {
+            "format": "bad-key-escrow/v1",
+            "created_at": _utc_stamp(),
+            "product_version": __version__,
+            "files": included,
+            "notes": [
+                "Escrow only — no SQLite. Treat as secret (SEC-005).",
+                "Daily DB backup alone is not full DR when keys are external.",
+            ],
+        }
+        man_bytes = json.dumps(manifest, indent=2, ensure_ascii=False).encode("utf-8")
+        man_info = tarfile.TarInfo(name=BUNDLE_MANIFEST_NAME)
+        man_info.size = len(man_bytes)
+        tar.addfile(man_info, io.BytesIO(man_bytes))
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return buf.getvalue(), f"bad-key-escrow-{stamp}.tar.gz"
+
+
 def build_site_bundle(
     *,
     db: Database,

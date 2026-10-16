@@ -39,8 +39,8 @@ class Settings(BaseSettings):
     allow_sensitive_over_http: bool = False
     # Lab opt-out: /v1/enroll on cleartext when managed TLS is already active.
     allow_enroll_over_http: bool = False
-    # Theme A: UI reminder after N enrolls since last enrollment token rotation.
-    enrollment_rotate_after_enrolls: int = 1
+    # После волны MSI: reminder ротации, если enrolls since rotate ≥ N (default 5).
+    enrollment_rotate_after_enrolls: int = 5
     enroll_rate_limit_per_minute: int = 30
     login_rate_limit_per_minute: int = 10
     login_username_rate_limit_per_minute: int = 5

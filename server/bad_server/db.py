@@ -1529,9 +1529,10 @@ class Database:
         return {"hostname": by_host, "serial_number": by_serial}
 
     def count_enrolled_since(self, since_iso: Optional[str] = None) -> int:
-        """Active (non-archived) devices enrolled at/after ``since_iso``.
+        """Active (non-archived) devices enrolled strictly after ``since_iso``.
 
         If ``since_iso`` is empty — count all active devices (never rotated).
+        Strict ``>`` so successful rotate immediately clears ``rotation_due``.
         """
         with self.connection() as conn:
             if since_iso:
@@ -1540,7 +1541,7 @@ class Database:
                     SELECT COUNT(*) AS c FROM devices
                     WHERE COALESCE(archived, 0) = 0
                       AND enrolled_at IS NOT NULL
-                      AND enrolled_at >= ?
+                      AND enrolled_at > ?
                     """,
                     (since_iso,),
                 ).fetchone()

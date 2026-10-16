@@ -81,8 +81,18 @@
   <dl class="meta">
     <div><dt>data_key</dt><dd class="mono">{{ secrets.data_key_source }}{% if secrets.data_key_path %} · {{ secrets.data_key_path }}{% endif %}</dd></div>
     <div><dt>session_secret</dt><dd class="mono">{{ secrets.session_secret_source }}{% if secrets.session_secret_path %} · {{ secrets.session_secret_path }}{% endif %}</dd></div>
+    {% if keys and keys.last_key_escrow_at %}
+    <div><dt>Последний escrow</dt><dd class="mono">{{ keys.last_key_escrow_at }}</dd></div>
+    {% endif %}
   </dl>
   {% endif %}
+  <p class="form-actions">
+    {% if tls_mode == 'http' %}
+    <span class="btn disabled" aria-disabled="true" title="Доступно после HTTPS">Скачать только ключи (.tar.gz)</span>
+    {% else %}
+    <a href="/settings/backups/key-escrow">Скачать только ключи (.tar.gz)</a>
+    {% endif %}
+  </p>
 
   <h2>Полный архив сайта</h2>
   <p class="muted">
