@@ -82,7 +82,7 @@ def rotate_enrollment_token(
     """Сгенерировать/задать enrollment token, инвалидировать старый hash.
 
     Возвращает plaintext один раз (+ куда записали). Restart не нужен:
-    ``require_enrollment_token`` читает hash из SQLite.
+    ``require_enrollment_token`` читает hash из БД.
     После rotate ``rotation_due`` гаснет (счётчик — enrolls с новым ``rotated_at``).
     """
     token = (new_token or "").strip() or generate_token("bad_en_")
@@ -97,7 +97,7 @@ def rotate_enrollment_token(
     # Dev fallback рядом с БД.
     wrote_fallback = False
     if not wrote_file:
-        fallback = settings.db_path.parent / ".enrollment_token"
+        fallback = settings.data_dir / ".enrollment_token"
         wrote_fallback = _write_private_file(fallback, token)
 
     updated_env = _update_site_env_enrollment(token)

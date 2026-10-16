@@ -1,8 +1,10 @@
 # bAD Server
 
-Сервис на Python 3.11+ FastAPI + SQLite для blazerity Asset Discovery.
+Сервис на Python 3.11+ FastAPI + **Postgres** для blazerity Asset Discovery.
 
 ## Локальная разработка
+
+Нужен Postgres (docker/local) и `BAD_DATABASE_URL`.
 
 ```bash
 cd server
@@ -10,7 +12,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 
-export BAD_DB_PATH=./data/bad.db
+export BAD_DATABASE_URL=postgresql://bad:bad@127.0.0.1:5432/bad
 export BAD_ENROLLMENT_TOKEN=dev-enrollment-token-change-me-please-32b
 export BAD_ADMIN_TOKEN=dev-admin-token-change-me-please-32bytes
 

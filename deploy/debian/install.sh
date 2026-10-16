@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# Однострочный установщик bAD для Debian 12
+# Однострочный установщик bAD для Debian 12 (Postgres only)
 # Использование (сразу HTTPS):
 #   BAD_DOMAIN=bad.example.com BAD_TLS_CERT=/path/fullchain.pem BAD_TLS_KEY=/path/privkey.pem \
 #     sudo -E bash install.sh
 # HTTP bootstrap (сертификат позже из UI /settings/tls):
 #   BAD_DOMAIN=bad.example.com sudo -E bash install.sh
-# Lab без Postgres: BAD_USE_SQLITE=1 sudo -E bash install.sh
 # Или:
 #   curl -fsSL https://<distribution-host>/bad/install.sh | sudo bash
 set -euo pipefail
@@ -33,8 +32,8 @@ if [[ -f /etc/os-release ]]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Checkout репозитория или пакетный tarball: server/ на два уровня выше deploy/debian/.
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+SITE_ENV=/etc/bad/site.env
 
 prompt() {
   local var="$1" msg="$2"
@@ -46,7 +45,6 @@ prompt() {
 
 prompt BAD_DOMAIN "Public DNS name for this bAD server (cert SAN/CN)"
 
-# TLS optional: empty = HTTP bootstrap until UI upload at /settings/tls
 if [[ -z "${BAD_TLS_CERT:-}" && -z "${BAD_TLS_KEY:-}" ]]; then
   if [[ -t 0 ]]; then
     read -r -p "TLS fullchain path [Enter = upload later via /settings/tls]: " BAD_TLS_CERT || true
@@ -74,32 +72,13 @@ if [[ -n "${BAD_TLS_CERT:-}" || -n "${BAD_TLS_KEY:-}" ]]; then
   fi
 fi
 
-# --- DB mode ---
-# Fresh install → local Postgres. Lab: BAD_USE_SQLITE=1.
-# Существующий site.env с BAD_DB_PATH без URL — не авто-конвертить (one-shot import отдельно).
-SITE_ENV=/etc/bad/site.env
-USE_SQLITE=0
-if [[ "${BAD_USE_SQLITE:-}" == "1" ]] || [[ "${BAD_USE_SQLITE:-}" == "true" ]]; then
-  USE_SQLITE=1
-fi
-if [[ -f "${SITE_ENV}" ]] && grep -q '^BAD_DB_PATH=' "${SITE_ENV}" \
-  && ! grep -q '^BAD_DATABASE_URL=' "${SITE_ENV}"; then
-  USE_SQLITE=1
-  echo "info: existing SQLite site.env — keep SQLite (no auto-convert)" >&2
-fi
-if [[ -n "${BAD_DATABASE_URL:-}" ]]; then
-  USE_SQLITE=0
-fi
-
 # ========== [1/6] Пакеты ==========
 step 1 "Пакеты"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-PKGS=(python3 python3-venv python3-pip nginx sqlite3 ufw openssl ca-certificates curl acl)
-if [[ "${USE_SQLITE}" -eq 0 ]]; then
-  PKGS+=(postgresql postgresql-client)
-fi
-apt-get install -y "${PKGS[@]}"
+apt-get install -y \
+  python3 python3-venv python3-pip nginx ufw openssl ca-certificates curl acl \
+  postgresql postgresql-client
 
 # ========== [2/6] Пользователь / каталоги / venv ==========
 step 2 "Пользователь / каталоги / venv"
@@ -151,19 +130,14 @@ if [[ ! -f /etc/bad/session_secret ]]; then
   chmod 440 /etc/bad/session_secret
 fi
 
-# ========== [3/6] БД ==========
-step 3 "БД (SQLite path или Postgres role/db + schema)"
-DB_LINE=""
-DB_SUMMARY=""
+# ========== [3/6] БД (Postgres) ==========
+step 3 "БД (Postgres role/db + schema)"
+systemctl enable --now postgresql
 
-if [[ "${USE_SQLITE}" -eq 1 ]]; then
-  DB_LINE="BAD_DB_PATH=/var/lib/bad/bad.db"
-  DB_SUMMARY="/var/lib/bad/bad.db (SQLite)"
-  echo "  mode: SQLite (BAD_USE_SQLITE=1)"
+if [[ -n "${BAD_DATABASE_URL:-}" ]]; then
+  echo "  using existing BAD_DATABASE_URL from environment"
 else
-  systemctl enable --now postgresql
   PG_PASS="$(openssl rand -base64 32 | tr -d '/+=' | head -c 32)"
-  # Role + DB (idempotent-ish)
   if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='bad'" | grep -q 1; then
     sudo -u postgres psql -v ON_ERROR_STOP=1 -c "CREATE USER bad WITH PASSWORD '${PG_PASS}';"
   else
@@ -172,7 +146,7 @@ else
   if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='bad'" | grep -q 1; then
     sudo -u postgres psql -v ON_ERROR_STOP=1 -c "CREATE DATABASE bad OWNER bad;"
   fi
-  # Localhost only — не открывать PG наружу (listen + hba)
+  # Localhost only — listen + hba
   sudo -u postgres psql -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET listen_addresses TO 'localhost';"
   PG_HBA="$(sudo -u postgres psql -tAc 'SHOW hba_file' | tr -d '[:space:]')"
   if [[ -n "${PG_HBA}" && -f "${PG_HBA}" ]]; then
@@ -181,24 +155,22 @@ else
       echo "host bad bad ::1/128 scram-sha-256" >> "${PG_HBA}"
     fi
   fi
-  # listen_addresses требует restart (reload недостаточно)
   systemctl restart postgresql
   BAD_DATABASE_URL="postgresql://bad:${PG_PASS}@127.0.0.1:5432/bad"
   export BAD_DATABASE_URL
-  DB_LINE="BAD_DATABASE_URL=${BAD_DATABASE_URL}"
-  DB_SUMMARY="Postgres local (BAD_DATABASE_URL, localhost only)"
-  echo "  mode: Postgres local → schema via API start"
-  # Init schema early (fail fast)
-  BAD_DATABASE_URL="${BAD_DATABASE_URL}" /opt/bad/.venv/bin/python -c \
-    'from bad_server.db import open_database; open_database(database_url=__import__("os").environ["BAD_DATABASE_URL"]); print("  schema: ok")'
 fi
+
+DB_SUMMARY="Postgres (BAD_DATABASE_URL, localhost)"
+echo "  mode: Postgres → schema"
+BAD_DATABASE_URL="${BAD_DATABASE_URL}" /opt/bad/.venv/bin/python -c \
+  'from bad_server.db import open_database; open_database(database_url=__import__("os").environ["BAD_DATABASE_URL"]); print("  schema: ok")'
 
 if [[ ! -f "${SITE_ENV}" ]]; then
   ENROLLMENT_TOKEN="bad_en_$(openssl rand -base64 48 | tr -d '/+=' | head -c 48)"
   ADMIN_TOKEN="bad_ad_$(openssl rand -base64 48 | tr -d '/+=' | head -c 48)"
   umask 077
   cat > "${SITE_ENV}" <<EOF
-${DB_LINE}
+BAD_DATABASE_URL=${BAD_DATABASE_URL}
 BAD_DOMAIN=${BAD_DOMAIN}
 BAD_ENROLLMENT_TOKEN=${ENROLLMENT_TOKEN}
 BAD_ADMIN_TOKEN=${ADMIN_TOKEN}
@@ -231,13 +203,20 @@ else
   else
     printf '\nBAD_COOKIE_SECURE=%s\n' "${COOKIE_SECURE}" >> "${SITE_ENV}"
   fi
-  # Не авто-конвертить существующий SQLite-сайт: только дописать URL если уже был PG-режим fresh.
-  if [[ "${USE_SQLITE}" -eq 0 ]] && ! grep -q '^BAD_DATABASE_URL=' "${SITE_ENV}" 2>/dev/null; then
-    if [[ -n "${BAD_DATABASE_URL:-}" ]]; then
-      printf '\nBAD_DATABASE_URL=%s\n' "${BAD_DATABASE_URL}" >> "${SITE_ENV}"
-      chown root:bad "${SITE_ENV}"
-      chmod 640 "${SITE_ENV}"
+  if ! grep -q '^BAD_DATABASE_URL=' "${SITE_ENV}" 2>/dev/null; then
+    if [[ -z "${BAD_DATABASE_URL:-}" ]]; then
+      echo "error: site.env без BAD_DATABASE_URL — задайте URL (Postgres only)" >&2
+      exit 1
     fi
+    printf '\nBAD_DATABASE_URL=%s\n' "${BAD_DATABASE_URL}" >> "${SITE_ENV}"
+    chown root:bad "${SITE_ENV}"
+    chmod 640 "${SITE_ENV}"
+  fi
+  # Убрать устаревший BAD_DB_PATH если остался рядом с URL
+  if grep -q '^BAD_DB_PATH=' "${SITE_ENV}" 2>/dev/null && grep -q '^BAD_DATABASE_URL=' "${SITE_ENV}"; then
+    sed -i '/^BAD_DB_PATH=/d' "${SITE_ENV}"
+    chown root:bad "${SITE_ENV}"
+    chmod 640 "${SITE_ENV}"
   fi
 fi
 
@@ -262,7 +241,6 @@ if command -v ufw >/dev/null 2>&1; then
   ufw allow 22/tcp || true
   ufw allow 80/tcp || true
   ufw allow 443/tcp || true
-  # Postgres не наружу
   if ufw status | grep -qi inactive; then
     echo "warning: enabling ufw with allow 22,80,443 — ensure SSH access is correct" >&2
     ufw --force enable || true
