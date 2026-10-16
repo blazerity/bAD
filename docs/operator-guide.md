@@ -2,16 +2,44 @@
 
 Путь end-to-end: установить сервер → поставить Windows MSI агента → увидеть устройство в web UI.
 
+### Стабильность боя (обязательно)
+
+| # | Правило | Детали |
+|---|---------|--------|
+| 1 | **Cert из панели — канон** | Install **без** `BAD_TLS_CERT`/`BAD_TLS_KEY` → HTTP bootstrap → загрузка PEM в **Параметры → Сертификат**. Cert при install — только shortcut, не обязанность. |
+| 2 | **Daily backup БД ≠ ключи** | `bad-YYYY-MM-DD.db` **не** содержит `/etc/bad/data_key` и `session_secret`. Для DR — site bundle или отдельный escrow ключей. |
+| 3 | **После волны MSI — ротация enrollment** | Сменить site token **обязательно** ([runbook](#ротация-enrollment-token-после-волны-msi)); обновить Intune/GPO; не шарить msiexec-логи. |
+
+Postgres в бою **не** требуется (оценка отдельно; продукт на SQLite + файлы ключей).
+
 ## 1. Сервер (Debian 12)
 
-Два пути (**1.0.1**): сразу с TLS-файлами при install **или** bootstrap по HTTP и загрузка cert из панели.
+**Канон (panel-first, 1.0.x):** install без TLS-файлов → cert загружается в UI. `BAD_TLS_*` при install — опция «сразу HTTPS», не требование.
 
-### Install сразу с TLS
+### Install без cert → загрузка в панели (канон)
 
-Подготовьте сертификат и ключ, у которых CN/SAN совпадает с публичным DNS (`BAD_DOMAIN`).
+`BAD_TLS_CERT` / `BAD_TLS_KEY` **не обязательны**. Без них nginx — HTTP-only (:80), без HSTS и без 301 на HTTPS, пока не появится managed cert. Enter на prompt install = «позже из UI».
 
 ```bash
-# Из release-тарбола или git checkout с deploy/debian + server/
+BAD_DOMAIN=bad.example.com \
+  sudo -E bash deploy/debian/install.sh
+# → UI: http://bad.example.com/  (пока нет сертификата)
+```
+
+Порядок (детали — [чеклист](#чеклист-окна-http-bootstrap)):
+
+1. Откройте **`http://bad.example.com/login`** **только** из доверенного контура (LAN / VPN / `ssh -L`).
+2. Войдите `admin` / `admin`, **сразу смените пароль**.
+3. Загрузите cert+key: [§ Сертификат из панели](#сертификат-tls-из-панели) → «Установить и перезагрузить nginx».
+4. Откройте **`https://…`**, **войдите заново**.
+5. Только потом — enrollment / волна MSI (`https://…` в `SERVERURL`).
+6. После волны — [ротация enrollment](#ротация-enrollment-token-после-волны-msi) (**обязательно**).
+
+### Install сразу с TLS (shortcut)
+
+Если cert уже на диске и так удобнее — можно передать пути (CN/SAN = `BAD_DOMAIN`). Это **не** отменяет panel-first как основной путь.
+
+```bash
 BAD_DOMAIN=bad.example.com \
 BAD_TLS_CERT=/etc/ssl/certs/bad.fullchain.pem \
 BAD_TLS_KEY=/etc/ssl/private/bad.privkey.pem \
@@ -20,39 +48,19 @@ BAD_TLS_KEY=/etc/ssl/private/bad.privkey.pem \
 
 Скрипт один раз печатает URL (`https://…`), enrollment token и admin API token. Дальше — [вход](#вход-в-web-локальный) по HTTPS.
 
-### Install без cert (HTTP bootstrap → upload в UI)
-
-Без cert `BAD_TLS_CERT` / `BAD_TLS_KEY` **опциональны**. Без них nginx поднимается в HTTP-only (:80), без HSTS и без 301 на HTTPS, пока не появится managed cert.
-
-```bash
-BAD_DOMAIN=bad.example.com \
-  sudo -E bash deploy/debian/install.sh
-# → UI: http://bad.example.com/  (пока нет сертификата)
-```
-
-Краткий порядок (детали — [чеклист окна HTTP bootstrap](#чеклист-окна-http-bootstrap)):
-
-1. Откройте **`http://bad.example.com/login`** (не https) **только** из доверенного контура.
-2. Войдите `admin` / `admin`, **сразу смените пароль**.
-3. Загрузите cert+key: [§ Сертификат из панели](#сертификат-tls-из-панели).
-4. После успешного apply — **`https://…`**, **обязательный повторный вход** (non-Secure cookies на HTTPS не уходят).
-5. **Агентов (MSI) ставьте только после HTTPS** — bootstrap HTTP для агентов не предназначен (`BAD_ALLOW_HTTP` — только lab).
-
 #### Чеклист окна HTTP bootstrap
 
-Временный режим UI до managed cert. **Risk rating: Medium** при соблюдении runbook (доверенная сеть + короткое окно); на публичном `:80` до cert — **High**.
+Временный UI до managed cert — **нормальный** боевой путь, не «обход». **Risk: Medium** на доверенной сети + короткое окно; **High** если `:80` публично до apply.
 
 | # | Действие | Статус |
 |---|----------|--------|
-| 1 | Доступ к `:80` **только** из доверенного контура (LAN / VPN / `ssh -L`). **Не** публиковать панель в интернет до cert. | ☐ |
+| 1 | Доступ к `:80` **только** из доверенного контура. **Не** публиковать панель в интернет до cert. | ☐ |
 | 2 | Войти `admin` / `admin` → **сразу** сменить пароль (`/account/password`). | ☐ |
 | 3 | Загрузить cert+key на **Параметры → Сертификат** → «Установить и перезагрузить nginx». | ☐ |
-| 4 | Открыть **`https://…`**, **войти заново** (старые non-Secure cookies на HTTPS не уходят). | ☐ |
-| 5 | **Не** ставить MSI / агентов, пока режим «HTTP bootstrap». Только после «HTTPS активен». | ☐ |
-| 6 | **Не** по HTTP: скачивание site-bundle, сохранение LDAP/SMTP с боевыми паролями, ротация enrollment «впрок», массовый enroll. | ☐ |
-| 7 | Если cert уже есть на диске — install сразу с `BAD_TLS_CERT`/`BAD_TLS_KEY`, без HTTP-окна. | ☐ |
-
-После волны MSI — [ротация enrollment](#ротация-enrollment-token-после-волны-msi) (SEC-011).
+| 4 | Открыть **`https://…`**, **войти заново**. | ☐ |
+| 5 | **Не** ставить MSI / агентов, пока режим «HTTP bootstrap». | ☐ |
+| 6 | **Не** по HTTP: site-bundle, LDAP/SMTP с боевыми паролями, ротация enrollment «впрок», массовый enroll. | ☐ |
+| 7 | После волны MSI — [ротация enrollment](#ротация-enrollment-token-после-волны-msi). | ☐ |
 
 Проверка health:
 
@@ -150,26 +158,22 @@ msiexec /i bad-agent-1.0.1.msi `
 
 ### Ротация enrollment token (после волны MSI)
 
-**Зачем.** Site enrollment token — общий секрет для первой регистрации агентов. Он может остаться в логах `msiexec`, transcript’ах деплоя или истории команд. Пока токен жив, им можно enroll’ить (и при известных рисках пытаться злоупотреблять enroll). Ротация инвалидирует **старый** токен для новых установок.
+**Обязательно** после массовой установки MSI (и если token мог утечь: логи в тикет, скрипт деплоя в общем репо). Пока site token жив, им можно enroll’ить новых агентов; residual `msiexec … ENROLLMENTTOKEN=` / verbose-логи ротацией **прошлого** не стираются — она закрывает **дальнейший** enroll старым token.
 
-**Когда.** Сразу после волны массовой установки MSI (или если токен мог утечь: логи ушли в тикет, скрипт деплоя в общем репо, и т.п.). Уже зарегистрированные устройства **не** нужно переустанавливать: у них в ProgramData лежит API key, enrollment token им больше не нужен.
+Уже зарегистрированные устройства **не** переустанавливать: у них API key в ProgramData. Ротацию и показ нового token делайте **по HTTPS** (после cert из панели).
 
 **Шаги (UI):**
 
 1. Войдите как локальный **admin** (или LDAP admin).
-2. Откройте **Параметры → Обновления агента** (`/settings/updates`) — внизу секция **Enrollment token** (plaintext текущего token не показывается; видны «Hash в БД» / путь файла).
-3. При желании введите свой токен в поле «Свой токен» (пусто = сервер сгенерирует).
-4. Нажмите **Сменить enrollment token**, подтвердите диалог («Старый перестанет работать»).
-5. На той же странице появится блок **«Новый enrollment token (показать один раз)»** — скопируйте в сейф. Restart `bad-api` **не** нужен (hash в SQLite сразу). Повторно plaintext не откроется.
-6. Обновите артефакты деплоя: в следующих `msiexec` / GPO / Intune — новый `ENROLLMENTTOKEN=…`.
+2. Откройте **Параметры → Обновления агента** (`/settings/updates`) — секция **Enrollment token** (текущий plaintext не показывается).
+3. При желании — «Свой токен» (пусто = сервер сгенерирует).
+4. **Сменить enrollment token**, подтвердите («Старый перестанет работать»).
+5. Скопируйте **новый** token (показать один раз) в сейф. Restart `bad-api` не нужен.
+6. Обновите Intune / GPO / следующие `msiexec` на новый `ENROLLMENTTOKEN=…`. Не шарьте `/l*v` и transcript’ы деплоя.
 
-Автоматизация: `POST /v1/admin/enrollment/rotate` (admin Bearer) — тот же эффект; plaintext нового token в ответе один раз. Endpoint формы: `POST /settings/enrollment/rotate` (CSRF).
+Автоматизация: `POST /v1/admin/enrollment/rotate` (admin Bearer) — plaintext один раз. Форма: `POST /settings/enrollment/rotate` (CSRF).
 
-**Что со старым токеном.** После ротации `POST /v1/enroll` со старым Bearer → отказ (401). Уже enroll’енные агенты продолжают heartbeat/inventory по своему API key. Revoke/rotate **API key** устройства — отдельная операция на карточке устройства, не путать с ротацией site enrollment.
-
-**Новые установки.** Только с новым token. Если машина ещё не успела enroll’иться со старым — поставьте MSI заново с новым `ENROLLMENTTOKEN`.
-
-**Fallback без UI (аварийно):** сгенерировать новый секрет → `/etc/bad/site.env` / файл токена + предпочтительно hash в БД; UI-ротация предпочтительнее.
+**После ротации:** старый Bearer → 401 на `/v1/enroll`; агенты с api_key продолжают работу. Revoke/rotate **API key** устройства — отдельная операция. Машина, не успевшая enroll со старым token, — MSI заново с новым `ENROLLMENTTOKEN`.
 
 ## 3. Проверка в web UI
 
@@ -180,7 +184,7 @@ msiexec /i bad-agent-1.0.1.msi `
 
 Теги: правка на странице устройства (через запятую). Фильтр списка устройств по тегу. Политики тоже могут матчить `tag equals/contains`.
 
-Master-ключи (`/etc/bad/data_key`, `/etc/bad/session_secret`) не входят в daily SQLite backup — храните escrow отдельно (в **site bundle** они уже есть). Порог stale по умолчанию 1 час (`BAD_DEVICE_STALE_AFTER_SECONDS`); поставьте ≈2× heartbeat, если удобнее (напр. `1800` при heartbeat 15 мин). Версия продукта **1.0.1**.
+Daily DB backup **не** содержит master-ключи — см. [§ backup](#5-site-backup--restore). Порог stale по умолчанию 1 час (`BAD_DEVICE_STALE_AFTER_SECONDS`); ≈2× heartbeat при необходимости. Версия продукта **1.0.1**.
 
 Альтернатива (автоматизация — admin API token):
 
@@ -215,17 +219,34 @@ GitHub: **«Синхронизировать сейчас»** (`POST /settings/u
 
 ## 5. Site backup / restore
 
-Daily SQLite (`/var/lib/bad/backups/bad-YYYY-MM-DD.db`) **остаётся**. Отдельно — **Site bundle**.
+Три разных артефакта (не путать):
 
-**Скачать:** **Параметры → Резервные копии** → ссылка **«Скачать site bundle (.tar.gz)»** (`GET /settings/backups/site-bundle`). В архиве: DB + keys + meta зеркала; MSI по умолчанию не тащатся (объём). Секреты только в файле, не в HTML. Храните tar в сейфе.
+| Артефакт | Что внутри | Роль |
+|----------|------------|------|
+| **Daily DB** (`/var/lib/bad/backups/bad-YYYY-MM-DD.db`) | только SQLite | inventory/метаданные; **не** полный DR, если keys в `/etc/bad/*` |
+| **Key escrow** | `/etc/bad/data_key` + `session_secret` | отдельно от DB; права как секреты (`440` root:bad) |
+| **Site bundle** (`.tar.gz`) | DB + keys + meta зеркала | полный DR; MSI по умолчанию нет; хранить в сейфе |
 
-**Restore (drill):**
+**Скачать bundle:** **Параметры → Резервные копии** → **«Скачать site bundle»** (`GET /settings/backups/site-bundle`) — **только по HTTPS**. Секреты в файле, не в HTML.
+
+**Escrow ключей (ops), без DB:**
+
+```bash
+# пример: только ключи, каталог 700
+sudo install -d -m 700 /root/bad-key-escrow
+sudo tar -C /etc/bad -czf /root/bad-key-escrow/bad-keys-$(date -u +%Y%m%d).tar.gz data_key session_secret
+sudo chmod 600 /root/bad-key-escrow/*
+```
+
+Не копируйте key files молча рядом с `bad-*.db` без пометки «секреты». Не кладите plaintext keys обратно в SQLite «для удобства бэкапа».
+
+**Restore (drill) — канон через bundle:**
 
 ```bash
 sudo bash deploy/debian/restore-site-bundle.sh /path/to/bad-site-bundle-….tar.gz
 ```
 
-Скрипт (root): останавливает `bad-api`, перезаписывает `/var/lib/bad/bad.db` и ключи в `/etc/bad`, поднимает сервис. Перед боем — пробный прогон на копии. После: `curl -fsS https://…/v1/health`, login, `/settings/updates` (доложить MSI upload’ом, если бинарников не было в bundle).
+Скрипт (root): stop `bad-api`, перезаписывает `/var/lib/bad/bad.db` и ключи в `/etc/bad`, start. Перед боем — пробный прогон. После: `curl -fsS https://…/v1/health`, login, при необходимости доложить MSI в `/settings/updates`.
 
 ## 6. Ops-блок на Обзоре
 
@@ -250,41 +271,27 @@ Admin token печатается при install и лежит в `/etc/bad/site.
 
 Краткий чеклист (детали — [guideline.md](guideline.md), [architecture.md](architecture.md)).
 
-### БД и бэкапы = секреты сайта (SEC-005)
+### БД и бэкапы (SEC-005): DB ≠ ключи
 
-**Fresh install:** `deploy/debian/install.sh` кладёт master keys **вне SQLite**:
+**Fresh install:** keys **вне** SQLite — `/etc/bad/data_key` + `/etc/bad/session_secret` (`440` root:bad); пути в `site.env` (`BAD_DATA_KEY_FILE` / `BAD_SESSION_SECRET_FILE`).
 
-| Файл | Назначение | Права |
-|------|------------|--------|
-| `/etc/bad/data_key` | Fernet (SMTP/LDAP bind) | `440` `root:bad` |
-| `/etc/bad/session_secret` | подпись cookie `bad_session` | `440` `root:bad` |
+| Что | Полный restore? |
+|-----|-----------------|
+| Daily `bad-YYYY-MM-DD.db` | **Нет** — без файлов ключей не восстановить шифрование SMTP/LDAP и сессии |
+| Key escrow (`data_key` + `session_secret`) | Нужен вместе с DB (или используйте bundle) |
+| Site bundle | **Да** — DB+keys (+ meta); единая точка утечки → хранить как секрет |
 
-В `site.env`: `BAD_DATA_KEY_FILE` / `BAD_SESSION_SECRET_FILE` (сервис `prefer_external_secrets`). Daily backup БД **не** содержит эти ключи.
+**Legacy:** если ключи ещё в `site_secrets` SQLite — любая копия `bad.db` = полный компромисс. Не смягчать.
 
-**Residual (legacy / lab / старые инстансы):** если ключи остались в `site_secrets` SQLite — копия `bad.db` или daily backup = полный компромисс SMTP/LDAP и session cookies.
-
-**Права на БД и бэкапы (минимум):**
-
-```bash
-chown bad:bad /var/lib/bad/bad.db /var/lib/bad/bad.db-* 2>/dev/null || true
-chmod 600 /var/lib/bad/bad.db
-chown -R bad:bad /var/lib/bad/backups
-chmod 700 /var/lib/bad/backups
-chmod 600 /var/lib/bad/backups/bad-*.db
-
-chown root:bad /etc/bad/data_key /etc/bad/session_secret
-chmod 440 /etc/bad/data_key /etc/bad/session_secret
-```
-
-Не кладите бэкапы БД в общие шары/тикеты. Не коммитьте `/etc/bad/data_key` / `session_secret` и не кладите их в тот же tar, что и `bad.db`.
+Права: БД/`backups` — `600`/`700` owner `bad`; keys — `440` `root:bad`. Не шарить DB-бэкапы и не коммитить `/etc/bad/*`.
 
 ### Cookie и TLS
 
-До managed cert (HTTP bootstrap) UI и CSRF работают по HTTP (`BAD_COOKIE_SECURE=auto` + `X-Forwarded-Proto: http`). После upload+reload — только HTTPS через nginx (HSTS, redirect 80→443), cookie `Secure` без ожидания restart API. Site-bundle и сохранение LDAP/SMTP пароля по HTTP — 403 (lab: `BAD_ALLOW_SENSITIVE_OVER_HTTP=1`). При активном managed TLS cleartext `/v1/enroll` — 403 (lab: `BAD_ALLOW_ENROLL_OVER_HTTP=1`). Не открывайте uvicorn наружу. Агентов на HTTP bootstrap не направляйте.
+Panel-first: до cert UI на HTTP (`BAD_COOKIE_SECURE=auto`). После apply — HTTPS, HSTS, cookie `Secure`. Site-bundle / LDAP/SMTP password / enrollment rotate — **по HTTPS** (на HTTP bootstrap — 403; lab-флаги в guideline). Агентов на HTTP не направлять.
 
 ### Enrollment token (SEC-011)
 
-Не шарьте msiexec-логи / transcript’ы. После волны MSI — [ротация enrollment token](#ротация-enrollment-token-после-волны-msi) (UI).
+После волны MSI ротация **обязательна**. Не шарьте msiexec-логи / transcript’ы. Residual cmdline родителя ротацией не исчезает — см. [runbook](#ротация-enrollment-token-после-волны-msi).
 
 ## Заметки
 
