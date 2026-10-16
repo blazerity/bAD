@@ -5,8 +5,7 @@
 <section class="settings">
   <h1>Почта и уведомления</h1>
   <p class="muted">
-    SMTP для писем администраторам. Webhook нет.
-    Ошибки SMTP не ломают enroll/inventory.
+    Письма администраторам о важных событиях. Сбой почты не мешает работе агентов.
   </p>
   {% if message %}<p class="ok">{{ message }}</p>{% endif %}
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
@@ -14,8 +13,8 @@
 
   {% if tls_mode == 'http' %}
   <div class="warn-box" role="status">
-    HTTP bootstrap: не сохраняйте пароль SMTP по cleartext.
-    Сначала <a href="/settings/tls">загрузите сертификат</a>, затем настройте почту по HTTPS.
+    Пока сайт без HTTPS — не сохраняйте пароль почты.
+    Сначала <a href="/settings/tls">загрузите сертификат</a>.
   </div>
   {% endif %}
 
@@ -26,8 +25,8 @@
       Включить отправку писем
     </label>
 
-    <h2>SMTP</h2>
-    <label for="host">SMTP-хост</label>
+    <h2>Сервер исходящей почты</h2>
+    <label for="host">Хост</label>
     <input id="host" name="host" type="text" value="{{ smtp.host }}" placeholder="smtp.example.com" autocomplete="off" {% if tls_mode == 'http' %}disabled{% endif %}>
 
     <label for="port">Порт</label>
@@ -35,7 +34,7 @@
 
     <label class="check">
       <input type="checkbox" name="use_ssl" value="1" {% if smtp.use_ssl %}checked{% endif %} {% if tls_mode == 'http' %}disabled{% endif %}>
-      SSL (SMTPS, обычно порт 465)
+      SSL (обычно порт 465)
     </label>
     <label class="check">
       <input type="checkbox" name="use_starttls" value="1" {% if smtp.use_starttls %}checked{% endif %} {% if tls_mode == 'http' %}disabled{% endif %}>

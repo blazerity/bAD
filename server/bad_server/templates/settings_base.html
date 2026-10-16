@@ -4,57 +4,49 @@
 <div class="settings-shell">
   <aside class="settings-nav" aria-label="Разделы параметров">
     <h1 class="settings-nav-title with-icon">{{ icon('settings') }}Параметры</h1>
-    <p class="muted settings-nav-hint">Как в Windows 11: выберите раздел слева.</p>
     <nav class="settings-nav-list">
+      {% if user is defined and user and user.must_change_password %}
+      {# SEC-004: только смена пароля, остальные разделы скрыты #}
+      <a class="settings-nav-item active" href="/account/password">
+        <span class="settings-nav-icon">{{ icon('password') }}</span>
+        <span class="settings-nav-label">Смена пароля</span>
+      </a>
+      {% else %}
       <a class="settings-nav-item {% if settings_section == 'ldap' %}active{% endif %}" href="/settings/ldap">
         <span class="settings-nav-icon">{{ icon('ldap') }}</span>
-        <span>
-          <span class="settings-nav-label">Доступ / LDAP</span>
-          <span class="settings-nav-desc">Каталог и группа AD</span>
-        </span>
+        <span class="settings-nav-label">Доступ / LDAP</span>
       </a>
       <a class="settings-nav-item {% if settings_section == 'tls' %}active{% endif %}" href="/settings/tls">
         <span class="settings-nav-icon">{{ icon('tls') }}</span>
-        <span>
-          <span class="settings-nav-label">Сертификат</span>
-          <span class="settings-nav-desc">TLS для nginx</span>
-        </span>
+        <span class="settings-nav-label">Сертификат</span>
       </a>
       <a class="settings-nav-item {% if settings_section == 'mail' %}active{% endif %}" href="/settings/mail">
         <span class="settings-nav-icon">{{ icon('mail') }}</span>
-        <span>
-          <span class="settings-nav-label">Почта и уведомления</span>
-          <span class="settings-nav-desc">SMTP и события</span>
-        </span>
+        <span class="settings-nav-label">Почта и уведомления</span>
       </a>
       <a class="settings-nav-item {% if settings_section == 'retention' %}active{% endif %}" href="/settings/retention">
         <span class="settings-nav-icon">{{ icon('retention') }}</span>
-        <span>
-          <span class="settings-nav-label">Хранение и очистка</span>
-          <span class="settings-nav-desc">Сроки событий и снимков</span>
-        </span>
+        <span class="settings-nav-label">Хранение и очистка</span>
       </a>
       <a class="settings-nav-item {% if settings_section == 'backups' %}active{% endif %}" href="/settings/backups">
         <span class="settings-nav-icon">{{ icon('backup') }}</span>
-        <span>
-          <span class="settings-nav-label">Резервные копии</span>
-          <span class="settings-nav-desc">Снимок SQLite и site bundle</span>
-        </span>
+        <span class="settings-nav-label">Резервные копии</span>
       </a>
       <a class="settings-nav-item {% if settings_section == 'policies' %}active{% endif %}" href="/settings/policies">
         <span class="settings-nav-icon">{{ icon('policies') }}</span>
-        <span>
-          <span class="settings-nav-label">Политики агента</span>
-          <span class="settings-nav-desc">Remote config</span>
-        </span>
+        <span class="settings-nav-label">Политики агента</span>
       </a>
       <a class="settings-nav-item {% if settings_section == 'updates' %}active{% endif %}" href="/settings/updates">
         <span class="settings-nav-icon">{{ icon('updates') }}</span>
-        <span>
-          <span class="settings-nav-label">Обновления агента</span>
-          <span class="settings-nav-desc">Зеркало MSI</span>
-        </span>
+        <span class="settings-nav-label">Обновления агента</span>
       </a>
+      {% if user is defined and user and user.source == 'local' %}
+      <a class="settings-nav-item {% if settings_section == 'password' %}active{% endif %}" href="/account/password">
+        <span class="settings-nav-icon">{{ icon('password') }}</span>
+        <span class="settings-nav-label">Смена пароля</span>
+      </a>
+      {% endif %}
+      {% endif %}
     </nav>
   </aside>
   <div class="settings-pane">

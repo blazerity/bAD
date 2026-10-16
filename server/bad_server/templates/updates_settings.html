@@ -5,18 +5,17 @@
 <section class="settings">
   <h1>Обновления агента</h1>
   <p class="muted">
-    Сервер хранит каталог MSI (GitHub sync и ручная заливка для air-gap).
-    Агенты качают только с этого сервера. Цель версии — knob
-    <span class="mono">update_target</span> в политиках.
+    Каталог установщиков агента на этом сервере. Агенты обновляются только отсюда;
+    целевую версию задают политики.
   </p>
   {% if message %}<p class="ok">{{ message }}</p>{% endif %}
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
 
   {% if new_enrollment_token %}
   <div class="warn-box">
-    <strong>Новый enrollment token</strong> (показать один раз):
+    <strong>Новый токен подключения</strong> (показать один раз):
     <p class="mono">{{ new_enrollment_token }}</p>
-    <p class="muted">Старый hash инвалидирован. Restart не требуется. Обновите MSI/деплой.</p>
+    <p class="muted">Старый больше не действует. Перезапуск сервера не нужен — обновите установщики.</p>
   </div>
   {% endif %}
 
@@ -68,19 +67,19 @@
   </table>
   </div>
   {% else %}
-  <p class="muted">Каталог пуст. Сделайте sync или загрузите MSI вручную.</p>
+  <p class="muted">Каталог пуст. Синхронизируйте с GitHub или загрузите установщик вручную.</p>
   {% endif %}
 
-  <h2>Синхронизация GitHub</h2>
+  <h2>Синхронизация с GitHub</h2>
   <form method="post" action="/settings/updates/sync" class="form-actions">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button type="submit">Синхронизировать сейчас</button>
   </form>
 
-  <h2>Загрузить MSI (air-gap)</h2>
+  <h2>Загрузить установщик вручную</h2>
   <p class="muted">
-    Файл <span class="mono">bad-agent-X.Y.Z.msi</span> и при желании
-    <span class="mono">agent-release.json</span>. SHA256 можно не указывать — посчитаем.
+    Файл <span class="mono">bad-agent-X.Y.Z.msi</span> и при желании манифест.
+    Контрольную сумму можно не указывать — посчитаем сами.
   </p>
   <form method="post" action="/settings/updates/upload" enctype="multipart/form-data" class="settings-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -101,22 +100,22 @@
     </div>
   </form>
 
-  <h2>Enrollment token</h2>
+  <h2>Токен подключения агентов</h2>
   <p class="muted">
-    Ротация из UI: новый hash в SQLite сразу; restart не нужен.
-    {% if enrollment.rotated_at %}Последняя ротация: <span class="mono">{{ enrollment.rotated_at }}</span>.{% endif %}
+    После волны установки смените токен: новый действует сразу, перезапуск не нужен.
+    {% if enrollment.rotated_at %}Последняя смена: <span class="mono">{{ enrollment.rotated_at }}</span>.{% endif %}
   </p>
   <dl class="meta">
-    <div><dt>Hash в БД</dt><dd>{% if enrollment.has_hash %}есть{% else %}нет{% endif %}</dd></div>
+    <div><dt>Токен в базе</dt><dd>{% if enrollment.has_hash %}есть{% else %}нет{% endif %}</dd></div>
     <div><dt>Файл токена</dt><dd class="mono">{{ enrollment.token_file }}</dd></div>
   </dl>
   <form method="post" action="/settings/enrollment/rotate" class="settings-form"
-    onsubmit="return confirm('Сгенерировать новый enrollment token? Старый перестанет работать.');">
+    onsubmit="return confirm('Сгенерировать новый токен подключения? Старый перестанет работать.');">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label for="custom_token">Свой токен (пусто = сгенерировать)</label>
     <input id="custom_token" name="custom_token" type="text" autocomplete="off" placeholder="bad_en_…">
     <div class="form-actions">
-      <button type="submit">Сменить enrollment token</button>
+      <button type="submit">Сменить токен подключения</button>
     </div>
   </form>
 </section>

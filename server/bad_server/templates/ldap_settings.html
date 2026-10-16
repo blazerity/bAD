@@ -4,15 +4,15 @@
 {% block settings_content %}
 <section class="settings">
   <h1>Доступ / LDAP</h1>
-  <p class="muted">Необязательный вход через каталог. Локальные учётные записи всегда работают (break-glass). Пароль bind хранится зашифрованным.</p>
+  <p class="muted">Вход через каталог организации (по желанию). Локальный admin всегда остаётся запасным входом.</p>
   {% if message %}<p class="ok">{{ message }}</p>{% endif %}
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
   {% if test_result %}<p class="{% if test_result.startswith('ОК') or test_result.startswith('OK') %}ok{% else %}error{% endif %}">{{ test_result }}</p>{% endif %}
 
   {% if tls_mode == 'http' %}
   <div class="warn-box" role="status">
-    HTTP bootstrap: не сохраняйте боевой пароль bind по cleartext.
-    Сначала <a href="/settings/tls">загрузите сертификат</a>, затем настройте LDAP по HTTPS.
+    Пока сайт без HTTPS — не сохраняйте боевой пароль каталога.
+    Сначала <a href="/settings/tls">загрузите сертификат</a>.
   </div>
   {% endif %}
 
@@ -46,7 +46,7 @@
     <label for="bind_dn">Bind DN</label>
     <input id="bind_dn" name="bind_dn" type="text" value="{{ ldap.bind_dn }}" placeholder="cn=svc-bad,ou=services,dc=example,dc=com" autocomplete="off" {% if tls_mode == 'http' %}disabled{% endif %}>
 
-    <label for="bind_password">Пароль bind</label>
+    <label for="bind_password">Пароль учётной записи каталога</label>
     <input id="bind_password" name="bind_password" type="password" value=""
       placeholder="{% if has_bind_password %}без изменений{% else %}{% endif %}"
       autocomplete="new-password"

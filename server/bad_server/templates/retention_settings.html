@@ -5,8 +5,7 @@
 <section class="settings">
   <h1>Хранение и очистка</h1>
   <p class="muted">
-    Фоновая задача раз в час удаляет просроченные строки.
-    Последний inventory-снимок каждого устройства сохраняется даже если старше срока.
+    Сколько хранить события и историю устройств. Последний снимок каждого устройства не удаляется.
   </p>
   {% if message %}<p class="ok">{{ message }}</p>{% endif %}
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
@@ -16,12 +15,12 @@
     <label for="events_days">События (дней)</label>
     <input id="events_days" name="events_days" type="number" min="1" max="3650"
       value="{{ retention.events_days }}" required>
-    <p class="hint">По умолчанию 90. Удаляются записи из <span class="mono">device_events</span>.</p>
+    <p class="hint">По умолчанию 90 дней.</p>
 
-    <label for="inventory_days">История inventory (дней)</label>
+    <label for="inventory_days">История устройств (дней)</label>
     <input id="inventory_days" name="inventory_days" type="number" min="1" max="3650"
       value="{{ retention.inventory_days }}" required>
-    <p class="hint">По умолчанию 180. Дополнительно действует лимит числа снимков на устройство (env <span class="mono">BAD_SNAPSHOT_RETENTION</span>).</p>
+    <p class="hint">По умолчанию 180 дней. Может действовать и лимит числа снимков на устройство.</p>
 
     <div class="form-actions">
       <button type="submit">Сохранить</button>
