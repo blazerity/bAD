@@ -766,6 +766,26 @@ table.config-winner tr.is-conflict td {
   border: 1px solid var(--warn-border);
   color: var(--warn);
 }
+.dup-merge-hint { margin: 0.65rem 0 0.35rem; }
+.dup-merge-list {
+  list-style: none;
+  margin: 0.35rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.dup-merge-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.75rem;
+}
+.dup-merge-form {
+  display: inline;
+  margin: 0;
+}
+.dup-merge-form button { margin: 0; }
 .warn-box .mono,
 .warn-box code {
   color: var(--fg);
