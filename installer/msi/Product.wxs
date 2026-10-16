@@ -8,7 +8,8 @@
     Copy-Item .\cleanup-uninstall.ps1 .\publish\
     Copy-Item .\bad-paths.ps1 .\publish\
     Copy-Item .\bad.cmd .\publish\
-    wix build Product.wxs -d AgentPublishDir=publish -d ProductVersion=0.10.0 -o bad-agent-0.10.0.msi
+    wix extension add WixToolset.Util.wixext/5.0.2
+    wix build Product.wxs -ext WixToolset.Util.wixext -arch x64 -d AgentPublishDir=publish -d ProductVersion=0.10.1 -o bad-agent-0.10.1.msi
 
   Публичные свойства (msiexec):
     SERVERURL=https://bad.example.com
@@ -23,10 +24,13 @@
   Полный uninstall: ServiceControl Stop+Remove; Program Files; cleanup-uninstall.ps1 чистит
   config.json / queue / logs (enrollment leftovers). Permanent dir сам по себе не мешает очистке файлов.
   ServiceControl останавливает BlazerityAssetDiscovery перед заменой файлов и запускает после установки.
+
+  Диагностика CA: коды BAD_MSI_### в %ProgramData%\blazerity\bAD\logs\msi-install.log
+  и в msiexec-логе (MsiLogging=voicewarmupx → %TEMP%\MSI*.log; WixQuietExec пишет stderr).
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <?ifndef ProductVersion?>
-    <?define ProductVersion = "0.10.0" ?>
+    <?define ProductVersion = "0.10.1" ?>
   <?endif?>
 
   <Package
@@ -52,6 +56,23 @@
     <!-- Опциональный PATH: по умолчанию отсутствует/0 = не менять Machine PATH. Передать ADDPATH=1 для включения. -->
     <Property Id="ADDPATH" Secure="yes" Value="0" />
 
+    <!-- Автолог msiexec в %TEMP%\MSI*.log (voicewarmupx), даже без /l*v. -->
+    <Property Id="MsiLogging" Value="voicewarmupx" />
+
+    <!-- 1722 = «программа из состава установки завершилась неожиданно» (RU dialog). -->
+    <Error Id="1722"
+           Message="bAD Agent Setup failed (MSI 1722 / custom action). Look for BAD_MSI_### in %ProgramData%\blazerity\bAD\logs\msi-install.log and %TEMP%\MSI*.log. Action [2], location: [3], command: [4]" />
+    <Error Id="25001"
+           Message="bAD MSI BAD_MSI_001: bad-paths.ps1 missing next to write-config.ps1. See %ProgramData%\blazerity\bAD\logs\msi-install.log" />
+    <Error Id="25002"
+           Message="bAD MSI BAD_MSI_002: cannot create ProgramData directories. See %ProgramData%\blazerity\bAD\logs\msi-install.log" />
+    <Error Id="25003"
+           Message="bAD MSI BAD_MSI_003: cannot write config.json. See %ProgramData%\blazerity\bAD\logs\msi-install.log" />
+    <Error Id="25004"
+           Message="bAD MSI BAD_MSI_004: cannot set config.json ACL. See %ProgramData%\blazerity\bAD\logs\msi-install.log" />
+    <Error Id="25005"
+           Message="bAD MSI BAD_MSI_005: unexpected write-config failure. See %ProgramData%\blazerity\bAD\logs\msi-install.log" />
+
     <Feature Id="Main" Title="bAD Agent" Level="1">
       <ComponentGroupRef Id="AgentFiles" />
       <ComponentRef Id="AgentService" />
@@ -72,9 +93,11 @@
       </Directory>
     </StandardDirectory>
 
-    <!-- Собрать все publish-артефакты (exe + deps + write-config/cleanup/bad-paths.ps1 + bad.cmd). -->
+    <!-- Harvest publish/** кроме BadAgent.exe (он в AgentService = KeyPath службы). -->
     <ComponentGroup Id="AgentFiles" Directory="INSTALLFOLDER">
-      <Files Include="$(AgentPublishDir)\**" />
+      <Files Include="$(AgentPublishDir)\**">
+        <Exclude Files="$(AgentPublishDir)\BadAgent.exe" />
+      </Files>
     </ComponentGroup>
 
     <!-- Permanent: MajorUpgrade не сносит ProgramData (device_id/api_key). Полный uninstall чистит файлы CA. -->
@@ -84,7 +107,9 @@
       </CreateFolder>
     </Component>
 
+    <!-- ServiceInstall требует KeyPath = service exe (не RegistryValue). -->
     <Component Id="AgentService" Directory="INSTALLFOLDER" Guid="BADA0004-BADA-4B01-8BAD-00BADA000004">
+      <File Id="BadAgentExe" Source="$(AgentPublishDir)\BadAgent.exe" KeyPath="yes" />
       <ServiceInstall
           Id="BadServiceInstall"
           Name="BlazerityAssetDiscovery"
@@ -107,8 +132,7 @@
           Key="SOFTWARE\blazerity\bAD"
           Name="InstallDir"
           Type="string"
-          Value="[INSTALLFOLDER]"
-          KeyPath="yes" />
+          Value="[INSTALLFOLDER]" />
     </Component>
 
     <!-- WriteConfig: маркер + временный HKLM Setup; write-config.ps1 читает и удаляет. -->
@@ -157,30 +181,33 @@
           KeyPath="yes" />
     </Component>
 
-    <!-- Только путь к скрипту (без token в argv). -->
-    <SetProperty Id="WriteConfigCmd"
-                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]write-config.ps1&quot;"
+    <!--
+      WixQuietExec: Id свойства = Id CA; command + stdout/stderr попадают в MSI-лог.
+      Id совпадает с CustomAction, чтобы CustomActionData передался в deferred.
+    -->
+    <SetProperty Id="WriteConfigAction"
+                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -InputFormat None -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]write-config.ps1&quot;"
                  Sequence="execute"
                  Before="WriteConfigAction" />
 
     <CustomAction
         Id="WriteConfigAction"
-        Directory="INSTALLFOLDER"
-        ExeCommand="[WriteConfigCmd]"
+        BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)"
+        DllEntry="WixQuietExec"
         Execute="deferred"
         Impersonate="no"
         Return="check" />
 
     <!-- Полный uninstall: очистить config/queue/logs. Не на MajorUpgrade. -->
-    <SetProperty Id="CleanupUninstallCmd"
-                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]cleanup-uninstall.ps1&quot;"
+    <SetProperty Id="CleanupUninstallAction"
+                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -InputFormat None -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]cleanup-uninstall.ps1&quot;"
                  Sequence="execute"
                  Before="CleanupUninstallAction" />
 
     <CustomAction
         Id="CleanupUninstallAction"
-        Directory="INSTALLFOLDER"
-        ExeCommand="[CleanupUninstallCmd]"
+        BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)"
+        DllEntry="WixQuietExec"
         Execute="deferred"
         Impersonate="no"
         Return="ignore" />
