@@ -2556,12 +2556,18 @@ def _server_update_context(
     branches: Optional[list] = None,
 ) -> dict:
     panel = server_status_panel(settings)
+    branch_list = branches
+    if branch_list is None:
+        try:
+            branch_list = list_remote_branches(settings)
+        except Exception:  # noqa: BLE001
+            branch_list = []
     return {
         "user": user,
         "settings_section": "server_update",
         "panel": panel,
         "check": check,
-        "branches": branches or [],
+        "branches": branch_list or [],
         "message": message,
         "error": error,
     }

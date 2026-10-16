@@ -1,154 +1,226 @@
 {% extends "settings_base.html" %}
+{% from "macros/icons.html" import icon %}
 {% set settings_section = 'server_update' %}
 {% block title %}Обновление сервера — bAD{% endblock %}
 {% block settings_content %}
 <section class="settings">
-  <h1>Обновление сервера</h1>
+  <h1 class="with-icon">{{ icon('updates') }}Обновление сервера</h1>
   <p class="muted">
-    Self-update панели и API из GitHub (не путать с зеркалом MSI агента).
-    Apply идёт через systemd helper без пароля sudo в панели.
+    Обновление панели и API из GitHub.
+    Установщики агента — отдельно в
+    <a href="/settings/updates">Обновления агента</a>.
   </p>
   {% if message %}<p class="ok">{{ message }}</p>{% endif %}
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
 
+  {% if check %}
+  <div class="{% if check.update_available %}warn-box{% elif check.error %}warn-box{% else %}ok-box{% endif %}" role="status">
+    {% if check.error %}
+    <strong>Проверка не удалась</strong>
+    <p class="muted" style="margin:0.35rem 0 0">{{ check.error }}</p>
+    {% elif check.update_available %}
+    <strong>Есть обновление</strong>
+    <p class="muted" style="margin:0.35rem 0 0">
+      Ветка <span class="mono">{{ panel.prefs.branch or 'main' }}</span>:
+      сейчас
+      <span class="mono">{{ (panel.current.sha or '')[:12] or '—' }}</span>
+      → remote
+      <span class="mono">{{ (check.remote.short_sha if check.remote else None) or (check.remote.sha[:12] if check.remote and check.remote.sha else '—') }}</span>
+      {% if check.remote and check.remote.message %}
+      · {{ check.remote.message }}
+      {% endif %}
+    </p>
+    {% else %}
+    <strong>Уже актуальная версия</strong>
+    <p class="muted" style="margin:0.35rem 0 0">
+      HEAD совпадает с установленным
+      <span class="mono">{{ (check.remote.short_sha if check.remote else None) or (panel.current.sha or '')[:12] or '—' }}</span>.
+    </p>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if panel.apply and panel.apply.ok is sameas false %}
+  <div class="warn-box" role="status">
+    <strong>Последний apply не удался</strong>
+    <p class="muted" style="margin:0.35rem 0 0">
+      {{ panel.apply.message or "смотрите apply.status на сервере" }}
+      {% if panel.apply.applied_at %}· {{ panel.apply.applied_at }}{% endif %}
+    </p>
+  </div>
+  {% elif panel.apply and panel.apply.ok is sameas true and panel.apply.message %}
+  <p class="ok">
+    Последний apply: {{ panel.apply.message }}
+    {% if panel.apply.applied_at %}· {{ panel.apply.applied_at }}{% endif %}
+  </p>
+  {% endif %}
+
   <dl class="meta">
+    <div><dt>Репозиторий</dt><dd class="mono">{{ panel.github_repo or "—" }}</dd></div>
     <div>
-      <dt>Репозиторий</dt>
-      <dd class="mono">{{ panel.github_repo or "—" }}</dd>
+      <dt>GitHub token</dt>
+      <dd>
+        {% if panel.token_configured %}
+        <span class="ok">задан</span>
+        {% else %}
+        <span class="warn">нет</span>
+        <span class="muted">— сохраните ниже или в site.env</span>
+        {% endif %}
+      </dd>
     </div>
+    <div><dt>Версия</dt><dd class="mono">{{ panel.current.version or "—" }}</dd></div>
     <div>
-      <dt>Токен GitHub</dt>
-      <dd>{% if panel.token_configured %}<span class="ok">задан</span>{% else %}<span class="warn">нет</span>{% endif %}</dd>
+      <dt>Установлено</dt>
+      <dd class="mono">
+        {{ panel.current.branch or "—" }}
+        @ {{ (panel.current.sha or "")[:12] or "sha неизвестен" }}
+      </dd>
     </div>
-    <div>
-      <dt>Каталог слотов</dt>
-      <dd class="mono">{{ panel.releases_dir }}</dd>
-    </div>
-    <div>
-      <dt>Helper</dt>
-      <dd class="mono">{{ panel.helper.path_unit }} → {{ panel.helper.script }}</dd>
-    </div>
-    {% if panel.apply and panel.apply.message %}
-    <div>
-      <dt>Последний apply</dt>
-      <dd>{{ panel.apply.message }}{% if panel.apply.applied_at %} · {{ panel.apply.applied_at }}{% endif %}</dd>
-    </div>
+    {% if panel.current.installed_at %}
+    <div><dt>Когда</dt><dd class="mono">{{ panel.current.installed_at }}</dd></div>
     {% endif %}
   </dl>
 
-  <h2>Текущая установка</h2>
-  <dl class="meta">
-    <div><dt>Ветка</dt><dd class="mono">{{ panel.current.branch or "—" }}</dd></div>
-    <div><dt>SHA</dt><dd class="mono">{{ panel.current.sha or "—" }}</dd></div>
-    <div><dt>VERSION</dt><dd class="mono">{{ panel.current.version or "—" }}</dd></div>
-    <div><dt>Установлено</dt><dd class="mono">{{ panel.current.installed_at or "—" }}</dd></div>
-    <div><dt>Слот</dt><dd class="mono">{{ panel.current.slot_id or "—" }}</dd></div>
-  </dl>
-
-  <h2>Ветка обновления</h2>
-  <p class="muted">По умолчанию <span class="mono">main</span>. Список — из GitHub API; можно ввести вручную.</p>
-  <form method="post" action="/settings/server-update/branch" class="stack">
+  <h2>Ветка и проверка</h2>
+  <form method="post" action="/settings/server-update/branch" class="settings-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <label>
-      Ветка
-      <input name="branch" list="server-update-branches" value="{{ panel.prefs.branch or 'main' }}" required>
-    </label>
+    <label for="branch">Ветка обновления</label>
+    <input id="branch" name="branch" type="text" list="server-update-branches"
+      value="{{ panel.prefs.branch or panel.default_branch or 'main' }}"
+      placeholder="main" autocomplete="off" required>
     <datalist id="server-update-branches">
       {% for b in branches %}
       <option value="{{ b }}"></option>
       {% endfor %}
     </datalist>
-    <p class="form-actions"><button type="submit" class="btn">Сохранить ветку</button></p>
+    <p class="hint">По умолчанию <span class="mono">main</span>. Список — из GitHub, можно ввести вручную.</p>
+    <div class="form-actions">
+      <button type="submit">Сохранить ветку</button>
+      <button type="submit" formaction="/settings/server-update/check" class="secondary">Проверить обновления</button>
+    </div>
   </form>
 
-  <h2>Проверить обновления</h2>
-  <form method="post" action="/settings/server-update/check" class="stack">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <input type="hidden" name="branch" value="{{ panel.prefs.branch or 'main' }}">
-    <p class="form-actions"><button type="submit" class="btn">Проверить</button></p>
-  </form>
-  {% if check %}
-  <dl class="meta">
-    <div><dt>Remote HEAD</dt><dd class="mono">{{ (check.remote.short_sha if check.remote else None) or "—" }}</dd></div>
-    <div><dt>Есть обновление</dt><dd>{% if check.update_available %}да{% else %}нет{% endif %}</dd></div>
-    {% if check.remote and check.remote.message %}
-    <div><dt>Сообщение</dt><dd>{{ check.remote.message }}</dd></div>
-    {% endif %}
-  </dl>
+  <h2>Установить с GitHub</h2>
+  <p class="muted">
+    Helper на сервере скачает commit, переключит установку и перезапустит службы.
+    Пароль sudo в панели не нужен.
+  </p>
+  {% if tls_mode == 'http' %}
+  <div class="warn-box" role="status">
+    Пока сайт без HTTPS лучше сначала
+    <a href="/settings/tls">Параметры → Сертификат</a>.
+  </div>
   {% endif %}
-
-  <h2>Установить</h2>
-  <p class="muted">Скачать commit → слот → promote <span class="mono">/opt/bad</span> → <span class="mono">systemctl try-restart bad-api</span>.</p>
-  <form method="post" action="/settings/server-update/apply" class="stack">
+  <form method="post" action="/settings/server-update/apply" class="settings-form"
+    onsubmit="return confirm('Установить обновление сервера и перезапустить службы?');">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <input type="hidden" name="branch" value="{{ panel.prefs.branch or 'main' }}">
-    <label>
-      SHA (опционально; пусто = HEAD ветки)
-      <input name="sha" placeholder="оставьте пустым для HEAD" autocomplete="off">
-    </label>
-    <p class="form-actions"><button type="submit" class="btn">Применить обновление</button></p>
+    <input type="hidden" name="branch" value="{{ panel.prefs.branch or panel.default_branch or 'main' }}">
+    <label for="sha">Commit (опционально)</label>
+    <input id="sha" name="sha" type="text" class="mono" autocomplete="off"
+      placeholder="пусто = HEAD выбранной ветки"
+      value="{{ check.remote.sha if check and check.remote and check.update_available else '' }}">
+    <div class="form-actions">
+      <button type="submit" {% if tls_mode == 'http' %}disabled title="Сначала HTTPS"{% endif %}>
+        Установить обновление
+      </button>
+      {% if tls_mode == 'http' %}
+      <a class="btn secondary" href="/settings/tls">Параметры → Сертификат</a>
+      {% endif %}
+    </div>
   </form>
 
-  <h2>Откат (≤ {{ panel.max_past_slots }} прошлых)</h2>
+  <h2>Откат (до {{ panel.max_past_slots }} прошлых)</h2>
   {% if panel.slots %}
-  <ul class="stack">
-    {% for s in panel.slots %}
-    <li>
-      <span class="mono">{{ s.branch or "?" }} @ {{ (s.sha or "")[:12] }}</span>
-      {% if s.version %} · {{ s.version }}{% endif %}
-      {% if s.installed_at %} · {{ s.installed_at }}{% endif %}
-      <form method="post" action="/settings/server-update/rollback" class="inline">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <input type="hidden" name="slot_id" value="{{ s.slot_id }}">
-        <button type="submit" class="btn btn-secondary">Откатить</button>
-      </form>
-    </li>
-    {% endfor %}
-  </ul>
+  <div class="table-scroll">
+  <table class="devices">
+    <thead>
+      <tr>
+        <th>Ветка</th>
+        <th>Commit</th>
+        <th>Версия</th>
+        <th>Когда</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in panel.slots %}
+      <tr>
+        <td class="mono">{{ s.branch or "—" }}</td>
+        <td class="mono" title="{{ s.sha }}">{{ (s.sha or "")[:12] or "—" }}</td>
+        <td class="mono">{{ s.version or "—" }}</td>
+        <td class="mono">{{ s.installed_at or "—" }}</td>
+        <td>
+          <form method="post" action="/settings/server-update/rollback" style="display:inline"
+            onsubmit="return confirm('Откатить на {{ s.branch }}@{{ (s.sha or '')[:12] }}?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="slot_id" value="{{ s.slot_id }}">
+            <button type="submit" class="secondary" {% if tls_mode == 'http' %}disabled{% endif %}>Откатить</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
   {% else %}
-  <p class="muted">Пока нет слотов для отката.</p>
+  <p class="muted">Пока нет сохранённых прошлых сборок для отката.</p>
   {% endif %}
 
   <h2>Токен GitHub</h2>
-  <p class="muted">Пишется в <span class="mono">site.env</span> через helper. Plaintext обратно не отдаём.</p>
-  <form method="post" action="/settings/server-update/token" class="stack">
+  <p class="muted">
+    Нужен для private repo и запуска Actions. Пишется через helper в site.env / файл ключа.
+    Значение обратно в панель не возвращаем.
+  </p>
+  <form method="post" action="/settings/server-update/token" class="settings-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <label>
-      Новый PAT / fine-scoped token
-      <input type="password" name="token" autocomplete="new-password" required>
-    </label>
-    <p class="form-actions"><button type="submit" class="btn">Сохранить токен</button></p>
+    <label for="token">Новый token</label>
+    <input id="token" name="token" type="password" autocomplete="new-password" required
+      {% if tls_mode == 'http' %}disabled{% endif %}>
+    <div class="form-actions">
+      <button type="submit" {% if tls_mode == 'http' %}disabled title="Сначала HTTPS"{% endif %}>Сохранить токен</button>
+    </div>
   </form>
 
-  <h2>Собрать MSI на GitHub</h2>
+  <h2>Сборка MSI на GitHub</h2>
   <p class="muted">
-    Отдельно от self-update: <span class="mono">workflow_dispatch</span> →
-    <span class="mono">release-msi</span> → после success опционально ingest в зеркало агента.
+    Отдельно от обновления сервера: запускает сборку установщика агента на GitHub,
+    затем можно подтянуть результат в зеркало «Обновления агента».
   </p>
-  <form method="post" action="/settings/server-update/msi/trigger" class="stack">
+  <form method="post" action="/settings/server-update/msi/trigger" class="settings-form"
+    onsubmit="return confirm('Запустить сборку MSI на ветке {{ panel.prefs.branch or panel.default_branch or 'main' }}?');">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <input type="hidden" name="branch" value="{{ panel.prefs.branch or 'main' }}">
-    <label>
-      Версия (опционально)
-      <input name="version" placeholder="например 1.0.2" autocomplete="off">
-    </label>
-    <p class="form-actions"><button type="submit" class="btn">Запустить сборку MSI</button></p>
-  </form>
-  <form method="post" action="/settings/server-update/msi/poll" class="stack">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <p class="form-actions"><button type="submit" class="btn btn-secondary">Обновить статус / ingest</button></p>
+    <input type="hidden" name="branch" value="{{ panel.prefs.branch or panel.default_branch or 'main' }}">
+    <label for="msi_version">Версия (опционально)</label>
+    <input id="msi_version" name="version" type="text" placeholder="например 1.0.2" autocomplete="off"
+      {% if not panel.token_configured %}disabled{% endif %}>
+    <div class="form-actions">
+      <button type="submit" class="secondary"
+        {% if not panel.token_configured %}disabled title="Сначала задайте GitHub token"{% endif %}>
+        Собрать MSI на GitHub
+      </button>
+      <button type="submit" formaction="/settings/server-update/msi/poll" class="secondary"
+        {% if not panel.token_configured %}disabled{% endif %}>
+        Обновить статус / ingest
+      </button>
+    </div>
   </form>
   {% if panel.msi_build %}
   <dl class="meta">
     <div><dt>Ветка</dt><dd class="mono">{{ panel.msi_build.branch or "—" }}</dd></div>
-    <div><dt>Статус</dt><dd>{{ panel.msi_build.status or "—" }} / {{ panel.msi_build.conclusion or "—" }}</dd></div>
+    <div><dt>Статус</dt><dd>{{ panel.msi_build.status or "—" }}{% if panel.msi_build.conclusion %} / {{ panel.msi_build.conclusion }}{% endif %}</dd></div>
     {% if panel.msi_build.html_url %}
-    <div><dt>Run</dt><dd><a href="{{ panel.msi_build.html_url }}" rel="noopener">GitHub Actions</a></dd></div>
+    <div><dt>Run</dt><dd><a href="{{ panel.msi_build.html_url }}" rel="noopener" target="_blank">Открыть в GitHub Actions</a></dd></div>
     {% endif %}
     {% if panel.msi_build.ingested %}
-    <div><dt>Ingest</dt><dd class="mono">{{ panel.msi_build.ingested.version }} · {{ panel.msi_build.ingested.msi_name }}</dd></div>
+    <div><dt>В зеркале</dt><dd class="mono">{{ panel.msi_build.ingested.version }} · {{ panel.msi_build.ingested.msi_name }}</dd></div>
     {% endif %}
   </dl>
   {% endif %}
+
+  <p class="hint">
+    Helper: <span class="mono">{{ panel.helper.path_unit }}</span>
+    → <span class="mono">{{ panel.helper.script }}</span>
+    · слоты: <span class="mono">{{ panel.releases_dir }}</span>
+  </p>
 </section>
 {% endblock %}
