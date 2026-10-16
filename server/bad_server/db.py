@@ -1700,6 +1700,153 @@ class Database:
 
         return buckets
 
+    def merge_devices(
+        self,
+        survivor_id: str,
+        donor_id: str,
+        *,
+        stale_after_seconds: int = 3600,
+    ) -> dict[str, Any]:
+        """Ручная склейка дублей: история donor → survivor, donor в архив.
+
+        Критерии (decision §3 «склейка»): совпадение нормализованного
+        ``serial_number`` и/или ``smbios_uuid``; donor — stale или archived
+        (не второй свежий online). Без UNIQUE(serial), PK не меняется.
+        Одна транзакция. Overrides donor не трогаем (остаются на архиве).
+
+        Raises ValueError с кодом:
+        ``merge_same_device`` · ``merge_survivor_missing`` · ``merge_donor_missing``
+        · ``merge_no_identity_match`` · ``merge_donor_not_stale_or_archived``.
+        """
+        from .device_health import device_silence_status
+
+        survivor_id = (survivor_id or "").strip()
+        donor_id = (donor_id or "").strip()
+        if not survivor_id or not donor_id:
+            raise ValueError("merge_survivor_missing")
+        if survivor_id == donor_id:
+            raise ValueError("merge_same_device")
+
+        survivor = self.get_device_detail(survivor_id)
+        if not survivor:
+            raise ValueError("merge_survivor_missing")
+        donor = self.get_device_detail(donor_id)
+        if not donor:
+            raise ValueError("merge_donor_missing")
+
+        s_meta = survivor.get("meta") if isinstance(survivor.get("meta"), dict) else {}
+        d_meta = donor.get("meta") if isinstance(donor.get("meta"), dict) else {}
+        s_sig = self._identity_signals_enriched(survivor_id, s_meta)
+        d_sig = self._identity_signals_enriched(donor_id, d_meta)
+
+        matched: list[str] = []
+        s_serial = s_sig.get("serial_number")
+        d_serial = d_sig.get("serial_number")
+        if (
+            s_serial
+            and d_serial
+            and str(s_serial).casefold() == str(d_serial).casefold()
+        ):
+            matched.append("serial_number")
+        s_uuid = s_sig.get("smbios_uuid")
+        d_uuid = d_sig.get("smbios_uuid")
+        if s_uuid and d_uuid and s_uuid == d_uuid:
+            matched.append("smbios_uuid")
+        if not matched:
+            raise ValueError("merge_no_identity_match")
+
+        donor_archived = bool(donor.get("archived"))
+        if not donor_archived:
+            silence = device_silence_status(
+                donor.get("last_seen_at"),
+                stale_after_seconds=stale_after_seconds,
+            )
+            if silence.get("status") != "stale":
+                raise ValueError("merge_donor_not_stale_or_archived")
+
+        donor_hostname = donor.get("hostname")
+        now = utc_now()
+        detail = {
+            "donor_id": donor_id,
+            "hostname": donor_hostname,
+            "matched": matched,
+        }
+        detail_json = json.dumps(detail, separators=(",", ":"), ensure_ascii=False)
+        summary = (
+            f"Склейка с {donor_hostname}"
+            if donor_hostname
+            else f"Склейка с {donor_id}"
+        )
+
+        with self.connection() as conn:
+            # Повторная проверка существования внутри транзакции (TOCTOU).
+            s_row = conn.execute(
+                "SELECT device_id FROM devices WHERE device_id = ?",
+                (survivor_id,),
+            ).fetchone()
+            d_row = conn.execute(
+                """
+                SELECT device_id, hostname, last_seen_at, archived
+                FROM devices WHERE device_id = ?
+                """,
+                (donor_id,),
+            ).fetchone()
+            if not s_row:
+                raise ValueError("merge_survivor_missing")
+            if not d_row:
+                raise ValueError("merge_donor_missing")
+
+            snap_cur = conn.execute(
+                """
+                UPDATE inventory_snapshots
+                SET device_id = ?
+                WHERE device_id = ?
+                """,
+                (survivor_id, donor_id),
+            )
+            ev_cur = conn.execute(
+                """
+                UPDATE device_events
+                SET device_id = ?
+                WHERE device_id = ?
+                """,
+                (survivor_id, donor_id),
+            )
+            conn.execute(
+                """
+                UPDATE devices
+                SET archived = 1
+                WHERE device_id = ?
+                """,
+                (donor_id,),
+            )
+            conn.execute(
+                """
+                INSERT INTO device_events(
+                  device_id, type, summary, detail_json, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    survivor_id,
+                    "device_merged",
+                    summary,
+                    detail_json,
+                    now,
+                ),
+            )
+            snapshots_moved = int(snap_cur.rowcount or 0)
+            events_moved = int(ev_cur.rowcount or 0)
+
+        return {
+            "survivor_id": survivor_id,
+            "donor_id": donor_id,
+            "donor_hostname": donor_hostname,
+            "matched": matched,
+            "snapshots_moved": snapshots_moved,
+            "events_moved": events_moved,
+            "donor_archived": True,
+        }
+
     def count_enrolled_since(self, since_iso: Optional[str] = None) -> int:
         """Active (non-archived) devices enrolled strictly after ``since_iso``.
 
