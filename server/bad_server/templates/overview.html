@@ -6,6 +6,59 @@
   <h1 class="with-icon">{{ icon('devices') }}Обзор</h1>
   <p class="muted">Сводка по парку. Устарел — нет контакта дольше {{ stale_after_seconds }} с.</p>
 
+  {% if bootstrap and bootstrap.visible %}
+  <div class="bootstrap-checklist" role="status">
+    <h2 class="bootstrap-title">Первый запуск
+      <span class="muted">{{ bootstrap.done }}/{{ bootstrap.total }}</span>
+    </h2>
+    <ol class="bootstrap-steps">
+      {% for step in bootstrap.steps %}
+      <li class="{% if step.done %}is-done{% endif %}">
+        <span class="bootstrap-mark" aria-hidden="true">{% if step.done %}✓{% else %}○{% endif %}</span>
+        {% if step.done %}
+        <span>{{ step.label }}</span>
+        {% else %}
+        <a href="{{ step.href }}">{{ step.label }}</a>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+    <p class="hint">Чеклист скроется после смены пароля и перехода на HTTPS.</p>
+  </div>
+  {% endif %}
+
+  {% if security and security.https_first %}
+  <p class="muted security-strip">
+    TLS: <span class="mono">{{ security.https_first.tls_mode }}</span>
+    · cookie: <span class="mono">{{ security.https_first.cookie_secure }}</span>
+    {% if security.secrets %}
+    · keys: <span class="mono">{{ security.secrets.data_key_source }}/{{ security.secrets.session_secret_source }}</span>
+    {% endif %}
+    {% if ops.enrollment_rotation_due %}
+    · <span class="warn">enrollment rotation due</span>
+    {% endif %}
+  </p>
+  {% endif %}
+
+  {% if attention %}
+  <div class="attention-queue" aria-label="Требует действия">
+    <h2>Требует действия</h2>
+    <ul class="attention-list">
+      {% for item in attention %}
+      <li class="attention-item severity-{{ item.severity }}">
+        <div class="attention-body">
+          <strong>{{ item.title }}</strong>
+          <span class="muted">{{ item.detail }}</span>
+        </div>
+        <a class="btn secondary" href="{{ item.href }}">{{ item.cta }}</a>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% else %}
+  <p class="ok attention-empty">Сейчас нет срочных действий по парку.</p>
+  {% endif %}
+
   <div class="stat-row">
     <div class="stat">
       <div class="stat-value">{{ stats.total_active }}</div>
@@ -44,53 +97,36 @@
   <p class="muted">Пока нет активных устройств.</p>
   {% endif %}
 
-
-  <h2>Операции: обновления и доступ</h2>
+  <h2>Зеркало MSI</h2>
   {% if ops.mirror_empty %}
-  <p class="error">Зеркало MSI пусто — агенты не получат обновления. Загрузите MSI или выполните sync.</p>
+  <p class="error">Зеркало пусто — <a href="/settings/updates">загрузите MSI или sync</a>.</p>
   {% else %}
   <p class="muted">
-    Latest в зеркале: <span class="mono">{{ ops.latest_version or "—" }}</span>
-    · версий в каталоге: <span class="mono">{{ ops.mirror_count }}</span>
+    Latest: <span class="mono">{{ ops.latest_version or "—" }}</span>
+    · версий: <span class="mono">{{ ops.mirror_count }}</span>
     · sync: <span class="mono">{{ ops.latest_synced_at or "—" }}</span>
   </p>
   {% endif %}
 
   {% if ops.version_drift_count %}
-  <div class="warn-box">
-    <strong>Отстают от целевой версии</strong> ({{ ops.version_drift_count }})
-    <table class="devices">
-      <thead><tr><th>Устройство</th><th>Сейчас</th><th>Цель</th><th>Want</th><th>Контакт</th></tr></thead>
-      <tbody>
-      {% for d in ops.version_drift %}
-        <tr>
-          <td><a href="/devices/{{ d.device_id }}">{{ d.hostname or d.device_id }}</a></td>
-          <td class="mono">{{ d.agent_version }}</td>
-          <td class="mono">{{ d.target }}</td>
-          <td class="mono">{{ d.want_version }}</td>
-          <td class="mono">{{ d.silence }}</td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <p class="muted">Отстающих по целевой версии нет (или обновления выключены политикой).</p>
-  {% endif %}
-
-  {% if ops.pinned_missing_count %}
-  <div class="warn-box">
-    <strong>Закреплённая версия отсутствует в зеркале</strong> ({{ ops.pinned_missing_count }})
-    <ul>
-    {% for d in ops.pinned_missing %}
-      <li><a href="/devices/{{ d.device_id }}">{{ d.hostname or d.device_id }}</a> → <span class="mono">{{ d.target }}</span></li>
+  <h2>Отстающие (кратко)</h2>
+  <p class="muted">
+    {{ ops.version_drift_count }} —
+    <a href="/devices?wave=drift">открыть фильтр волны</a>.
+  </p>
+  <table class="devices">
+    <thead><tr><th>Устройство</th><th>Сейчас</th><th>Цель</th><th>Want</th></tr></thead>
+    <tbody>
+    {% for d in ops.version_drift[:8] %}
+      <tr>
+        <td><a href="/devices/{{ d.device_id }}">{{ d.hostname or d.device_id }}</a></td>
+        <td class="mono">{{ d.agent_version }}</td>
+        <td class="mono">{{ d.target }}</td>
+        <td class="mono">{{ d.want_version }}</td>
+      </tr>
     {% endfor %}
-    </ul>
-  </div>
-  {% endif %}
-
-  {% if ops.revoked_active %}
-  <p class="warn-box">Отозванных устройств (не в архиве): <strong>{{ ops.revoked_active }}</strong> — нужен admin rotate-key / recovery.</p>
+    </tbody>
+  </table>
   {% endif %}
 
   <h2 class="with-icon">{{ icon('events') }}Недавние изменения железа</h2>

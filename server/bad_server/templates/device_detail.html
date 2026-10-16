@@ -403,11 +403,64 @@
           <a href="/settings/policies">Создать или изменить политики</a>.</p>
         {% endif %}
 
+        <h3>Кто победил</h3>
+        <p class="muted">
+          Remote merge для агента: <span class="mono">default &lt; policy &lt; override</span>.
+          Метка панели: <span class="mono">agent_local</span> важнее для отображения источника
+          (не меняет remote effective).
+          {% if match_context %}
+          · match:
+          <span class="mono">{{ match_context.hostname or "—" }}</span>
+          / <span class="mono">{{ match_context.domain or "—" }}</span>
+          {% if match_context.ad_ou %}
+          / OU <span class="mono">{{ match_context.ad_ou }}</span>
+          {% endif %}
+          {% endif %}
+        </p>
+        {% if policy_keys or override_keys %}
+        <p class="hint">
+          {% if policy_keys %}policy_keys: <span class="mono">{{ policy_keys | join(', ') }}</span>{% endif %}
+          {% if policy_keys and override_keys %} · {% endif %}
+          {% if override_keys %}override_keys: <span class="mono">{{ override_keys | join(', ') }}</span>{% endif %}
+        </p>
+        {% endif %}
+        {% if config_winner and config_winner.has_rows %}
+        {% if config_winner.conflicts %}
+        <p class="warn-box">
+          Конфликт меток: {{ config_winner.conflicts }} knobs заданы на агенте
+          при наличии policy/override на сервере — смотрите колонку «панель».
+        </p>
+        {% endif %}
+        <table class="devices config-winner">
+          <thead>
+            <tr><th>Параметр</th><th>Значение (effective)</th><th>Remote</th><th>Панель</th></tr>
+          </thead>
+          <tbody>
+            {% for row in config_winner.rows %}
+            <tr class="{% if row.conflict %}is-conflict{% endif %}">
+              <td>{{ row.label }}</td>
+              <td class="mono">{{ row.value }}</td>
+              <td>{{ row.remote_label }}</td>
+              <td>
+                {% if row.panel == 'agent_local' %}
+                <span class="badge badge-agent-local">задано на агенте</span>
+                {% else %}
+                {{ row.panel_label }}
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <p class="muted">Все focus-knobs — по умолчанию, без policy/override/agent_local.</p>
+        {% endif %}
+
         <h3>Эффективные значения</h3>
         {% if has_agent_local %}
         <p class="config-source-summary">
           <span class="badge badge-agent-local">задано на агенте</span>
-          Есть knobs, заданные руками в агенте (не default, не политика, не override сервера).
+          Есть knobs, заданные руками в агенте.
           {% if config_local and config_local.reported_at %}
           <span class="muted">· отчёт {{ config_local.reported_at }}</span>
           {% endif %}

@@ -50,6 +50,14 @@ from .agent_update import (
 from .backup import backup_status, run_daily_backup
 from .enrollment_ops import enrollment_status, rotate_enrollment_token
 from .http_bootstrap import HTTP_SENSITIVE_MSG, sensitive_over_http_blocked
+from .ops_panel import (
+    build_attention_queue,
+    build_bootstrap_checklist,
+    build_config_winner,
+    device_has_agent_local,
+    filter_devices_by_wave,
+    normalize_wave_filter,
+)
 from .security_ops import merge_security_into_ops, security_status
 from .site_bundle import build_site_bundle
 from .tls_ops import (
@@ -410,6 +418,22 @@ def home(
     )
     security = security_status(db, settings)
     ops = merge_security_into_ops(ops, security)
+    tls_mode = str(ops.get("tls_mode") or tls_panel_mode() or "http")
+    bootstrap = build_bootstrap_checklist(
+        user=user,
+        db=db,
+        settings=settings,
+        ops=ops,
+        active_devices=int(stats.get("total_active") or 0),
+        security=security,
+    )
+    attention = build_attention_queue(
+        user=user,
+        ops=ops,
+        stats=stats,
+        tls_mode=tls_mode,
+        security=security,
+    )
     return _html(
         request,
         "overview.html",
@@ -418,6 +442,8 @@ def home(
             "stats": stats,
             "ops": ops,
             "security": security,
+            "bootstrap": bootstrap,
+            "attention": attention,
             "stale_after_seconds": settings.device_stale_after_seconds,
         },
     )
@@ -533,6 +559,7 @@ def _devices_query_params(
     q: Optional[str],
     archive: bool,
     page: int,
+    wave: Optional[str] = None,
 ) -> str:
     params: dict[str, str] = {}
     if tag:
@@ -541,9 +568,46 @@ def _devices_query_params(
         params["q"] = q
     if archive:
         params["archive"] = "1"
+    if wave:
+        params["wave"] = wave
     if page > 1:
         params["page"] = str(page)
     return urlencode(params)
+
+
+def _devices_wave_context(
+    db: Database,
+    settings: Settings,
+    *,
+    tag_filter: Optional[str],
+    query: Optional[str],
+    show_archive: bool,
+    wave: Optional[str],
+    page_i: int,
+) -> tuple[list[dict], int, int, int]:
+    ops = ops_update_signals(
+        db, stale_after_seconds=settings.device_stale_after_seconds
+    )
+    drift_ids = {d["device_id"] for d in (ops.get("version_drift") or [])}
+    enriched = [
+        _enrich_device_row(d, settings)
+        for d in db.list_devices(
+            tag=tag_filter, archived=show_archive, q=query
+        )
+    ]
+    filtered = filter_devices_by_wave(
+        enriched,
+        wave,
+        drift_ids=drift_ids,
+        stale_after_seconds=settings.device_stale_after_seconds,
+    )
+    total = len(filtered)
+    page_size = DEVICES_PAGE_SIZE
+    pages = max(1, (total + page_size - 1) // page_size) if total else 1
+    if page_i > pages:
+        page_i = pages
+    offset = (page_i - 1) * page_size
+    return filtered[offset : offset + page_size], total, pages, page_i
 
 
 @router.get("/devices", response_class=HTMLResponse)
@@ -552,6 +616,7 @@ def devices_page(
     tag: Optional[str] = None,
     q: Optional[str] = None,
     archive: Optional[str] = None,
+    wave: Optional[str] = None,
     page: int = 1,
     user: WebUser = Depends(require_web_user),
     db: Database = Depends(get_db),
@@ -560,23 +625,17 @@ def devices_page(
     tag_filter = (tag or "").strip() or None
     query = (q or "").strip() or None
     show_archive = (archive or "").strip() in {"1", "true", "yes"}
+    wave_filter = normalize_wave_filter(wave)
     page_i = max(1, int(page or 1))
-    total = db.count_devices(tag=tag_filter, archived=show_archive, q=query)
-    page_size = DEVICES_PAGE_SIZE
-    pages = max(1, (total + page_size - 1) // page_size)
-    if page_i > pages:
-        page_i = pages
-    offset = (page_i - 1) * page_size
-    devices = [
-        _enrich_device_row(d, settings)
-        for d in db.list_devices(
-            tag=tag_filter,
-            archived=show_archive,
-            q=query,
-            offset=offset,
-            limit=page_size,
-        )
-    ]
+    devices, total, pages, page_i = _devices_wave_context(
+        db,
+        settings,
+        tag_filter=tag_filter,
+        query=query,
+        show_archive=show_archive,
+        wave=wave_filter,
+        page_i=page_i,
+    )
     # Лёгкие подсказки о дубликатах для текущей страницы (в списке только hostname).
     host_counts: dict[str, int] = {}
     for d in db.list_devices(archived=None):
@@ -586,10 +645,15 @@ def devices_page(
     for d in devices:
         hn = (d.get("hostname") or "").strip().casefold()
         d["hostname_dup"] = bool(hn and host_counts.get(hn, 0) > 1)
+        d["has_agent_local"] = device_has_agent_local(d)
 
     agent_update = db.get_agent_update()
     qs = _devices_query_params(
-        tag=tag_filter, q=query, archive=show_archive, page=page_i
+        tag=tag_filter,
+        q=query,
+        archive=show_archive,
+        page=page_i,
+        wave=wave_filter,
     )
     return _html(
         request,
@@ -602,12 +666,13 @@ def devices_page(
             "tag_filter": tag_filter or "",
             "q": query or "",
             "show_archive": show_archive,
+            "wave": wave_filter or "",
             "all_tags": db.list_all_tags(),
             "stale_after_seconds": settings.device_stale_after_seconds,
             "page": page_i,
             "pages": pages,
             "total": total,
-            "page_size": page_size,
+            "page_size": DEVICES_PAGE_SIZE,
             "export_qs": qs,
         },
     )
@@ -618,15 +683,40 @@ def devices_csv_export(
     tag: Optional[str] = None,
     q: Optional[str] = None,
     archive: Optional[str] = None,
+    wave: Optional[str] = None,
     _user: WebUser = Depends(require_web_user),
     db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ):
     tag_filter = (tag or "").strip() or None
     query = (q or "").strip() or None
     show_archive = (archive or "").strip() in {"1", "true", "yes"}
+    wave_filter = normalize_wave_filter(wave)
     rows = db.devices_for_csv(
         tag=tag_filter, archived=show_archive, q=query
     )
+    if wave_filter:
+        ops = ops_update_signals(
+            db, stale_after_seconds=settings.device_stale_after_seconds
+        )
+        drift_ids = {d["device_id"] for d in (ops.get("version_drift") or [])}
+        by_id = {
+            d["device_id"]: d
+            for d in db.list_devices(
+                tag=tag_filter, archived=show_archive, q=query
+            )
+        }
+        as_devices = [
+            by_id[r["device_id"]] for r in rows if r.get("device_id") in by_id
+        ]
+        filtered = filter_devices_by_wave(
+            as_devices,
+            wave_filter,
+            drift_ids=drift_ids,
+            stale_after_seconds=settings.device_stale_after_seconds,
+        )
+        kept_ids = {d["device_id"] for d in filtered}
+        rows = [r for r in rows if r.get("device_id") in kept_ids]
     buf = io.StringIO()
     fields = [
         "device_id",
@@ -793,6 +883,16 @@ def _device_config_context(
         "policy_keys": effective.get("policy_keys") or [],
         "override_keys": effective.get("override_keys") or [],
         "match_context": effective.get("context") or {},
+        "allowed_setting_keys": sorted(ALLOWED_SETTING_KEYS),
+        "config_winner": build_config_winner(
+            effective=effective,
+            sources=effective.get("sources") or {},
+            agent_local_keys=list(effective.get("agent_local_keys") or []),
+            settings_values=effective.get("settings") or {},
+            policy_keys=list(effective.get("policy_keys") or []),
+            override_keys=list(effective.get("override_keys") or []),
+            allowed_setting_keys=sorted(ALLOWED_SETTING_KEYS),
+        ),
         "silence": silence,
         "health_snippet": health_snippet(detail.get("meta")),
         "recent_events": recent_events,
@@ -1304,6 +1404,21 @@ def _validate_update_target_pin(db: Database, settings: dict) -> Optional[str]:
     return None
 
 
+_CONDITION_FIELD_LABELS_RU = {
+    "hostname": "hostname",
+    "domain": "domain",
+    "os_caption": "os_caption (подпись ОС)",
+    "tag": "tag",
+}
+
+
+def _filter_policy_settings(settings: object) -> dict:
+    """Тема C: в UI только knobs из ALLOWED_SETTING_KEYS (без server_url/секретов)."""
+    if not isinstance(settings, dict):
+        return {}
+    return {k: v for k, v in settings.items() if k in ALLOWED_SETTING_KEYS}
+
+
 def _policies_context(
     db: Database,
     user: WebUser,
@@ -1312,17 +1427,27 @@ def _policies_context(
     error: Optional[str] = None,
     edit: Optional[dict] = None,
 ) -> dict:
+    policies = []
+    for p in db.list_agent_policies():
+        row = dict(p)
+        row["settings"] = _filter_policy_settings(row.get("settings"))
+        policies.append(row)
+    edit_view = edit
+    if edit_view is not None:
+        edit_view = dict(edit_view)
+        edit_view["settings"] = _filter_policy_settings(edit_view.get("settings"))
     return {
         "user": user,
-        "policies": db.list_agent_policies(),
+        "policies": policies,
         "defaults": dict(DEFAULT_AGENT_SETTINGS),
         "allowed_setting_keys": sorted(ALLOWED_SETTING_KEYS),
         "condition_fields": sorted(CONDITION_FIELDS),
+        "condition_field_labels": _CONDITION_FIELD_LABELS_RU,
         "condition_ops": sorted(CONDITION_OPS),
         "msi_versions": db.list_agent_msi_versions(),
         "message": message,
         "error": error,
-        "edit": edit,
+        "edit": edit_view,
     }
 
 
