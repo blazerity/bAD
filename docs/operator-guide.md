@@ -204,7 +204,7 @@ msiexec /i bad-agent-1.0.1.msi `
 
 Теги: правка на странице устройства (через запятую). Фильтр списка устройств по тегу. Политики тоже могут матчить `tag equals/contains`.
 
-Daily DB backup **не** содержит master-ключи — см. [§ backup](#5-site-backup--restore). Порог stale по умолчанию 1 час (`BAD_DEVICE_STALE_AFTER_SECONDS`); ≈2× heartbeat при необходимости. Версия продукта **1.0.1**.
+Daily DB backup **не** содержит master-ключи — см. [§ backup](#6-site-backup--restore). Порог stale по умолчанию 1 час (`BAD_DEVICE_STALE_AFTER_SECONDS`); ≈2× heartbeat при необходимости. Версия продукта **1.0.1**.
 
 Альтернатива (автоматизация — admin API token):
 
@@ -215,7 +215,39 @@ curl -fsS -H "Authorization: Bearer <admin-token>" \
   'https://bad.example.com/v1/events?limit=50'
 ```
 
-## 4. Обновления агента: upload MSI и выбор версии
+## 4. Обновление сервера (из GitHub)
+
+Страница: **Параметры → Обновление сервера** (`/settings/server-update`). Это **self-update панели/API**, не зеркало MSI агента ([§5](#5-обновления-агента-upload-msi-и-выбор-версии)).
+
+### Ветка, check, apply
+
+| Шаг | Действие |
+|-----|----------|
+| Ветка | Default **`main`**. Выберите ветку (список из GitHub или ввод) и сохраните. |
+| **Проверить обновления** | Сравнение текущего installed (branch + sha, опц. `VERSION`) с remote HEAD выбранной ветки. |
+| **Установить** | Скачать commit → слот в `/var/lib/bad/server-releases/` → promote `/opt/bad` → **автоrestart** `bad-api`. |
+
+Apply идёт через systemd helper (`bad-server-update-apply.path` → `bad-apply-server-update`) — **как TLS apply**, без пароля sudo в панели и без хранения root password.
+
+### Откат
+
+Хранятся **≤ 3** прошлых успешных слотов; у каждого метка **`branch` + `sha`** (+ время apply). В таблице слотов — **Откат** → тот же promote + restart. Prune FIFO по времени apply.
+
+### GitHub token
+
+| | |
+|--|--|
+| Где | `BAD_GITHUB_TOKEN` в `/etc/bad/site.env` и/или файл `/etc/bad/github_token` (`440`); UI показывает только «задан / нет», plaintext в HTML **не** отдаётся. |
+| Scopes | Read (check/fetch tarball): **`contents:read`**. Кнопка сборки MSI: ещё **`actions:write`** (`workflow_dispatch`). Public repo: token для read опционален; для Actions — всё равно нужен. |
+| Логи | Не печатать token (см. guideline). |
+
+Один PAT может обслуживать и sync зеркала агента, и обновление сервера — предпочтителен fine-scoped token / GitHub App, не classic с полным repo.
+
+### MSI с GitHub (отдельно от зеркала)
+
+На той же странице — кнопка вроде **«Собрать MSI на GitHub»**: `workflow_dispatch` workflow `release-msi` → poll → download → ingest в **зеркало агента** (`/settings/updates`). Не блокирует self-update сервера. Зеркало MSI и **«Синхронизировать сейчас»** на странице агента **остаются**. Authenticode не требуется.
+
+## 5. Обновления агента: upload MSI и выбор версии
 
 Страница: **Параметры → Обновления агента** (`/settings/updates`). Каталог на диске: `BAD_AGENT_UPDATES_DIR/{version}/bad-agent-{version}.msi` (+ `agent-release.json`). Агенты качают только с этого сервера; цель версии — knob `update_target` в политиках.
 
@@ -237,7 +269,7 @@ GitHub: **«Синхронизировать сейчас»** (`POST /settings/u
 
 Где задать: **Параметры → Политики** (`update_target` в форме) или override на карточке устройства. Канон — `update_target` (алиас `desired_agent_version`). `update_enabled=false` — агент MSI не ставит. Агент следует `update_available` с сервера (upgrade и downgrade).
 
-## 5. Site backup / restore
+## 6. Site backup / restore
 
 Три разных артефакта (не путать). **Дамп БД ≠ ключи.**
 
@@ -267,7 +299,7 @@ sudo bash deploy/debian/restore-site-bundle.sh /path/to/bad-site-bundle-….tar.
 
 Скрипт (root): stop `bad-api` → `pg_restore` dump + keys в `/etc/bad` → start. Перед боем — пробный прогон. После: health, login, при необходимости MSI в `/settings/updates`.
 
-## 6. Ops-блок на Обзоре
+## 7. Ops-блок на Обзоре
 
 На **`/` / `/overview`** помимо обычных счётчиков (в т.ч. **Устарел** / stale):
 

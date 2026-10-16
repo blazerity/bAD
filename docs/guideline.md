@@ -76,7 +76,9 @@ BAD_GITHUB_REPO=blazerity/bAD
 BAD_AGENT_UPDATES_DIR=/var/lib/bad/agent-updates
 BAD_AGENT_UPDATE_SYNC_INTERVAL_SECONDS=3600
 BAD_AGENT_UPDATE_SYNC_ON_STARTUP=true
-# BAD_GITHUB_TOKEN=...   # только если repo private
+# BAD_GITHUB_TOKEN=...   # private repo + panel server-update / Actions MSI
+#   scopes: contents:read; для «Собрать MSI» — actions:write
+# BAD_GITHUB_TOKEN_FILE=/etc/bad/github_token   # опц. файл 440
 BAD_BACKUP_DIR=/var/lib/bad/backups
 # BAD_BACKUP_INTERVAL_SECONDS=3600
 ```
@@ -95,6 +97,7 @@ BAD_BACKUP_DIR=/var/lib/bad/backups
   - Хранение и очистка (retention days + фоновый prune)
   - Резервные копии (daily `pg_dump -Fc` + **Скачать site bundle**; restore `restore-site-bundle.sh`)
   - Политики агента (`update_target`: latest / pin)
+  - **Обновление сервера** (`/settings/server-update`): ветка default `main`, check/apply/rollback ≤3 (branch+sha), token без plaintext; apply через systemd helper (не sudo-password); MSI `workflow_dispatch` отдельно от зеркала агента — [operator-guide](operator-guide.md#4-обновление-сервера-из-github)
   - Обновления агента (каталог MSI, «Подгрузить в зеркало», Latest; секция Enrollment + «Сменить enrollment token»)
 - **Обзор**: empty mirror, version drift, broken pin, revoked active.
 - Login: local first, optional LDAP; local admin — break-glass. Не возвращать paste-admin-token gate.
