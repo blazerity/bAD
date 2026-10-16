@@ -24,6 +24,7 @@
       {% else %}
       <nav class="nav" aria-label="Основная навигация">
         <a href="/">{{ icon('overview') }}<span>Обзор</span></a>
+        <a href="/dashboard">{{ icon('dashboard') }}<span>Дашборд</span></a>
         <a href="/devices">{{ icon('devices') }}<span>Устройства</span></a>
         <a href="/events">{{ icon('events') }}<span>События</span></a>
         {% if user.is_admin %}

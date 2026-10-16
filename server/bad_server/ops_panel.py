@@ -2,6 +2,7 @@
 
 Только сборка контекста для web UI из уже существующих полей (tls / enrollment / ops /
 meta.config_local / sources). Без новых таблиц БД.
+Дашборд (/dashboard): агрегаты park/version/wave/os/model (контракт overview-dashboard).
 """
 
 from __future__ import annotations
@@ -14,6 +15,12 @@ from .enrollment_ops import enrollment_status
 from .tls_ops import tls_panel_mode
 
 WAVE_FILTERS = frozenset({"drift", "revoked", "agent_local", "stale"})
+
+# Дашборд D1–D5 (согласовано с UI Lead / контрактом)
+VERSION_BAR_TOP = 6
+OS_DOMAIN_BAR_TOP = 5
+MODEL_BAR_TOP = 5
+INVENTORY_SCAN_CAP = 500
 
 _SOURCE_LABEL_RU = {
     "default": "по умолчанию",
@@ -269,6 +276,256 @@ def build_attention_queue(
 def normalize_wave_filter(raw: Optional[str]) -> Optional[str]:
     text = (raw or "").strip().casefold()
     return text if text in WAVE_FILTERS else None
+
+
+def _pct(part: int, whole: int) -> float:
+    if whole <= 0:
+        return 0.0
+    return round(100.0 * float(part) / float(whole), 1)
+
+
+def _top_bars(
+    counts: dict[str, int],
+    *,
+    top: int,
+    total: int,
+    other_label: str = "прочие",
+) -> list[dict[str, Any]]:
+    """Top-N + «прочие» для horizontal bars."""
+    ranked = sorted(counts.items(), key=lambda x: (-x[1], x[0]))
+    items: list[dict[str, Any]] = []
+    for label, count in ranked[: max(0, top)]:
+        items.append(
+            {
+                "label": label,
+                "count": count,
+                "pct": _pct(count, total),
+                "is_other": False,
+            }
+        )
+    rest = sum(c for _, c in ranked[top:]) if top >= 0 else 0
+    if rest > 0:
+        items.append(
+            {
+                "label": other_label,
+                "count": rest,
+                "pct": _pct(rest, total),
+                "is_other": True,
+            }
+        )
+    return items
+
+
+def build_wave_counts(
+    active: list[dict[str, Any]],
+    *,
+    ops: dict[str, Any],
+    stale_n: int,
+) -> dict[str, Any]:
+    """O8 / D3: counts волны с deeplink (Обзор — числа; Дашборд — chips)."""
+    drift_n = int(ops.get("version_drift_count") or 0)
+    revoked_n = int(ops.get("revoked_active") or 0)
+    agent_local_n = sum(1 for d in active if device_has_agent_local(d))
+    chips = [
+        {
+            "id": "drift",
+            "label": "Дрейф версий",
+            "count": drift_n,
+            "href": "/devices?wave=drift",
+        },
+        {
+            "id": "revoked",
+            "label": "Отозваны",
+            "count": revoked_n,
+            "href": "/devices?wave=revoked",
+        },
+        {
+            "id": "agent_local",
+            "label": "agent_local",
+            "count": agent_local_n,
+            "href": "/devices?wave=agent_local",
+        },
+        {
+            "id": "stale",
+            "label": "Устарели",
+            "count": int(stale_n),
+            "href": "/devices?wave=stale",
+        },
+    ]
+    return {
+        "drift": drift_n,
+        "revoked": revoked_n,
+        "agent_local": agent_local_n,
+        "stale": int(stale_n),
+        "chips": chips,
+    }
+
+
+def build_dashboard_stats(
+    db: Any,
+    *,
+    stale_after_seconds: int,
+    stats: dict[str, Any],
+    ops: dict[str, Any],
+) -> dict[str, Any]:
+    """Агрегаты SSR для /dashboard (D1–D5). Не публичный /v1.
+
+    Поля: park_bar, agent_version_bars, wave_chips, os_bars, domain_bars,
+    model_bars, hardware_feed, mirror. См. server-lead-overview-dashboard.md.
+    """
+    del stale_after_seconds  # silence уже в stats; параметр для симметрии home()
+    active = db.list_devices(archived=False)
+    total_active = int(stats.get("total_active") or len(active))
+    online = int(stats.get("online") or 0)
+    stale_n = int(stats.get("stale") or 0)
+    archived_n = int(stats.get("archived") or 0)
+
+    # D1 — park bar (архив aside)
+    park_bar = {
+        "segments": [
+            {
+                "id": "online",
+                "label": "Онлайн",
+                "count": online,
+                "pct": _pct(online, total_active),
+                "href": "/devices",
+            },
+            {
+                "id": "stale",
+                "label": "Устарели",
+                "count": stale_n,
+                "pct": _pct(stale_n, total_active),
+                "href": "/devices?wave=stale",
+            },
+        ],
+        "archived": {
+            "count": archived_n,
+            "href": "/devices?archive=1",
+        },
+        "total_active": total_active,
+    }
+
+    # D2 — version bars
+    ver_counts: dict[str, int] = {}
+    for row in stats.get("agent_versions") or []:
+        ver_counts[str(row.get("version") or "—")] = int(row.get("count") or 0)
+    version_items = [
+        {
+            "version": item["label"],
+            "count": item["count"],
+            "pct": item["pct"],
+            "is_other": item["is_other"],
+        }
+        for item in _top_bars(ver_counts, top=VERSION_BAR_TOP, total=total_active)
+    ]
+    agent_version_bars = {
+        "items": version_items,
+        "latest": ops.get("latest_version"),
+        "drift_count": int(ops.get("version_drift_count") or 0),
+        "drift_href": "/devices?wave=drift",
+        "total": total_active,
+        "version_count": len(ver_counts),
+    }
+
+    # D3 — wave chips
+    wave = build_wave_counts(active, ops=ops, stale_n=stale_n)
+    wave_chips = wave["chips"]
+
+    # D4 / D5 — OS / domain / model (cap scan)
+    os_counts: dict[str, int] = {}
+    domain_counts: dict[str, int] = {}
+    model_counts: dict[str, int] = {}
+    scan_ids = [d["device_id"] for d in active[:INVENTORY_SCAN_CAP]]
+    payloads = db.latest_inventory_payloads(scan_ids, cap=INVENTORY_SCAN_CAP)
+    scanned = 0
+    for _device_id, payload in payloads.items():
+        scanned += 1
+        host = payload.get("host") if isinstance(payload, dict) else None
+        if not isinstance(host, dict):
+            host = {}
+        os_raw = host.get("os")
+        if isinstance(os_raw, dict):
+            caption = str(os_raw.get("caption") or "").strip() or "—"
+        elif isinstance(os_raw, str) and os_raw.strip():
+            caption = os_raw.strip()
+        else:
+            caption = "—"
+        domain = str(host.get("domain") or "").strip() or "—"
+        hw = payload.get("hardware") if isinstance(payload, dict) else None
+        if not isinstance(hw, dict):
+            hw = {}
+        model_label = " · ".join(
+            str(x).strip()
+            for x in (hw.get("manufacturer"), hw.get("model"))
+            if x and str(x).strip()
+        ) or "—"
+        os_counts[caption] = os_counts.get(caption, 0) + 1
+        domain_counts[domain] = domain_counts.get(domain, 0) + 1
+        model_counts[model_label] = model_counts.get(model_label, 0) + 1
+    missing = max(0, len(scan_ids) - scanned)
+    if missing:
+        os_counts["—"] = os_counts.get("—", 0) + missing
+        domain_counts["—"] = domain_counts.get("—", 0) + missing
+        model_counts["—"] = model_counts.get("—", 0) + missing
+        scanned += missing
+
+    bar_total = max(scanned, 1)
+    capped = len(active) > INVENTORY_SCAN_CAP
+    os_bars = {
+        "items": _top_bars(os_counts, top=OS_DOMAIN_BAR_TOP, total=bar_total),
+        "scanned": scanned,
+        "capped": capped,
+        "href": "/devices",
+    }
+    domain_bars = {
+        "items": _top_bars(domain_counts, top=OS_DOMAIN_BAR_TOP, total=bar_total),
+        "scanned": scanned,
+        "capped": capped,
+        "href": "/devices",
+    }
+    model_bars = {
+        "items": _top_bars(model_counts, top=MODEL_BAR_TOP, total=bar_total),
+        "scanned": scanned,
+        "capped": capped,
+        "href": "/devices",
+    }
+
+    # hardware feed (на Дашборде — опц.; Обзор держит список O7)
+    hw_items = list(stats.get("recent_hardware_events") or [])[:8]
+    hardware_feed = {
+        "items": hw_items,
+        "href": "/events",
+        "empty": not hw_items,
+    }
+
+    mirror = {
+        "empty": bool(ops.get("mirror_empty")),
+        "latest_version": ops.get("latest_version"),
+        "count": int(ops.get("mirror_count") or 0),
+        "synced_at": ops.get("latest_synced_at"),
+        "href": "/settings/updates",
+    }
+
+    return {
+        "park_bar": park_bar,
+        "agent_version_bars": agent_version_bars,
+        "wave_chips": wave_chips,
+        "wave_counts": {
+            "drift": wave["drift"],
+            "revoked": wave["revoked"],
+            "agent_local": wave["agent_local"],
+            "stale": wave["stale"],
+        },
+        "os_bars": os_bars,
+        "domain_bars": domain_bars,
+        "model_bars": model_bars,
+        "hardware_feed": hardware_feed,
+        "mirror": mirror,
+    }
+
+
+# Совместимое имя для старых ссылок на агрегатор.
+build_overview_dashboard = build_dashboard_stats
 
 
 def device_has_agent_local(device: dict[str, Any]) -> bool:

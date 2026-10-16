@@ -4,7 +4,7 @@ import csv
 import io
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
@@ -59,6 +59,8 @@ from .ops_panel import (
     build_attention_queue,
     build_bootstrap_checklist,
     build_config_winner,
+    build_dashboard_stats,
+    build_wave_counts,
     device_has_agent_local,
     filter_devices_by_wave,
     normalize_wave_filter,
@@ -423,19 +425,32 @@ class SmtpFormData:
         self.notify_domain = notify_domain
 
 
-@router.get("/", response_class=HTMLResponse)
-def home(
-    request: Request,
-    user: WebUser = Depends(require_web_user),
-    db: Database = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-):
+def _overview_page_context(
+    *,
+    user: WebUser,
+    db: Database,
+    settings: Settings,
+) -> dict[str, Any]:
+    """SSR context Обзора (O*): admin/ops, без склада графиков Дашборда."""
     stats = db.overview_stats(stale_after_seconds=settings.device_stale_after_seconds)
     ops = ops_update_signals(
         db, stale_after_seconds=settings.device_stale_after_seconds
     )
     security = security_status(db, settings)
     ops = merge_security_into_ops(ops, security)
+    # O8: числа волны (не bar-chart)
+    active = db.list_devices(archived=False)
+    wave = build_wave_counts(
+        active, ops=ops, stale_n=int(stats.get("stale") or 0)
+    )
+    ops["wave_counts"] = {
+        "drift": wave["drift"],
+        "revoked": wave["revoked"],
+        "agent_local": wave["agent_local"],
+        "stale": wave["stale"],
+    }
+    ops["wave_chips"] = wave["chips"]
+    ops["agent_local_count"] = wave["agent_local"]
     tls_mode = str(ops.get("tls_mode") or tls_panel_mode() or "http")
     bootstrap = build_bootstrap_checklist(
         user=user,
@@ -452,22 +467,34 @@ def home(
         tls_mode=tls_mode,
         security=security,
     )
-    # Panel-update current.json: branch/sha/server VERSION for Обзор (§3 split).
     server_current = server_read_current(releases_dir(settings))
-    return _html(
-        request,
-        "overview.html",
-        {
-            "user": user,
-            "stats": stats,
-            "ops": ops,
-            "security": security,
-            "bootstrap": bootstrap,
-            "attention": attention,
-            "stale_after_seconds": settings.device_stale_after_seconds,
-            "server_current": server_current,
+    versions = list(stats.get("agent_versions") or [])
+    return {
+        "user": user,
+        "stats": stats,
+        "ops": ops,
+        "security": security,
+        "bootstrap": bootstrap,
+        "attention": attention,
+        "stale_after_seconds": settings.device_stale_after_seconds,
+        "server_current": server_current,
+        "wave_chips": wave["chips"],
+        "agent_version_summary": {
+            "top": versions[:6],
+            "total_versions": len(versions),
+            "dashboard_href": "/dashboard",
         },
-    )
+    }
+
+
+@router.get("/", response_class=HTMLResponse)
+def home(
+    request: Request,
+    user: WebUser = Depends(require_web_user),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    return _html(request, "overview.html", _overview_page_context(user=user, db=db, settings=settings))
 
 
 @router.get("/overview", response_class=HTMLResponse)
@@ -478,6 +505,40 @@ def overview_alias(
     settings: Settings = Depends(get_settings),
 ):
     return home(request, user=user, db=db, settings=settings)
+
+
+@router.get("/dashboard", response_class=HTMLResponse)
+def dashboard_page(
+    request: Request,
+    user: WebUser = Depends(require_web_user),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    """Отдельная вкладка Дашборд: визуальные агрегаты D1–D5 (не /v1)."""
+    stats = db.overview_stats(stale_after_seconds=settings.device_stale_after_seconds)
+    ops = ops_update_signals(
+        db, stale_after_seconds=settings.device_stale_after_seconds
+    )
+    security = security_status(db, settings)
+    ops = merge_security_into_ops(ops, security)
+    dashboard = build_dashboard_stats(
+        db,
+        stale_after_seconds=settings.device_stale_after_seconds,
+        stats=stats,
+        ops=ops,
+    )
+    return _html(
+        request,
+        "dashboard.html",
+        {
+            "user": user,
+            "stats": stats,
+            "ops": ops,
+            "security": security,
+            "dashboard": dashboard,
+            "stale_after_seconds": settings.device_stale_after_seconds,
+        },
+    )
 
 
 @router.get("/login", response_class=HTMLResponse)

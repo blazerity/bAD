@@ -1185,6 +1185,35 @@ class Database:
             return None
         return payload if isinstance(payload, dict) else None
 
+    def latest_inventory_payloads(
+        self, device_ids: list[str], *, cap: int = 500
+    ) -> dict[str, dict[str, Any]]:
+        """Latest inventory payload по device_id (один проход, cap для Дашборда D4/D5)."""
+        ids = [d for d in device_ids if d][: max(0, int(cap))]
+        if not ids:
+            return {}
+        out: dict[str, dict[str, Any]] = {}
+        placeholders = ",".join("?" for _ in ids)
+        with self.connection() as conn:
+            # Postgres: DISTINCT ON; CompatConnection прокидывает как есть.
+            rows = conn.execute(
+                f"""
+                SELECT DISTINCT ON (device_id) device_id, payload_json
+                FROM inventory_snapshots
+                WHERE device_id IN ({placeholders})
+                ORDER BY device_id, received_at DESC, id DESC
+                """,
+                tuple(ids),
+            ).fetchall()
+        for row in rows:
+            try:
+                payload = json.loads(row["payload_json"])
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if isinstance(payload, dict):
+                out[str(row["device_id"])] = payload
+        return out
+
     def compute_device_effective_config(self, device_id: str) -> Optional[dict[str, Any]]:
         from .agent_config import compute_effective_config, provenance_from_effective
 
@@ -1359,17 +1388,26 @@ class Database:
         ]
         from .smtp_mail import HARDWARE_ALERT_TYPES
 
+        # O7 / D feed: лента 5–8 событий железа (не график)
         recent_hw = [
             e
             for e in self.list_device_events(limit=40)
             if e.get("type") in HARDWARE_ALERT_TYPES
-        ][:10]
+        ][:8]
+        total_active = len(active)
+        archived_n = len(archived)
         return {
-            "total_active": len(active),
+            "total_active": total_active,
             "online": online,
             "stale": stale,
-            "archived": len(archived),
-            "total_all": len(active) + len(archived),
+            "archived": archived_n,
+            "total_all": total_active + archived_n,
+            "park": {
+                "online": online,
+                "stale": stale,
+                "archived": archived_n,
+                "total_active": total_active,
+            },
             "agent_versions": version_breakdown,
             "recent_hardware_events": recent_hw,
         }
