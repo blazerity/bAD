@@ -71,11 +71,10 @@ class CompatConnection:
         self, sql: str, params: Optional[Union[Sequence[Any], dict[str, Any]]] = None
     ) -> CompatCursor:
         adapted = adapt_sql(sql, self.backend)
-        if self.backend == BACKEND_POSTGRES:
-            cur = self._raw.execute(adapted, params or ())
-            return CompatCursor(cur, backend=self.backend)
         cur = self._raw.execute(adapted, params or ())
-        return CompatCursor(cur, backend=self.backend, lastrowid=cur.lastrowid)
+        # lastrowid — SQLite; у psycopg его нет (RETURNING отдельно при необходимости).
+        lastrowid = None if self.backend == BACKEND_POSTGRES else getattr(cur, "lastrowid", None)
+        return CompatCursor(cur, backend=self.backend, lastrowid=lastrowid)
 
     def executescript(self, script: str) -> None:
         if self.backend == BACKEND_SQLITE:

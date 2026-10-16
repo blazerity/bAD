@@ -204,22 +204,21 @@ class Database:
         else:
             self._init_schema_sqlite()
 
+    def _ensure_singleton_settings(self, conn: CompatConnection) -> None:
+        # INSERT OR IGNORE → на PG adapt_sql даёт ON CONFLICT DO NOTHING.
+        for table in ("ldap_settings", "retention_settings", "smtp_settings"):
+            conn.execute(f"INSERT OR IGNORE INTO {table}(id) VALUES (1)")
+
     def _init_schema_postgres(self) -> None:
         with self._connect() as conn:
             conn.executescript(SCHEMA_SQL_POSTGRES)
-            for table in ("ldap_settings", "retention_settings", "smtp_settings"):
-                conn.execute(
-                    f"INSERT INTO {table}(id) VALUES (1) ON CONFLICT DO NOTHING"
-                )
+            self._ensure_singleton_settings(conn)
             conn.commit()
 
     def _init_schema_sqlite(self) -> None:
         with self._connect() as conn:
             conn.executescript(SCHEMA_SQL)
-            # Гарантировать наличие singleton-строк settings
-            conn.execute("INSERT OR IGNORE INTO ldap_settings(id) VALUES (1)")
-            conn.execute("INSERT OR IGNORE INTO retention_settings(id) VALUES (1)")
-            conn.execute("INSERT OR IGNORE INTO smtp_settings(id) VALUES (1)")
+            self._ensure_singleton_settings(conn)
             # Лёгкие миграции для существующих БД (CREATE IF NOT EXISTS
             # не добавляет новые колонки).
             cols = {
