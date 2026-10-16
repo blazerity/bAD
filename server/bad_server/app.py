@@ -129,10 +129,6 @@ async def _stale_alert_loop(app: FastAPI) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
-    if not (settings.database_url or "").strip():
-        raise RuntimeError(
-            "BAD_DATABASE_URL is required (Postgres only; set in site.env)"
-        )
     db = open_database(database_url=settings.database_url)
     settings.agent_updates_dir.mkdir(parents=True, exist_ok=True)
     try:

@@ -138,8 +138,12 @@ def run_pg_dump(database_url: str, dest: Path) -> None:
             tmp.unlink()
         raise RuntimeError(proc.stderr.strip() or f"pg_dump exit {proc.returncode}")
     tmp.replace(dest)
+    _chmod_private(dest)
+
+
+def _chmod_private(path: Path, mode: int = 0o600) -> None:
     try:
-        dest.chmod(0o600)
+        path.chmod(mode)
     except OSError:
         pass
 
@@ -156,10 +160,7 @@ def run_daily_backup(
 
     backup_dir = Path(backup_dir)
     backup_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        backup_dir.chmod(0o700)
-    except OSError:
-        pass
+    _chmod_private(backup_dir, 0o700)
 
     today = utc_today()
     dest = backup_dir / backup_filename(today)

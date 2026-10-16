@@ -18,7 +18,7 @@
   </div>
   {% endif %}
 
-  {% if secrets and secrets.legacy_keys_in_sqlite %}
+  {% if secrets and (secrets.legacy_keys_in_db or secrets.legacy_keys_in_sqlite) %}
   <div class="warn-box" role="status">
     <strong>Ключи ещё в базе (устаревший режим).</strong>
     {{ secrets.hint_ru or "Копия базы = компромисс секретов. Вынесите ключи в файлы на сервере." }}
@@ -66,11 +66,11 @@
   </form>
 
   <h2>Ключи шифрования</h2>
-  {% if secrets and not secrets.legacy_keys_in_sqlite and secrets.ok %}
+  {% if secrets and not (secrets.legacy_keys_in_db or secrets.legacy_keys_in_sqlite) and secrets.ok %}
   <p class="muted">
     Ключи вне базы (как на свежей установке): храните отдельно или берите полный архив.
   </p>
-  {% elif secrets and secrets.legacy_keys_in_sqlite %}
+  {% elif secrets and (secrets.legacy_keys_in_db or secrets.legacy_keys_in_sqlite) %}
   <p class="muted">
     Пока ключи в базе — любая копия базы содержит секреты. Вынесите их в файлы на сервере.
   </p>
