@@ -77,6 +77,7 @@ from .server_update import (
     check_updates as server_check_updates,
     list_remote_branches,
     poll_msi_workflow,
+    read_current as server_read_current,
     releases_dir,
     request_apply as server_request_apply,
     request_set_github_token,
@@ -451,6 +452,8 @@ def home(
         tls_mode=tls_mode,
         security=security,
     )
+    # Panel-update current.json: branch/sha/server VERSION for Обзор (§3 split).
+    server_current = server_read_current(releases_dir(settings))
     return _html(
         request,
         "overview.html",
@@ -462,6 +465,7 @@ def home(
             "bootstrap": bootstrap,
             "attention": attention,
             "stale_after_seconds": settings.device_stale_after_seconds,
+            "server_current": server_current,
         },
     )
 

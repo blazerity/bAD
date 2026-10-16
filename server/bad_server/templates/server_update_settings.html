@@ -31,7 +31,7 @@
       {% endif %}
     </p>
     {% else %}
-    <strong>Уже актуальная версия</strong>
+    <strong>Уже актуальная версия сервера</strong>
     <p class="muted" style="margin:0.35rem 0 0">
       HEAD совпадает с установленным
       <span class="mono">{{ (check.remote.short_sha if check.remote else None) or (panel.current.sha or '')[:12] or '—' }}</span>.
@@ -68,7 +68,7 @@
         {% endif %}
       </dd>
     </div>
-    <div><dt>Версия</dt><dd class="mono">{{ panel.current.version or "—" }}</dd></div>
+    <div><dt>Версия сервера</dt><dd class="mono">{{ panel.current.version or "—" }}</dd></div>
     <div>
       <dt>Установлено</dt>
       <dd class="mono">
@@ -137,7 +137,7 @@
       <tr>
         <th>Ветка</th>
         <th>Commit</th>
-        <th>Версия</th>
+        <th>Версия сервера</th>
         <th>Когда</th>
         <th></th>
       </tr>
@@ -190,8 +190,8 @@
     onsubmit="return confirm('Запустить сборку MSI на ветке {{ panel.prefs.branch or panel.default_branch or 'main' }}?');">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="hidden" name="branch" value="{{ panel.prefs.branch or panel.default_branch or 'main' }}">
-    <label for="msi_version">Версия (опционально)</label>
-    <input id="msi_version" name="version" type="text" placeholder="например 1.0.2" autocomplete="off"
+    <label for="msi_version">Версия агента (опционально)</label>
+    <input id="msi_version" name="version" type="text" placeholder="например 1.0.2 — semver агента, не сервера" autocomplete="off"
       {% if not panel.token_configured %}disabled{% endif %}>
     <div class="form-actions">
       <button type="submit" class="secondary"
@@ -212,7 +212,7 @@
     <div><dt>Run</dt><dd><a href="{{ panel.msi_build.html_url }}" rel="noopener" target="_blank">Открыть в GitHub Actions</a></dd></div>
     {% endif %}
     {% if panel.msi_build.ingested %}
-    <div><dt>В зеркале</dt><dd class="mono">{{ panel.msi_build.ingested.version }} · {{ panel.msi_build.ingested.msi_name }}</dd></div>
+    <div><dt>Версия агента в зеркале</dt><dd class="mono">{{ panel.msi_build.ingested.version }} · {{ panel.msi_build.ingested.msi_name }}</dd></div>
     {% endif %}
   </dl>
   {% endif %}

@@ -27,16 +27,16 @@
     <div><dt>GitHub repo</dt><dd class="mono">{{ github_repo }}</dd></div>
     <div><dt>Каталог MSI</dt><dd class="mono">{{ updates_dir }}</dd></div>
     <div><dt>Интервал sync</dt><dd class="mono">{{ sync_interval }} с</dd></div>
-    <div><dt>Latest</dt><dd class="mono">{% if agent_update %}{{ agent_update.version }}{% else %}—{% endif %}</dd></div>
+    <div><dt>Версия агента (latest)</dt><dd class="mono">{% if agent_update %}{{ agent_update.version }}{% else %}—{% endif %}</dd></div>
   </dl>
 
-  <h2>Каталог версий</h2>
+  <h2>Каталог версий агента</h2>
   {% if msi_versions %}
   <div class="table-scroll">
   <table class="devices">
     <thead>
       <tr>
-        <th>Версия</th>
+        <th>Версия агента</th>
         <th>Файл</th>
         <th>Источник</th>
         <th>SHA256</th>
@@ -93,8 +93,8 @@
     <label for="manifest">Manifest (необязательно)</label>
     <input id="manifest" name="manifest" type="file" accept=".json,application/json">
 
-    <label for="version">Версия (если не в имени / manifest)</label>
-    <input id="version" name="version" type="text" placeholder="0.10.0" autocomplete="off">
+    <label for="version">Версия агента (если не в имени / manifest)</label>
+    <input id="version" name="version" type="text" placeholder="1.0.0" autocomplete="off">
 
     <label for="sha256">SHA256 (необязательно, проверка)</label>
     <input id="sha256" name="sha256" type="text" class="mono" placeholder="hex" autocomplete="off">

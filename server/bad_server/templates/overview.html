@@ -5,6 +5,14 @@
 <section>
   <h1 class="with-icon">{{ icon('devices') }}Обзор</h1>
   <p class="muted">Сводка по парку. Устарел — нет контакта дольше {{ stale_after_seconds }} с.</p>
+  <p class="muted">
+    Версия сервера:
+    <span class="mono">{{ (server_current.version if server_current else None) or app_version }}</span>
+    {% if server_current and (server_current.branch or server_current.sha) %}
+    ·
+    <span class="mono">{{ server_current.branch or "—" }} @ {{ (server_current.sha or "")[:12] or "—" }}</span>
+    {% endif %}
+  </p>
 
   {% if bootstrap and bootstrap.visible %}
   <div class="bootstrap-checklist" role="status">
@@ -84,7 +92,7 @@
   <div class="table-scroll">
   <table class="devices">
     <thead>
-      <tr><th>Версия</th><th>Устройств</th></tr>
+      <tr><th>Версия агента</th><th>Устройств</th></tr>
     </thead>
     <tbody>
       {% for row in stats.agent_versions %}
@@ -105,21 +113,22 @@
   <p class="error">Зеркало пусто — <a href="/settings/updates">загрузите MSI или sync</a>.</p>
   {% else %}
   <p class="muted">
-    Latest: <span class="mono">{{ ops.latest_version or "—" }}</span>
-    · версий: <span class="mono">{{ ops.mirror_count }}</span>
+    Версия агента (latest): <span class="mono">{{ ops.latest_version or "—" }}</span>
+    · версий в каталоге: <span class="mono">{{ ops.mirror_count }}</span>
     · sync: <span class="mono">{{ ops.latest_synced_at or "—" }}</span>
   </p>
   {% endif %}
 
   {% if ops.version_drift_count %}
-  <h2>Отстающие (кратко)</h2>
+  <h2>Отстающие по версии агента</h2>
   <p class="muted">
+    Агент vs цель MSI в зеркале (не версия сервера).
     {{ ops.version_drift_count }} —
     <a href="/devices?wave=drift">открыть фильтр волны</a>.
   </p>
   <div class="table-scroll">
   <table class="devices">
-    <thead><tr><th>Устройство</th><th>Сейчас</th><th>Цель</th><th>Want</th></tr></thead>
+    <thead><tr><th>Устройство</th><th>Версия агента</th><th>Цель MSI</th><th>Want</th></tr></thead>
     <tbody>
     {% for d in ops.version_drift[:8] %}
       <tr>
