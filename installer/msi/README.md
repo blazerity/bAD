@@ -117,4 +117,4 @@ git push origin v0.10.0
 
 ## UpgradeCode
 
-Стабильный `UpgradeCode` MSI: `BADA0001-BADA-4B01-8BAD-00BADA000001` (валидный GUID; прежний `…BLAZERITY0BAD` WiX 5 отклонял как не-hex).
+Стабильный `UpgradeCode` MSI: `BADA0001-BADA-4B01-8BAD-00BADA000001` (валидный GUID; прежний суффикс `BLAZERITY0BAD` WiX 5 отклонял как не-hex). Component Guid: `…000003`…`…000006`.
