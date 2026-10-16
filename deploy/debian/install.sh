@@ -36,7 +36,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 if [[ -f "${REPO_ROOT}/VERSION" ]]; then
   BAD_VERSION="${BAD_VERSION:-$(head -1 "${REPO_ROOT}/VERSION" | tr -d '\r\n')}"
 else
-  BAD_VERSION="${BAD_VERSION:-1.1.1}"
+  BAD_VERSION="${BAD_VERSION:-1.2.0}"
 fi
 SITE_ENV=/etc/bad/site.env
 
