@@ -5,13 +5,18 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from .config import Settings
 from .db import Database, utc_now
 from .security import generate_token, hash_secret
 
 logger = logging.getLogger(__name__)
+
+ENROLLMENT_ROTATE_HINT_RU = (
+    "После волны MSI смените enrollment token (SEC-011): уже записанные агенты "
+    "продолжат работу по API key; новый token нужен только для следующих установок."
+)
 
 _ENROLL_LINE_RE = re.compile(
     r"^(BAD_ENROLLMENT_TOKEN=)(.*)$", re.MULTILINE
@@ -110,4 +115,35 @@ def enrollment_status(db: Database, settings: Settings) -> dict:
         "token_file": str(enrollment_token_file(settings)),
         "token_file_exists": enrollment_token_file(settings).is_file(),
         "env_bootstrap": bool(settings.enrollment_token),
+        "last_enrollment_at": db.get_site_secret("last_enrollment_at"),
+    }
+
+
+def mark_device_enrolled(db: Database) -> None:
+    """Stamp last successful new enroll (wave signal for rotation runbook)."""
+    db.set_site_secret("last_enrollment_at", utc_now())
+
+
+def enrollment_rotation_signals(
+    db: Database,
+    settings: Settings,
+) -> dict[str, Any]:
+    """UI/admin hook: remind to rotate enrollment after an MSI wave (SEC-011).
+
+    ``rotation_due`` when active devices enrolled at/after last rotation
+    (or all actives if never rotated) reach ``enrollment_rotate_after_enrolls``.
+    """
+    status = enrollment_status(db, settings)
+    rotated_at = status.get("rotated_at") or None
+    threshold = max(1, int(settings.enrollment_rotate_after_enrolls or 1))
+    enrolled_since = db.count_enrolled_since(rotated_at)
+    due = enrolled_since >= threshold
+    return {
+        **status,
+        "enrolled_since_rotation": enrolled_since,
+        "rotation_due": due,
+        "threshold": threshold,
+        "hint_ru": ENROLLMENT_ROTATE_HINT_RU if due else None,
+        "ui_path": "/settings/updates",
+        "api_path": "/v1/admin/enrollment/rotate",
     }

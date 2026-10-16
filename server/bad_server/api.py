@@ -128,6 +128,12 @@ def enroll(
         ) from exc
     if created:
         try:
+            from .enrollment_ops import mark_device_enrolled
+
+            mark_device_enrolled(db)
+        except Exception:  # noqa: BLE001
+            logger.exception("last_enrollment_at stamp failed (ignored)")
+        try:
             smtp_row = db.get_smtp_settings()
             password = ""
             enc = smtp_row.get("password_enc") or ""
@@ -594,6 +600,18 @@ def admin_enrollment_rotate(
         "wrote_token_file": result.get("wrote_token_file"),
         "updated_site_env": result.get("updated_site_env"),
     }
+
+
+@router.get("/admin/security-status")
+def admin_security_status(
+    _admin: str = Depends(require_admin_token),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    """Theme A: HTTPS-first + SEC-005 + enrollment rotation hooks (no plaintext secrets)."""
+    from .security_ops import security_status
+
+    return security_status(db, settings)
 
 
 @router.get("/admin/agent-config/defaults")

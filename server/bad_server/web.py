@@ -49,6 +49,7 @@ from .agent_update import (
 from .backup import backup_status, run_daily_backup
 from .enrollment_ops import enrollment_status, rotate_enrollment_token
 from .http_bootstrap import HTTP_SENSITIVE_MSG, sensitive_over_http_blocked
+from .security_ops import merge_security_into_ops, security_status
 from .site_bundle import build_site_bundle
 from .tls_ops import (
     https_panel_url,
@@ -406,6 +407,8 @@ def home(
     ops = ops_update_signals(
         db, stale_after_seconds=settings.device_stale_after_seconds
     )
+    security = security_status(db, settings)
+    ops = merge_security_into_ops(ops, security)
     return _html(
         request,
         "overview.html",
@@ -413,6 +416,7 @@ def home(
             "user": user,
             "stats": stats,
             "ops": ops,
+            "security": security,
             "stale_after_seconds": settings.device_stale_after_seconds,
         },
     )
