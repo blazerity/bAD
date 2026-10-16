@@ -18,7 +18,14 @@ from fastapi import (
 from fastapi.responses import FileResponse
 
 from . import __version__
-from .agent_config import DEFAULT_AGENT_SETTINGS, sanitize_settings
+from .agent_config import (
+    ALLOWED_SETTING_KEYS,
+    CONDITION_FIELDS,
+    CONDITION_OPS,
+    CONFIG_SOURCES,
+    DEFAULT_AGENT_SETTINGS,
+    sanitize_settings,
+)
 from .agent_update import check_update, sync_from_github
 from .auth import get_db, require_admin_token, require_api_key, require_enrollment_token
 from .config import Settings, get_settings
@@ -618,7 +625,16 @@ def admin_security_status(
 def admin_agent_config_defaults(
     _admin: str = Depends(require_admin_token),
 ) -> dict[str, Any]:
-    return {"settings": dict(DEFAULT_AGENT_SETTINGS)}
+    """Allowlist knobs + condition fields (тема C) для UI/интеграторов."""
+    return {
+        "settings": dict(DEFAULT_AGENT_SETTINGS),
+        "allowed_setting_keys": sorted(ALLOWED_SETTING_KEYS),
+        "condition_fields": sorted(CONDITION_FIELDS),
+        "condition_ops": sorted(CONDITION_OPS),
+        "config_sources": sorted(CONFIG_SOURCES),
+        "remote_merge": "defaults < matching policies (priority asc) < device_override",
+        "ui_provenance_order": "agent_local > device_override > policy > default",
+    }
 
 
 @router.get("/admin/policies")
@@ -700,9 +716,12 @@ def admin_device_config(
     return {
         "device_id": device_id,
         "defaults": dict(DEFAULT_AGENT_SETTINGS),
+        "allowed_setting_keys": sorted(ALLOWED_SETTING_KEYS),
         "effective": effective["settings"],
         "version": effective["version"],
         "matched_policies": effective["matched_policies"],
+        "policy_keys": effective.get("policy_keys") or [],
+        "override_keys": effective.get("override_keys") or [],
         "context": effective["context"],
         "override": effective.get("override"),
         "has_override": effective["has_override"],

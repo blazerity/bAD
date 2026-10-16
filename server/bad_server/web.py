@@ -13,6 +13,7 @@ from fastapi.templating import Jinja2Templates
 
 from . import __version__
 from .agent_config import (
+    ALLOWED_SETTING_KEYS,
     CONDITION_FIELDS,
     CONDITION_OPS,
     DEFAULT_AGENT_SETTINGS,
@@ -789,6 +790,9 @@ def _device_config_context(
         "agent_local_keys": effective.get("agent_local_keys") or [],
         "has_agent_local": bool(effective.get("has_agent_local")),
         "config_local": effective.get("config_local"),
+        "policy_keys": effective.get("policy_keys") or [],
+        "override_keys": effective.get("override_keys") or [],
+        "match_context": effective.get("context") or {},
         "silence": silence,
         "health_snippet": health_snippet(detail.get("meta")),
         "recent_events": recent_events,
@@ -1312,6 +1316,7 @@ def _policies_context(
         "user": user,
         "policies": db.list_agent_policies(),
         "defaults": dict(DEFAULT_AGENT_SETTINGS),
+        "allowed_setting_keys": sorted(ALLOWED_SETTING_KEYS),
         "condition_fields": sorted(CONDITION_FIELDS),
         "condition_ops": sorted(CONDITION_OPS),
         "msi_versions": db.list_agent_msi_versions(),
