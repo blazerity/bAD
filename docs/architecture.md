@@ -49,7 +49,7 @@ flowchart LR
 - Hardware (когда `collect_hardware`): CPU, `ram_bytes`, disks/volumes **плюс** `serial_number`, `model`, `manufacturer`, `bios_version` (+ manufacturer/release), `battery` (charge/status/runtime), `monitors[]` (EDID/WMI, cap 8), `gpus[]` (cap 16), `ram_modules[]` (cap 32), `ram_memory_type`. Host: `ad_distinguished_name` / `ad_ou` (domain-joined, soft-fail workgroup). `minidumps` — метаданные `%SystemRoot%\Minidump\*.dmp` / `Memory.dmp` (имена/время/count, **без** тел файлов, cap 20). Поля additive внутри `schema_version=2`.
 - HTTPS only; cleartext `http://` отклоняется (кроме явного `BAD_ALLOW_HTTP=1` для локальной разработки).
 - `User-Agent: bad-agent/<semver>`; в payload поле `agent_version`.
-- Heartbeat несёт лёгкий health: `last_inventory_ok` / `last_inventory_error`, `agent_uptime_seconds`, `system_drive_free_bytes` (DriveInfo, без тяжёлого WMI) → device `meta`.
+- Heartbeat несёт лёгкий health: `last_inventory_ok` / `last_inventory_error`, `agent_uptime_seconds`, `system_drive_free_bytes` (DriveInfo, без тяжёлого WMI) → device `meta`; опционально `config_local` (manual keys / agent_local) — см. API notes.
 - Local CLI reports (`bad` / `--html`): ASCII/HTML показывают serial/BIOS/battery/monitors/AD OU/minidumps при наличии; HTML визуально согласован с web panel (Win11/Fluent light).
 - Крупные сбои enroll/update/revoke → Windows Application Event Log (source `bAD Agent`).
 - Service CLI: `BadAgent.exe service status|start|stop|restart` (elevated); без подкоманды — host службы. См. [agents.md](agents.md).
@@ -63,13 +63,14 @@ flowchart LR
   OV --> EFF["effective settings"]
   EFF --> API["GET /v1/agent/config\nor heartbeat.config"]
   API --> AG["BadAgent config.json"]
+  AG -->|"heartbeat config_local"| META["device meta\n+ sources"]
 ```
 
 - SQLite: `agent_policies` (name, priority, conditions JSON, settings JSON), `device_config_overrides` (per `device_id`).
 - Условия: `hostname` / `domain` / `os_caption` / `tag` × `equals` / `contains` (AND внутри политики).
 - Safe knobs: `inventory_interval_hours`, `heartbeat_interval_minutes`, `update_check_interval_hours`, `update_enabled`, `collect_hardware` (default true), `collect_users` (default true), `collect_software` (default false, opt-in).
 - Software inventory (когда `collect_software`): лёгкий список name/version/publisher из Uninstall registry (64+32), cap 500.
-- Web: `/settings/policies`; на странице устройства — effective + manual override.
+- Web: `/settings/policies`; на странице устройства — effective + override **и** источник knobs (`sources` / `agent_local`) — см. [API notes: config source](#api-notes-config-source-provenance).
 - Теги устройства: JSON-массив `tags_json` на `devices`; правка в web / `PUT /v1/devices/{id}/tags`; фильтр списка `?tag=`.
 
 ## Поток обновления агента
@@ -113,7 +114,7 @@ flowchart LR
 |--------|------|------|------------|
 | `GET` | `/v1/health` | нет | liveness + `version` |
 | `POST` | `/v1/enroll` | enrollment Bearer | обмен на per-agent API key |
-| `POST` | `/v1/heartbeat` | API key | `last_seen` + optional health → meta; piggyback `config` если `config_version` устарел |
+| `POST` | `/v1/heartbeat` | API key | `last_seen` + optional health + optional `config_local` → meta; piggyback `config` если `config_version` устарел |
 | `POST` | `/v1/inventory` | API key | upsert снимка по `device_id` (host/network + optional hardware/users/software); diff → `device_events` |
 | `GET` | `/v1/agent/config` | API key | effective settings только для своего устройства |
 | `GET` | `/v1/devices` | admin Bearer | список (`?tag=&q=&archived=&page=&page_size=`) |
@@ -129,7 +130,7 @@ flowchart LR
 | `GET` | `/v1/admin/agent-update` | admin | статус зеркала |
 | `POST` | `/v1/admin/agent-update/sync` | admin | sync с GitHub сейчас |
 | `GET/POST/PUT/DELETE` | `/v1/admin/policies*` | admin | CRUD условных политик |
-| `GET` | `/v1/admin/devices/{id}/config` | admin | effective + override + matched |
+| `GET` | `/v1/admin/devices/{id}/config` | admin | effective + override + matched + `sources` / `agent_local_keys` |
 | `PUT/DELETE` | `/v1/admin/devices/{id}/config-override` | admin | ручной override |
 | `POST` | `/v1/admin/enrollment/rotate` | admin Bearer | новый site enrollment token (plaintext в ответе **один раз**) |
 
@@ -138,6 +139,91 @@ flowchart LR
 - Rate limit на `/v1/enroll` (sliding window).
 - Count-retention: последние N снимков на устройство (`BAD_SNAPSHOT_RETENTION`, default 30).
 - Day-retention (web): `retention_settings` — events (default 90d) и old snapshots (default 180d); фоновый prune раз в час; новейший снимок устройства не удаляется.
+
+#### API notes: config source (provenance)
+
+**Зачем.** На карточке устройства в web UI нужно отличать knobs, которые **прописаны руками на агенте** (CLI / правка `config.json`), от site default, политики и server `device_override`.
+
+**Enum `source` (на ключ safe knob):**
+
+| Значение | Смысл |
+|----------|--------|
+| `default` | значение из `DEFAULT_AGENT_SETTINGS`, не перекрыто политикой/override и не agent_local |
+| `policy` | последнее совпавшее policy settings выставило ключ; нет device_override и не agent_local |
+| `device_override` | ключ есть в server `device_config_overrides`; не agent_local |
+| `agent_local` | агент сообщил, что ключ задан локально (руками); **побеждает** для UI provenance |
+
+Порядок для UI-метки (не меняет remote effective merge `defaults < policy < device_override`):  
+`agent_local` > `device_override` > `policy` > `default`.
+
+**Schema notes — inbound heartbeat** (`POST /v1/heartbeat`, additive / optional):
+
+```json
+{
+  "device_id": "…",
+  "config_version": "…",
+  "config_local": {
+    "keys": ["inventory_interval_hours", "collect_software"],
+    "settings": {
+      "inventory_interval_hours": 3,
+      "collect_software": true
+    },
+    "server_url": "https://bad.example.com"
+  }
+}
+```
+
+| Поле | Тип | Правила |
+|------|-----|---------|
+| `config_local` | object \| omit | отсутствует / `null` → не трогать сохранённый meta-снимок; пустой объект / `keys: []` → сбросить agent_local |
+| `config_local.keys` | `string[]` | только `ALLOWED_SETTING_KEYS`; неизвестные отбросить; max ≤ числа safe knobs; **источник истины** списка manual keys |
+| `config_local.settings` | object | опционально: значения для ключей из `keys` (sanitize как remote settings); для UI «что стоит на агенте» |
+| `config_local.server_url` | string | опционально, **display-only** (не safe knob, не remote merge); max length как у URL в агенте; не логировать как секрет |
+
+`api_key` / `enrollment_token` в `config_local` **запрещены** (игнор / strip).
+
+**Schema notes — хранение (Server Lead):** в `devices.meta_json`:
+
+```json
+{
+  "config_local": {
+    "keys": ["inventory_interval_hours"],
+    "settings": { "inventory_interval_hours": 3 },
+    "server_url": "https://bad.example.com",
+    "reported_at": "2026-10-16T12:00:00Z"
+  }
+}
+```
+
+Приём: sanitize → replace целиком блока `meta.config_local` (как health merge по ключам meta, но блок `config_local` атомарный). Не писать в `device_config_overrides`. Не менять piggyback `config` / `config_version` из-за `config_local`.
+
+**Schema notes — outbound admin/web** (`GET /v1/admin/devices/{id}/config` и контекст карточки устройства):
+
+```json
+{
+  "effective": { "inventory_interval_hours": 6, "…": "…" },
+  "sources": {
+    "inventory_interval_hours": "agent_local",
+    "heartbeat_interval_minutes": "policy",
+    "collect_hardware": "default",
+    "update_target": "device_override"
+  },
+  "agent_local_keys": ["inventory_interval_hours"],
+  "has_agent_local": true,
+  "config_local": { "keys": ["…"], "settings": {}, "server_url": "…", "reported_at": "…" },
+  "override": {},
+  "matched_policies": [],
+  "version": "…"
+}
+```
+
+- `sources`: полный map по всем `ALLOWED_SETTING_KEYS`.
+- `agent_local_keys`: удобный список (= `config_local.keys`); UI Lead: бейдж «задано на агенте».
+- Server-side provenance без агента: default / policy / device_override; overlay `agent_local` из meta.
+
+**Роли:** Windows Agent Lead — маркер + heartbeat payload; Server Lead — приём/sanitize/meta + `sources` в admin/web; CLI Lead — set → local; UI Lead — отображение; API Lead — этот контракт.
+
+**Статус кода:** контракт зафиксирован в docs; реализация Server/Agent — по задачам координатора (сверить `detail`/поля при merge).
 
 #### API notes: transport (HTTPS) и enrollment
 

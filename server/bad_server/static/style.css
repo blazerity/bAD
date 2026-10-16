@@ -523,6 +523,37 @@ pre.inventory {
 .badge-unknown {
   color: var(--muted);
 }
+.badge-agent-local {
+  color: var(--warn);
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+}
+.badge-override {
+  color: var(--accent);
+  border-color: var(--border-strong);
+  background: var(--bg-subtle);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.badge-policy {
+  color: var(--muted);
+  border-color: var(--border);
+  background: var(--bg-solid);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.config-source-default {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin-left: 0.35rem;
+}
+.config-source-summary {
+  margin: 0.35rem 0 0.85rem;
+  font-size: 0.9rem;
+}
 
 .tag-chip {
   display: inline-block;

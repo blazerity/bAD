@@ -438,11 +438,20 @@ class Database:
         agent_version: Optional[str],
         last_inventory_at: Optional[str] = None,
         health: Optional[dict[str, Any]] = None,
+        config_local: Any = None,
+        *,
+        config_local_provided: bool = False,
     ) -> None:
+        """Update last_seen (+ optional health / config_local in meta).
+
+        ``config_local_provided``: False → leave meta.config_local; True with empty
+        keys → clear; True with keys → atomic replace of the config_local block.
+        """
         now = utc_now()
         health = {k: v for k, v in (health or {}).items() if v is not None}
+        touch_meta = bool(last_inventory_at or health or config_local_provided)
         with self.connection() as conn:
-            if last_inventory_at or health:
+            if touch_meta:
                 row = conn.execute(
                     "SELECT meta_json FROM devices WHERE device_id = ?",
                     (device_id,),
@@ -451,6 +460,18 @@ class Database:
                 if last_inventory_at:
                     meta["last_inventory_at"] = last_inventory_at
                 meta.update(health)
+                if config_local_provided:
+                    from .agent_config import sanitize_config_local
+
+                    cleaned = sanitize_config_local(config_local)
+                    # keys:[] clears agent_local knobs; keep block if display-only
+                    # server_url is still present (agent ServerUrlLocal, no safe knobs).
+                    if not cleaned.get("keys") and not cleaned.get("server_url"):
+                        meta.pop("config_local", None)
+                    else:
+                        block = dict(cleaned)
+                        block["reported_at"] = now
+                        meta["config_local"] = block
                 conn.execute(
                     """
                     UPDATE devices
@@ -459,7 +480,7 @@ class Database:
                         meta_json = ?
                     WHERE device_id = ?
                     """,
-                    (now, agent_version, json.dumps(meta), device_id),
+                    (now, agent_version, json.dumps(meta, ensure_ascii=False), device_id),
                 )
             else:
                 conn.execute(
@@ -1384,7 +1405,7 @@ class Database:
         return payload if isinstance(payload, dict) else None
 
     def compute_device_effective_config(self, device_id: str) -> Optional[dict[str, Any]]:
-        from .agent_config import compute_effective_config
+        from .agent_config import compute_effective_config, provenance_from_effective
 
         with self.connection() as conn:
             device = conn.execute(
@@ -1395,9 +1416,10 @@ class Database:
         override_row = self.get_device_config_override(device_id)
         override = override_row["settings"] if override_row else None
         tags = self._parse_tags(device["tags_json"])
+        meta = self._parse_meta(device["meta_json"])
         result = compute_effective_config(
             hostname=device["hostname"],
-            meta=self._parse_meta(device["meta_json"]),
+            meta=meta,
             inventory_payload=self.latest_inventory_payload(device_id),
             tags=tags,
             policies=self.list_agent_policies(),
@@ -1405,6 +1427,7 @@ class Database:
         )
         result["device_id"] = device_id
         result["override"] = override_row
+        result.update(provenance_from_effective(result, meta=meta))
         return result
 
     # --- жизненный цикл устройства (revoke / archive / delete) ---

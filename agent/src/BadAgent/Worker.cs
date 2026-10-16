@@ -316,7 +316,9 @@ public sealed class Worker : BackgroundService
             LastInventoryOk = _lastInventoryOk,
             LastInventoryError = _lastInventoryError,
             AgentUptimeSeconds = uptime,
-            SystemDriveFreeBytes = freeBytes
+            SystemDriveFreeBytes = freeBytes,
+            // Provenance для панели: source agent_local (keys / optional settings / server_url).
+            ConfigLocal = ConfigStore.BuildConfigLocalForHeartbeat(config)
         };
 
         try

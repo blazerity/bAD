@@ -1,7 +1,7 @@
 namespace BadAgent;
 
 /// <summary>
-/// Резолвит путь вывода для <c>bad -h/--html [path]</c>.
+/// Резолвит путь вывода для <c>bad -r/--report [path]</c> (alias: --html).
 /// По умолчанию на Desktop: <c>bad_report_yyyyMMdd_HHmmss.html</c>.
 /// </summary>
 public static class ReportPathResolver

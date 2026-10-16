@@ -16,6 +16,11 @@ public static class BadCli
                 return 0;
             }
 
+            if (IsConfigCommand(args, out var configArgs))
+            {
+                return ConfigCli.Run(configArgs);
+            }
+
             if (IsHtml(args, out var htmlPathArg))
             {
                 return RunHtml(htmlPathArg, collector);
@@ -39,15 +44,33 @@ public static class BadCli
 
     /// <summary>Глаголы/флаги первого аргумента: всегда локальный report CLI (не service host).</summary>
     public static bool IsExplicitCliArg(string arg) =>
-        arg is "-?" or "--help" or "help" or "/?"
-            or "-h" or "--html" or "html"
-            or "report" or "info" or "ascii";
+        arg is "-?" or "--help" or "help" or "/?" or "-h"
+            or "-r" or "--report" or "--html" or "html"
+            or "report" or "info" or "ascii"
+            or "config" or "settings";
 
     private static bool IsHelp(string[] args) =>
-        args.Length > 0 && args[0] is "-?" or "--help" or "help" or "/?";
+        args.Length > 0 && args[0] is "-?" or "--help" or "help" or "/?" or "-h";
 
     private static bool IsAsciiCommand(string cmd) =>
         cmd is "report" or "info" or "ascii";
+
+    private static bool IsConfigCommand(string[] args, out string[] rest)
+    {
+        rest = [];
+        if (args.Length == 0)
+        {
+            return false;
+        }
+
+        if (args[0] is not ("config" or "settings"))
+        {
+            return false;
+        }
+
+        rest = args.AsSpan(1).ToArray();
+        return true;
+    }
 
     private static bool IsHtml(string[] args, out string? pathArg)
     {
@@ -58,7 +81,8 @@ public static class BadCli
         }
 
         var a0 = args[0];
-        if (a0 is "-h" or "--html" or "html")
+        // -r/--report — канон; --html/html — совместимость со старыми примерами
+        if (a0 is "-r" or "--report" or "--html" or "html")
         {
             pathArg = args.Length > 1 ? args[1] : null;
             return true;
@@ -109,20 +133,25 @@ public static class BadCli
     {
         Console.WriteLine("""
 Использование / Usage:
-  bad                  Локальный ASCII-отчёт inventory (то же: bad report | bad info)
-  bad -h [path]        HTML-отчёт (то же: bad --html [path])
-  bad -?               Эта справка (то же: bad --help)
+  bad                      Локальный ASCII-отчёт inventory (то же: bad report | bad info)
+  bad -r [path]            HTML-отчёт (то же: bad --report [path]; устар. --html)
+  bad -h                   Эта справка (то же: bad --help | bad -?)
+  bad config               Локальные настройки config.json
+  bad config set <k> <v>   Изменить allowlisted параметр
+  bad settings             То же, что bad config
 
-Путь для HTML:
-  без path             Рабочий стол пользователя: bad_report_yyyyMMdd_HHmmss.html
-  каталог              Файл с именем по умолчанию в каталоге
-  файл                 Указанное имя (добавляется .html при необходимости)
+Путь для HTML (-r):
+  без path                 Рабочий стол пользователя: bad_report_yyyyMMdd_HHmmss.html
+  каталог                  Файл с именем по умолчанию в каталоге
+  файл                     Указанное имя (добавляется .html при необходимости)
 
 Служба Windows (elevated):
   bad service status|start|stop|restart
 
 Заметки:
   Сбор локальный — сервер не требуется. Учитываются collect_* из config.json.
+  bad config set: server_url / collect_* / интервалы; секреты (api_key, enrollment_token) — нельзя.
+  Маркер agent_local_keys / server_url_local → heartbeat config_local.
   Служба агента в prod принимает только https:// в server_url (не http://).
   BAD_ALLOW_HTTP=1 — только lab. Код выхода: 0 — успех, иначе ошибка.
 """);

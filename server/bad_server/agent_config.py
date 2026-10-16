@@ -46,6 +46,14 @@ INT_SETTING_KEYS = frozenset(
 
 STRING_SETTING_KEYS = frozenset({"update_target"})
 
+# Provenance enum for UI (docs/architecture — config source); remote merge unchanged.
+CONFIG_SOURCES = frozenset(
+    {"default", "policy", "device_override", "agent_local"}
+)
+# Secrets never accepted inside config_local (strip / ignore).
+CONFIG_LOCAL_FORBIDDEN_KEYS = frozenset({"api_key", "enrollment_token"})
+MAX_CONFIG_LOCAL_SERVER_URL_LEN = 2048
+
 
 def sanitize_update_target(value: Any) -> Optional[str]:
     """Нормализовать цель обновления: latest или semver."""
@@ -202,6 +210,130 @@ def config_version(settings: dict[str, Any]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
+def sanitize_config_local(raw: Any) -> dict[str, Any]:
+    """Sanitize inbound heartbeat ``config_local`` for meta storage (no reported_at).
+
+    ``keys`` is the source of truth for agent_local; unknown / forbidden dropped.
+    Empty ``keys`` means clear agent_local on store.
+    """
+    if not isinstance(raw, dict):
+        return {"keys": [], "settings": {}}
+
+    keys: list[str] = []
+    seen: set[str] = set()
+    raw_keys = raw.get("keys")
+    if isinstance(raw_keys, list):
+        for item in raw_keys:
+            name = str(item).strip()
+            if not name or name in CONFIG_LOCAL_FORBIDDEN_KEYS:
+                continue
+            if name not in ALLOWED_SETTING_KEYS or name in seen:
+                continue
+            seen.add(name)
+            keys.append(name)
+            if len(keys) >= len(ALLOWED_SETTING_KEYS):
+                break
+
+    settings: dict[str, Any] = {}
+    raw_settings = raw.get("settings")
+    if isinstance(raw_settings, dict) and keys:
+        filtered = {
+            k: v
+            for k, v in raw_settings.items()
+            if k in seen and k not in CONFIG_LOCAL_FORBIDDEN_KEYS
+        }
+        settings = sanitize_settings(filtered)
+
+    out: dict[str, Any] = {"keys": keys, "settings": settings}
+    url = raw.get("server_url")
+    if isinstance(url, str):
+        text = url.strip()
+        if (
+            text
+            and len(text) <= MAX_CONFIG_LOCAL_SERVER_URL_LEN
+            and "\n" not in text
+            and "\r" not in text
+        ):
+            out["server_url"] = text[:MAX_CONFIG_LOCAL_SERVER_URL_LEN]
+    return out
+
+
+def config_local_from_meta(meta: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    """Return stored config_local if it has keys and/or display-only server_url."""
+    if not meta or not isinstance(meta, dict):
+        return None
+    raw = meta.get("config_local")
+    if not isinstance(raw, dict):
+        return None
+    keys = [
+        str(k)
+        for k in (raw.get("keys") or [])
+        if str(k) in ALLOWED_SETTING_KEYS
+    ]
+    key_set = set(keys)
+    settings = {
+        k: v
+        for k, v in sanitize_settings(raw.get("settings") or {}).items()
+        if k in key_set
+    }
+    out: dict[str, Any] = {"keys": keys, "settings": settings}
+    url = raw.get("server_url")
+    if isinstance(url, str) and url.strip():
+        out["server_url"] = url.strip()[:MAX_CONFIG_LOCAL_SERVER_URL_LEN]
+    reported = raw.get("reported_at")
+    if isinstance(reported, str) and reported.strip():
+        out["reported_at"] = reported.strip()
+    # Empty keys alone is not agent_local knobs; keep block if server_url present.
+    if not keys and "server_url" not in out:
+        return None
+    return out
+
+
+def compute_setting_sources(
+    *,
+    policy_keys: set[str],
+    override_keys: set[str],
+    agent_local_keys: Optional[list[str]] = None,
+) -> dict[str, str]:
+    """UI provenance map for every ALLOWED_SETTING_KEYS entry.
+
+    Precedence for label only: agent_local > device_override > policy > default.
+    Does not change remote effective merge.
+    """
+    sources = {key: "default" for key in ALLOWED_SETTING_KEYS}
+    for key in policy_keys:
+        if key in sources:
+            sources[key] = "policy"
+    for key in override_keys:
+        if key in sources:
+            sources[key] = "device_override"
+    for key in agent_local_keys or []:
+        if key in sources:
+            sources[key] = "agent_local"
+    return sources
+
+
+def provenance_from_effective(
+    effective: dict[str, Any],
+    *,
+    meta: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    """Attach sources / agent_local_* / config_local for admin + web device context."""
+    stored = config_local_from_meta(meta)
+    agent_local_keys = list((stored or {}).get("keys") or [])
+    sources = compute_setting_sources(
+        policy_keys=set(effective.get("policy_keys") or []),
+        override_keys=set(effective.get("override_keys") or []),
+        agent_local_keys=agent_local_keys,
+    )
+    return {
+        "sources": sources,
+        "agent_local_keys": agent_local_keys,
+        "has_agent_local": bool(agent_local_keys),
+        "config_local": stored,
+    }
+
+
 def compute_effective_config(
     *,
     hostname: Optional[str] = None,
@@ -232,6 +364,7 @@ def compute_effective_config(
         ),
     )
     matched: list[dict[str, Any]] = []
+    policy_keys: set[str] = set()
     for policy in ordered:
         if not policy.get("enabled", True):
             continue
@@ -253,6 +386,7 @@ def compute_effective_config(
         patch = sanitize_settings(settings)
         if patch:
             effective.update(patch)
+            policy_keys.update(patch.keys())
             matched.append(
                 {
                     "id": policy.get("id"),
@@ -265,10 +399,19 @@ def compute_effective_config(
     if override_clean:
         effective.update(override_clean)
 
+    sources = compute_setting_sources(
+        policy_keys=policy_keys,
+        override_keys=set(override_clean.keys()),
+        agent_local_keys=None,
+    )
+
     return {
         "settings": effective,
         "version": config_version(effective),
         "matched_policies": matched,
         "has_override": bool(override_clean),
         "context": context,
+        "policy_keys": sorted(policy_keys),
+        "override_keys": sorted(override_clean.keys()),
+        "sources": sources,
     }

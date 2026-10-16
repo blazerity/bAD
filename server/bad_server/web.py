@@ -780,6 +780,11 @@ def _device_config_context(
         "matched_policies": effective["matched_policies"],
         "override_settings": override_settings or {},
         "has_override": effective["has_override"],
+        # Provenance for UI Lead: agent_local ≠ device_override / policy / default.
+        "sources": effective.get("sources") or {},
+        "agent_local_keys": effective.get("agent_local_keys") or [],
+        "has_agent_local": bool(effective.get("has_agent_local")),
+        "config_local": effective.get("config_local"),
         "silence": silence,
         "health_snippet": health_snippet(detail.get("meta")),
         "recent_events": recent_events,

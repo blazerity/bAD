@@ -90,44 +90,25 @@ public sealed class BadApiClient : IDisposable
         return (apiKey, returnedId);
     }
 
-    public Task<RemoteAgentConfigResponse?> SendHeartbeatAsync(
-        string apiKey,
-        HeartbeatQueuePayload payload,
-        CancellationToken ct) =>
-        SendHeartbeatAsync(
-            apiKey,
-            payload.DeviceId,
-            payload.LastInventoryAt,
-            payload.ConfigVersion,
-            payload.LastInventoryOk,
-            payload.LastInventoryError,
-            payload.AgentUptimeSeconds,
-            payload.SystemDriveFreeBytes,
-            ct);
-
     public async Task<RemoteAgentConfigResponse?> SendHeartbeatAsync(
         string apiKey,
-        string deviceId,
-        string? lastInventoryAt,
-        string? configVersion,
-        bool? lastInventoryOk,
-        string? lastInventoryError,
-        long? agentUptimeSeconds,
-        long? systemDriveFreeBytes,
+        HeartbeatQueuePayload payload,
         CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/heartbeat");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        // config_local — контракт API Lead (keys = agent_local; optional settings / server_url).
         req.Content = JsonContent.Create(new
         {
-            device_id = deviceId,
+            device_id = payload.DeviceId,
             agent_version = _agentVersion,
-            last_inventory_at = lastInventoryAt,
-            config_version = configVersion,
-            last_inventory_ok = lastInventoryOk,
-            last_inventory_error = lastInventoryError,
-            agent_uptime_seconds = agentUptimeSeconds,
-            system_drive_free_bytes = systemDriveFreeBytes
+            last_inventory_at = payload.LastInventoryAt,
+            config_version = payload.ConfigVersion,
+            last_inventory_ok = payload.LastInventoryOk,
+            last_inventory_error = payload.LastInventoryError,
+            agent_uptime_seconds = payload.AgentUptimeSeconds,
+            system_drive_free_bytes = payload.SystemDriveFreeBytes,
+            config_local = payload.ConfigLocal
         }, options: JsonOptions);
 
         using var resp = await _http.SendAsync(req, ct);
