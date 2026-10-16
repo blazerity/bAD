@@ -46,9 +46,9 @@
       {% endif %}
     </p>
     {% endif %}
-    {% if vb.items %}
+    {% if vb['items'] %}
     <ul class="hbar-list">
-      {% for row in vb.items %}
+      {% for row in vb['items'] %}
       <li class="hbar-row{% if row.is_other %} is-other{% endif %}{% if vb.latest and row.version == vb.latest %} is-latest{% endif %}">
         <div class="hbar-meta">
           {% if row.is_other %}
@@ -89,9 +89,9 @@
     <article class="dash-widget dash-card" data-widget="os">
       <h2>ОС</h2>
       {% set osb = dashboard.os_bars %}
-      {% if osb.items %}
+      {% if osb['items'] %}
       <ul class="hbar-list">
-        {% for row in osb.items %}
+        {% for row in osb['items'] %}
         <li class="hbar-row{% if row.is_other %} is-other{% endif %}">
           <div class="hbar-meta">
             <span>{{ row.label }}</span>
@@ -112,9 +112,9 @@
     <article class="dash-widget dash-card" data-widget="domain">
       <h2>Домен</h2>
       {% set dbars = dashboard.domain_bars %}
-      {% if dbars.items %}
+      {% if dbars['items'] %}
       <ul class="hbar-list">
-        {% for row in dbars.items %}
+        {% for row in dbars['items'] %}
         <li class="hbar-row{% if row.is_other %} is-other{% endif %}">
           <div class="hbar-meta">
             <span class="mono">{{ row.label }}</span>
@@ -137,9 +137,9 @@
   <article class="dash-widget dash-card dash-reveal" style="--dash-delay:240ms" data-widget="models">
     <h2>Модели</h2>
     {% set mb = dashboard.model_bars %}
-    {% if mb.items %}
+    {% if mb['items'] %}
     <ul class="hbar-list">
-      {% for row in mb.items %}
+      {% for row in mb['items'] %}
       <li class="hbar-row{% if row.is_other %} is-other{% endif %}">
         <div class="hbar-meta">
           <span>{{ row.label }}</span>
