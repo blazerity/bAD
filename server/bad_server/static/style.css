@@ -1284,6 +1284,98 @@ dl.speccy-kv dd {
   .nav a span { font-size: 0.82rem; }
 }
 
+/* Дашборд (/dashboard): лёгкие bars/chips; UI Lead полирует Win11 motion */
+.dashboard-page .dash-widget {
+  margin: 1.25rem 0 1.5rem;
+  padding: 0.85rem 0 0;
+}
+.dashboard-page .dash-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem 1.5rem;
+}
+.park-bar {
+  display: flex;
+  width: 100%;
+  min-height: 2.25rem;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: var(--surface-muted, #e8eef5);
+}
+.park-seg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  color: #fff;
+  text-decoration: none;
+  font-size: 0.85rem;
+  transition: filter 180ms ease, transform 180ms ease;
+}
+.park-seg:hover { filter: brightness(1.06); }
+.park-seg-online { background: var(--accent, #0078d4); }
+.park-seg-stale { background: var(--warn, #c47a00); }
+.park-seg-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 0.4rem;
+}
+.hbar-list { list-style: none; margin: 0.5rem 0 0; padding: 0; }
+.hbar-row { margin: 0.45rem 0; }
+.hbar-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+  margin-bottom: 0.2rem;
+}
+.hbar-track {
+  height: 0.55rem;
+  border-radius: 999px;
+  background: var(--surface-muted, #e8eef5);
+  overflow: hidden;
+}
+.hbar-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent, #0078d4);
+  transition: width 220ms ease;
+}
+.hbar-row.is-other .hbar-fill { opacity: 0.55; }
+.wave-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.5rem;
+}
+.wave-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border, #c9d4e3);
+  background: var(--surface, #fff);
+  text-decoration: none;
+  color: inherit;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+.wave-chip:hover {
+  background: var(--surface-muted, #eef3f9);
+  border-color: var(--accent, #0078d4);
+}
+.wave-chip-count { font-weight: 600; }
+.wave-links { margin: 0.35rem 0 1rem; }
+.park-dash-link { margin: 0.35rem 0 1rem; }
+
+@media (max-width: 640px) {
+  .dashboard-page .dash-grid { grid-template-columns: 1fr; }
+  .park-bar { flex-direction: column; min-height: 0; }
+  .park-seg { width: 100% !important; min-height: 2rem; justify-content: flex-start; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

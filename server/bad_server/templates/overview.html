@@ -86,16 +86,30 @@
       <div class="stat-label">В архиве</div>
     </div>
   </div>
+  <p class="muted park-dash-link">
+    <a href="/dashboard">Подробнее на Дашборде</a>
+  </p>
+
+  {# O8 — риски волны: числа-ссылки, не график #}
+  {% if wave_chips or ops.wave_chips %}
+  <h2>Риски волны</h2>
+  <p class="wave-links">
+    {% for chip in (wave_chips or ops.wave_chips) %}
+    <a href="{{ chip.href }}">{{ chip.label }}: <span class="mono">{{ chip.count }}</span></a>{% if not loop.last %} · {% endif %}
+    {% endfor %}
+  </p>
+  {% endif %}
 
   <h2>Версии агента</h2>
-  {% if stats.agent_versions %}
+  {% set ver_top = (agent_version_summary.top if agent_version_summary else stats.agent_versions) or [] %}
+  {% if ver_top %}
   <div class="table-scroll">
   <table class="devices">
     <thead>
       <tr><th>Версия агента</th><th>Устройств</th></tr>
     </thead>
     <tbody>
-      {% for row in stats.agent_versions %}
+      {% for row in ver_top[:6] %}
       <tr>
         <td class="mono">{{ row.version }}</td>
         <td>{{ row.count }}</td>
@@ -104,6 +118,14 @@
     </tbody>
   </table>
   </div>
+  {% if agent_version_summary and agent_version_summary.total_versions > 6 %}
+  <p class="muted">
+    {{ agent_version_summary.total_versions }} версий —
+    <a href="{{ agent_version_summary.dashboard_href }}">на Дашборде</a>.
+  </p>
+  {% elif agent_version_summary %}
+  <p class="muted"><a href="{{ agent_version_summary.dashboard_href }}">Распределение на Дашборде</a></p>
+  {% endif %}
   {% else %}
   <p class="muted">Пока нет активных устройств.</p>
   {% endif %}
@@ -171,6 +193,10 @@
   <p class="muted">Событий изменения железа пока нет.</p>
   {% endif %}
 
-  <p class="muted"><a href="/devices">К списку устройств</a> · <a href="/events">Все события</a></p>
+  <p class="muted">
+    <a href="/dashboard">Дашборд</a> ·
+    <a href="/devices">К списку устройств</a> ·
+    <a href="/events">Все события</a>
+  </p>
 </section>
 {% endblock %}

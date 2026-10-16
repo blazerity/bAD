@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% from "macros/icons.html" import icon %}
+{% block title %}Дашборд — bAD{% endblock %}
+{% block content %}
+<section class="dashboard-page">
+  <h1 class="with-icon">{{ icon('dashboard') }}Дашборд</h1>
+  <p class="muted">
+    Визуальная картина парка.
+    Устарел — нет контакта дольше {{ stale_after_seconds }} с.
+    <a href="/">К Обзору</a>
+  </p>
+
+  {# D1 — парк #}
+  <div class="dash-widget" data-widget="park">
+    <h2>Парк</h2>
+    {% set park = dashboard.park_bar %}
+    {% if park.total_active %}
+    <div class="park-bar" role="img" aria-label="Онлайн {{ park.segments[0].count }}, устарели {{ park.segments[1].count }}">
+      {% for seg in park.segments %}
+      <a class="park-seg park-seg-{{ seg.id }}" href="{{ seg.href }}" style="width: {{ seg.pct }}%" title="{{ seg.label }}: {{ seg.count }} ({{ seg.pct }}%)">
+        <span class="park-seg-label">{{ seg.label }} {{ seg.count }}</span>
+      </a>
+      {% endfor %}
+    </div>
+    <p class="muted park-aside">
+      Активных: <span class="mono">{{ park.total_active }}</span>
+      · архив:
+      <a href="{{ park.archived.href }}">{{ park.archived.count }}</a>
+    </p>
+    {% else %}
+    <p class="muted">Пока нет активных устройств.</p>
+    {% endif %}
+  </div>
+
+  {# D2 — версии агента #}
+  <div class="dash-widget" data-widget="agent-versions">
+    <h2>Версия агента</h2>
+    {% set vb = dashboard.agent_version_bars %}
+    {% if vb.latest %}
+    <p class="muted">Цель MSI (latest): <span class="mono">{{ vb.latest }}</span>
+      {% if vb.drift_count %}
+      · <a href="{{ vb.drift_href }}">дрейф {{ vb.drift_count }}</a>
+      {% endif %}
+    </p>
+    {% endif %}
+    {% if vb.items %}
+    <ul class="hbar-list">
+      {% for row in vb.items %}
+      <li class="hbar-row{% if row.is_other %} is-other{% endif %}">
+        <div class="hbar-meta">
+          <span class="mono">{{ row.version }}</span>
+          <span class="muted">{{ row.count }} · {{ row.pct }}%</span>
+        </div>
+        <div class="hbar-track" aria-hidden="true">
+          <span class="hbar-fill" style="width: {{ row.pct }}%"></span>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">Нет данных о версиях агента.</p>
+    {% endif %}
+  </div>
+
+  {# D3 — волна #}
+  <div class="dash-widget" data-widget="wave">
+    <h2>Риски волны</h2>
+    <div class="wave-chips">
+      {% for chip in dashboard.wave_chips %}
+      <a class="wave-chip" href="{{ chip.href }}">
+        <span class="wave-chip-label">{{ chip.label }}</span>
+        <span class="wave-chip-count mono">{{ chip.count }}</span>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+
+  {# D4 — OS / domain #}
+  <div class="dash-grid">
+    <div class="dash-widget" data-widget="os">
+      <h2>ОС</h2>
+      {% set osb = dashboard.os_bars %}
+      {% if osb.items %}
+      <ul class="hbar-list">
+        {% for row in osb.items %}
+        <li class="hbar-row{% if row.is_other %} is-other{% endif %}">
+          <div class="hbar-meta">
+            <span>{{ row.label }}</span>
+            <span class="muted">{{ row.count }} · {{ row.pct }}%</span>
+          </div>
+          <div class="hbar-track" aria-hidden="true">
+            <span class="hbar-fill" style="width: {{ row.pct }}%"></span>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% if osb.capped %}<p class="hint">Показаны первые {{ osb.scanned }} устройств.</p>{% endif %}
+      {% else %}
+      <p class="muted">Нет inventory для среза ОС.</p>
+      {% endif %}
+    </div>
+
+    <div class="dash-widget" data-widget="domain">
+      <h2>Домен</h2>
+      {% set dbars = dashboard.domain_bars %}
+      {% if dbars.items %}
+      <ul class="hbar-list">
+        {% for row in dbars.items %}
+        <li class="hbar-row{% if row.is_other %} is-other{% endif %}">
+          <div class="hbar-meta">
+            <span class="mono">{{ row.label }}</span>
+            <span class="muted">{{ row.count }} · {{ row.pct }}%</span>
+          </div>
+          <div class="hbar-track" aria-hidden="true">
+            <span class="hbar-fill" style="width: {{ row.pct }}%"></span>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% if dbars.capped %}<p class="hint">Показаны первые {{ dbars.scanned }} устройств.</p>{% endif %}
+      {% else %}
+      <p class="muted">Нет inventory для среза домена.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  {# D5 — модели #}
+  <div class="dash-widget" data-widget="models">
+    <h2>Модели</h2>
+    {% set mb = dashboard.model_bars %}
+    {% if mb.items %}
+    <ul class="hbar-list">
+      {% for row in mb.items %}
+      <li class="hbar-row{% if row.is_other %} is-other{% endif %}">
+        <div class="hbar-meta">
+          <span>{{ row.label }}</span>
+          <span class="muted">{{ row.count }} · {{ row.pct }}%</span>
+        </div>
+        <div class="hbar-track" aria-hidden="true">
+          <span class="hbar-fill" style="width: {{ row.pct }}%"></span>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% if mb.capped %}<p class="hint">Показаны первые {{ mb.scanned }} устройств.</p>{% endif %}
+    {% else %}
+    <p class="muted">Нет inventory для среза моделей.</p>
+    {% endif %}
+  </div>
+
+  <p class="muted">
+    <a href="/devices">Устройства</a> · <a href="/events">События</a>
+    {% if dashboard.mirror %}
+    · <a href="{{ dashboard.mirror.href }}">Обновления агента</a>
+    {% endif %}
+  </p>
+</section>
+{% endblock %}
