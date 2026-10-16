@@ -60,8 +60,14 @@
     </p>
     {% endfor %}
     {% if user.is_admin %}
-    {# Кнопка только при непустом merge_matched (контракт merge-match).
-       Hostname / disk остаются в списках выше без кнопки. #}
+    {# Кнопка только при непустом merge_matched. Hostname/disk — в списках без кнопки. #}
+    {% set merge_label = {
+         'serial_number': 'серийник корпуса',
+         'smbios_uuid': 'SMBIOS UUID',
+         'bios_serial': 'BIOS serial',
+         'identifying_number': 'IdentifyingNumber',
+         'baseboard_serial': 'serial платы'
+       } %}
     {% set merge_seen = [] %}
     {% set merge_rows = [] %}
     {% for g in duplicate_groups %}
@@ -81,13 +87,7 @@
       {% for d in merge_rows %}
         {% set match_labels = [] %}
         {% for k in d.merge_matched %}
-          {% if k == 'serial_number' %}{% set _ = match_labels.append('серийник корпуса') %}
-          {% elif k == 'smbios_uuid' %}{% set _ = match_labels.append('SMBIOS UUID') %}
-          {% elif k == 'bios_serial' %}{% set _ = match_labels.append('BIOS serial') %}
-          {% elif k == 'identifying_number' %}{% set _ = match_labels.append('IdentifyingNumber') %}
-          {% elif k == 'baseboard_serial' %}{% set _ = match_labels.append('serial платы') %}
-          {% else %}{% set _ = match_labels.append(k) %}
-          {% endif %}
+          {% set _ = match_labels.append(merge_label.get(k, k)) %}
         {% endfor %}
         <li class="dup-merge-row">
           <a href="/devices/{{ d.device_id }}">{{ d.hostname or d.device_id }}</a>
