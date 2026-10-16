@@ -29,6 +29,18 @@
       </dd>
     </div>
     <div><dt>Состояние</dt><dd class="mono">{{ health_snippet or "—" }}</dd></div>
+    {% if device.smbios_uuid %}
+    <div>
+      <dt>SMBIOS UUID</dt>
+      <dd class="mono identity-uuid" title="{{ device.smbios_uuid }}">
+        {%- if device.smbios_uuid|length > 18 -%}
+        {{ device.smbios_uuid[:8] }}…{{ device.smbios_uuid[-4:] }}
+        {%- else -%}
+        {{ device.smbios_uuid }}
+        {%- endif -%}
+      </dd>
+    </div>
+    {% endif %}
     {% if device.tags %}
     <div>
       <dt>Теги</dt>
@@ -37,7 +49,11 @@
     {% endif %}
   </dl>
 
-  {% if duplicates and (duplicates.hostname or duplicates.serial_number or duplicates.smbios_uuid) %}
+  {% set has_dups = duplicates and (
+       duplicates.hostname or duplicates.serial_number or duplicates.smbios_uuid
+       or duplicates.bios_serial or duplicates.identifying_number
+       or duplicates.baseboard_serial or duplicates.disk_serial_number) %}
+  {% if has_dups %}
   <div class="warn-box">
     <strong>Возможные дубликаты</strong> (автослияния нет):
     {% if duplicates.hostname %}
@@ -57,6 +73,34 @@
     {% if duplicates.smbios_uuid %}
     <p>Тот же SMBIOS UUID:
       {% for d in duplicates.smbios_uuid %}
+        <a href="/devices/{{ d.device_id }}">{{ d.hostname or d.device_id }}</a>{% if not loop.last %}, {% endif %}
+      {% endfor %}
+    </p>
+    {% endif %}
+    {% if duplicates.bios_serial %}
+    <p>Тот же BIOS serial:
+      {% for d in duplicates.bios_serial %}
+        <a href="/devices/{{ d.device_id }}">{{ d.hostname or d.device_id }}</a>{% if not loop.last %}, {% endif %}
+      {% endfor %}
+    </p>
+    {% endif %}
+    {% if duplicates.identifying_number %}
+    <p>Тот же IdentifyingNumber:
+      {% for d in duplicates.identifying_number %}
+        <a href="/devices/{{ d.device_id }}">{{ d.hostname or d.device_id }}</a>{% if not loop.last %}, {% endif %}
+      {% endfor %}
+    </p>
+    {% endif %}
+    {% if duplicates.baseboard_serial %}
+    <p>Тот же serial платы:
+      {% for d in duplicates.baseboard_serial %}
+        <a href="/devices/{{ d.device_id }}">{{ d.hostname or d.device_id }}</a>{% if not loop.last %}, {% endif %}
+      {% endfor %}
+    </p>
+    {% endif %}
+    {% if duplicates.disk_serial_number %}
+    <p>Тот же serial диска:
+      {% for d in duplicates.disk_serial_number %}
         <a href="/devices/{{ d.device_id }}">{{ d.hostname or d.device_id }}</a>{% if not loop.last %}, {% endif %}
       {% endfor %}
     </p>
@@ -197,13 +241,19 @@
       </div>
       {% endif %}
 
-      {% if hw and (hw.manufacturer or hw.model or hw.serial_number or hw.bios_version or hw.bios_manufacturer or hw.bios_release_date) %}
+      {% if hw and (hw.manufacturer or hw.model or hw.serial_number or hw.bios_version or hw.bios_manufacturer or hw.bios_release_date or hw.bios_serial or hw.identifying_number or hw.baseboard_serial or device.bios_serial or device.identifying_number or device.baseboard_serial) %}
       <div class="device-panel {% if view == 'mb' %}is-active{% endif %}" data-device-panel="mb">
         <h2 class="with-icon">{{ icon('model') }}Материнская плата</h2>
         <dl class="speccy-kv">
           {% if hw.manufacturer %}<div><dt>Производитель</dt><dd>{{ hw.manufacturer }}</dd></div>{% endif %}
           {% if hw.model %}<div><dt>Модель</dt><dd>{{ hw.model }}</dd></div>{% endif %}
           {% if hw.serial_number %}<div><dt>Серийный номер</dt><dd>{{ hw.serial_number }}</dd></div>{% endif %}
+          {% set bios_sn = hw.bios_serial or device.bios_serial %}
+          {% if bios_sn %}<div><dt>BIOS serial</dt><dd>{{ bios_sn }}</dd></div>{% endif %}
+          {% set id_num = hw.identifying_number or device.identifying_number %}
+          {% if id_num %}<div><dt>IdentifyingNumber</dt><dd>{{ id_num }}</dd></div>{% endif %}
+          {% set board_sn = hw.baseboard_serial or device.baseboard_serial %}
+          {% if board_sn %}<div><dt>Serial платы</dt><dd>{{ board_sn }}</dd></div>{% endif %}
           {% if hw.bios_version %}<div><dt>Версия BIOS</dt><dd>{{ hw.bios_version }}</dd></div>{% endif %}
           {% if hw.bios_manufacturer %}<div><dt>Производитель BIOS</dt><dd>{{ hw.bios_manufacturer }}</dd></div>{% endif %}
           {% if hw.bios_release_date %}<div><dt>Дата BIOS</dt><dd>{{ hw.bios_release_date }}</dd></div>{% endif %}
