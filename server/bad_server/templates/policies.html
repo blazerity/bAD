@@ -6,8 +6,17 @@
 <section class="settings">
   <h1 class="with-icon">{{ icon('policies') }}Политики агента</h1>
   <p class="muted">
-    Правила remote-config: при совпадении условия настройки применяются к агенту.
-    Меньший priority — раньше; ручной override на устройстве всегда побеждает.
+    Remote-config по условиям: только
+    <span class="mono">tag</span> /
+    <span class="mono">hostname</span> /
+    <span class="mono">domain</span> /
+    <span class="mono">os_caption</span>.
+    Меньший priority — раньше; override на устройстве побеждает политику.
+  </p>
+  <p class="muted">
+    Knobs — allowlist
+    (<span class="mono">{{ allowed_setting_keys | join(', ') }}</span>).
+    <code>server_url</code>, секреты и ключи вне списка сюда не входят.
   </p>
   {% if message %}<p class="ok">{{ message }}</p>{% endif %}
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
@@ -82,13 +91,17 @@
 
     <fieldset class="fieldset-soft">
       <legend>Когда применять</legend>
+      <p class="muted" style="margin-top:0">
+        Одно условие: поле из allowlist × <span class="mono">equals</span>/<span class="mono">contains</span>.
+        OU (<span class="mono">ad_ou</span>) — только контекст на карточке устройства, не условие политики.
+      </p>
       <div class="policy-form-grid">
         <div>
           <label for="cond_field">Поле</label>
           <select id="cond_field" name="cond_field">
             {% set cur_field = (edit.conditions[0].field if edit and edit.conditions else 'hostname') %}
             {% for f in condition_fields %}
-            <option value="{{ f }}" {% if f == cur_field %}selected{% endif %}>{{ f }}</option>
+            <option value="{{ f }}" {% if f == cur_field %}selected{% endif %}>{{ condition_field_labels.get(f, f) }}</option>
             {% endfor %}
           </select>
         </div>
@@ -113,6 +126,10 @@
     {% set s = edit.settings if edit else {} %}
     <fieldset class="fieldset-soft">
       <legend>Что задать (пусто = не менять)</legend>
+      <p class="muted" style="margin-top:0">
+        Только safe knobs из allowlist. Нет <code>server_url</code> и секретов —
+        их агент берёт локально / при enrollment.
+      </p>
       <div class="policy-form-grid">
         <div>
           <label for="inventory_interval_hours">Интервал inventory (часы)</label>

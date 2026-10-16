@@ -1404,6 +1404,21 @@ def _validate_update_target_pin(db: Database, settings: dict) -> Optional[str]:
     return None
 
 
+_CONDITION_FIELD_LABELS_RU = {
+    "hostname": "hostname",
+    "domain": "domain",
+    "os_caption": "os_caption (подпись ОС)",
+    "tag": "tag",
+}
+
+
+def _filter_policy_settings(settings: object) -> dict:
+    """Тема C: в UI только knobs из ALLOWED_SETTING_KEYS (без server_url/секретов)."""
+    if not isinstance(settings, dict):
+        return {}
+    return {k: v for k, v in settings.items() if k in ALLOWED_SETTING_KEYS}
+
+
 def _policies_context(
     db: Database,
     user: WebUser,
@@ -1412,17 +1427,27 @@ def _policies_context(
     error: Optional[str] = None,
     edit: Optional[dict] = None,
 ) -> dict:
+    policies = []
+    for p in db.list_agent_policies():
+        row = dict(p)
+        row["settings"] = _filter_policy_settings(row.get("settings"))
+        policies.append(row)
+    edit_view = edit
+    if edit_view is not None:
+        edit_view = dict(edit_view)
+        edit_view["settings"] = _filter_policy_settings(edit_view.get("settings"))
     return {
         "user": user,
-        "policies": db.list_agent_policies(),
+        "policies": policies,
         "defaults": dict(DEFAULT_AGENT_SETTINGS),
         "allowed_setting_keys": sorted(ALLOWED_SETTING_KEYS),
         "condition_fields": sorted(CONDITION_FIELDS),
+        "condition_field_labels": _CONDITION_FIELD_LABELS_RU,
         "condition_ops": sorted(CONDITION_OPS),
         "msi_versions": db.list_agent_msi_versions(),
         "message": message,
         "error": error,
-        "edit": edit,
+        "edit": edit_view,
     }
 
 
