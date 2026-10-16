@@ -16,7 +16,7 @@ server/           # FastAPI app, web UI, зеркало обновлений а�
 installer/msi/    # исходники WiX (MSI собирается на Windows / GHA release-msi)
 deploy/debian/    # install.sh, systemd, шаблон nginx
 docs/             # архитектура, гайдлайны, заметки по агенту, операторский гайд
-VERSION           # semver продукта (0.11.0)
+VERSION           # semver продукта (0.12.0)
 .github/workflows # ci.yml (Linux build/import) + release-msi.yml (Windows, теги)
 ```
 
