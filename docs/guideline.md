@@ -51,20 +51,21 @@
 | **Agent** | `agent/VERSION` (+ csproj / MSI) | `agent-vX.Y.Z` (переходно голый `v*` = agent) |
 
 - Bump (обе): **patch** hotfix / **minor** feature / **major** — только владелец. Checklist: [agents.md](agents.md).
-- Агент стабилен → можно держать `1.0.x` и бампать только сервер (`1.1.0+`) без нового MSI.
+- Агент стабилен → можно держать agent patch-line ([`agent/VERSION`](../agent/VERSION)) и бампать только сервер ([`VERSION`](../VERSION)) без нового MSI.
 - **Не путать:** **Обновление сервера** (server) ≠ **Обновления агента** / «Собрать MSI» (agent semver в `workflow_dispatch.version`).
 - `schema_version` inventory — integer, третья ось. Агент шлёт `agent_version`; `/v1/health` → `version` = **server**.
 
 ## Как вырезать релиз агента (MSI)
 
-1. Bump **agent** line (`agent/VERSION` + csproj / WiX) — не корневой `VERSION`; checklist в [agents.md](agents.md).
-2. Тег и push:
+1. Bump **agent** line ([`agent/VERSION`](../agent/VERSION) + csproj / WiX) — не корневой [`VERSION`](../VERSION); checklist в [agents.md](agents.md).
+2. Тег и push (`VER` = содержимое `agent/VERSION`):
    ```bash
-   git tag agent-v1.0.1
-   git push origin agent-v1.0.1
+   VER=$(tr -d '[:space:]' < agent/VERSION)
+   git tag "agent-v${VER}"
+   git push origin "agent-v${VER}"
    ```
-   (переходно ещё принимают `v1.0.1` = agent, пока CI на `v*`.)
-3. Workflow **`release-msi`** (`windows-latest`): publish agent → WiX v5 → GitHub Release assets `bad-agent-<agent-ver>.msi` + `agent-release.json`. Semver: input `version` > tag > `agent/VERSION`; **не** читать server `VERSION`.
+   (переходно ещё принимают голый `v*` = agent, пока CI на `v*`.)
+3. Workflow **`release-msi`** (`windows-latest`): publish agent → WiX v5 → GitHub Release assets `bad-agent-<версия из agent/VERSION>.msi` + `agent-release.json`. Semver: input `version` > tag > `agent/VERSION`; **не** читать server `VERSION`.
 4. Права: `contents: write`. Для public repo достаточно `GITHUB_TOKEN`. Private / panel — `BAD_GITHUB_TOKEN` на сервере.
 5. На сервере: background sync, `POST /v1/admin/agent-update/sync`, или кнопка MSI в панели (agent semver).
 6. Агенты подтянут на check (старт / раз в сутки) или после `BadAgent.exe service restart`.

@@ -33,8 +33,10 @@ Workflow GitHub Actions [`.github/workflows/release-msi.yml`](../../.github/work
 
 ```powershell
 signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
-  /f .\codesign.pfx /p <password> .\bad-agent-1.0.1.msi
+  /f .\codesign.pfx /p <password> .\bad-agent-<версия из agent/VERSION>.msi
 ```
+
+Semver для команд ниже — из [`agent/VERSION`](../../agent/VERSION) (не корневой `VERSION`).
 
 ## Локальная сборка (Windows)
 
@@ -44,10 +46,11 @@ dotnet tool install --global wix --version 5.0.2
 # --global: иначе extension в cwd-local .wix и `wix build -ext …` даёт WIX0144
 wix extension add --global WixToolset.Util.wixext/5.0.2
 
-# 2. Publish агента
+# 2. Publish агента ($ver = содержимое agent/VERSION)
+$ver = (Get-Content ..\..\agent\VERSION -Raw).Trim()
 dotnet publish ..\..\agent\src\BadAgent\BadAgent.csproj `
   -c Release -r win-x64 --self-contained true `
-  -p:Version=1.0.1 `
+  -p:Version=$ver `
   -o .\publish
 
 # 3. Скопировать scripts + shim bad.cmd рядом с опубликованным exe
@@ -63,14 +66,14 @@ wix build Product.wxs `
   -ext WixToolset.Util.wixext `
   -arch x64 `
   -d AgentPublishDir=publish `
-  -d ProductVersion=1.0.1 `
-  -o bad-agent-1.0.1.msi
+  -d ProductVersion=$ver `
+  -o "bad-agent-$ver.msi"
 ```
 
 ## Установка / апгрейд
 
 ```powershell
-msiexec /i bad-agent-1.0.1.msi `
+msiexec /i bad-agent-<версия из agent/VERSION>.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=your-enrollment-token `
   /qn
@@ -79,7 +82,7 @@ msiexec /i bad-agent-1.0.1.msi `
 Опционально: добавить каталог установки в **Machine PATH**, чтобы команда `bad` работала из cmd.exe / Win+R (`bad.cmd` → `BadAgent.exe`). По умолчанию **выключено** (`ADDPATH=0` / не указано).
 
 ```powershell
-msiexec /i bad-agent-1.0.1.msi `
+msiexec /i bad-agent-<версия из agent/VERSION>.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=your-enrollment-token `
   ADDPATH=1 `
@@ -129,7 +132,7 @@ Deferred CA `write-config.ps1` **не** получает `ENROLLMENTTOKEN` / `SE
 Явный verbose (если нужен отдельный файл для отладки **локально**):
 
 ```powershell
-msiexec /i bad-agent-1.0.1.msi `
+msiexec /i bad-agent-<версия из agent/VERSION>.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=your-enrollment-token `
   /qn /l*v "$env:TEMP\bad-agent-install.log"
@@ -140,7 +143,7 @@ msiexec /i bad-agent-1.0.1.msi `
 ### Uninstall
 
 ```powershell
-msiexec /x bad-agent-1.0.1.msi /qn
+msiexec /x bad-agent-<версия из agent/VERSION>.msi /qn
 ```
 
 При полном uninstall (не upgrade): служба Stop+Remove, файлы Program Files снимаются, `cleanup-uninstall.ps1` удаляет `config.json`, `queue\`, `logs\` (enrollment leftovers). Запись PATH от `ADDPATH=1` снимается.
@@ -149,9 +152,10 @@ msiexec /x bad-agent-1.0.1.msi /qn
 
 ```bash
 # bump agent/VERSION (+ csproj через Directory.Build.props) — не корневой VERSION сервера
-git tag agent-v1.0.1
-git push origin agent-v1.0.1
-# → release-msi: ProductVersion = agent semver → MSI + agent-release.json на Release agent-v1.0.1
+VER=$(tr -d '[:space:]' < agent/VERSION)
+git tag "agent-v${VER}"
+git push origin "agent-v${VER}"
+# → release-msi: ProductVersion = agent semver → MSI + agent-release.json на Release agent-v<VER>
 # → on-prem sync / ingest зеркала агента
 # Переходный alias: голый v* ещё = agent; server bumps — только server-v* (без MSI).
 ```

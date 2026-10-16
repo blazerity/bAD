@@ -153,8 +153,10 @@ Bind password хранится в БД зашифрованным и после 
 
 На Windows build-хосте соберите MSI (см. `installer/msi/README.md`), затем установите:
 
+Имя MSI: `bad-agent-<версия из [agent/VERSION](../agent/VERSION)>.msi`.
+
 ```powershell
-msiexec /i bad-agent-1.0.1.msi `
+msiexec /i bad-agent-<версия из agent/VERSION>.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=<enrollment-token-from-install> `
   /qn
@@ -163,7 +165,7 @@ msiexec /i bad-agent-1.0.1.msi `
 Опциональный PATH для локального CLI `bad` (по умолчанию выкл.):
 
 ```powershell
-msiexec /i bad-agent-1.0.1.msi `
+msiexec /i bad-agent-<версия из agent/VERSION>.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=<enrollment-token-from-install> `
   ADDPATH=1 `
