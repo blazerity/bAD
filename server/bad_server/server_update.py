@@ -212,25 +212,55 @@ def read_current(directory: Optional[Path] = None) -> dict[str, Any]:
     }
 
 
+def _read_version_file(*candidates: Path) -> Optional[str]:
+    for candidate in candidates:
+        if not candidate.is_file():
+            continue
+        try:
+            text = candidate.read_text(encoding="utf-8").strip()
+            if text:
+                return text.splitlines()[0].strip()
+        except OSError:
+            continue
+    return None
+
+
 def _read_installed_version() -> Optional[str]:
-    for candidate in (
+    """Semver **сервера** (корневой VERSION / __version__), не agent/VERSION."""
+    here = Path(__file__).resolve()
+    ver = _read_version_file(
         Path("/opt/bad/VERSION"),
-        Path(__file__).resolve().parents[2] / "VERSION",
-        Path(__file__).resolve().parents[3] / "VERSION",
-    ):
-        if candidate.is_file():
-            try:
-                text = candidate.read_text(encoding="utf-8").strip()
-                if text:
-                    return text.splitlines()[0].strip()
-            except OSError:
-                continue
+        here.parents[2] / "VERSION",
+        here.parents[3] / "VERSION",
+    )
+    if ver:
+        return ver
     try:
         from . import __version__
 
         return str(__version__)
     except Exception:  # noqa: BLE001
         return None
+
+
+def read_agent_version(settings: Optional[Settings] = None) -> Optional[str]:
+    """Semver **агента** для MSI dispatch — не server VERSION.
+
+    Порядок: settings/env → /opt/bad/agent/VERSION → agent/VERSION в репо.
+    """
+    if settings is not None:
+        cfg = (getattr(settings, "agent_package_version", None) or "").strip()
+        if cfg:
+            return cfg.lstrip("vV")
+    env = os.environ.get("BAD_AGENT_PACKAGE_VERSION", "").strip()
+    if env:
+        return env.lstrip("vV")
+    here = Path(__file__).resolve()
+    return _read_version_file(
+        Path("/opt/bad/agent/VERSION"),
+        here.parents[2] / "agent" / "VERSION",
+        here.parents[3] / "agent" / "VERSION",
+    )
 
 
 def list_rollback_slots(directory: Optional[Path] = None) -> list[dict[str, Any]]:
@@ -511,6 +541,8 @@ def status_panel(
         "msi_build": _read_json(root / MSI_JOB_META),
         "max_past_slots": MAX_PAST_SLOTS,
         "default_branch": DEFAULT_BRANCH,
+        "agent_version": read_agent_version(settings),
+        "server_version": _read_installed_version(),
     }
 
 
@@ -522,7 +554,11 @@ def trigger_msi_workflow(
     publish_release: bool = True,
     directory: Optional[Path] = None,
 ) -> dict[str, Any]:
-    """workflow_dispatch release-msi на выбранной ветке."""
+    """workflow_dispatch release-msi: input version = **agent** semver.
+
+    Явный ``version`` из формы/API, иначе ``agent/VERSION`` (или config).
+    Никогда не подставляем server ``VERSION``.
+    """
     if not settings.github_repo:
         raise RuntimeError("BAD_GITHUB_REPO не задан")
     token = github_token(settings)
@@ -533,6 +569,12 @@ def trigger_msi_workflow(
     root = _resolve_root(settings, directory)
     ensure_releases_layout(root)
     b = sanitize_branch(branch or read_prefs(root).get("branch") or DEFAULT_BRANCH)
+    agent_ver = (version or "").strip().lstrip("vV") or (read_agent_version(settings) or "")
+    if not agent_ver:
+        raise RuntimeError(
+            "Нет semver агента: задайте version или файл agent/VERSION "
+            "(не путать с VERSION сервера)"
+        )
     api = settings.github_api_base.rstrip("/")
     url = (
         f"{api}/repos/{settings.github_repo}/actions/workflows/"
@@ -540,9 +582,8 @@ def trigger_msi_workflow(
     )
     inputs: dict[str, Any] = {
         "publish_release": "true" if publish_release else "false",
+        "version": agent_ver,
     }
-    if (version or "").strip():
-        inputs["version"] = version.strip().lstrip("vV")
     _gh_request(
         url,
         token=token,
@@ -554,6 +595,7 @@ def trigger_msi_workflow(
         "branch": b,
         "workflow": MSI_WORKFLOW,
         "inputs": inputs,
+        "agent_version": agent_ver,
         "status": "queued",
         "run_id": None,
         "conclusion": None,
