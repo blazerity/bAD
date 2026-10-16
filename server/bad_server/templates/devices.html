@@ -23,7 +23,7 @@
   <form method="get" action="/devices" class="filter-bar">
     <label for="q">Поиск</label>
     <input id="q" name="q" type="search" value="{{ q }}"
-      placeholder="hostname / device_id / serial" maxlength="128">
+      placeholder="hostname / device_id / serial / UUID" maxlength="128">
     <label for="tag">Тег</label>
     <select id="tag" name="tag">
       <option value="">Все теги</option>
@@ -38,6 +38,7 @@
       <option value="revoked" {% if wave == 'revoked' %}selected{% endif %}>revoked</option>
       <option value="agent_local" {% if wave == 'agent_local' %}selected{% endif %}>agent_local</option>
       <option value="stale" {% if wave == 'stale' %}selected{% endif %}>stale</option>
+      <option value="dup" {% if wave == 'dup' %}selected{% endif %}>дубли (hostname/serial/UUID)</option>
     </select>
     <label class="check">
       <input type="checkbox" name="archive" value="1" {% if show_archive %}checked{% endif %}>
@@ -70,8 +71,9 @@
       <tr>
         <td>
           <a href="/devices/{{ d.device_id }}">{{ d.hostname or "(неизвестно)" }}</a>
-          {% if d.hostname_dup %}
-            <span class="badge badge-stale" title="Есть другие устройства с тем же hostname">дубль</span>
+          {% if d.is_duplicate or d.hostname_dup %}
+            {% set kinds = d.dup_kinds or [] %}
+            <span class="badge badge-stale" title="Возможный дубль: {{ (kinds|join(', ')) if kinds else 'hostname/serial/smbios_uuid' }} (автослияния нет)">дубль</span>
           {% endif %}
           {% if d.revoked %}
             <span class="badge badge-stale">отозван</span>

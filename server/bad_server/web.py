@@ -723,6 +723,24 @@ def _devices_query_params(
     return urlencode(params)
 
 
+def _attach_duplicate_signals(
+    devices: list[dict],
+    device_signals: dict[str, dict[str, Any]],
+) -> None:
+    """Пометить строки списка: hostname/serial/smbios_uuid дубли (без merge)."""
+    for d in devices:
+        sig = device_signals.get(d["device_id"]) or {}
+        kinds = list(sig.get("kinds") or [])
+        d["dup_hostname"] = bool(sig.get("hostname"))
+        d["dup_serial"] = bool(sig.get("serial_number"))
+        d["dup_smbios_uuid"] = bool(sig.get("smbios_uuid"))
+        d["dup_kinds"] = kinds
+        d["is_duplicate"] = bool(sig.get("is_duplicate"))
+        # backward-compat для шаблона со старым hostname_dup
+        d["hostname_dup"] = d["is_duplicate"]
+        d["has_agent_local"] = device_has_agent_local(d)
+
+
 def _devices_wave_context(
     db: Database,
     settings: Settings,
@@ -732,17 +750,20 @@ def _devices_wave_context(
     show_archive: bool,
     wave: Optional[str],
     page_i: int,
-) -> tuple[list[dict], int, int, int]:
+) -> tuple[list[dict], int, int, int, dict[str, Any]]:
     ops = ops_update_signals(
         db, stale_after_seconds=settings.device_stale_after_seconds
     )
     drift_ids = {d["device_id"] for d in (ops.get("version_drift") or [])}
+    dup_index = db.duplicate_signal_index()
+    device_signals = dup_index.get("device_signals") or {}
     enriched = [
         _enrich_device_row(d, settings)
         for d in db.list_devices(
             tag=tag_filter, archived=show_archive, q=query
         )
     ]
+    _attach_duplicate_signals(enriched, device_signals)
     filtered = filter_devices_by_wave(
         enriched,
         wave,
@@ -755,7 +776,13 @@ def _devices_wave_context(
     if page_i > pages:
         page_i = pages
     offset = (page_i - 1) * page_size
-    return filtered[offset : offset + page_size], total, pages, page_i
+    return (
+        filtered[offset : offset + page_size],
+        total,
+        pages,
+        page_i,
+        device_signals,
+    )
 
 
 @router.get("/devices", response_class=HTMLResponse)
@@ -775,7 +802,7 @@ def devices_page(
     show_archive = (archive or "").strip() in {"1", "true", "yes"}
     wave_filter = normalize_wave_filter(wave)
     page_i = max(1, int(page or 1))
-    devices, total, pages, page_i = _devices_wave_context(
+    devices, total, pages, page_i, _device_signals = _devices_wave_context(
         db,
         settings,
         tag_filter=tag_filter,
@@ -784,16 +811,6 @@ def devices_page(
         wave=wave_filter,
         page_i=page_i,
     )
-    # Лёгкие подсказки о дубликатах для текущей страницы (в списке только hostname).
-    host_counts: dict[str, int] = {}
-    for d in db.list_devices(archived=None):
-        hn = (d.get("hostname") or "").strip().casefold()
-        if hn:
-            host_counts[hn] = host_counts.get(hn, 0) + 1
-    for d in devices:
-        hn = (d.get("hostname") or "").strip().casefold()
-        d["hostname_dup"] = bool(hn and host_counts.get(hn, 0) > 1)
-        d["has_agent_local"] = device_has_agent_local(d)
 
     agent_update = db.get_agent_update()
     qs = _devices_query_params(
@@ -857,6 +874,9 @@ def devices_csv_export(
         as_devices = [
             by_id[r["device_id"]] for r in rows if r.get("device_id") in by_id
         ]
+        if wave_filter == "dup":
+            signals = (db.duplicate_signal_index().get("device_signals") or {})
+            _attach_duplicate_signals(as_devices, signals)
         filtered = filter_devices_by_wave(
             as_devices,
             wave_filter,
