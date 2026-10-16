@@ -155,6 +155,24 @@ git push origin v1.0.1
 # → агенты опрашивают GET /v1/agent/update/check и ставят через msiexec
 ```
 
+## Сборка из панели (опционально)
+
+Отдельный путь волны «Обновление сервера»: кнопка в UI **не** собирает MSI локально и **не** трогает self-update панели (`/var/lib/bad/server-releases/`). Только trigger GitHub Actions → артефакт → ingest в **зеркало агента** (`BAD_AGENT_UPDATES_DIR` / `ingest_uploaded_msi`). Authenticode для этого пути **не** требуется (unsigned OK).
+
+| Что | Значение |
+|-----|----------|
+| Workflow | `release-msi` (`.github/workflows/release-msi.yml`) |
+| Trigger | `workflow_dispatch` (Actions UI или `POST …/actions/workflows/release-msi.yml/dispatches`) |
+| `ref` | ветка/тег сборки (обычно та же, что «Обновление сервера», default `main`) |
+| `inputs.version` | опционально; пусто → `Version` из csproj на этом `ref` |
+| `inputs.publish_release` | `true` (default) → assets в GitHub Release; `false` → только Actions artifact (удобно для панели без нового Release) |
+| Artifact | имя `bad-agent-msi-<semver>`; внутри `bad-agent-<semver>.msi` + `agent-release.json` |
+| Job outputs | `version`, `msi_name`, `artifact_name` после success |
+| Ingest | Release path → существующий `sync_from_github`; artifact path → скачать zip → `ingest_uploaded_msi` (+ manifest) |
+| Token (`BAD_GITHUB_TOKEN`) | `actions:write` (dispatch); для артефакта — `actions:read`; для Release — `contents:read` (как сейчас) |
+
+Ошибки GH/quota / failed run — зона Server Lead (RU-сообщения в UI); MSI workflow при fail просто не отдаёт артефакт. Не смешивать кнопку sync MSI и Apply server update.
+
 ## UpgradeCode
 
 Стабильный `UpgradeCode` MSI: `BADA0001-BADA-4B01-8BAD-00BADA000001` (валидный GUID; прежний суффикс `BLAZERITY0BAD` WiX 5 отклонял как не-hex). Component Guid: `…000003`…`…000006`.
