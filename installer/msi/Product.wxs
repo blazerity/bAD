@@ -78,13 +78,13 @@
     </ComponentGroup>
 
     <!-- Permanent: MajorUpgrade не сносит ProgramData (device_id/api_key). Полный uninstall чистит файлы CA. -->
-    <Component Id="ProgramDataDir" Directory="BADDATA" Guid="BADA0003-BADA-4B01-8BAD-BLAZERITY0BAD" Permanent="yes">
+    <Component Id="ProgramDataDir" Directory="BADDATA" Guid="BADA0003-BADA-4B01-8BAD-00BADA000003" Permanent="yes">
       <CreateFolder>
         <PermissionEx Sddl="D:PAI(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)" />
       </CreateFolder>
     </Component>
 
-    <Component Id="AgentService" Directory="INSTALLFOLDER" Guid="BADA0004-BADA-4B01-8BAD-BLAZERITY0BAD">
+    <Component Id="AgentService" Directory="INSTALLFOLDER" Guid="BADA0004-BADA-4B01-8BAD-00BADA000004">
       <ServiceInstall
           Id="BadServiceInstall"
           Name="BlazerityAssetDiscovery"
@@ -112,7 +112,7 @@
     </Component>
 
     <!-- WriteConfig: маркер + временный HKLM Setup; write-config.ps1 читает и удаляет. -->
-    <Component Id="WriteConfig" Directory="BADDATA" Guid="BADA0005-BADA-4B01-8BAD-BLAZERITY0BAD">
+    <Component Id="WriteConfig" Directory="BADDATA" Guid="BADA0005-BADA-4B01-8BAD-00BADA000005">
       <RegistryValue
           Root="HKLM"
           Key="SOFTWARE\blazerity\bAD"
@@ -139,7 +139,7 @@
       Добавляет INSTALLFOLDER, чтобы bad.cmd (shim → BadAgent.exe) находился как `bad`.
       Permanent="no" убирает запись PATH при uninstall.
     -->
-    <Component Id="AddPath" Directory="INSTALLFOLDER" Guid="BADA0006-BADA-4B01-8BAD-BLAZERITY0BAD" Condition="ADDPATH=&quot;1&quot;">
+    <Component Id="AddPath" Directory="INSTALLFOLDER" Guid="BADA0006-BADA-4B01-8BAD-00BADA000006" Condition="ADDPATH=&quot;1&quot;">
       <Environment
           Id="BadPath"
           Name="PATH"
