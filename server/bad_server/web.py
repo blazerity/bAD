@@ -783,13 +783,17 @@ def _attach_duplicate_signals(
     devices: list[dict],
     device_signals: dict[str, dict[str, Any]],
 ) -> None:
-    """Пометить строки списка: hostname/serial/smbios_uuid дубли (без merge)."""
+    """Пометить строки списка: hostname + hardware ids (без merge)."""
     for d in devices:
         sig = device_signals.get(d["device_id"]) or {}
         kinds = list(sig.get("kinds") or [])
         d["dup_hostname"] = bool(sig.get("hostname"))
         d["dup_serial"] = bool(sig.get("serial_number"))
         d["dup_smbios_uuid"] = bool(sig.get("smbios_uuid"))
+        d["dup_bios_serial"] = bool(sig.get("bios_serial"))
+        d["dup_identifying_number"] = bool(sig.get("identifying_number"))
+        d["dup_baseboard_serial"] = bool(sig.get("baseboard_serial"))
+        d["dup_disk_serial"] = bool(sig.get("disk_serial_number"))
         d["dup_kinds"] = kinds
         d["is_duplicate"] = bool(sig.get("is_duplicate"))
         # backward-compat для шаблона со старым hostname_dup

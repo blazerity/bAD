@@ -38,7 +38,7 @@
       <option value="revoked" {% if wave == 'revoked' %}selected{% endif %}>revoked</option>
       <option value="agent_local" {% if wave == 'agent_local' %}selected{% endif %}>agent_local</option>
       <option value="stale" {% if wave == 'stale' %}selected{% endif %}>stale</option>
-      <option value="dup" {% if wave == 'dup' %}selected{% endif %}>дубли (hostname/serial/UUID)</option>
+      <option value="dup" {% if wave == 'dup' %}selected{% endif %}>дубли (hostname/serial/UUID/disk)</option>
     </select>
     <label class="check">
       <input type="checkbox" name="archive" value="1" {% if show_archive %}checked{% endif %}>
@@ -73,7 +73,7 @@
           <a href="/devices/{{ d.device_id }}">{{ d.hostname or "(неизвестно)" }}</a>
           {% if d.is_duplicate or d.hostname_dup %}
             {% set kinds = d.dup_kinds or [] %}
-            <span class="badge badge-stale" title="Возможный дубль: {{ (kinds|join(', ')) if kinds else 'hostname/serial/smbios_uuid' }} (автослияния нет)">дубль</span>
+            <span class="badge badge-stale" title="Возможный дубль: {{ (kinds|join(', ')) if kinds else 'hostname/serial/smbios_uuid/disk' }} (автослияния нет)">дубль</span>
           {% endif %}
           {% if d.revoked %}
             <span class="badge badge-stale">отозван</span>

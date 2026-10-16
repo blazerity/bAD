@@ -414,12 +414,20 @@ class Database:
                         hostname.casefold(),
                     ]
                 )
-                # serial / smbios_uuid из meta-кэша (после inventory)
+                # hardware ids из meta-кэша (после inventory)
                 if query not in hay:
                     meta = self._parse_meta(row["meta_json"])
-                    serial = str(meta.get("serial_number") or "").casefold()
-                    uuid = str(meta.get("smbios_uuid") or "").casefold()
-                    if query not in serial and query not in uuid:
+                    id_bits = [
+                        str(meta.get("serial_number") or ""),
+                        str(meta.get("smbios_uuid") or ""),
+                        str(meta.get("bios_serial") or ""),
+                        str(meta.get("identifying_number") or ""),
+                        str(meta.get("baseboard_serial") or ""),
+                    ]
+                    for disk in meta.get("disk_serials") or []:
+                        id_bits.append(str(disk or ""))
+                    id_hay = " ".join(id_bits).casefold()
+                    if query not in id_hay:
                         continue
             result.append(
                 {
@@ -552,6 +560,10 @@ class Database:
         inventory = None
         serial_number = None
         smbios_uuid = None
+        bios_serial = None
+        identifying_number = None
+        baseboard_serial = None
+        disk_serials: list[str] = []
         model = None
         if snap:
             try:
@@ -570,12 +582,20 @@ class Database:
                     serial_number = hw.get("serial_number")
                     model = hw.get("model")
                 signals = self.extract_identity_signals(meta=meta, payload=payload)
-                serial_number = signals["serial_number"] or serial_number
-                smbios_uuid = signals["smbios_uuid"]
-        if not smbios_uuid:
-            smbios_uuid = self.extract_identity_signals(meta=meta)["smbios_uuid"]
-        if not serial_number:
-            serial_number = self.extract_identity_signals(meta=meta)["serial_number"]
+                serial_number = signals.get("serial_number") or serial_number
+                smbios_uuid = signals.get("smbios_uuid")
+                bios_serial = signals.get("bios_serial")
+                identifying_number = signals.get("identifying_number")
+                baseboard_serial = signals.get("baseboard_serial")
+                disk_serials = list(signals.get("disk_serials") or [])
+        from_meta = self.extract_identity_signals(meta=meta)
+        serial_number = serial_number or from_meta.get("serial_number")
+        smbios_uuid = smbios_uuid or from_meta.get("smbios_uuid")
+        bios_serial = bios_serial or from_meta.get("bios_serial")
+        identifying_number = identifying_number or from_meta.get("identifying_number")
+        baseboard_serial = baseboard_serial or from_meta.get("baseboard_serial")
+        if not disk_serials:
+            disk_serials = list(from_meta.get("disk_serials") or [])
         return {
             "device_id": device["device_id"],
             "hostname": device["hostname"],
@@ -588,6 +608,10 @@ class Database:
             "archived": bool(device["archived"]),
             "serial_number": serial_number,
             "smbios_uuid": smbios_uuid,
+            "bios_serial": bios_serial,
+            "identifying_number": identifying_number,
+            "baseboard_serial": baseboard_serial,
+            "disk_serials": disk_serials,
             "model": model,
             "latest_inventory": inventory,
         }
@@ -1305,6 +1329,36 @@ class Database:
             conn.execute("DELETE FROM devices WHERE device_id = ?", (device_id,))
             return True
 
+    # Placeholder serials (как CleanWmiString у агента) — не сигналы «та же машина».
+    _WEAK_SERIAL_EXACT = frozenset(
+        {
+            "none",
+            "n/a",
+            "na",
+            "default string",
+            "system serial number",
+            "system product name",
+            "system manufacturer",
+            "to be filled by o.e.m.",
+            "o.e.m.",
+            "oem",
+            "unknown",
+            "not specified",
+            "not available",
+            "0",
+            "00000000",
+        }
+    )
+
+    # Скалярные hardware-id для duplicates / meta (не PK).
+    IDENTITY_SCALAR_KEYS = (
+        "serial_number",
+        "smbios_uuid",
+        "bios_serial",
+        "identifying_number",
+        "baseboard_serial",
+    )
+
     @staticmethod
     def normalize_smbios_uuid(raw: Any) -> Optional[str]:
         """Нормализованный SMBIOS UUID или None для пустых/placeholder (all-F / all-zero)."""
@@ -1320,14 +1374,64 @@ class Database:
             return None
         return text
 
-    @staticmethod
-    def normalize_serial_number(raw: Any) -> Optional[str]:
+    @classmethod
+    def normalize_serial_number(cls, raw: Any) -> Optional[str]:
         if raw is None:
             return None
         text = str(raw).strip()
         if not text:
             return None
+        folded = text.casefold()
+        if folded in cls._WEAK_SERIAL_EXACT:
+            return None
+        if folded.startswith("to be filled") or folded.startswith("fill by oem"):
+            return None
         return text
+
+    def _pick_serial(
+        self,
+        *candidates: Any,
+    ) -> Optional[str]:
+        for raw in candidates:
+            value = self.normalize_serial_number(raw)
+            if value:
+                return value
+        return None
+
+    def _disk_serials_from_hardware(self, hw: dict[str, Any]) -> list[str]:
+        out: list[str] = []
+        seen: set[str] = set()
+        for disk in hw.get("disks") or []:
+            if not isinstance(disk, dict):
+                continue
+            serial = self.normalize_serial_number(disk.get("serial_number"))
+            if not serial:
+                continue
+            key = serial.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(serial)
+        return out
+
+    def _disk_serials_from_meta(self, meta: dict[str, Any]) -> list[str]:
+        raw = meta.get("disk_serials")
+        if not isinstance(raw, list):
+            # одиночное значение на всякий случай
+            one = self.normalize_serial_number(meta.get("disk_serial_number"))
+            return [one] if one else []
+        out: list[str] = []
+        seen: set[str] = set()
+        for item in raw:
+            serial = self.normalize_serial_number(item)
+            if not serial:
+                continue
+            key = serial.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(serial)
+        return out
 
     def extract_identity_signals(
         self,
@@ -1335,8 +1439,12 @@ class Database:
         meta: Optional[dict[str, Any]] = None,
         hardware: Optional[dict[str, Any]] = None,
         payload: Optional[dict[str, Any]] = None,
-    ) -> dict[str, Optional[str]]:
-        """serial_number / smbios_uuid из inventory hardware или meta (не PK)."""
+    ) -> dict[str, Any]:
+        """Сигналы «та же железка» из inventory/meta (не PK, без merge).
+
+        Скаляры: serial_number, smbios_uuid, bios_serial, identifying_number,
+        baseboard_serial. Список: disk_serials (Win32_DiskDrive.SerialNumber).
+        """
         meta = meta if isinstance(meta, dict) else {}
         hw = hardware if isinstance(hardware, dict) else None
         if hw is None and isinstance(payload, dict):
@@ -1344,14 +1452,28 @@ class Database:
             hw = raw_hw if isinstance(raw_hw, dict) else {}
         if hw is None:
             hw = {}
+        ids = meta.get("hardware_ids") if isinstance(meta.get("hardware_ids"), dict) else {}
 
-        serial = self.normalize_serial_number(hw.get("serial_number"))
-        if not serial:
-            serial = self.normalize_serial_number(meta.get("serial_number"))
-        if not serial:
-            ids = meta.get("hardware_ids")
-            if isinstance(ids, dict):
-                serial = self.normalize_serial_number(ids.get("serial_number"))
+        serial = self._pick_serial(
+            hw.get("serial_number"),
+            meta.get("serial_number"),
+            ids.get("serial_number"),
+        )
+        bios_serial = self._pick_serial(
+            hw.get("bios_serial"),
+            meta.get("bios_serial"),
+            ids.get("bios_serial"),
+        )
+        identifying_number = self._pick_serial(
+            hw.get("identifying_number"),
+            meta.get("identifying_number"),
+            ids.get("identifying_number"),
+        )
+        baseboard_serial = self._pick_serial(
+            hw.get("baseboard_serial"),
+            meta.get("baseboard_serial"),
+            ids.get("baseboard_serial"),
+        )
 
         uuid = self.normalize_smbios_uuid(hw.get("smbios_uuid"))
         if not uuid:
@@ -1359,105 +1481,160 @@ class Database:
         if not uuid:
             uuid = self.normalize_smbios_uuid(meta.get("smbios_uuid"))
         if not uuid:
-            ids = meta.get("hardware_ids")
-            if isinstance(ids, dict):
-                uuid = self.normalize_smbios_uuid(ids.get("smbios_uuid"))
+            uuid = self.normalize_smbios_uuid(ids.get("smbios_uuid"))
 
-        return {"serial_number": serial, "smbios_uuid": uuid}
+        disk_serials = self._disk_serials_from_hardware(hw)
+        if not disk_serials:
+            disk_serials = self._disk_serials_from_meta(meta)
+
+        return {
+            "serial_number": serial,
+            "smbios_uuid": uuid,
+            "bios_serial": bios_serial,
+            "identifying_number": identifying_number,
+            "baseboard_serial": baseboard_serial,
+            "disk_serials": disk_serials,
+        }
+
+    def identity_signals_for_meta(self, signals: dict[str, Any]) -> dict[str, Any]:
+        """Подмножество сигналов для записи в devices.meta_json."""
+        out: dict[str, Any] = {}
+        for key in self.IDENTITY_SCALAR_KEYS:
+            value = signals.get(key)
+            if value:
+                out[key] = value
+        disks = signals.get("disk_serials") or []
+        if isinstance(disks, list) and disks:
+            out["disk_serials"] = list(disks)
+        return out
+
+    def _identity_signals_enriched(
+        self, device_id: str, meta: dict[str, Any]
+    ) -> dict[str, Any]:
+        """meta + при пробелах — последний inventory (для старых снимков без кэша)."""
+        signals = self.extract_identity_signals(meta=meta)
+        need_inv = False
+        for key in self.IDENTITY_SCALAR_KEYS:
+            if not signals.get(key):
+                need_inv = True
+                break
+        if not signals.get("disk_serials"):
+            need_inv = True
+        if not need_inv:
+            return signals
+        detail = self.get_device_detail(device_id)
+        if not detail:
+            return signals
+        payload = (detail.get("latest_inventory") or {}).get("payload")
+        from_inv = self.extract_identity_signals(
+            meta=detail.get("meta") or meta,
+            payload=payload if isinstance(payload, dict) else None,
+        )
+        for key in self.IDENTITY_SCALAR_KEYS:
+            if not signals.get(key):
+                signals[key] = from_inv.get(key)
+        if not signals.get("disk_serials"):
+            signals["disk_serials"] = list(from_inv.get("disk_serials") or [])
+        return signals
 
     def duplicate_signal_index(self) -> dict[str, Any]:
-        """Индекс сигналов дубля по всему парку (hostname / serial / smbios_uuid).
+        """Индекс дублей: hostname + hardware ids (serial/uuid/bios/board/disk).
 
         Без auto-merge: только подсказки. Archived учитываются.
         """
         by_host: dict[str, list[str]] = {}
-        by_serial: dict[str, list[str]] = {}
-        by_uuid: dict[str, list[str]] = {}
+        by_scalar: dict[str, dict[str, list[str]]] = {
+            key: {} for key in self.IDENTITY_SCALAR_KEYS
+        }
+        by_disk: dict[str, list[str]] = {}
         rows: list[dict[str, Any]] = []
 
         for d in self.list_devices(archived=None):
             device_id = d["device_id"]
             meta = d.get("meta") if isinstance(d.get("meta"), dict) else {}
-            signals = self.extract_identity_signals(meta=meta)
-            # meta может отставать — подтянуть из последнего снимка при отсутствии
-            if not signals["serial_number"] or not signals["smbios_uuid"]:
-                detail = self.get_device_detail(device_id)
-                if detail:
-                    payload = (detail.get("latest_inventory") or {}).get("payload")
-                    from_inv = self.extract_identity_signals(
-                        meta=detail.get("meta") or meta,
-                        payload=payload if isinstance(payload, dict) else None,
-                    )
-                    signals["serial_number"] = (
-                        signals["serial_number"] or from_inv["serial_number"]
-                    )
-                    signals["smbios_uuid"] = (
-                        signals["smbios_uuid"] or from_inv["smbios_uuid"]
-                    )
+            signals = self._identity_signals_enriched(device_id, meta)
             hostname = (d.get("hostname") or "").strip()
             host_key = hostname.casefold() if hostname else ""
-            serial_key = (
-                signals["serial_number"].casefold() if signals["serial_number"] else ""
-            )
-            uuid_key = signals["smbios_uuid"] or ""
+            scalar_keys = {
+                key: (signals.get(key) or "").casefold()
+                if key != "smbios_uuid"
+                else (signals.get(key) or "")
+                for key in self.IDENTITY_SCALAR_KEYS
+            }
+            # smbios already casefolded by normalize
+            disk_keys = [
+                s.casefold() for s in (signals.get("disk_serials") or []) if s
+            ]
             row = {
                 "device_id": device_id,
                 "hostname": d.get("hostname"),
                 "archived": d.get("archived"),
-                "serial_number": signals["serial_number"],
-                "smbios_uuid": signals["smbios_uuid"],
+                "signals": signals,
                 "host_key": host_key,
-                "serial_key": serial_key,
-                "uuid_key": uuid_key,
+                "scalar_keys": scalar_keys,
+                "disk_keys": disk_keys,
             }
             rows.append(row)
             if host_key:
                 by_host.setdefault(host_key, []).append(device_id)
-            if serial_key:
-                by_serial.setdefault(serial_key, []).append(device_id)
-            if uuid_key:
-                by_uuid.setdefault(uuid_key, []).append(device_id)
+            for key, value in scalar_keys.items():
+                if value:
+                    by_scalar[key].setdefault(value, []).append(device_id)
+            for disk_key in disk_keys:
+                by_disk.setdefault(disk_key, []).append(device_id)
 
         device_signals: dict[str, dict[str, Any]] = {}
         for row in rows:
             did = row["device_id"]
-            host_dup = bool(row["host_key"] and len(by_host.get(row["host_key"], [])) > 1)
-            serial_dup = bool(
-                row["serial_key"] and len(by_serial.get(row["serial_key"], [])) > 1
-            )
-            uuid_dup = bool(
-                row["uuid_key"] and len(by_uuid.get(row["uuid_key"], [])) > 1
-            )
-            kinds = []
-            if host_dup:
-                kinds.append("hostname")
-            if serial_dup:
-                kinds.append("serial_number")
-            if uuid_dup:
-                kinds.append("smbios_uuid")
+            flags: dict[str, bool] = {
+                "hostname": bool(
+                    row["host_key"] and len(by_host.get(row["host_key"], [])) > 1
+                )
+            }
+            for key, value in row["scalar_keys"].items():
+                flags[key] = bool(value and len(by_scalar[key].get(value, [])) > 1)
+            disk_dup = any(len(by_disk.get(k, [])) > 1 for k in row["disk_keys"])
+            flags["disk_serial_number"] = disk_dup
+
+            kinds = [name for name, hit in flags.items() if hit]
+            signals = row["signals"]
             device_signals[did] = {
-                "hostname": host_dup,
-                "serial_number": serial_dup,
-                "smbios_uuid": uuid_dup,
+                **flags,
                 "is_duplicate": bool(kinds),
                 "kinds": kinds,
-                "serial_value": row["serial_number"],
-                "smbios_uuid_value": row["smbios_uuid"],
+                "serial_value": signals.get("serial_number"),
+                "smbios_uuid_value": signals.get("smbios_uuid"),
+                "bios_serial_value": signals.get("bios_serial"),
+                "identifying_number_value": signals.get("identifying_number"),
+                "baseboard_serial_value": signals.get("baseboard_serial"),
+                "disk_serials_value": list(signals.get("disk_serials") or []),
             }
 
         return {
             "by_hostname": by_host,
-            "by_serial": by_serial,
-            "by_smbios_uuid": by_uuid,
+            "by_serial": by_scalar.get("serial_number") or {},
+            "by_smbios_uuid": by_scalar.get("smbios_uuid") or {},
+            "by_bios_serial": by_scalar.get("bios_serial") or {},
+            "by_identifying_number": by_scalar.get("identifying_number") or {},
+            "by_baseboard_serial": by_scalar.get("baseboard_serial") or {},
+            "by_disk_serial": by_disk,
             "device_signals": device_signals,
         }
 
     def find_duplicate_devices(self, device_id: str) -> dict[str, list[dict[str, Any]]]:
-        """Другие устройства с тем же hostname / serial_number / smbios_uuid.
+        """Другие устройства с совпавшим hostname / hardware id.
 
         Сигналы «та же железка», не PK. Автослияния нет.
         """
-        empty = {"hostname": [], "serial_number": [], "smbios_uuid": []}
+        empty: dict[str, list[dict[str, Any]]] = {
+            "hostname": [],
+            "serial_number": [],
+            "smbios_uuid": [],
+            "bios_serial": [],
+            "identifying_number": [],
+            "baseboard_serial": [],
+            "disk_serial_number": [],
+        }
         detail = self.get_device_detail(device_id)
         if not detail:
             return empty
@@ -1467,68 +1644,61 @@ class Database:
             payload=payload if isinstance(payload, dict) else None,
         )
         hostname = (detail.get("hostname") or "").strip()
-        serial = signals["serial_number"]
-        smbios_uuid = signals["smbios_uuid"]
+        my_disks = {
+            s.casefold() for s in (signals.get("disk_serials") or []) if s
+        }
 
-        by_host: list[dict[str, Any]] = []
-        by_serial: list[dict[str, Any]] = []
-        by_uuid: list[dict[str, Any]] = []
+        buckets: dict[str, list[dict[str, Any]]] = {k: [] for k in empty}
 
         for other in self.list_devices(archived=None):
             if other["device_id"] == device_id:
                 continue
             other_meta = other.get("meta") if isinstance(other.get("meta"), dict) else {}
-            other_signals = self.extract_identity_signals(meta=other_meta)
-            if not other_signals["serial_number"] or not other_signals["smbios_uuid"]:
-                od = self.get_device_detail(other["device_id"])
-                if od:
-                    op = (od.get("latest_inventory") or {}).get("payload")
-                    other_signals = self.extract_identity_signals(
-                        meta=od.get("meta") or other_meta,
-                        payload=op if isinstance(op, dict) else None,
-                    )
+            other_signals = self._identity_signals_enriched(
+                other["device_id"], other_meta
+            )
+
+            base = {
+                "device_id": other["device_id"],
+                "hostname": other["hostname"],
+                "archived": other.get("archived"),
+            }
 
             other_hn = (other.get("hostname") or "").strip()
             if hostname and other_hn and hostname.casefold() == other_hn.casefold():
-                by_host.append(
-                    {
-                        "device_id": other["device_id"],
-                        "hostname": other["hostname"],
-                        "archived": other.get("archived"),
-                    }
-                )
+                buckets["hostname"].append(dict(base))
 
-            other_serial = other_signals["serial_number"]
-            if (
-                serial
-                and other_serial
-                and serial.casefold() == other_serial.casefold()
+            for key in (
+                "serial_number",
+                "smbios_uuid",
+                "bios_serial",
+                "identifying_number",
+                "baseboard_serial",
             ):
-                by_serial.append(
-                    {
-                        "device_id": other["device_id"],
-                        "hostname": other["hostname"],
-                        "serial_number": other_serial,
-                        "archived": other.get("archived"),
-                    }
-                )
+                mine = signals.get(key)
+                theirs = other_signals.get(key)
+                if not mine or not theirs:
+                    continue
+                if key == "smbios_uuid":
+                    match = mine == theirs
+                else:
+                    match = str(mine).casefold() == str(theirs).casefold()
+                if match:
+                    row = dict(base)
+                    row[key] = theirs
+                    buckets[key].append(row)
 
-            other_uuid = other_signals["smbios_uuid"]
-            if smbios_uuid and other_uuid and smbios_uuid == other_uuid:
-                by_uuid.append(
-                    {
-                        "device_id": other["device_id"],
-                        "hostname": other["hostname"],
-                        "smbios_uuid": other_uuid,
-                        "archived": other.get("archived"),
-                    }
-                )
+            other_disks = {
+                s.casefold() for s in (other_signals.get("disk_serials") or []) if s
+            }
+            shared = sorted(my_disks & other_disks)
+            if shared:
+                row = dict(base)
+                row["disk_serial_number"] = shared[0]
+                row["disk_serials"] = shared
+                buckets["disk_serial_number"].append(row)
 
-        return {
-            "hostname": by_host,
-            "serial_number": by_serial,
-            "smbios_uuid": by_uuid,
-        }
+        return buckets
 
     def count_enrolled_since(self, since_iso: Optional[str] = None) -> int:
         """Active (non-archived) devices enrolled strictly after ``since_iso``.
