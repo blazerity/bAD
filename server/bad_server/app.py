@@ -15,7 +15,7 @@ from .auth import ensure_bootstrap_secrets, seed_default_admin
 from .backup import run_daily_backup
 from .config import get_settings
 from .crypto_util import decrypt_secret
-from .db import Database, utc_now
+from .db import Database, open_database, utc_now
 from .rate_limit import SlidingWindowRateLimiter
 from .security import hash_secret
 from .smtp_mail import notify_stale_device
@@ -74,7 +74,10 @@ async def _backup_loop(app: FastAPI) -> None:
     while True:
         try:
             result = await asyncio.to_thread(
-                run_daily_backup, settings.db_path, settings.backup_dir
+                run_daily_backup,
+                settings.backup_dir,
+                db_path=settings.db_path,
+                database_url=settings.database_url or None,
             )
             if result.get("ok"):
                 db.set_site_secret("last_backup_at", utc_now())
@@ -82,7 +85,7 @@ async def _backup_loop(app: FastAPI) -> None:
             else:
                 logger.warning("Daily backup skipped/failed: %s", result.get("error"))
         except Exception:  # noqa: BLE001
-            logger.exception("Background SQLite backup failed")
+            logger.exception("Background DB backup failed")
         try:
             await asyncio.sleep(interval)
         except asyncio.CancelledError:
@@ -127,7 +130,10 @@ async def _stale_alert_loop(app: FastAPI) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
-    db = Database(settings.db_path)
+    db = open_database(
+        db_path=settings.db_path,
+        database_url=settings.database_url or None,
+    )
     settings.agent_updates_dir.mkdir(parents=True, exist_ok=True)
     try:
         settings.backup_dir.mkdir(parents=True, exist_ok=True)
@@ -143,11 +149,12 @@ async def lifespan(app: FastAPI):
     session_secret, data_key = ensure_bootstrap_secrets(db, settings)
     seed_default_admin(db, settings)
 
-    # По возможности ограничить права на файл БД (bind-пароль лежит внутри зашифрованным).
-    try:
-        settings.db_path.chmod(0o600)
-    except OSError:
-        pass
+    # SQLite: ограничить права на файл БД. Postgres — URL в site.env.
+    if not settings.uses_postgres:
+        try:
+            settings.db_path.chmod(0o600)
+        except OSError:
+            pass
 
     app.state.db = db
     app.state.session_secret = session_secret

@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="BAD_", extra="ignore")
 
     db_path: Path = Path(os.environ.get("BAD_DB_PATH", "./data/bad.db"))
+    # Если set → Postgres (prod opt-in). Иначе SQLite по db_path (lab/default).
+    database_url: str = ""
     enrollment_token: str = ""
     admin_token: str = ""
     # Master secrets — prefer env/file outside SQLite (SEC-005).
@@ -62,7 +64,7 @@ class Settings(BaseSettings):
     agent_update_sync_interval_seconds: int = 3600
     agent_update_sync_on_startup: bool = True
 
-    # Ежедневные бэкапы SQLite (сегодня + вчера в этом каталоге).
+    # Ежедневные бэкапы (SQLite file или pg_dump) — сегодня + вчера.
     backup_dir: Path = Path(
         os.environ.get("BAD_BACKUP_DIR", "/var/lib/bad/backups")
     )
@@ -83,6 +85,10 @@ class Settings(BaseSettings):
         if text in {"auto", "none"}:
             return None
         return None
+
+    @property
+    def uses_postgres(self) -> bool:
+        return bool((self.database_url or "").strip())
 
 
 @lru_cache

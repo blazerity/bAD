@@ -5,7 +5,16 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator, Optional, Union
+
+from .db_backend import (
+    BACKEND_POSTGRES,
+    BACKEND_SQLITE,
+    SCHEMA_SQL_POSTGRES,
+    CompatConnection,
+    connect_postgres,
+    connect_sqlite,
+)
 
 SCHEMA_SQL = """
 PRAGMA journal_mode=WAL;
@@ -157,20 +166,54 @@ def utc_now() -> str:
 
 
 class Database:
-    def __init__(self, path: Path) -> None:
-        self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+    """Persistence hub. SQLite (lab/default) или Postgres при BAD_DATABASE_URL."""
+
+    def __init__(
+        self,
+        path: Optional[Union[Path, str]] = None,
+        *,
+        database_url: Optional[str] = None,
+    ) -> None:
+        url = (database_url or "").strip()
+        if url:
+            self.backend = BACKEND_POSTGRES
+            self.database_url = url
+            self.path = Path(path) if path else Path("./data/bad.db")
+        else:
+            if path is None:
+                raise ValueError("SQLite backend requires db path")
+            self.backend = BACKEND_SQLITE
+            self.database_url = None
+            self.path = Path(path)
+            self.path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.path, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=5000")
-        conn.execute("PRAGMA foreign_keys=ON")
-        return conn
+    @property
+    def is_postgres(self) -> bool:
+        return self.backend == BACKEND_POSTGRES
+
+    def _connect(self) -> CompatConnection:
+        if self.is_postgres:
+            assert self.database_url
+            return connect_postgres(self.database_url)
+        return connect_sqlite(str(self.path))
 
     def _init_schema(self) -> None:
+        if self.is_postgres:
+            self._init_schema_postgres()
+        else:
+            self._init_schema_sqlite()
+
+    def _init_schema_postgres(self) -> None:
+        with self._connect() as conn:
+            conn.executescript(SCHEMA_SQL_POSTGRES)
+            for table in ("ldap_settings", "retention_settings", "smtp_settings"):
+                conn.execute(
+                    f"INSERT INTO {table}(id) VALUES (1) ON CONFLICT DO NOTHING"
+                )
+            conn.commit()
+
+    def _init_schema_sqlite(self) -> None:
         with self._connect() as conn:
             conn.executescript(SCHEMA_SQL)
             # Гарантировать наличие singleton-строк settings
@@ -264,7 +307,7 @@ class Database:
             conn.commit()
 
     @contextmanager
-    def connection(self) -> Iterator[sqlite3.Connection]:
+    def connection(self) -> Iterator[CompatConnection]:
         conn = self._connect()
         try:
             yield conn
@@ -554,10 +597,12 @@ class Database:
                 INSERT INTO inventory_snapshots(
                   device_id, received_at, schema_version, payload_json
                 ) VALUES (?, ?, ?, ?)
+                RETURNING id
                 """,
                 (device_id, now, schema_version, payload_json),
             )
-            snapshot_id = int(cur.lastrowid)
+            row = cur.fetchone()
+            snapshot_id = int(row["id"] if row else 0)
 
             events = diff_inventory_snapshots(previous, payload)
             for event in events:
@@ -827,6 +872,7 @@ class Database:
                 INSERT INTO local_users(
                   username, password_hash, role, must_change_password, created_at
                 ) VALUES (?, ?, ?, ?, ?)
+                RETURNING id
                 """,
                 (
                     username,
@@ -836,7 +882,8 @@ class Database:
                     now,
                 ),
             )
-            return int(cur.lastrowid)
+            row = cur.fetchone()
+            return int(row["id"] if row else 0)
 
     def get_local_user(self, username: str) -> Optional[dict[str, Any]]:
         with self.connection() as conn:
@@ -1275,6 +1322,7 @@ class Database:
                   name, enabled, priority, conditions_json, settings_json,
                   created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                RETURNING id
                 """,
                 (
                     name,
@@ -1286,7 +1334,8 @@ class Database:
                     now,
                 ),
             )
-            policy_id = int(cur.lastrowid)
+            prow = cur.fetchone()
+            policy_id = int(prow["id"] if prow else 0)
         policy = self.get_agent_policy(policy_id)
         assert policy is not None
         return policy
@@ -1886,3 +1935,17 @@ class Database:
                 self.patch_device_meta(d["device_id"], {"stale_notified_at": None})
         return out
 
+
+
+def open_database(
+    *,
+    db_path: Optional[Union[Path, str]] = None,
+    database_url: Optional[str] = None,
+) -> Database:
+    """Factory: BAD_DATABASE_URL → Postgres, иначе SQLite file."""
+    url = (database_url or "").strip()
+    if url:
+        return Database(database_url=url)
+    if db_path is None:
+        raise ValueError("db_path required when BAD_DATABASE_URL is empty")
+    return Database(Path(db_path))

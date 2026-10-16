@@ -1,0 +1,288 @@
+"""Dual-run connection adapter: SQLite (lab) + Postgres (BAD_DATABASE_URL)."""
+
+from __future__ import annotations
+
+import re
+import sqlite3
+from typing import Any, Iterable, Optional, Sequence, Union
+
+BACKEND_SQLITE = "sqlite"
+BACKEND_POSTGRES = "postgres"
+
+_PLACEHOLDER_RE = re.compile(r"\?")
+_COLLATE_NOCASE_RE = re.compile(
+    r"(\b[\w.]+)\s*=\s*\?\s*COLLATE\s+NOCASE",
+    re.IGNORECASE,
+)
+_INSERT_OR_IGNORE_RE = re.compile(
+    r"INSERT\s+OR\s+IGNORE\s+INTO",
+    re.IGNORECASE,
+)
+
+
+def adapt_sql(sql: str, backend: str) -> str:
+    """Translate SQLite-flavoured SQL for the active backend."""
+    if backend == BACKEND_SQLITE:
+        return sql
+    text = _COLLATE_NOCASE_RE.sub(r"LOWER(\1) = LOWER(?)", sql)
+    text = _INSERT_OR_IGNORE_RE.sub("INSERT INTO", text)
+    if _INSERT_OR_IGNORE_RE.search(sql) and "ON CONFLICT" not in text.upper():
+        text = text.rstrip().rstrip(";") + " ON CONFLICT DO NOTHING"
+    # psycopg uses %s placeholders.
+    text = _PLACEHOLDER_RE.sub("%s", text)
+    return text
+
+
+class CompatCursor:
+    """Cursor façade: fetchone/fetchall + lastrowid for both backends."""
+
+    def __init__(self, raw: Any, *, backend: str, lastrowid: Optional[int] = None) -> None:
+        self._raw = raw
+        self.backend = backend
+        self.lastrowid = lastrowid if lastrowid is not None else getattr(raw, "lastrowid", None)
+
+    def fetchone(self) -> Any:
+        return self._raw.fetchone()
+
+    def fetchall(self) -> list[Any]:
+        return list(self._raw.fetchall())
+
+    def fetchmany(self, size: Optional[int] = None) -> list[Any]:
+        if size is None:
+            return list(self._raw.fetchmany())
+        return list(self._raw.fetchmany(size))
+
+    @property
+    def rowcount(self) -> int:
+        return int(getattr(self._raw, "rowcount", -1) or -1)
+
+    def __iter__(self) -> Iterable[Any]:
+        return iter(self._raw)
+
+
+class CompatConnection:
+    """Minimal sqlite3-compatible connection for Database.connection()."""
+
+    def __init__(self, raw: Any, *, backend: str) -> None:
+        self._raw = raw
+        self.backend = backend
+
+    def execute(
+        self, sql: str, params: Optional[Union[Sequence[Any], dict[str, Any]]] = None
+    ) -> CompatCursor:
+        adapted = adapt_sql(sql, self.backend)
+        if self.backend == BACKEND_POSTGRES:
+            cur = self._raw.execute(adapted, params or ())
+            return CompatCursor(cur, backend=self.backend)
+        cur = self._raw.execute(adapted, params or ())
+        return CompatCursor(cur, backend=self.backend, lastrowid=cur.lastrowid)
+
+    def executescript(self, script: str) -> None:
+        if self.backend == BACKEND_SQLITE:
+            self._raw.executescript(script)
+            return
+        # Postgres: run statements one-by-one (no PRAGMA).
+        for stmt in _split_sql_statements(script):
+            if stmt.strip():
+                self._raw.execute(stmt)
+
+    def commit(self) -> None:
+        self._raw.commit()
+
+    def rollback(self) -> None:
+        self._raw.rollback()
+
+    def close(self) -> None:
+        self._raw.close()
+
+    def __enter__(self) -> "CompatConnection":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:  # noqa: ANN001
+        if exc_type is not None:
+            self.rollback()
+        else:
+            self.commit()
+        self.close()
+
+
+def _split_sql_statements(script: str) -> list[str]:
+    parts: list[str] = []
+    buf: list[str] = []
+    for line in script.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("--"):
+            continue
+        buf.append(line)
+        if ";" in line:
+            chunk = "\n".join(buf)
+            for piece in chunk.split(";"):
+                piece = piece.strip()
+                if piece:
+                    parts.append(piece)
+            buf = []
+    tail = "\n".join(buf).strip()
+    if tail:
+        parts.append(tail)
+    return parts
+
+
+def connect_sqlite(path: str) -> CompatConnection:
+    conn = sqlite3.connect(path, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA foreign_keys=ON")
+    return CompatConnection(conn, backend=BACKEND_SQLITE)
+
+
+def connect_postgres(database_url: str) -> CompatConnection:
+    try:
+        import psycopg
+        from psycopg.rows import dict_row
+    except ImportError as exc:  # pragma: no cover
+        raise RuntimeError(
+            "Postgres backend requires psycopg: pip install 'psycopg[binary]'"
+        ) from exc
+    raw = psycopg.connect(database_url, row_factory=dict_row)
+    return CompatConnection(raw, backend=BACKEND_POSTGRES)
+
+
+SCHEMA_SQL_POSTGRES = """
+CREATE TABLE IF NOT EXISTS devices (
+  device_id TEXT PRIMARY KEY,
+  hostname TEXT,
+  api_key_hash TEXT NOT NULL,
+  api_key_lookup TEXT,
+  enrolled_at TEXT NOT NULL,
+  last_seen_at TEXT,
+  agent_version TEXT,
+  meta_json TEXT,
+  tags_json TEXT NOT NULL DEFAULT '[]',
+  revoked INTEGER NOT NULL DEFAULT 0,
+  archived INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_devices_api_key_lookup
+  ON devices(api_key_lookup);
+
+CREATE TABLE IF NOT EXISTS inventory_snapshots (
+  id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  device_id TEXT NOT NULL REFERENCES devices(device_id),
+  received_at TEXT NOT NULL,
+  schema_version INTEGER NOT NULL,
+  payload_json TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_snapshots_device_received
+  ON inventory_snapshots(device_id, received_at DESC);
+
+CREATE TABLE IF NOT EXISTS site_secrets (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS local_users (
+  id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  username TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'admin',
+  must_change_password INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  last_login_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS ldap_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  enabled INTEGER NOT NULL DEFAULT 0,
+  host TEXT NOT NULL DEFAULT '',
+  port INTEGER NOT NULL DEFAULT 389,
+  use_ssl INTEGER NOT NULL DEFAULT 0,
+  start_tls INTEGER NOT NULL DEFAULT 0,
+  bind_dn TEXT NOT NULL DEFAULT '',
+  bind_password_enc TEXT NOT NULL DEFAULT '',
+  user_search_base TEXT NOT NULL DEFAULT '',
+  user_filter_template TEXT NOT NULL DEFAULT '(uid={username})',
+  display_name_attr TEXT NOT NULL DEFAULT 'cn',
+  default_role TEXT NOT NULL DEFAULT 'operator',
+  allowed_group TEXT NOT NULL DEFAULT '',
+  tls_insecure INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS retention_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  events_days INTEGER NOT NULL DEFAULT 90,
+  inventory_days INTEGER NOT NULL DEFAULT 180,
+  updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS smtp_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  enabled INTEGER NOT NULL DEFAULT 0,
+  host TEXT NOT NULL DEFAULT '',
+  port INTEGER NOT NULL DEFAULT 587,
+  use_ssl INTEGER NOT NULL DEFAULT 0,
+  use_starttls INTEGER NOT NULL DEFAULT 1,
+  username TEXT NOT NULL DEFAULT '',
+  password_enc TEXT NOT NULL DEFAULT '',
+  from_addr TEXT NOT NULL DEFAULT '',
+  to_addrs TEXT NOT NULL DEFAULT '',
+  notify_json TEXT NOT NULL DEFAULT '',
+  updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS agent_update (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  version TEXT NOT NULL,
+  msi_name TEXT NOT NULL,
+  sha256 TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  source_tag TEXT,
+  release_url TEXT,
+  synced_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agent_msi_versions (
+  version TEXT PRIMARY KEY,
+  msi_name TEXT NOT NULL,
+  sha256 TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'github',
+  source_tag TEXT,
+  release_url TEXT,
+  mirrored_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agent_policies (
+  id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  name TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  priority INTEGER NOT NULL DEFAULT 100,
+  conditions_json TEXT NOT NULL,
+  settings_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS device_config_overrides (
+  device_id TEXT PRIMARY KEY REFERENCES devices(device_id) ON DELETE CASCADE,
+  settings_json TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS device_events (
+  id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  device_id TEXT NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
+  type TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  detail_json TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_device_events_created
+  ON device_events(created_at DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_device_events_device_created
+  ON device_events(device_id, created_at DESC, id DESC);
+"""

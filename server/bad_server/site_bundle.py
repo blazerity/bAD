@@ -104,14 +104,19 @@ def build_site_bundle(
     session_secret_file: Path,
     include_msi_files: bool = False,
     extra_key_files: Optional[list[Path]] = None,
+    database_url: Optional[str] = None,
 ) -> tuple[bytes, str]:
     """Собрать tar.gz site bundle. Возвращает (bytes, filename)."""
     backup_dir.mkdir(parents=True, exist_ok=True)
-    # Свежий снимок БД через online backup (не копировать live WAL напрямую).
-    snap = run_daily_backup(db_path, backup_dir)
+    url = (database_url or getattr(db, "database_url", None) or "").strip() or None
+    # Свежий снимок: SQLite Online Backup или pg_dump.
+    snap = run_daily_backup(
+        backup_dir, db_path=db_path, database_url=url
+    )
     if not snap.get("ok"):
-        raise RuntimeError(snap.get("error") or "SQLite backup failed")
+        raise RuntimeError(snap.get("error") or "DB backup failed")
     db_snapshot = Path(snap["path"])
+    db_arcname = "bad.dump" if url else "bad.db"
 
     versions = db.list_agent_msi_versions()
     mirror_meta = {
@@ -144,10 +149,10 @@ def build_site_bundle(
     included: list[dict[str, Any]] = []
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        # DB snapshot
-        info = _add_file(tar, "bad.db", db_snapshot)
+        # DB snapshot (SQLite file or pg_dump custom)
+        info = _add_file(tar, db_arcname, db_snapshot)
         if info:
-            included.append(info)
+            included.append({**info, "kind": "db", "backend": "postgres" if url else "sqlite"})
 
         # Keys (contents never rendered to HTML — only inside download)
         for path in key_paths:
@@ -199,10 +204,15 @@ def build_site_bundle(
             "format": "bad-site-bundle/v1",
             "created_at": _utc_stamp(),
             "product_version": __version__,
+            "db_backend": "postgres" if url else "sqlite",
             "files": included,
             "notes": [
-                "Contains SQLite snapshot and site key files — treat as secret.",
-                "Restore: deploy/debian/restore-site-bundle.sh (stop service first).",
+                (
+                    "Contains pg_dump (-Fc) and site key files — treat as secret."
+                    if url
+                    else "Contains SQLite snapshot and site key files — treat as secret."
+                ),
+                "DB dump ≠ keys. Restore: deploy/debian/restore-site-bundle.sh.",
             ],
         }
         man_bytes = json.dumps(manifest, indent=2, ensure_ascii=False).encode("utf-8")
