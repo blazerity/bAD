@@ -184,7 +184,7 @@
     <li>
       <span class="mono muted">{{ e.created_at }}</span>
       · <a href="/devices/{{ e.device_id }}">{{ e.hostname or e.device_id }}</a>
-      · <span class="mono">{{ e.type }}</span>
+      · <span title="{{ e.type }}">{{ e.type|format_event_type }}</span>
       {% if e.summary %}<span class="muted">— {{ e.summary }}</span>{% endif %}
     </li>
     {% endfor %}

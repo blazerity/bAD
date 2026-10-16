@@ -45,7 +45,7 @@
         <td>
           <a href="/devices/{{ e.device_id }}">{{ e.hostname or e.device_id }}</a>
         </td>
-        <td class="mono">{{ e.type }}</td>
+        <td title="{{ e.type }}">{{ e.type|format_event_type }}</td>
         <td>{{ e.summary }}</td>
       </tr>
       {% endfor %}
