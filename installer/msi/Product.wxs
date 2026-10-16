@@ -59,19 +59,22 @@
     <!-- Автолог msiexec в %TEMP%\MSI*.log (voicewarmupx), даже без /l*v. -->
     <Property Id="MsiLogging" Value="voicewarmupx" />
 
-    <!-- 1722 = «программа из состава установки завершилась неожиданно» (RU dialog). -->
-    <Error Id="1722"
-           Message="bAD Agent Setup failed (MSI 1722 / custom action). Look for BAD_MSI_### in %ProgramData%\blazerity\bAD\logs\msi-install.log and %TEMP%\MSI*.log. Action [2], location: [3], command: [4]" />
-    <Error Id="25001"
-           Message="bAD MSI BAD_MSI_001: bad-paths.ps1 missing next to write-config.ps1. See %ProgramData%\blazerity\bAD\logs\msi-install.log" />
-    <Error Id="25002"
-           Message="bAD MSI BAD_MSI_002: cannot create ProgramData directories. See %ProgramData%\blazerity\bAD\logs\msi-install.log" />
-    <Error Id="25003"
-           Message="bAD MSI BAD_MSI_003: cannot write config.json. See %ProgramData%\blazerity\bAD\logs\msi-install.log" />
-    <Error Id="25004"
-           Message="bAD MSI BAD_MSI_004: cannot set config.json ACL. See %ProgramData%\blazerity\bAD\logs\msi-install.log" />
-    <Error Id="25005"
-           Message="bAD MSI BAD_MSI_005: unexpected write-config failure. See %ProgramData%\blazerity\bAD\logs\msi-install.log" />
+    <!-- WiX v4/v5: Error только внутри UI (не прямой child Package) — иначе WIX0005. -->
+    <UI>
+      <!-- 1722 = «программа из состава установки завершилась неожиданно» (RU dialog). -->
+      <Error Id="1722"
+             Message="bAD Agent Setup failed (MSI 1722 / custom action). Look for BAD_MSI_### in %ProgramData%\blazerity\bAD\logs\msi-install.log and %TEMP%\MSI*.log. Action [2], location: [3], command: [4]" />
+      <Error Id="25001"
+             Message="bAD MSI BAD_MSI_001: bad-paths.ps1 missing next to write-config.ps1. See %ProgramData%\blazerity\bAD\logs\msi-install.log" />
+      <Error Id="25002"
+             Message="bAD MSI BAD_MSI_002: cannot create ProgramData directories. See %ProgramData%\blazerity\bAD\logs\msi-install.log" />
+      <Error Id="25003"
+             Message="bAD MSI BAD_MSI_003: cannot write config.json. See %ProgramData%\blazerity\bAD\logs\msi-install.log" />
+      <Error Id="25004"
+             Message="bAD MSI BAD_MSI_004: cannot set config.json ACL. See %ProgramData%\blazerity\bAD\logs\msi-install.log" />
+      <Error Id="25005"
+             Message="bAD MSI BAD_MSI_005: unexpected write-config failure. See %ProgramData%\blazerity\bAD\logs\msi-install.log" />
+    </UI>
 
     <Feature Id="Main" Title="bAD Agent" Level="1">
       <ComponentGroupRef Id="AgentFiles" />
