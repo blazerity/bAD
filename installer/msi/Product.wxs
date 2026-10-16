@@ -8,8 +8,8 @@
     Copy-Item .\cleanup-uninstall.ps1 .\publish\
     Copy-Item .\bad-paths.ps1 .\publish\
     Copy-Item .\bad.cmd .\publish\
-    wix extension add --global WixToolset.Util.wixext/5.0.2
-    wix build Product.wxs -ext WixToolset.Util.wixext -arch x64 -d AgentPublishDir=publish -d ProductVersion=0.10.1 -o bad-agent-0.10.1.msi
+    wix extension add (флаг global) WixToolset.Util.wixext/5.0.2
+    wix build Product.wxs -ext WixToolset.Util.wixext -arch x64 -d AgentPublishDir=publish -d ProductVersion=0.11.0 -o bad-agent-0.11.0.msi
 
   Публичные свойства (msiexec):
     SERVERURL=https://bad.example.com
