@@ -135,8 +135,8 @@ public static class BadCli
   bad -r [path]            HTML-отчёт (то же: bad --report [path]; устар. --html)
   bad -c                   Интерактивная настройка агента (рекомендуется)
   bad -h                   Эта справка (то же: bad --help | bad -?)
-  bad config               Показать текущие настройки (без секретов)
-  bad config set <k> <v>   Power-user: изменить один параметр
+  bad config               Показать настройки (значения api_key / enrollment_token не печатаются)
+  bad config set <k> <v>   Power-user: один параметр (server_url в бою — https://)
 
 Путь для HTML (-r):
   без path                 Рабочий стол: bad_report_yyyyMMdd_HHmmss.html
