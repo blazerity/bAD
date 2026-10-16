@@ -32,6 +32,10 @@ public sealed class InventorySnapshot
     [JsonPropertyName("software")]
     public SoftwareInfo? Software { get; set; }
 
+    /// <summary>TPM / Secure Boot / AV (имена). Soft-fail; без нового collect_*.</summary>
+    [JsonPropertyName("security")]
+    public SecurityInfo? Security { get; set; }
+
     /// <summary>Метаданные BSOD minidump (имена/время/число) — без тел файлов.</summary>
     [JsonPropertyName("minidumps")]
     public MinidumpInfo? Minidumps { get; set; }
@@ -67,6 +71,18 @@ public sealed class HostInfo
 
     [JsonPropertyName("os")]
     public OsInfo? Os { get; set; }
+
+    /// <summary>UTC ISO из Win32_OperatingSystem.LastBootUpTime.</summary>
+    [JsonPropertyName("last_boot_at")]
+    public string? LastBootAt { get; set; }
+
+    /// <summary>ID/display часового пояса (best-effort).</summary>
+    [JsonPropertyName("timezone")]
+    public string? Timezone { get; set; }
+
+    /// <summary>Ожидает перезагрузку (CBS / WindowsUpdate / PendingFileRename).</summary>
+    [JsonPropertyName("pending_reboot")]
+    public bool? PendingReboot { get; set; }
 }
 
 public sealed class OsInfo
@@ -121,6 +137,14 @@ public sealed class HardwareInfo
 
     [JsonPropertyName("bios_release_date")]
     public string? BiosReleaseDate { get; set; }
+
+    /// <summary>Нормализовано: laptop \| desktop \| server \| vm \| other.</summary>
+    [JsonPropertyName("chassis_type")]
+    public string? ChassisType { get; set; }
+
+    /// <summary>Сырые коды Win32_SystemEnclosure.ChassisTypes.</summary>
+    [JsonPropertyName("chassis_types_raw")]
+    public List<int>? ChassisTypesRaw { get; set; }
 
     [JsonPropertyName("battery")]
     public BatteryInfo? Battery { get; set; }
@@ -218,6 +242,42 @@ public sealed class MinidumpFileInfo
 
     [JsonPropertyName("modified_at")]
     public string? ModifiedAt { get; set; }
+
+    /// <summary>Напр. <c>0x0000009F</c> из заголовка minidump (не тело дампа).</summary>
+    [JsonPropertyName("bugcheck_code")]
+    public string? BugcheckCode { get; set; }
+
+    /// <summary>До 4 параметров (hex), если есть в заголовке.</summary>
+    [JsonPropertyName("bugcheck_parameters")]
+    public List<string>? BugcheckParameters { get; set; }
+
+    /// <summary>Короткая причина ≤200 символов.</summary>
+    [JsonPropertyName("bugcheck_message")]
+    public string? BugcheckMessage { get; set; }
+}
+
+public sealed class SecurityInfo
+{
+    [JsonPropertyName("tpm_present")]
+    public bool? TpmPresent { get; set; }
+
+    [JsonPropertyName("tpm_spec_version")]
+    public string? TpmSpecVersion { get; set; }
+
+    [JsonPropertyName("secure_boot")]
+    public bool? SecureBoot { get; set; }
+
+    [JsonPropertyName("antivirus")]
+    public List<AntivirusProductInfo>? Antivirus { get; set; }
+}
+
+public sealed class AntivirusProductInfo
+{
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+
+    [JsonPropertyName("product_state")]
+    public int? ProductState { get; set; }
 }
 
 public sealed class GpuInfo
@@ -294,6 +354,12 @@ public sealed class DiskInfo
 
     [JsonPropertyName("media_type")]
     public string? MediaType { get; set; }
+
+    [JsonPropertyName("serial_number")]
+    public string? SerialNumber { get; set; }
+
+    [JsonPropertyName("interface_type")]
+    public string? InterfaceType { get; set; }
 }
 
 public sealed class VolumeInfo
