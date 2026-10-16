@@ -114,3 +114,7 @@ git push origin v0.10.0
 # → on-prem сервер sync'ит с GitHub Release (admin sync или фоновый job)
 # → агенты опрашивают GET /v1/agent/update/check и ставят через msiexec
 ```
+
+## UpgradeCode
+
+Стабильный `UpgradeCode` MSI: `BADA0001-BADA-4B01-8BAD-00BADA000001` (валидный GUID; прежний `…BLAZERITY0BAD` WiX 5 отклонял как не-hex).
