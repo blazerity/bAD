@@ -1331,7 +1331,8 @@ _MERGE_ERROR_RU: dict[str, str] = {
     "merge_survivor_missing": "Целевое устройство (survivor) не найдено.",
     "merge_donor_missing": "Донор не найден.",
     "merge_no_identity_match": (
-        "Нет совпадения serial_number или smbios_uuid — объединение запрещено."
+        "Для объединения нужен совпавший серийник корпуса, SMBIOS UUID "
+        "или два из BIOS / IdentifyingNumber / платы."
     ),
     "merge_donor_not_stale_or_archived": (
         "Донор должен быть stale или в архиве; два свежих online объединять нельзя."
