@@ -23,11 +23,12 @@ public static class DeviceIdentity
 
             try
             {
-                var uuid = WmiHelper.QueryFirst("SELECT UUID FROM Win32_ComputerSystemProduct", "UUID");
-                if (!string.IsNullOrWhiteSpace(uuid) &&
-                    !uuid.Equals("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF", StringComparison.OrdinalIgnoreCase))
+                // Fallback id только если нет MachineGuid. Placeholder all-F / all-zero — отсев.
+                var uuid = HardwareMaps.CleanSmbiosUuid(
+                    WmiHelper.QueryFirst("SELECT UUID FROM Win32_ComputerSystemProduct", "UUID"));
+                if (uuid is not null)
                 {
-                    return uuid.Trim();
+                    return uuid;
                 }
             }
             catch

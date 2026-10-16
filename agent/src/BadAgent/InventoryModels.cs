@@ -15,7 +15,7 @@ public sealed class InventorySnapshot
 
     /// <summary>Fallback = <c>agent/VERSION</c> (не server VERSION). В рантайме обычно из assembly.</summary>
     [JsonPropertyName("agent_version")]
-    public string AgentVersion { get; set; } = "1.0.1";
+    public string AgentVersion { get; set; } = "1.0.2";
 
     [JsonPropertyName("host")]
     public HostInfo? Host { get; set; }
@@ -120,6 +120,13 @@ public sealed class HardwareInfo
     /// <summary>Серийник системы / корпуса (Dell Service Tag, если есть).</summary>
     [JsonPropertyName("serial_number")]
     public string? SerialNumber { get; set; }
+
+    /// <summary>
+    /// SMBIOS system UUID (<c>Win32_ComputerSystemProduct.UUID</c>). Не PK / не device_id.
+    /// Null если placeholder (all-F / all-zero).
+    /// </summary>
+    [JsonPropertyName("smbios_uuid")]
+    public string? SmbiosUuid { get; set; }
 
     /// <summary>Строка продукта / модели (напр. Dell Latitude 5440).</summary>
     [JsonPropertyName("model")]

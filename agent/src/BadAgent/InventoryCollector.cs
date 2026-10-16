@@ -397,7 +397,7 @@ public sealed class InventoryCollector : IInventoryCollector
             }
 
             using (var product = new ManagementObjectSearcher(
-                       "SELECT Name, IdentifyingNumber, Vendor FROM Win32_ComputerSystemProduct"))
+                       "SELECT Name, IdentifyingNumber, Vendor, UUID FROM Win32_ComputerSystemProduct"))
             {
                 foreach (ManagementObject obj in product.Get())
                 {
@@ -406,6 +406,8 @@ public sealed class InventoryCollector : IInventoryCollector
                         productName = obj["Name"]?.ToString();
                         productSerial = obj["IdentifyingNumber"]?.ToString();
                         productVendor = obj["Vendor"]?.ToString();
+                        // Отдельное поле для duplicates; не device_id / не PK.
+                        hw.SmbiosUuid = HardwareMaps.CleanSmbiosUuid(obj["UUID"]?.ToString());
                         break;
                     }
                 }

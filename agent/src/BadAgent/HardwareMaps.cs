@@ -202,6 +202,40 @@ public static class HardwareMaps
     }
 
     /// <summary>
+    /// SMBIOS UUID для inventory / fallback id: trim; отсев all-F и all-zero.
+    /// Не primary <c>device_id</c> (MachineGuid остаётся ключом установки).
+    /// </summary>
+    public static string? CleanSmbiosUuid(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        var uuid = raw.Trim();
+        if (uuid.Length == 0)
+        {
+            return null;
+        }
+
+        if (uuid.Equals("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF", StringComparison.OrdinalIgnoreCase)
+            || uuid.Equals("00000000-0000-0000-0000-000000000000", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        // Без дефисов — тоже отсечь однородный мусор.
+        var compact = uuid.Replace("-", "", StringComparison.Ordinal);
+        if (compact.Length > 0
+            && (compact.All(c => c is 'F' or 'f') || compact.All(c => c == '0')))
+        {
+            return null;
+        }
+
+        return uuid;
+    }
+
+    /// <summary>
     /// Нормализация SMBIOS ChassisTypes → laptop|desktop|server|vm|other.
     /// VM hint из manufacturer/model перекрывает, если похоже на гипервизор.
     /// </summary>
