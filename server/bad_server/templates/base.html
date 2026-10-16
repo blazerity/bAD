@@ -23,12 +23,13 @@
       </nav>
       {% else %}
       <nav class="nav" aria-label="Основная навигация">
-        <a href="/">{{ icon('overview') }}<span>Обзор</span></a>
-        <a href="/dashboard">{{ icon('dashboard') }}<span>Дашборд</span></a>
-        <a href="/devices">{{ icon('devices') }}<span>Устройства</span></a>
-        <a href="/events">{{ icon('events') }}<span>События</span></a>
+        {% set path = request.url.path if request is defined and request else '' %}
+        <a href="/" {% if path in ['/', '/overview'] %}aria-current="page"{% endif %}>{{ icon('overview') }}<span>Обзор</span></a>
+        <a href="/dashboard" {% if path == '/dashboard' %}aria-current="page"{% endif %}>{{ icon('dashboard') }}<span>Дашборд</span></a>
+        <a href="/events" {% if path == '/events' %}aria-current="page"{% endif %}>{{ icon('events') }}<span>События</span></a>
+        <a href="/devices" {% if path.startswith('/devices') %}aria-current="page"{% endif %}>{{ icon('devices') }}<span>Устройства</span></a>
         {% if user.is_admin %}
-        <a href="/settings">{{ icon('settings') }}<span>Параметры</span></a>
+        <a href="/settings" {% if path.startswith('/settings') %}aria-current="page"{% endif %}>{{ icon('settings') }}<span>Параметры</span></a>
         {% endif %}
       </nav>
       {% endif %}
