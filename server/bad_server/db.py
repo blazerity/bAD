@@ -1707,12 +1707,13 @@ class Database:
         *,
         stale_after_seconds: int = 3600,
     ) -> dict[str, Any]:
-        """Ручная склейка дублей: история donor → survivor, donor в архив.
+        """Ручная склейка дублей: история donor → survivor, donor в архив+revoke.
 
         Критерии (decision §3 «склейка»): совпадение нормализованного
         ``serial_number`` и/или ``smbios_uuid``; donor — stale или archived
         (не второй свежий online). Без UNIQUE(serial), PK не меняется.
-        Одна транзакция. Overrides donor не трогаем (остаются на архиве).
+        Одна транзакция: archive **и** revoke api_key донора (archived сам
+        по себе auth не режет). Overrides donor не трогаем (остаются на архиве).
 
         Raises ValueError с кодом:
         ``merge_same_device`` · ``merge_survivor_missing`` · ``merge_donor_missing``
@@ -1812,10 +1813,11 @@ class Database:
                 """,
                 (survivor_id, donor_id),
             )
+            # archived ≠ block auth — revoke в той же транзакции (#96 review).
             conn.execute(
                 """
                 UPDATE devices
-                SET archived = 1
+                SET archived = 1, revoked = 1, api_key_lookup = NULL
                 WHERE device_id = ?
                 """,
                 (donor_id,),
@@ -1845,6 +1847,7 @@ class Database:
             "snapshots_moved": snapshots_moved,
             "events_moved": events_moved,
             "donor_archived": True,
+            "donor_revoked": True,
         }
 
     def count_enrolled_since(self, since_iso: Optional[str] = None) -> int:
