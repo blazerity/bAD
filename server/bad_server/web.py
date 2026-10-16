@@ -1298,6 +1298,95 @@ def device_delete(
     return RedirectResponse(url="/devices", status_code=303)
 
 
+_MERGE_ERROR_RU: dict[str, str] = {
+    "merge_same_device": "Нельзя объединить устройство само с собой.",
+    "merge_survivor_missing": "Целевое устройство (survivor) не найдено.",
+    "merge_donor_missing": "Донор не найден.",
+    "merge_no_identity_match": (
+        "Нет совпадения serial_number или smbios_uuid — объединение запрещено."
+    ),
+    "merge_donor_not_stale_or_archived": (
+        "Донор должен быть stale или в архиве; два свежих online объединять нельзя."
+    ),
+}
+
+
+@router.post("/devices/{survivor_id}/merge")
+def device_merge(
+    survivor_id: str,
+    request: Request,
+    donor_id: str = Form(""),
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    """Явный admin merge дублей. Не /v1; ключ донора отзывает merge_devices (DB)."""
+    donor = (donor_id or "").strip()
+    if not donor:
+        ctx = _device_config_context(
+            db,
+            survivor_id,
+            user=user,
+            settings=settings,
+            error="Укажите donor_id устройства-донора.",
+            active_view="admin",
+        )
+        if not ctx:
+            return _html(
+                request,
+                "device_missing.html",
+                {"device_id": survivor_id, "user": user},
+                status_code=404,
+            )
+        return _html(request, "device_detail.html", ctx)
+
+    try:
+        result = db.merge_devices(
+            survivor_id,
+            donor,
+            stale_after_seconds=settings.device_stale_after_seconds,
+        )
+    except ValueError as exc:
+        code = str(exc).strip() or "merge_failed"
+        err = _MERGE_ERROR_RU.get(
+            code, f"Объединение не выполнено ({code})."
+        )
+        ctx = _device_config_context(
+            db,
+            survivor_id,
+            user=user,
+            settings=settings,
+            error=err,
+            active_view="admin",
+        )
+        if not ctx:
+            return _html(
+                request,
+                "device_missing.html",
+                {"device_id": survivor_id, "user": user},
+                status_code=404,
+            )
+        return _html(request, "device_detail.html", ctx)
+
+    donor_label = result.get("donor_hostname") or result.get("donor_id") or donor
+    matched = ", ".join(result.get("matched") or []) or "—"
+    msg = (
+        f"Объединено с «{donor_label}»: история перенесена, донор в архиве"
+        f" (совпало: {matched})."
+    )
+    ctx = _device_config_context(
+        db,
+        survivor_id,
+        user=user,
+        settings=settings,
+        message=msg,
+        active_view="admin",
+    )
+    assert ctx is not None
+    ctx["merge_result"] = result
+    return _html(request, "device_detail.html", ctx)
+
+
 @router.post("/devices/{device_id}/tags")
 def device_tags_save(
     device_id: str,
