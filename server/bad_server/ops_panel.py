@@ -14,7 +14,7 @@ from .device_health import device_silence_status
 from .enrollment_ops import enrollment_status
 from .tls_ops import tls_panel_mode
 
-WAVE_FILTERS = frozenset({"drift", "revoked", "agent_local", "stale"})
+WAVE_FILTERS = frozenset({"drift", "revoked", "agent_local", "stale", "dup"})
 
 # Дашборд D1–D5 (согласовано с UI Lead / контрактом)
 VERSION_BAR_TOP = 6
@@ -561,6 +561,9 @@ def filter_devices_by_wave(
                 d.get("last_seen_at"), stale_after_seconds=stale_after_seconds
             )
             return (silence or {}).get("status") == "stale"
+        if wave == "dup":
+            # hostname / serial / smbios_uuid — см. duplicate_signal_index
+            return bool(d.get("is_duplicate"))
         return False
 
     return [d for d in devices if _match(d)]

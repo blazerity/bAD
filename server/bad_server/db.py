@@ -414,12 +414,12 @@ class Database:
                         hostname.casefold(),
                     ]
                 )
-                # serial из последнего inventory дорогой; сначала id/hostname
+                # serial / smbios_uuid из meta-кэша (после inventory)
                 if query not in hay:
-                    # опционально serial через meta-кэш, если есть
                     meta = self._parse_meta(row["meta_json"])
                     serial = str(meta.get("serial_number") or "").casefold()
-                    if query not in serial:
+                    uuid = str(meta.get("smbios_uuid") or "").casefold()
+                    if query not in serial and query not in uuid:
                         continue
             result.append(
                 {
@@ -551,6 +551,7 @@ class Database:
         meta = self._parse_meta(device["meta_json"])
         inventory = None
         serial_number = None
+        smbios_uuid = None
         model = None
         if snap:
             try:
@@ -568,6 +569,13 @@ class Database:
                 if isinstance(hw, dict):
                     serial_number = hw.get("serial_number")
                     model = hw.get("model")
+                signals = self.extract_identity_signals(meta=meta, payload=payload)
+                serial_number = signals["serial_number"] or serial_number
+                smbios_uuid = signals["smbios_uuid"]
+        if not smbios_uuid:
+            smbios_uuid = self.extract_identity_signals(meta=meta)["smbios_uuid"]
+        if not serial_number:
+            serial_number = self.extract_identity_signals(meta=meta)["serial_number"]
         return {
             "device_id": device["device_id"],
             "hostname": device["hostname"],
@@ -579,6 +587,7 @@ class Database:
             "revoked": bool(device["revoked"]),
             "archived": bool(device["archived"]),
             "serial_number": serial_number,
+            "smbios_uuid": smbios_uuid,
             "model": model,
             "latest_inventory": inventory,
         }
@@ -1296,19 +1305,189 @@ class Database:
             conn.execute("DELETE FROM devices WHERE device_id = ?", (device_id,))
             return True
 
+    @staticmethod
+    def normalize_smbios_uuid(raw: Any) -> Optional[str]:
+        """Нормализованный SMBIOS UUID или None для пустых/placeholder (all-F / all-zero)."""
+        if raw is None:
+            return None
+        text = str(raw).strip().casefold()
+        if not text:
+            return None
+        if text.startswith("{") and text.endswith("}"):
+            text = text[1:-1].strip()
+        compact = text.replace("-", "")
+        if compact == "f" * 32 or compact == "0" * 32:
+            return None
+        return text
+
+    @staticmethod
+    def normalize_serial_number(raw: Any) -> Optional[str]:
+        if raw is None:
+            return None
+        text = str(raw).strip()
+        if not text:
+            return None
+        return text
+
+    def extract_identity_signals(
+        self,
+        *,
+        meta: Optional[dict[str, Any]] = None,
+        hardware: Optional[dict[str, Any]] = None,
+        payload: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Optional[str]]:
+        """serial_number / smbios_uuid из inventory hardware или meta (не PK)."""
+        meta = meta if isinstance(meta, dict) else {}
+        hw = hardware if isinstance(hardware, dict) else None
+        if hw is None and isinstance(payload, dict):
+            raw_hw = payload.get("hardware")
+            hw = raw_hw if isinstance(raw_hw, dict) else {}
+        if hw is None:
+            hw = {}
+
+        serial = self.normalize_serial_number(hw.get("serial_number"))
+        if not serial:
+            serial = self.normalize_serial_number(meta.get("serial_number"))
+        if not serial:
+            ids = meta.get("hardware_ids")
+            if isinstance(ids, dict):
+                serial = self.normalize_serial_number(ids.get("serial_number"))
+
+        uuid = self.normalize_smbios_uuid(hw.get("smbios_uuid"))
+        if not uuid:
+            uuid = self.normalize_smbios_uuid(hw.get("uuid"))
+        if not uuid:
+            uuid = self.normalize_smbios_uuid(meta.get("smbios_uuid"))
+        if not uuid:
+            ids = meta.get("hardware_ids")
+            if isinstance(ids, dict):
+                uuid = self.normalize_smbios_uuid(ids.get("smbios_uuid"))
+
+        return {"serial_number": serial, "smbios_uuid": uuid}
+
+    def duplicate_signal_index(self) -> dict[str, Any]:
+        """Индекс сигналов дубля по всему парку (hostname / serial / smbios_uuid).
+
+        Без auto-merge: только подсказки. Archived учитываются.
+        """
+        by_host: dict[str, list[str]] = {}
+        by_serial: dict[str, list[str]] = {}
+        by_uuid: dict[str, list[str]] = {}
+        rows: list[dict[str, Any]] = []
+
+        for d in self.list_devices(archived=None):
+            device_id = d["device_id"]
+            meta = d.get("meta") if isinstance(d.get("meta"), dict) else {}
+            signals = self.extract_identity_signals(meta=meta)
+            # meta может отставать — подтянуть из последнего снимка при отсутствии
+            if not signals["serial_number"] or not signals["smbios_uuid"]:
+                detail = self.get_device_detail(device_id)
+                if detail:
+                    payload = (detail.get("latest_inventory") or {}).get("payload")
+                    from_inv = self.extract_identity_signals(
+                        meta=detail.get("meta") or meta,
+                        payload=payload if isinstance(payload, dict) else None,
+                    )
+                    signals["serial_number"] = (
+                        signals["serial_number"] or from_inv["serial_number"]
+                    )
+                    signals["smbios_uuid"] = (
+                        signals["smbios_uuid"] or from_inv["smbios_uuid"]
+                    )
+            hostname = (d.get("hostname") or "").strip()
+            host_key = hostname.casefold() if hostname else ""
+            serial_key = (
+                signals["serial_number"].casefold() if signals["serial_number"] else ""
+            )
+            uuid_key = signals["smbios_uuid"] or ""
+            row = {
+                "device_id": device_id,
+                "hostname": d.get("hostname"),
+                "archived": d.get("archived"),
+                "serial_number": signals["serial_number"],
+                "smbios_uuid": signals["smbios_uuid"],
+                "host_key": host_key,
+                "serial_key": serial_key,
+                "uuid_key": uuid_key,
+            }
+            rows.append(row)
+            if host_key:
+                by_host.setdefault(host_key, []).append(device_id)
+            if serial_key:
+                by_serial.setdefault(serial_key, []).append(device_id)
+            if uuid_key:
+                by_uuid.setdefault(uuid_key, []).append(device_id)
+
+        device_signals: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            did = row["device_id"]
+            host_dup = bool(row["host_key"] and len(by_host.get(row["host_key"], [])) > 1)
+            serial_dup = bool(
+                row["serial_key"] and len(by_serial.get(row["serial_key"], [])) > 1
+            )
+            uuid_dup = bool(
+                row["uuid_key"] and len(by_uuid.get(row["uuid_key"], [])) > 1
+            )
+            kinds = []
+            if host_dup:
+                kinds.append("hostname")
+            if serial_dup:
+                kinds.append("serial_number")
+            if uuid_dup:
+                kinds.append("smbios_uuid")
+            device_signals[did] = {
+                "hostname": host_dup,
+                "serial_number": serial_dup,
+                "smbios_uuid": uuid_dup,
+                "is_duplicate": bool(kinds),
+                "kinds": kinds,
+                "serial_value": row["serial_number"],
+                "smbios_uuid_value": row["smbios_uuid"],
+            }
+
+        return {
+            "by_hostname": by_host,
+            "by_serial": by_serial,
+            "by_smbios_uuid": by_uuid,
+            "device_signals": device_signals,
+        }
+
     def find_duplicate_devices(self, device_id: str) -> dict[str, list[dict[str, Any]]]:
-        """Другие устройства с тем же hostname (ci) или serial_number из последнего inventory."""
+        """Другие устройства с тем же hostname / serial_number / smbios_uuid.
+
+        Сигналы «та же железка», не PK. Автослияния нет.
+        """
+        empty = {"hostname": [], "serial_number": [], "smbios_uuid": []}
         detail = self.get_device_detail(device_id)
         if not detail:
-            return {"hostname": [], "serial_number": []}
+            return empty
+        payload = (detail.get("latest_inventory") or {}).get("payload")
+        signals = self.extract_identity_signals(
+            meta=detail.get("meta") if isinstance(detail.get("meta"), dict) else {},
+            payload=payload if isinstance(payload, dict) else None,
+        )
         hostname = (detail.get("hostname") or "").strip()
-        serial = (detail.get("serial_number") or "").strip()
+        serial = signals["serial_number"]
+        smbios_uuid = signals["smbios_uuid"]
+
         by_host: list[dict[str, Any]] = []
         by_serial: list[dict[str, Any]] = []
-        # При поиске дубликатов учитывать и archived
+        by_uuid: list[dict[str, Any]] = []
+
         for other in self.list_devices(archived=None):
             if other["device_id"] == device_id:
                 continue
+            other_meta = other.get("meta") if isinstance(other.get("meta"), dict) else {}
+            other_signals = self.extract_identity_signals(meta=other_meta)
+            if not other_signals["serial_number"] or not other_signals["smbios_uuid"]:
+                od = self.get_device_detail(other["device_id"])
+                if od:
+                    op = (od.get("latest_inventory") or {}).get("payload")
+                    other_signals = self.extract_identity_signals(
+                        meta=od.get("meta") or other_meta,
+                        payload=op if isinstance(op, dict) else None,
+                    )
+
             other_hn = (other.get("hostname") or "").strip()
             if hostname and other_hn and hostname.casefold() == other_hn.casefold():
                 by_host.append(
@@ -1318,15 +1497,12 @@ class Database:
                         "archived": other.get("archived"),
                     }
                 )
-            other_serial = (other.get("meta") or {}).get("serial_number")
-            if not other_serial:
-                od = self.get_device_detail(other["device_id"])
-                other_serial = (od or {}).get("serial_number")
+
+            other_serial = other_signals["serial_number"]
             if (
                 serial
                 and other_serial
-                and str(serial).strip().casefold()
-                == str(other_serial).strip().casefold()
+                and serial.casefold() == other_serial.casefold()
             ):
                 by_serial.append(
                     {
@@ -1336,7 +1512,23 @@ class Database:
                         "archived": other.get("archived"),
                     }
                 )
-        return {"hostname": by_host, "serial_number": by_serial}
+
+            other_uuid = other_signals["smbios_uuid"]
+            if smbios_uuid and other_uuid and smbios_uuid == other_uuid:
+                by_uuid.append(
+                    {
+                        "device_id": other["device_id"],
+                        "hostname": other["hostname"],
+                        "smbios_uuid": other_uuid,
+                        "archived": other.get("archived"),
+                    }
+                )
+
+        return {
+            "hostname": by_host,
+            "serial_number": by_serial,
+            "smbios_uuid": by_uuid,
+        }
 
     def count_enrolled_since(self, since_iso: Optional[str] = None) -> int:
         """Active (non-archived) devices enrolled strictly after ``since_iso``.

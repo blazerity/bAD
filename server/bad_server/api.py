@@ -242,20 +242,21 @@ def inventory(
     os_meta: dict[str, Any] = {}
     if host and isinstance(host.get("os"), dict):
         os_meta["os"] = host["os"].get("caption")
-    serial = None
     hardware = (
         payload.get("hardware")
         if isinstance(payload.get("hardware"), dict)
         else None
     )
-    if hardware:
-        serial = hardware.get("serial_number")
+    identity = db.extract_identity_signals(hardware=hardware or {})
     meta = {
         "last_inventory_at": body.collected_at,
         **os_meta,
     }
-    if serial:
-        meta["serial_number"] = serial
+    # Кэш сигналов дубля (не PK): serial + smbios_uuid для списка/карточки
+    if identity.get("serial_number"):
+        meta["serial_number"] = identity["serial_number"]
+    if identity.get("smbios_uuid"):
+        meta["smbios_uuid"] = identity["smbios_uuid"]
     stored = db.store_inventory(
         device_id=body.device_id,
         schema_version=body.schema_version,
