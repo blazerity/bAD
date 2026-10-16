@@ -105,6 +105,35 @@
       {% endfor %}
     </p>
     {% endif %}
+    {% if user.is_admin %}
+    <p class="muted dup-merge-hint">
+      Объединение переносит события и снимки на <strong>эту</strong> карточку;
+      донор уходит в архив. Это не remote-merge конфига агента.
+    </p>
+    <ul class="dup-merge-list">
+      {% set merge_seen = [] %}
+      {% for bucket in [
+           duplicates.hostname, duplicates.serial_number, duplicates.smbios_uuid,
+           duplicates.bios_serial, duplicates.identifying_number,
+           duplicates.baseboard_serial, duplicates.disk_serial_number] %}
+        {% for d in bucket or [] %}
+          {% if d.device_id and d.device_id not in merge_seen %}
+            {% set _ = merge_seen.append(d.device_id) %}
+            <li class="dup-merge-row">
+              <a href="/devices/{{ d.device_id }}">{{ d.hostname or d.device_id }}</a>
+              <span class="mono muted">{{ d.device_id }}</span>
+              <form method="post" action="/devices/{{ device.device_id }}/merge" class="dup-merge-form"
+                    onsubmit="return confirm('Объединить «{{ d.hostname or d.device_id }}» в эту карточку?\nИстория перейдёт сюда, донор будет в архиве.');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="donor_id" value="{{ d.device_id }}">
+                <button type="submit" class="subtle">Объединить в эту карточку</button>
+              </form>
+            </li>
+          {% endif %}
+        {% endfor %}
+      {% endfor %}
+    </ul>
+    {% endif %}
   </div>
   {% endif %}
 
@@ -530,7 +559,11 @@
             {% for e in recent_events %}
             <tr>
               <td class="mono">{{ e.created_at }}</td>
-              <td title="{{ e.type }}">{{ e.type|format_event_type }}</td>
+              <td title="{{ e.type }}">
+                {%- if e.type == 'device_merged' -%}Объединение
+                {%- else -%}{{ e.type|format_event_type }}
+                {%- endif -%}
+              </td>
               <td>{{ e.summary }}</td>
             </tr>
             {% endfor %}
