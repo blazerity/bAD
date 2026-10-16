@@ -5,9 +5,8 @@
 <section class="settings">
   <h1>Сертификат TLS</h1>
   <p class="muted">
-    TLS терминирует nginx (не uvicorn). До загрузки сертификата UI доступен по HTTP;
-    после успешной установки — HTTPS, redirect 80→443 и Secure-cookie.
-    Private key в HTML и логах не показывается.
+    Загрузите сертификат сайта, чтобы панель открывалась по HTTPS.
+    Закрытый ключ на странице и в логах не показывается.
   </p>
   {% if message %}<p class="ok">{{ message }}</p>{% endif %}
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
@@ -39,15 +38,15 @@
         {% if mode == 'https' %}
         <span class="ok">HTTPS активен</span>
         {% else %}
-        <span class="warn">HTTP bootstrap</span>
+        <span class="warn">Пока без HTTPS</span>
         {% endif %}
       </dd>
     </div>
-    <div><dt>Домен (BAD_DOMAIN)</dt><dd class="mono">{{ domain or "—" }}</dd></div>
-    <div><dt>fullchain</dt><dd class="mono">{{ cert_path }}</dd></div>
-    <div><dt>privkey на диске</dt><dd>{% if has_private_key %}да{% else %}нет{% endif %}</dd></div>
+    <div><dt>Домен</dt><dd class="mono">{{ domain or "—" }}</dd></div>
+    <div><dt>Файл сертификата</dt><dd class="mono">{{ cert_path }}</dd></div>
+    <div><dt>Ключ на диске</dt><dd>{% if has_private_key %}да{% else %}нет{% endif %}</dd></div>
     {% if apply and apply.message %}
-    <div><dt>Последний apply</dt><dd>{{ apply.message }}{% if apply.applied_at %} · {{ apply.applied_at }}{% endif %}</dd></div>
+    <div><dt>Последняя установка</dt><dd>{{ apply.message }}{% if apply.applied_at %} · {{ apply.applied_at }}{% endif %}</dd></div>
     {% endif %}
   </dl>
 
@@ -65,14 +64,13 @@
     {% endif %}
   </dl>
   {% else %}
-  <p class="muted">Управляемый сертификат ещё не установлен. Загрузите PEM ниже.</p>
+  <p class="muted">Сертификат ещё не установлен — загрузите файлы ниже.</p>
   {% endif %}
 
   <h2>Загрузить сертификат и ключ</h2>
   <p class="muted">
-    PEM: leaf (или fullchain) + private key. Цепочку intermediate можно отдельным полем
-    или включить в файл сертификата. После validate материалы пишутся в staging;
-    root-helper делает <span class="mono">nginx -t</span> и reload.
+    Файлы в формате PEM: сертификат сайта и закрытый ключ.
+    Цепочку УЦ можно отдельным файлом или включить в сертификат.
   </p>
   <form method="post" action="/settings/tls" enctype="multipart/form-data" class="settings-form" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -80,14 +78,14 @@
     <label for="certificate">Сертификат (PEM)</label>
     <input id="certificate" name="certificate" type="file" accept=".pem,.crt,.cer,.txt,application/x-pem-file,application/octet-stream" required>
 
-    <label for="private_key">Private key (PEM)</label>
+    <label for="private_key">Закрытый ключ (PEM)</label>
     <input id="private_key" name="private_key" type="file" accept=".pem,.key,.txt,application/x-pem-file,application/octet-stream" required autocomplete="off">
 
-    <label for="chain">Цепочка / intermediates (опционально)</label>
+    <label for="chain">Цепочка УЦ (необязательно)</label>
     <input id="chain" name="chain" type="file" accept=".pem,.crt,.cer,.txt,application/x-pem-file,application/octet-stream">
 
     <div class="form-actions">
-      <button type="submit">Установить и перезагрузить nginx</button>
+      <button type="submit">Установить сертификат</button>
     </div>
   </form>
 

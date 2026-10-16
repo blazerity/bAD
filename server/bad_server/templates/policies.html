@@ -6,17 +6,13 @@
 <section class="settings">
   <h1 class="with-icon">{{ icon('policies') }}Политики агента</h1>
   <p class="muted">
-    Remote-config по условиям: только
-    <span class="mono">tag</span> /
-    <span class="mono">hostname</span> /
-    <span class="mono">domain</span> /
-    <span class="mono">os_caption</span>.
-    Меньший priority — раньше; override на устройстве побеждает политику.
+    Правила для групп устройств по имени, домену, тегу или подписи ОС.
+    Меньший priority — раньше; ручная настройка на устройстве сильнее политики.
   </p>
   <p class="muted">
-    Knobs — allowlist
-    (<span class="mono">{{ allowed_setting_keys | join(', ') }}</span>).
-    <code>server_url</code>, секреты и ключи вне списка сюда не входят.
+    Можно задать только безопасные параметры
+    (<span class="mono">{{ allowed_setting_keys | join(', ') }}</span>) —
+    адрес сервера и секреты сюда не входят.
   </p>
   {% if message %}<p class="ok">{{ message }}</p>{% endif %}
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
@@ -92,8 +88,8 @@
     <fieldset class="fieldset-soft">
       <legend>Когда применять</legend>
       <p class="muted" style="margin-top:0">
-        Одно условие: поле из allowlist × <span class="mono">equals</span>/<span class="mono">contains</span>.
-        OU (<span class="mono">ad_ou</span>) — только контекст на карточке устройства, не условие политики.
+        Одно условие: совпадение или вхождение подстроки.
+        Подразделение AD на карточке устройства сюда не входит.
       </p>
       <div class="policy-form-grid">
         <div>
@@ -127,8 +123,7 @@
     <fieldset class="fieldset-soft">
       <legend>Что задать (пусто = не менять)</legend>
       <p class="muted" style="margin-top:0">
-        Только safe knobs из allowlist. Нет <code>server_url</code> и секретов —
-        их агент берёт локально / при enrollment.
+        Только перечисленные параметры. Адрес сервера и секреты задаются при установке агента.
       </p>
       <div class="policy-form-grid">
         <div>

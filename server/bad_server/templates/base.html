@@ -29,9 +29,6 @@
         {% if user.is_admin %}
         <a href="/settings">{{ icon('settings') }}<span>Параметры</span></a>
         {% endif %}
-        {% if user.source == 'local' %}
-        <a href="/account/password">{{ icon('password') }}<span>Пароль</span></a>
-        {% endif %}
       </nav>
       {% endif %}
     <form class="logout" method="post" action="/logout">
