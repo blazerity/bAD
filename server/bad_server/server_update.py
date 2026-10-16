@@ -332,6 +332,7 @@ def _gh_request(
     accept: str = "application/vnd.github+json",
     timeout: float = 60.0,
 ) -> Any:
+    """GitHub API. Token опционален: public repo — anonymous; private — нужен PAT."""
     data = None
     headers = {
         "Accept": accept,
@@ -356,8 +357,16 @@ def _gh_request(
             return raw_body
     except urllib.error.HTTPError as exc:
         err_body = exc.read().decode("utf-8", errors="replace")
+        hint = ""
+        if exc.code in {401, 403, 404} and not token:
+            hint = (
+                " — для private repo задайте BAD_GITHUB_TOKEN; "
+                "public check/apply токен не требуют"
+            )
+        elif exc.code in {401, 403} and token:
+            hint = " — проверьте scopes PAT (contents:read; для MSI — actions:write)"
         raise RuntimeError(
-            f"GitHub API {exc.code}: {err_body[:400]}"
+            f"GitHub API {exc.code}: {err_body[:350]}{hint}"
         ) from exc
 
 
@@ -432,6 +441,7 @@ def check_updates(
     update_available = bool(
         remote_sha and (not current_sha or str(current_sha).lower() != str(remote_sha).lower())
     )
+    tok = token_configured(settings)
     return {
         "branch": b,
         "current": {
@@ -447,7 +457,9 @@ def check_updates(
         "update_available": update_available if remote else False,
         "error": error,
         "github_repo": settings.github_repo,
-        "token_configured": token_configured(settings),
+        "token_configured": tok,
+        # check/apply на public — anonymous; token не блокирует
+        "auth_mode": "token" if tok else "anonymous",
     }
 
 
@@ -543,6 +555,10 @@ def status_panel(
         "default_branch": DEFAULT_BRANCH,
         "agent_version": read_agent_version(settings),
         "server_version": _read_installed_version(),
+        # Check/Apply public: token не обязателен. MSI Actions / private — да.
+        "token_required_for_check": False,
+        "token_required_for_apply": False,
+        "token_required_for_msi": True,
     }
 
 

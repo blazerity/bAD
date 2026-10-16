@@ -63,8 +63,8 @@
         {% if panel.token_configured %}
         <span class="ok">задан</span>
         {% else %}
-        <span class="warn">нет</span>
-        <span class="muted">— сохраните ниже или в site.env</span>
+        <span class="muted">нет</span>
+        <span class="muted">— для public check/apply не нужен; для private и MSI — да</span>
         {% endif %}
       </dd>
     </div>
@@ -102,7 +102,7 @@
 
   <h2>Установить с GitHub</h2>
   <p class="muted">
-    Helper на сервере скачает commit, переключит установку и перезапустит службы.
+    Helper скачает commit (public — без token; private — нужен PAT), переключит установку и перезапустит службы.
     Пароль sudo в панели не нужен.
   </p>
   {% if tls_mode == 'http' %}
@@ -168,8 +168,8 @@
 
   <h2>Токен GitHub</h2>
   <p class="muted">
-    Нужен для private repo и запуска Actions. Пишется через helper в site.env / файл ключа.
-    Значение обратно в панель не возвращаем.
+    Опционально для public check/apply. Обязателен для private repo и запуска MSI Actions.
+    Пишется через helper в site.env / файл. Значение обратно в панель не возвращаем.
   </p>
   <form method="post" action="/settings/server-update/token" class="settings-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -183,8 +183,8 @@
 
   <h2>Сборка MSI на GitHub</h2>
   <p class="muted">
-    Отдельно от обновления сервера: запускает сборку установщика агента на GitHub,
-    затем можно подтянуть результат в зеркало «Обновления агента».
+    Отдельно от обновления сервера: нужен GitHub token (`actions:write`).
+    Запускает сборку установщика агента, затем ingest в «Обновления агента».
   </p>
   <form method="post" action="/settings/server-update/msi/trigger" class="settings-form"
     onsubmit="return confirm('Запустить сборку MSI на ветке {{ panel.prefs.branch or panel.default_branch or 'main' }}?');">
