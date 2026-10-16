@@ -4,55 +4,92 @@
 
 ## 1. Сервер (Debian 12)
 
-С **0.11** сертификат при install **не обязателен**: можно поднять HTTP bootstrap, войти в UI и загрузить PEM на `/settings/tls`. Либо передать cert/key сразу — тогда сразу HTTPS.
+Два пути (**0.11.0**): сразу с TLS-файлами при install **или** bootstrap по HTTP и загрузка cert из панели.
+
+### Install сразу с TLS
+
+Подготовьте сертификат и ключ, у которых CN/SAN совпадает с публичным DNS (`BAD_DOMAIN`).
 
 ```bash
-# HTTP bootstrap (сертификат позже из UI)
-BAD_DOMAIN=bad.example.com \
-  sudo -E bash deploy/debian/install.sh
-
-# Или сразу HTTPS
+# Из release-тарбола или git checkout с deploy/debian + server/
 BAD_DOMAIN=bad.example.com \
 BAD_TLS_CERT=/etc/ssl/certs/bad.fullchain.pem \
 BAD_TLS_KEY=/etc/ssl/private/bad.privkey.pem \
   sudo -E bash deploy/debian/install.sh
 ```
 
-Скрипт один раз печатает:
+Скрипт один раз печатает URL (`https://…`), enrollment token и admin API token. Дальше — [вход](#вход-в-web-локальный) по HTTPS.
 
-- URL (`http://…` при bootstrap или `https://…` если cert передан)
-- enrollment token (для MSI агента — **после** появления HTTPS)
-- admin API token (Bearer для автоматизации)
+### Install без cert (HTTP bootstrap → upload в UI)
 
-Проверка:
+С **0.11.0** `BAD_TLS_CERT` / `BAD_TLS_KEY` **опциональны**. Без них nginx поднимается в HTTP-only (:80), без HSTS и без 301 на HTTPS, пока не появится managed cert.
 
 ```bash
-# bootstrap без cert:
-curl -fsS http://bad.example.com/v1/health
-# после TLS / с cert при install:
-curl -fsS https://bad.example.com/v1/health
+BAD_DOMAIN=bad.example.com \
+  sudo -E bash deploy/debian/install.sh
+# → UI: http://bad.example.com/  (пока нет сертификата)
+```
+
+1. Откройте **`http://bad.example.com/login`** (не https).
+2. Войдите `admin` / `admin`, **сразу смените пароль**.
+3. Загрузите cert+key: [§ Сертификат из панели](#сертификат-tls-из-панели-011).
+4. После успешного apply — **`https://…`**, перелогиньтесь (старые non-Secure cookies на HTTPS могут не уйти).
+5. **Агентов (MSI) ставьте только после HTTPS** — bootstrap HTTP для агентов не предназначен (`BAD_ALLOW_HTTP` — только lab).
+
+Проверка health:
+
+```bash
+curl -fsS http://bad.example.com/v1/health   # bootstrap без cert
+curl -fsS https://bad.example.com/v1/health  # после TLS / с cert при install
 # → {"status":"ok","version":"0.11.0"}
 ```
 
 ### Вход в web (локальный)
 
-1. Откройте URL из вывода install (`http://…/login` при bootstrap или `https://…/login`)
+1. Откройте URL из вывода install (`http://…/login` при bootstrap или `https://…/login`).
 2. Войдите локальным аккаунтом по умолчанию: **`admin` / `admin`**
 3. **Сразу смените пароль** (`Пароль` в шапке / `/account/password`). До смены сервер пускает только `/account/password` и `/logout` (навигация скрыта). Не публикуйте UI за пределы доверенной сети, пока пароль не сменён.
 
 Работает **без настроенного LDAP**. Admin API token для браузерного UI **не** используется.
 
-Токены лежат в `/etc/bad/site.env` (режим `640`, `root:bad`). uvicorn слушает только `127.0.0.1:8000`; TLS терминирует **nginx** (не uvicorn). См. [Безопасность](#безопасность-для-операторов).
+Токены лежат в `/etc/bad/site.env` (режим `640`, `root:bad`). uvicorn — только `127.0.0.1:8000`; TLS терминирует **nginx** (не uvicorn). См. [Безопасность](#безопасность-для-операторов).
 
-### TLS из UI (0.11)
+### Сертификат TLS из панели (0.11)
 
-1. После install без cert откройте **Параметры → Сертификат** (`/settings/tls`)
-2. Загрузите PEM leaf (или fullchain), private key и при необходимости chain
-3. Сервер пишет staging → `nginx -t` → файлы `/etc/bad/tls/{fullchain,privkey}.pem` → reload; :80 → 301 на HTTPS; cookie `Secure`
-4. Откройте UI по **HTTPS** и при необходимости войдите снова
-5. Агентов (MSI) ставьте **после** появления cert — bootstrap HTTP для агентов не предназначен
+Страница: **Параметры → Сертификат** (`/settings/tls`, nav desc «TLS для nginx») — только web admin. Заголовок **«Сертификат TLS»**.
 
-Let’s Encrypt / ACME в 0.11 не встроены. Ручной reload nginx: `systemctl start bad-tls-apply.service` (или `journalctl -u bad-tls-apply`).
+На странице видно:
+
+- **Режим:** «HTTP bootstrap» или «HTTPS активен»
+- **Домен (BAD_DOMAIN)** — read-only
+- пути **fullchain** / **privkey на диске:** да|нет (plaintext key **не** показывается)
+- при установленном cert — Subject / Issuer / Not after / SAN / fingerprint; **Последний apply**
+
+**Куда кладётся на диске**
+
+| Файл | Путь |
+|------|------|
+| Fullchain (leaf [+ intermediates]) | `/etc/bad/tls/fullchain.pem` |
+| Private key | `/etc/bad/tls/privkey.pem` |
+| Staging (до apply) | `/etc/bad/tls/staging/` |
+
+**Загрузить / заменить (ротация)**
+
+1. Admin → **Параметры → Сертификат** (`/settings/tls`).
+2. Секция **«Загрузить сертификат и ключ»**: поля **«Сертификат (PEM)»**, **«Private key (PEM)»**, опционально **«Цепочка / intermediates»**.
+3. **«Установить и перезагрузить nginx»** (`POST /settings/tls`, CSRF). Validate → staging → helper `bad-apply-tls` (`nginx -t` + reload через `bad-tls-apply.path`). uvicorn TLS не держит.
+4. При ошибке (bad PEM / key mismatch / `nginx -t`) боевые файлы не меняются — сообщение в UI.
+5. После успеха: режим **«HTTPS активен»**, :80→301, HSTS, `BAD_COOKIE_SECURE=1`. Откройте **HTTPS**, войдите снова.
+6. Повторная загрузка тех же полей = ротация cert (тот же flow).
+
+Ручной retry apply: `systemctl start bad-tls-apply.service` (логи: `journalctl -u bad-tls-apply`). Let’s Encrypt / ACME в 0.11 нет. Смена `BAD_DOMAIN` из UI — вне scope.
+
+**Что не делать с ключом**
+
+- Не вшивать в MSI, не коммитить, не класть в world-readable каталоги / общие шары.
+- Не пересылать `privkey.pem` в тикет «для проверки» — в UI достаточно **«privkey на диске: да»**.
+- Не править `/etc/bad/tls/*` вручную параллельно с upload (гонка со staging/apply).
+- Не оставлять операторов и агентов на HTTP после появления cert.
 
 ### Опционально: LDAP из UI
 

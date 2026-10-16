@@ -29,7 +29,8 @@
 - **SEC-011:** MSI write-config не кладёт token в argv PowerShell (HKLM Setup); residual — родительский `msiexec … ENROLLMENTTOKEN=` / verbose logs — не пересылать; после волны ротировать site enrollment token (UI в **0.10**, runbook: [operator-guide.md](operator-guide.md#ротация-enrollment-token-после-волны-msi)).
 - **SEC-003:** LDAP TLS — по умолчанию `CERT_REQUIRED`; lab opt-in `tls_insecure` только для лаборатории, не для боя.
 - После install **сразу** сменить `admin`/`admin` (`/account/password`); до смены UI пускает только `/account/password` и `/logout` (навигация скрыта).
-- Cookie `bad_session` — только за HTTPS (nginx TLS + Secure в prod); uvicorn не наружу.
+- Cookie `bad_session`: после TLS — Secure + HTTPS; **0.11 bootstrap** — HTTP UI (`BAD_COOKIE_SECURE=0`), агентов на HTTP не ставить. TLS только nginx; UI **Параметры → Сертификат** (`/settings/tls`) → `/etc/bad/tls/*` + `bad-apply-tls`. ACME не обещать. Runbook: [operator-guide.md](operator-guide.md#сертификат-tls-из-панели-011).
+- uvicorn не наружу.
 - nginx rate-limit / app enroll limiter — сохранять и ужесточать осторожно.
 - ProgramData ACL: Administrators + SYSTEM; не world-readable.
 - Логи (Serilog / journald): без plaintext tokens и API keys (включая `BAD_GITHUB_TOKEN` и enrollment).

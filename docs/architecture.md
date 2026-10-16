@@ -136,9 +136,10 @@ flowchart LR
 ### TLS и nginx
 
 - TLS только на **nginx**; uvicorn — `127.0.0.1:8000` без TLS.
-- Managed files: `/etc/bad/tls/fullchain.pem`, `/etc/bad/tls/privkey.pem` (UI upload или symlink при install).
-- **0.11 bootstrap:** без cert install поднимает HTTP-only site (`bad-http.conf.template`); после `/settings/tls` — HTTPS template, 80→443, HSTS, `BAD_COOKIE_SECURE=1`.
-- Apply: app пишет staging + `apply.request` → systemd `bad-tls-apply.path` → `/usr/local/sbin/bad-apply-tls` (`nginx -t` + reload). `NoNewPrivileges` на `bad-api` → sudo из процесса не используем.
+- Managed files: `/etc/bad/tls/fullchain.pem`, `/etc/bad/tls/privkey.pem` (UI **Параметры → Сертификат** `/settings/tls` или cert при install).
+- **0.11 bootstrap:** без cert — HTTP-only (`bad-http.conf.template`); после upload — HTTPS template, 80→443, HSTS, `BAD_COOKIE_SECURE=1`.
+- Apply: app → staging + `apply.request` → systemd `bad-tls-apply.path` → `/usr/local/sbin/bad-apply-tls` (`nginx -t` + reload). Кнопка UI: **«Установить и перезагрузить nginx»**. `NoNewPrivileges` на `bad-api` → sudo из процесса не используем.
+- Агентам HTTP bootstrap не рекламируем.
 
 ### Web UI и аутентификация
 
@@ -163,6 +164,7 @@ flowchart LR
 | `/settings/backups` | daily SQLite + (0.10) **Скачать site bundle** (`GET …/site-bundle`) |
 | `/settings/policies` | CRUD; knob `update_target` = `latest` \| pin semver |
 | `/settings/updates` | (0.10) каталог MSI, upload air-gap, sync, Latest/Удалить; секция **Enrollment token** + `POST /settings/enrollment/rotate` |
+| `/settings/tls` | (0.11) nav **Сертификат**; режим HTTP bootstrap / HTTPS активен; upload PEM; key не в HTML |
 | `/account/password` | смена пароля локального пользователя |
 | `/` `/overview` | (0.10) ops: empty mirror, version drift, broken pin, revoked active |
 
