@@ -311,6 +311,7 @@
         <p class="muted">пусто</p>
         {% else %}
         <p class="muted">{{ software_info.programs|length }} программ</p>
+        <div class="table-scroll">
         <table class="devices speccy-table">
           <thead><tr><th>Имя</th><th>Version</th><th>Издатель</th></tr></thead>
           <tbody>
@@ -323,6 +324,7 @@
             {% endfor %}
           </tbody>
         </table>
+        </div>
         {% if software_info.programs|length > 40 %}
         <p class="muted">Показаны первые 40.</p>
         {% endif %}
@@ -358,6 +360,7 @@
       <div class="device-panel {% if view == 'events' %}is-active{% endif %}" data-device-panel="events">
         <h2 class="with-icon">{{ icon('events') }}Недавние события</h2>
         {% if recent_events %}
+        <div class="table-scroll">
         <table class="devices">
           <thead><tr><th>Когда</th><th>Тип</th><th>Кратко</th></tr></thead>
           <tbody>
@@ -370,6 +373,7 @@
             {% endfor %}
           </tbody>
         </table>
+        </div>
         <p class="muted"><a href="/events?device_id={{ device.device_id }}">Все события этого устройства</a></p>
         {% else %}
         <p class="muted">Событий изменений пока нет.</p>
@@ -431,6 +435,7 @@
           при наличии policy/override на сервере — смотрите колонку «панель».
         </p>
         {% endif %}
+        <div class="table-scroll">
         <table class="devices config-winner">
           <thead>
             <tr><th>Параметр</th><th>Значение (effective)</th><th>Remote</th><th>Панель</th></tr>
@@ -452,6 +457,7 @@
             {% endfor %}
           </tbody>
         </table>
+        </div>
         {% else %}
         <p class="muted">Все focus-knobs — по умолчанию, без policy/override/agent_local.</p>
         {% endif %}

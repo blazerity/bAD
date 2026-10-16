@@ -594,6 +594,41 @@ pre.inventory {
   width: auto;
   min-width: 12rem;
 }
+.filter-bar input[type="search"],
+.filter-bar input[type="text"] {
+  flex: 1 1 12rem;
+  min-width: 10rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-solid);
+  color: var(--fg);
+  font: inherit;
+}
+.filter-bar input[type="search"]:focus,
+.filter-bar input[type="text"]:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-ring);
+  outline: none;
+}
+
+/* Horizontal scroll for wide tables on narrow viewports */
+.table-scroll {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-top: 1rem;
+  border-radius: var(--radius-surface);
+}
+.table-scroll > table.devices {
+  margin-top: 0;
+  min-width: 28rem;
+}
+.table-scroll > table.devices.config-winner,
+.table-scroll > table.devices.speccy-table {
+  min-width: 32rem;
+}
 
 /* —— Theme B: bootstrap + attention —— */
 .bootstrap-checklist {
@@ -1060,18 +1095,193 @@ dl.speccy-kv dd {
   .stat-row {
     grid-template-columns: 1fr 1fr;
   }
+  .attention-body {
+    min-width: 0;
+  }
+  .security-strip {
+    overflow-wrap: anywhere;
+  }
 }
 
+/* —— Mobile / touch (Fluent light, без смены дизайн-системы) —— */
 @media (max-width: 640px) {
   .tagline { display: none; }
-  .top { padding: 0.55rem 0.85rem; }
-  main { padding: 1.25rem 0.85rem 2.5rem; }
-  table.devices th:nth-child(2),
-  table.devices td:nth-child(2) { display: none; }
-  .nav { margin-left: 0; width: 100%; }
-  .logout { width: 100%; justify-content: space-between; margin-left: 0; }
+  .top {
+    padding: 0.55rem 0.75rem;
+    gap: 0.5rem 0.65rem;
+  }
+  .brand { font-size: 1.05rem; }
+  main {
+    padding: 1.1rem 0.75rem 2.25rem;
+  }
+  .foot {
+    padding: 0 0.75rem 1.5rem;
+  }
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.05rem; margin-top: 1.35rem; }
+
+  /* Шапка: навигация и выход на всю ширину */
+  .nav {
+    margin-left: 0;
+    width: 100%;
+    gap: 0.2rem;
+  }
+  .nav a {
+    flex: 1 1 auto;
+    justify-content: center;
+    min-height: 2.75rem;
+    padding: 0.55rem 0.55rem;
+  }
+  .logout {
+    width: 100%;
+    justify-content: space-between;
+    margin-left: 0;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .logout button {
+    min-height: 2.75rem;
+  }
+  .who {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+  .banner {
+    text-align: left;
+    padding: 0.65rem 0.85rem;
+    overflow-wrap: anywhere;
+  }
+
+  /* Touch-friendly controls */
+  button,
+  .btn,
+  a.secondary {
+    min-height: 2.75rem;
+  }
+  .settings-nav-item {
+    min-height: 2.75rem;
+    align-items: center;
+    padding: 0.7rem 0.75rem;
+  }
+  .settings-nav-desc { display: none; }
   .settings-nav-list { grid-template-columns: 1fr; }
-  .stat-row { grid-template-columns: 1fr 1fr; }
+  .tag-chip {
+    padding: 0.35rem 0.55rem;
+    min-height: 2rem;
+  }
+
+  /* Фильтры устройств/событий */
+  .filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.55rem;
+    padding: 0.85rem;
+  }
+  .filter-bar label.check {
+    margin: 0.15rem 0;
+  }
+  .filter-bar select,
+  .filter-bar input[type="search"],
+  .filter-bar input[type="text"] {
+    width: 100%;
+    min-width: 0;
+    flex: none;
+    min-height: 2.75rem;
+  }
+  .filter-bar button,
+  .filter-bar .btn {
+    width: 100%;
+  }
+
+  /* Список устройств: скрыть device_id и теги (есть на карточке) */
+  table.devices-list th:nth-child(2),
+  table.devices-list td:nth-child(2),
+  table.devices-list th:nth-child(4),
+  table.devices-list td:nth-child(4) {
+    display: none;
+  }
+  .table-scroll > table.devices {
+    min-width: 22rem;
+  }
+  .table-scroll > table.devices-list {
+    min-width: 20rem;
+  }
+
+  .stat-row {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.55rem;
+  }
+  .stat {
+    padding: 0.85rem 0.9rem;
+  }
+  .stat-value { font-size: 1.45rem; }
+
+  /* Лента ops / attention */
+  .attention-item {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 0.85rem;
+  }
+  .attention-item .btn,
+  .attention-item a.btn {
+    width: 100%;
+    text-align: center;
+  }
+  .attention-body { min-width: 0; }
+  .bootstrap-checklist { padding: 0.85rem; }
+  .bootstrap-steps li {
+    min-height: 2.5rem;
+    padding: 0.35rem 0;
+  }
+
+  /* Политики и формы */
+  .policy-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .policy-actions .secondary,
+  .policy-actions button {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+  .form-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .form-actions button,
+  .form-actions .btn,
+  .form-actions a.secondary {
+    width: 100%;
+    justify-content: center;
+  }
+  .login {
+    margin: 1.25rem auto;
+    padding: 1.25rem 1.1rem;
+    max-width: none;
+  }
+  .pager {
+    flex-wrap: wrap;
+    gap: 0.65rem;
+  }
+  .pager a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    padding: 0.35rem 0.65rem;
+  }
+
+  /* Карточка устройства */
+  .device-shell .settings-nav-hint { display: none; }
+  .overview-line { white-space: normal; }
+  dl.meta {
+    grid-template-columns: 1fr;
+    padding: 0.85rem;
+  }
+}
+
+@media (max-width: 400px) {
+  .stat-row { grid-template-columns: 1fr; }
+  .nav a span { font-size: 0.82rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {
