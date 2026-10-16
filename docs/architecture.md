@@ -1,6 +1,6 @@
 # Архитектура bAD
 
-**blazerity Asset Discovery** — Windows-агент инвентаризации и on-prem сервер накопления снимков. Документ описывает фактическую архитектуру репозитория. Версия продукта: **1.0.0**.
+**blazerity Asset Discovery** — Windows-агент инвентаризации и on-prem сервер накопления снимков. Документ описывает фактическую архитектуру репозитория. Версия продукта: **1.0.1**.
 
 - **Инвариант:** HTTP bootstrap = **только временный UI-режим** (доверенная сеть → смена пароля → upload cert → HTTPS). Агенты всегда HTTPS (кроме lab `BAD_ALLOW_HTTP=1`). Risk rating bootstrap: **Medium** при runbook; **High** на публичном `:80` до cert — не Critical defect.
 - **ACME / Let’s Encrypt:** вне scope 1.0; не обещать без решения владельца.

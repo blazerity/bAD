@@ -4,7 +4,7 @@
 
 ## 1. Сервер (Debian 12)
 
-Два пути (**1.0.0**): сразу с TLS-файлами при install **или** bootstrap по HTTP и загрузка cert из панели.
+Два пути (**1.0.1**): сразу с TLS-файлами при install **или** bootstrap по HTTP и загрузка cert из панели.
 
 ### Install сразу с TLS
 
@@ -59,7 +59,7 @@ BAD_DOMAIN=bad.example.com \
 ```bash
 curl -fsS http://bad.example.com/v1/health   # bootstrap без cert
 curl -fsS https://bad.example.com/v1/health  # после TLS / с cert при install
-# → {"status":"ok","version":"1.0.0"}
+# → {"status":"ok","version":"1.0.1"}
 ```
 
 ### Вход в web (локальный)
@@ -126,7 +126,7 @@ Bind password хранится в SQLite зашифрованным и посл�
 На Windows build-хосте соберите MSI (см. `installer/msi/README.md`), затем установите:
 
 ```powershell
-msiexec /i bad-agent-1.0.0.msi `
+msiexec /i bad-agent-1.0.1.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=<enrollment-token-from-install> `
   /qn
@@ -135,7 +135,7 @@ msiexec /i bad-agent-1.0.0.msi `
 Опциональный PATH для локального CLI `bad` (по умолчанию выкл.):
 
 ```powershell
-msiexec /i bad-agent-1.0.0.msi `
+msiexec /i bad-agent-1.0.1.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=<enrollment-token-from-install> `
   ADDPATH=1 `
@@ -180,7 +180,7 @@ msiexec /i bad-agent-1.0.0.msi `
 
 Теги: правка на странице устройства (через запятую). Фильтр списка устройств по тегу. Политики тоже могут матчить `tag equals/contains`.
 
-Master-ключи (`/etc/bad/data_key`, `/etc/bad/session_secret`) не входят в daily SQLite backup — храните escrow отдельно (в **site bundle** они уже есть). Порог stale по умолчанию 1 час (`BAD_DEVICE_STALE_AFTER_SECONDS`); поставьте ≈2× heartbeat, если удобнее (напр. `1800` при heartbeat 15 мин). Версия продукта **1.0.0**.
+Master-ключи (`/etc/bad/data_key`, `/etc/bad/session_secret`) не входят в daily SQLite backup — храните escrow отдельно (в **site bundle** они уже есть). Порог stale по умолчанию 1 час (`BAD_DEVICE_STALE_AFTER_SECONDS`); поставьте ≈2× heartbeat, если удобнее (напр. `1800` при heartbeat 15 мин). Версия продукта **1.0.1**.
 
 Альтернатива (автоматизация — admin API token):
 

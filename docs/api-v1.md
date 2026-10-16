@@ -1,6 +1,6 @@
 # bAD API `/v1` — интеграционный гайд (1C Itilium и др.)
 
-Стабильный HTTP JSON API on-prem сервера bAD. Версия продукта на момент заморозки документации: **0.12.x** (`GET /v1/health` → `version`).
+Стабильный HTTP JSON API on-prem сервера bAD. Версия продукта на момент заморозки документации: **1.0.1** (`GET /v1/health` → `version`).
 
 **Политика совместимости (additive freeze):** путь `/v1` заморожен как **additive**. Можно добавлять необязательные поля, query-параметры с default и новые эндпоинты. **Breaking** (удаление/переименование полей, смена смысла, обязательность новых полей, смена кодов ошибок для существующих сценариев) — только по явному решению владельца продукта. Клиенты (в т.ч. **1C Itilium**) должны игнорировать неизвестные JSON-поля.
 
@@ -150,7 +150,7 @@ Web UI (local/LDAP session) — **не** контракт для 1C.
   "hostname": "WS-01",
   "enrolled_at": "2026-10-01T10:00:00Z",
   "last_seen_at": "2026-10-16T11:00:00Z",
-  "agent_version": "1.0.0",
+  "agent_version": "1.0.1",
   "meta": {
     "last_inventory_at": "…",
     "os": "Microsoft Windows 11 …",
@@ -195,7 +195,7 @@ Web UI (local/LDAP session) — **не** контракт для 1C.
   "schema_version": 2,
   "device_id": "…",
   "collected_at": "2026-10-16T11:00:00Z",
-  "agent_version": "1.0.0",
+  "agent_version": "1.0.1",
   "host": {
     "hostname": "WS-01",
     "domain": "CONTOSO",
