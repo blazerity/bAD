@@ -25,9 +25,9 @@
 ## Безопасность
 
 - Агент отклоняет `http://` без явного opt-in для dev.
-- На сервере: hash секретов (argon2); SQLite-файл `0600` (если lab/default); site.env `640` root:bad; каталог бэкапов — как секреты (`700` / файлы `600`).
-- **SEC-005:** keys в `/etc/bad/data_key` + `session_secret`; **dump/daily DB ≠ ключи** (SQLite file или `pg_dump -Fc`). Site bundle = `bad.db`/`bad.dump`+keys; key escrow отдельно. Legacy keys в SQLite → копия БД = компромисс. [operator-guide.md](operator-guide.md#безопасность-для-операторов).
-- **БД dual-run:** fresh install → local PG (`BAD_DATABASE_URL`); lab — `BAD_USE_SQLITE=1`. Существующий SQLite site.env не авто-конверт; one-shot `bad-sqlite-to-pg`. HA/ACME — не обещать.
+- На сервере: hash секретов (argon2); site.env `640` root:bad; каталог бэкапов — как секреты (`700` / файлы `600`).
+- **SEC-005:** keys в `/etc/bad/data_key` + `session_secret`; **dump/daily DB ≠ ключи** (`pg_dump -Fc`). Site bundle = `bad.dump`+keys; key escrow отдельно. Legacy keys в `site_secrets` → dump = компромисс. [operator-guide.md](operator-guide.md#безопасность-для-операторов).
+- **БД:** только Postgres через `BAD_DATABASE_URL` (без URL API не стартует). Local PG при install — localhost. HA/ACME — не обещать.
 - **SEC-011:** MSI write-config не кладёт token в argv PowerShell (HKLM Setup); residual — `msiexec … ENROLLMENTTOKEN=` / verbose logs — не пересылать; **после волны MSI ротация enrollment обязательна** (runbook: [operator-guide.md](operator-guide.md#ротация-enrollment-token-после-волны-msi)).
 - **SEC-003:** LDAP TLS — по умолчанию `CERT_REQUIRED`; lab opt-in `tls_insecure` только для лаборатории, не для боя.
 - После install **сразу** сменить `admin`/`admin` (`/account/password`); до смены UI пускает только `/account/password` и `/logout` (навигация скрыта).
@@ -93,7 +93,7 @@ BAD_BACKUP_DIR=/var/lib/bad/backups
   - Доступ / LDAP (`allowed_group` = sAMAccountName группы AD)
   - Почта и уведомления (SMTP + чекбоксы событий; без webhooks)
   - Хранение и очистка (retention days + фоновый prune)
-  - Резервные копии (daily SQLite / `pg_dump -Fc` + **Скачать site bundle**; restore `restore-site-bundle.sh`)
+  - Резервные копии (daily `pg_dump -Fc` + **Скачать site bundle**; restore `restore-site-bundle.sh`)
   - Политики агента (`update_target`: latest / pin)
   - Обновления агента (каталог MSI, «Подгрузить в зеркало», Latest; секция Enrollment + «Сменить enrollment token»)
 - **Обзор**: empty mirror, version drift, broken pin, revoked active.
