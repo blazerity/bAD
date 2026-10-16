@@ -166,6 +166,7 @@ _EVENT_TYPE_LABELS_RU = {
     "nic_ipv4_change": "IPv4",
     "logged_on_change": "Пользователи",
     "last_interactive_change": "Интерактивный вход",
+    "device_merged": "Объединение",
 }
 
 
@@ -1052,6 +1053,32 @@ def events_page(
     )
 
 
+# Подписи бакетов find_duplicate_devices — одна таблица для warn-box и merge-кнопок.
+_DUP_BUCKET_LABELS: tuple[tuple[str, str], ...] = (
+    ("hostname", "Тот же hostname"),
+    ("serial_number", "Тот же serial"),
+    ("smbios_uuid", "Тот же SMBIOS UUID"),
+    ("bios_serial", "Тот же BIOS serial"),
+    ("identifying_number", "Тот же IdentifyingNumber"),
+    ("baseboard_serial", "Тот же serial платы"),
+    ("disk_serial_number", "Тот же serial диска"),
+)
+
+
+def _duplicate_groups(
+    duplicates: Optional[dict],
+) -> list[dict]:
+    """Непустые бакеты дублей с русской подписью (порядок как в UI)."""
+    if not duplicates:
+        return []
+    groups: list[dict] = []
+    for key, label in _DUP_BUCKET_LABELS:
+        devices = duplicates.get(key) or []
+        if devices:
+            groups.append({"key": key, "label": label, "devices": devices})
+    return groups
+
+
 def _device_config_context(
     db: Database,
     device_id: str,
@@ -1173,6 +1200,7 @@ def _device_config_context(
         "recent_events": recent_events,
         "tags_text": ", ".join(detail.get("tags") or []),
         "duplicates": duplicates,
+        "duplicate_groups": _duplicate_groups(duplicates),
         "new_api_key": None,
         "msi_versions": db.list_agent_msi_versions(),
     }
@@ -1311,6 +1339,39 @@ _MERGE_ERROR_RU: dict[str, str] = {
 }
 
 
+def _device_merge_page(
+    request: Request,
+    db: Database,
+    survivor_id: str,
+    *,
+    user: WebUser,
+    settings: Settings,
+    message: Optional[str] = None,
+    error: Optional[str] = None,
+    merge_result: Optional[dict] = None,
+):
+    """Карточка survivor после merge (или ошибка); 404 если устройства нет."""
+    ctx = _device_config_context(
+        db,
+        survivor_id,
+        user=user,
+        settings=settings,
+        message=message,
+        error=error,
+        active_view="admin",
+    )
+    if not ctx:
+        return _html(
+            request,
+            "device_missing.html",
+            {"device_id": survivor_id, "user": user},
+            status_code=404,
+        )
+    if merge_result is not None:
+        ctx["merge_result"] = merge_result
+    return _html(request, "device_detail.html", ctx)
+
+
 @router.post("/devices/{survivor_id}/merge")
 def device_merge(
     survivor_id: str,
@@ -1323,22 +1384,14 @@ def device_merge(
     """Явный admin merge дублей. Не /v1; ключ донора отзывает merge_devices (DB)."""
     donor = (donor_id or "").strip()
     if not donor:
-        ctx = _device_config_context(
+        return _device_merge_page(
+            request,
             db,
             survivor_id,
             user=user,
             settings=settings,
             error="Укажите donor_id устройства-донора.",
-            active_view="admin",
         )
-        if not ctx:
-            return _html(
-                request,
-                "device_missing.html",
-                {"device_id": survivor_id, "user": user},
-                status_code=404,
-            )
-        return _html(request, "device_detail.html", ctx)
 
     try:
         result = db.merge_devices(
@@ -1348,43 +1401,31 @@ def device_merge(
         )
     except ValueError as exc:
         code = str(exc).strip() or "merge_failed"
-        err = _MERGE_ERROR_RU.get(
-            code, f"Объединение не выполнено ({code})."
-        )
-        ctx = _device_config_context(
+        return _device_merge_page(
+            request,
             db,
             survivor_id,
             user=user,
             settings=settings,
-            error=err,
-            active_view="admin",
+            error=_MERGE_ERROR_RU.get(
+                code, f"Объединение не выполнено ({code})."
+            ),
         )
-        if not ctx:
-            return _html(
-                request,
-                "device_missing.html",
-                {"device_id": survivor_id, "user": user},
-                status_code=404,
-            )
-        return _html(request, "device_detail.html", ctx)
 
     donor_label = result.get("donor_hostname") or result.get("donor_id") or donor
     matched = ", ".join(result.get("matched") or []) or "—"
-    msg = (
-        f"Объединено с «{donor_label}»: история перенесена, донор в архиве"
-        f" (совпало: {matched})."
-    )
-    ctx = _device_config_context(
+    return _device_merge_page(
+        request,
         db,
         survivor_id,
         user=user,
         settings=settings,
-        message=msg,
-        active_view="admin",
+        message=(
+            f"Объединено с «{donor_label}»: история перенесена, донор в архиве"
+            f" (совпало: {matched})."
+        ),
+        merge_result=result,
     )
-    assert ctx is not None
-    ctx["merge_result"] = result
-    return _html(request, "device_detail.html", ctx)
 
 
 @router.post("/devices/{device_id}/tags")

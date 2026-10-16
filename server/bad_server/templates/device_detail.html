@@ -49,62 +49,16 @@
     {% endif %}
   </dl>
 
-  {% set has_dups = duplicates and (
-       duplicates.hostname or duplicates.serial_number or duplicates.smbios_uuid
-       or duplicates.bios_serial or duplicates.identifying_number
-       or duplicates.baseboard_serial or duplicates.disk_serial_number) %}
-  {% if has_dups %}
+  {% if duplicate_groups %}
   <div class="warn-box">
     <strong>Возможные дубликаты</strong> (автослияния нет):
-    {% if duplicates.hostname %}
-    <p>Тот же hostname:
-      {% for d in duplicates.hostname %}
+    {% for g in duplicate_groups %}
+    <p>{{ g.label }}:
+      {% for d in g.devices %}
         <a href="/devices/{{ d.device_id }}">{{ d.hostname or d.device_id }}</a>{% if not loop.last %}, {% endif %}
       {% endfor %}
     </p>
-    {% endif %}
-    {% if duplicates.serial_number %}
-    <p>Тот же serial:
-      {% for d in duplicates.serial_number %}
-        <a href="/devices/{{ d.device_id }}">{{ d.hostname or d.device_id }}</a>{% if not loop.last %}, {% endif %}
-      {% endfor %}
-    </p>
-    {% endif %}
-    {% if duplicates.smbios_uuid %}
-    <p>Тот же SMBIOS UUID:
-      {% for d in duplicates.smbios_uuid %}
-        <a href="/devices/{{ d.device_id }}">{{ d.hostname or d.device_id }}</a>{% if not loop.last %}, {% endif %}
-      {% endfor %}
-    </p>
-    {% endif %}
-    {% if duplicates.bios_serial %}
-    <p>Тот же BIOS serial:
-      {% for d in duplicates.bios_serial %}
-        <a href="/devices/{{ d.device_id }}">{{ d.hostname or d.device_id }}</a>{% if not loop.last %}, {% endif %}
-      {% endfor %}
-    </p>
-    {% endif %}
-    {% if duplicates.identifying_number %}
-    <p>Тот же IdentifyingNumber:
-      {% for d in duplicates.identifying_number %}
-        <a href="/devices/{{ d.device_id }}">{{ d.hostname or d.device_id }}</a>{% if not loop.last %}, {% endif %}
-      {% endfor %}
-    </p>
-    {% endif %}
-    {% if duplicates.baseboard_serial %}
-    <p>Тот же serial платы:
-      {% for d in duplicates.baseboard_serial %}
-        <a href="/devices/{{ d.device_id }}">{{ d.hostname or d.device_id }}</a>{% if not loop.last %}, {% endif %}
-      {% endfor %}
-    </p>
-    {% endif %}
-    {% if duplicates.disk_serial_number %}
-    <p>Тот же serial диска:
-      {% for d in duplicates.disk_serial_number %}
-        <a href="/devices/{{ d.device_id }}">{{ d.hostname or d.device_id }}</a>{% if not loop.last %}, {% endif %}
-      {% endfor %}
-    </p>
-    {% endif %}
+    {% endfor %}
     {% if user.is_admin %}
     <p class="muted dup-merge-hint">
       Объединение переносит события и снимки на <strong>эту</strong> карточку;
@@ -112,11 +66,8 @@
     </p>
     <ul class="dup-merge-list">
       {% set merge_seen = [] %}
-      {% for bucket in [
-           duplicates.hostname, duplicates.serial_number, duplicates.smbios_uuid,
-           duplicates.bios_serial, duplicates.identifying_number,
-           duplicates.baseboard_serial, duplicates.disk_serial_number] %}
-        {% for d in bucket or [] %}
+      {% for g in duplicate_groups %}
+        {% for d in g.devices %}
           {% if d.device_id and d.device_id not in merge_seen %}
             {% set _ = merge_seen.append(d.device_id) %}
             <li class="dup-merge-row">
@@ -559,11 +510,7 @@
             {% for e in recent_events %}
             <tr>
               <td class="mono">{{ e.created_at }}</td>
-              <td title="{{ e.type }}">
-                {%- if e.type == 'device_merged' -%}Объединение
-                {%- else -%}{{ e.type|format_event_type }}
-                {%- endif -%}
-              </td>
+              <td title="{{ e.type }}">{{ e.type|format_event_type }}</td>
               <td>{{ e.summary }}</td>
             </tr>
             {% endfor %}

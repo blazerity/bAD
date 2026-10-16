@@ -781,10 +781,7 @@ table.config-winner tr.is-conflict td {
   align-items: center;
   gap: 0.45rem 0.75rem;
 }
-.dup-merge-form {
-  display: inline;
-  margin: 0;
-}
+.dup-merge-form { display: inline; margin: 0; }
 .dup-merge-form button { margin: 0; }
 .warn-box .mono,
 .warn-box code {
