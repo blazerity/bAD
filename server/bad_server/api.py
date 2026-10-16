@@ -647,6 +647,35 @@ def admin_server_update_set_branch(
     return {"status": "ok", "prefs": prefs}
 
 
+def _admin_server_update_request(
+    settings: Settings,
+    *,
+    wait: bool,
+    timeout_seconds: float = 180.0,
+    **apply_kwargs: Any,
+) -> dict[str, Any]:
+    """Записать apply.request (+ опц. дождаться status). Общий путь apply/rollback."""
+    from .server_update import releases_dir, request_apply, wait_for_apply
+
+    root = releases_dir(settings)
+    try:
+        req = request_apply(directory=root, **apply_kwargs)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    apply = (
+        wait_for_apply(
+            root,
+            since=str(req.get("requested_at") or ""),
+            timeout_seconds=timeout_seconds,
+        )
+        if wait
+        else None
+    )
+    return {"status": "ok", "request": req, "apply": apply}
+
+
 @router.post("/admin/server-update/apply")
 def admin_server_update_apply(
     branch: str = Query(default="", max_length=200),
@@ -656,27 +685,9 @@ def admin_server_update_apply(
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     """Запросить apply через systemd path helper (+ опц. дождаться status)."""
-    from .server_update import (
-        releases_dir,
-        request_apply,
-        wait_for_apply,
+    return _admin_server_update_request(
+        settings, wait=wait, action="apply", branch=branch, sha=sha
     )
-
-    root = releases_dir(settings)
-    try:
-        req = request_apply(
-            action="apply",
-            branch=branch,
-            sha=sha,
-            directory=root,
-        )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        ) from exc
-    since = str(req.get("requested_at") or "")
-    apply = wait_for_apply(root, since=since, timeout_seconds=180.0) if wait else None
-    return {"status": "ok", "request": req, "apply": apply}
 
 
 @router.post("/admin/server-update/rollback")
@@ -686,18 +697,9 @@ def admin_server_update_rollback(
     _admin: str = Depends(require_admin_token),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
-    from .server_update import releases_dir, request_apply, wait_for_apply
-
-    root = releases_dir(settings)
-    try:
-        req = request_apply(action="rollback", slot_id=slot_id, directory=root)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        ) from exc
-    since = str(req.get("requested_at") or "")
-    apply = wait_for_apply(root, since=since, timeout_seconds=180.0) if wait else None
-    return {"status": "ok", "request": req, "apply": apply}
+    return _admin_server_update_request(
+        settings, wait=wait, action="rollback", slot_id=slot_id
+    )
 
 
 @router.get("/admin/server-update/apply-status")
