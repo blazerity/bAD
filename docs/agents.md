@@ -50,15 +50,16 @@ dotnet build BadAgent.sln -c Release
 #   dotnet test tests/BadAgent.Tests -c Release
 ```
 
-Локальный прогон против HTTP-сервера:
+Локальный прогон против сервера — **только `https://`** в `BAD_SERVER_URL` / `server_url`:
 
 ```bash
 export BAD_CONFIG_DIR=/tmp/bad-agent-config
-export BAD_SERVER_URL=http://127.0.0.1:8000
+export BAD_SERVER_URL=https://bad.example.com
 export BAD_ENROLLMENT_TOKEN=dev-enrollment-token-change-me-please-32b
-export BAD_ALLOW_HTTP=1
 dotnet run --project src/BadAgent -c Release
 ```
+
+Lab/cleartext (uvicorn без TLS): `BAD_SERVER_URL=http://127.0.0.1:8000` **и** `BAD_ALLOW_HTTP=1` — не для production и не копировать в MSI/`SERVERURL`.
 
 На Windows в проде — только MSI + HTTPS.
 
@@ -78,6 +79,8 @@ BadAgent.exe service status|start|stop|restart
 ```
 
 Учитываются `collect_*` из `%ProgramData%\blazerity\bAD\config.json`. Код: `BadCli`, `AsciiReportWriter`, `HtmlReportWriter`, `ReportPathResolver`.
+
+Локальные отчёты **не** ходят на сервер и **не** предлагают `http://` как `server_url`. Служба при cleartext без opt-in падает с русской подсказкой (`BadApiClient.CleartextHttpRejectedMessage`: нужен `https://`, `BAD_ALLOW_HTTP=1` только lab).
 
 Порядок разделов отчёта (Speccy / карточка устройства): **ОС → Процессор → Материнская плата → Память → Видео → Накопители → Мониторы → Батарея → Сеть → Пользователи → ПО → …**.
 
@@ -166,7 +169,7 @@ Heartbeat health (опционально → meta устройства): `last_i
 
 ## Инварианты — не ломать
 
-1. **HTTPS-only** для агента в нормальном режиме; reject cleartext.
+1. **HTTPS-only** для агента в нормальном режиме; reject cleartext (`https://` в `server_url`; `BAD_ALLOW_HTTP=1` только lab).
 2. **Три разных секрета**: enrollment ≠ API key ≠ admin.
 3. **Hash в БД**, plaintext API key только в ProgramData с жёстким ACL.
 4. **Upsert по `device_id`**; MSI upgrade сохраняет ProgramData (не требовать re-enroll).
@@ -227,9 +230,11 @@ Heartbeat health (опционально → meta устройства): `last_i
 |----------|-----|------------|
 | Enrollment Bearer | `POST /v1/enroll` | одноразовый обмен на API key агента |
 | Agent API key | heartbeat / inventory / `GET /v1/agent/config` | per-device |
-| Admin Bearer | `GET /v1/devices*`, policies, overrides | автоматизация / curl |
+| Admin Bearer | `GET /v1/devices*`, policies, overrides, `POST /v1/admin/enrollment/rotate` | автоматизация / curl |
 | Local user session | web cookie `bad_session` | операторы в браузере |
 | LDAP (опционально) | fallback входа в web | пользователи каталога → session |
+
+**Transport (API notes):** в prod enroll и agent API — **HTTPS**. Cleartext только lab (`BAD_ALLOW_HTTP=1` на агенте). Серверный отказ enroll на cleartext при HTTPS mode — **TODO** (план: **403**, `detail` ≈ `HTTPS required for enrollment` по `X-Forwarded-Proto`); пока режет только клиент. `POST /v1/admin/enrollment/rotate` — не вызывать и не логировать plaintext `token` по незащищённым каналам. Полный контракт: [architecture.md — API notes](architecture.md#api-notes-transport-https-и-enrollment).
 
 Код: `server/bad_server/auth.py`, `sessions.py`, `ldap_client.py`, `web.py`, `crypto_util.py`.
 

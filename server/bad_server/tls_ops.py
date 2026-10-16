@@ -303,6 +303,12 @@ def save_tls_materials(
         pass
     c_tmp.replace(c_dest)
     k_tmp.replace(k_dest)
+    # Belt-and-suspenders: staging privkey must stay 600 after replace.
+    try:
+        c_dest.chmod(0o644)
+        k_dest.chmod(0o600)
+    except OSError:
+        pass
 
     request_apply(directory)
     info["has_private_key"] = True
@@ -362,14 +368,33 @@ def wait_for_apply(
     return read_apply_status(directory)
 
 
+def tls_panel_mode(directory: Optional[Path] = None) -> str:
+    """HTTP vs HTTPS for UI chrome (banner / gated actions). No cert parse."""
+    apply = read_apply_status(directory)
+    mode = apply.get("mode") or ("https" if tls_configured(directory) else "http")
+    return "https" if mode == "https" else "http"
+
+
+def https_panel_url(domain: Optional[str] = None, path: str = "/") -> str:
+    """https://BAD_DOMAIN/... or empty if domain unknown."""
+    host = (domain if domain is not None else read_domain_from_env()).strip()
+    if not host:
+        return ""
+    if not path.startswith("/"):
+        path = "/" + path
+    return f"https://{host}{path}"
+
+
 def tls_status(directory: Optional[Path] = None) -> dict[str, Any]:
     configured = tls_configured(directory)
     apply = read_apply_status(directory)
     mode = apply.get("mode") or ("https" if configured else "http")
+    domain = read_domain_from_env()
     return {
         "configured": configured,
         "mode": mode,
-        "domain": read_domain_from_env(),
+        "domain": domain,
+        "https_url": https_panel_url(domain),
         "cert": read_installed_cert_info(directory),
         "apply": apply,
         "cert_path": str(cert_path(directory)),

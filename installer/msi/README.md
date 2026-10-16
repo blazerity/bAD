@@ -41,7 +41,7 @@ signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
 ```powershell
 # 1. Установить WiX v5 как .NET tool (один раз)
 dotnet tool install --global wix --version 5.0.2
-# --global: иначе extension кэшируется в cwd, а build из installer/msi его не видит (WIX0144)
+# --global: иначе extension в cwd-local .wix и `wix build -ext …` даёт WIX0144
 wix extension add --global WixToolset.Util.wixext/5.0.2
 
 # 2. Publish агента
@@ -88,17 +88,28 @@ msiexec /i bad-agent-0.10.1.msi `
 
 Public properties: `SERVERURL`, `ENROLLMENTTOKEN`, `ADDPATH` (опционально).
 
+### Не ставить против HTTP bootstrap
+
+Сервер 0.11 может кратко жить на **HTTP** только для панели (смена пароля → upload cert → HTTPS). Агенты в этот режим **не** входят:
+
+- **Не** передавайте `SERVERURL=http://…` в MSI против bootstrap-сервера. Агент по умолчанию отклоняет cleartext; lab opt-in `BAD_ALLOW_HTTP=1` — только стенд, не бой.
+- Ставьте MSI **после** HTTPS на nginx (`SERVERURL=https://…`). HTTP bootstrap панели ≠ поддержка HTTP-агента.
+
 ### Enrollment token и командная строка (SEC-011)
 
-Deferred CA `write-config.ps1` **не** получает `ENROLLMENTTOKEN` / `SERVERURL` в argv. WiX пишет их в `HKLM\SOFTWARE\blazerity\bAD\Setup` через `RegistryValue`; скрипт читает ключ, кладёт token в `config.json` (ACL: Administrators+SYSTEM) и **сразу удаляет** `Setup`.
+Deferred CA `write-config.ps1` **не** получает `ENROLLMENTTOKEN` / `SERVERURL` в argv PowerShell и **не** кладёт token в CustomActionData. WiX пишет их в `HKLM\SOFTWARE\blazerity\bAD\Setup` через `RegistryValue`; скрипт читает ключ, кладёт token в `config.json` (ACL: Administrators+SYSTEM) и **сразу удаляет** `Setup`. Этот контракт не менять.
 
 **Остаточный риск (документируем):**
 
 - Токен всё ещё может быть на **родительской** командной строке оператора: `msiexec /i … ENROLLMENTTOKEN=…` (видно в process list / истории shell на время install).
-- При `msiexec /l*v` verbose-лог может содержать значения public properties.
+- При `msiexec /l*v` (и встроенном `MsiLogging=voicewarmupx` → `%TEMP%\MSI*.log`) verbose-лог может содержать значения public properties, включая enrollment token.
 - Кратковременно token лежит в registry `Setup` до конца `write-config` (LocalSystem); при обрыве install ключ снимает `cleanup-uninstall.ps1` / компонент.
 
-Рекомендации: не включать `/l*v` с секретами в долгоживущие шары; после массового деплоя ротировать site enrollment token; предпочитать защищённый канал доставки MSI-команды (Intune/GPO secret, не chat/wiki).
+**Обязательно для операторов:**
+
+1. **Не шарить** `/l*v` / `%TEMP%\MSI*.log` с `ENROLLMENTTOKEN` (чаты, wiki, тикеты, долгоживущие шары).
+2. **После волны** массового деплоя MSI — **ротировать** site enrollment token (Параметры → Обновления агента / runbook в [operator-guide.md](../../docs/operator-guide.md)).
+3. Доставлять команду install через защищённый канал (Intune/GPO secret), не chat/wiki.
 
 Тихий self-update / pin-downgrade агента идёт через MajorUpgrade (`AllowDowngrades=yes` с 0.10). WiX `ServiceControl` останавливает `BlazerityAssetDiscovery` перед заменой файлов и запускает после install. `%ProgramData%\blazerity\bAD\config.json` (API key + device_id) сохраняется при **upgrade/downgrade** (компонент ProgramData с `Permanent`).
 
@@ -115,7 +126,7 @@ Deferred CA `write-config.ps1` **не** получает `ENROLLMENTTOKEN` / `SE
 
 Коды `write-config`: `BAD_MSI_000` OK; `001` нет `bad-paths.ps1`; `002` ProgramData; `003` config.json; `004` ACL; `005` прочее.
 
-Явный verbose (если нужен отдельный файл):
+Явный verbose (если нужен отдельный файл для отладки **локально**):
 
 ```powershell
 msiexec /i bad-agent-0.10.1.msi `
@@ -124,7 +135,7 @@ msiexec /i bad-agent-0.10.1.msi `
   /qn /l*v "$env:TEMP\bad-agent-install.log"
 ```
 
-Не шарьте `/l*v` с `ENROLLMENTTOKEN` — см. SEC-011 выше.
+**Не шарить** этот лог (и `%TEMP%\MSI*.log`): в нём может быть `ENROLLMENTTOKEN`. После волны установки — ротация enrollment token (см. SEC-011 выше).
 
 ### Uninstall
 

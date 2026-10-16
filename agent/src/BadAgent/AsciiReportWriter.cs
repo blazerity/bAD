@@ -25,7 +25,13 @@ public static class AsciiReportWriter
         Row(sb, "Schema", snap.SchemaVersion.ToString(CultureInfo.InvariantCulture));
         if (config is not null && !string.IsNullOrWhiteSpace(config.ServerUrl))
         {
-            Row(sb, "server_url", config.ServerUrl + " (локальный отчёт; сервер не вызывался)");
+            var urlNote = config.ServerUrl + " (локальный отчёт; сервер не вызывался)";
+            Row(sb, "server_url", urlNote);
+            if (config.ServerUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            {
+                Row(sb, "предупреждение",
+                    "http:// — служба агента отклонит; нужен https:// (BAD_ALLOW_HTTP=1 только lab)");
+            }
         }
         else
         {

@@ -25,11 +25,11 @@
 
 - Агент отклоняет `http://` без явного opt-in для dev.
 - На сервере: hash секретов (argon2), файл БД `0600`, site.env `640` root:bad; каталог бэкапов — как секреты (`700` / файлы `600`).
-- **SEC-005:** `data_key` / `session_secret` по умолчанию в той же SQLite → копия БД или daily backup = полный компромисс SMTP/LDAP bind и session cookies. Вынос master key в `BAD_DATA_KEY` (файл вне БД, права `440`/`400` root:bad) — единственный способ разорвать эту связку; пока ключ в БД — не шарить бэкапы. Операторский чеклист: [operator-guide.md](operator-guide.md#безопасность-для-операторов).
+- **SEC-005:** fresh install (**0.11+**) кладёт `/etc/bad/data_key` + `/etc/bad/session_secret` (`440` root:bad) и пути в `site.env` — daily backup БД тогда **не** содержит master keys. Residual: legacy/lab, если ключи остались в SQLite `site_secrets` — копия БД = компромисс; не шарить бэкапы. Операторский чеклист: [operator-guide.md](operator-guide.md#безопасность-для-операторов).
 - **SEC-011:** MSI write-config не кладёт token в argv PowerShell (HKLM Setup); residual — родительский `msiexec … ENROLLMENTTOKEN=` / verbose logs — не пересылать; после волны ротировать site enrollment token (UI в **0.10**, runbook: [operator-guide.md](operator-guide.md#ротация-enrollment-token-после-волны-msi)).
 - **SEC-003:** LDAP TLS — по умолчанию `CERT_REQUIRED`; lab opt-in `tls_insecure` только для лаборатории, не для боя.
 - После install **сразу** сменить `admin`/`admin` (`/account/password`); до смены UI пускает только `/account/password` и `/logout` (навигация скрыта).
-- Cookie `bad_session`: после TLS — Secure + HTTPS; **0.11 bootstrap** — HTTP UI (`BAD_COOKIE_SECURE=0`), агентов на HTTP не ставить. TLS только nginx; UI **Параметры → Сертификат** (`/settings/tls`) → `/etc/bad/tls/*` + `bad-apply-tls`. ACME не обещать. Runbook: [operator-guide.md](operator-guide.md#сертификат-tls-из-панели-011).
+- Cookie `bad_session`: `BAD_COOKIE_SECURE=auto` (Secure по `X-Forwarded-Proto`); **инвариант 0.11+:** HTTP bootstrap = UI-only temporary; агенты всегда HTTPS (кроме lab). Risk rating bootstrap **Medium** при runbook ([чеклист](operator-guide.md#чеклист-окна-http-bootstrap-011)). TLS только nginx; UI **Параметры → Сертификат** (`/settings/tls`) → `/etc/bad/tls/*` + `bad-apply-tls`. ACME не обещать.
 - uvicorn не наружу.
 - nginx rate-limit / app enroll limiter — сохранять и ужесточать осторожно.
 - ProgramData ACL: Administrators + SYSTEM; не world-readable.

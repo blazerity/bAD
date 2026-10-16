@@ -107,7 +107,8 @@ promote_staging() {
     setfacl -m u:www-data:r "${KEY}" 2>/dev/null || true
     setfacl -m u:www-data:r "${CERT}" 2>/dev/null || true
   fi
-  rm -f "${STAGE_KEY}"
+  # Drop staging materials after promote (privkey must not linger at 770 staging/).
+  rm -f "${STAGE_KEY}" "${STAGE_CERT}"
   return 0
 }
 
@@ -156,14 +157,12 @@ apply_nginx() {
 }
 
 update_cookie_secure() {
-  local mode="$1"
+  # auto: Secure follows X-Forwarded-Proto — no bad-api restart after HTTPS promote.
   [[ -f "${SITE_ENV}" ]] || return 0
-  local val=0
-  [[ "${mode}" == "https" ]] && val=1
   if grep -q '^BAD_COOKIE_SECURE=' "${SITE_ENV}"; then
-    sed -i "s/^BAD_COOKIE_SECURE=.*/BAD_COOKIE_SECURE=${val}/" "${SITE_ENV}"
+    sed -i "s/^BAD_COOKIE_SECURE=.*/BAD_COOKIE_SECURE=auto/" "${SITE_ENV}"
   else
-    printf '\nBAD_COOKIE_SECURE=%s\n' "${val}" >> "${SITE_ENV}"
+    printf '\nBAD_COOKIE_SECURE=auto\n' >> "${SITE_ENV}"
   fi
 }
 
@@ -186,7 +185,7 @@ fi
 
 mode="$(detect_mode)"
 apply_nginx "${mode}" "${domain}"
-update_cookie_secure "${mode}"
+update_cookie_secure
 
 msg="nginx ${mode} применён (reload ok)"
 if [[ "${promoted}" -eq 1 ]]; then
@@ -194,11 +193,6 @@ if [[ "${promoted}" -eq 1 ]]; then
 fi
 write_status true "${msg}" "${mode}"
 
-# Deferred restart so upload HTTP response can finish; picks up BAD_COOKIE_SECURE.
-(
-  sleep 2
-  systemctl try-restart bad-api.service >/dev/null 2>&1 || true
-) &
-disown 2>/dev/null || true
+# No deferred bad-api restart: BAD_COOKIE_SECURE=auto follows X-Forwarded-Proto live.
 
 echo "bad-apply-tls: mode=${mode} domain=${domain} promoted=${promoted}"

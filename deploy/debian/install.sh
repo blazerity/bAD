@@ -81,14 +81,14 @@ chmod 770 /etc/bad/tls
 chown bad:bad /etc/bad/tls/staging
 chmod 770 /etc/bad/tls/staging
 
+# Cookie Secure follows X-Forwarded-Proto (no force 0/1 → no ~2s race after TLS apply).
+COOKIE_SECURE=auto
 if [[ "${HAS_TLS}" -eq 1 ]]; then
   # Симлинк клиентского cert/key в /etc/bad/tls (UI-upload заменит на реальные файлы)
   ln -sfn "${BAD_TLS_CERT}" /etc/bad/tls/fullchain.pem
   ln -sfn "${BAD_TLS_KEY}" /etc/bad/tls/privkey.pem
-  COOKIE_SECURE=1
 else
   rm -f /etc/bad/tls/fullchain.pem /etc/bad/tls/privkey.pem
-  COOKIE_SECURE=0
 fi
 
 # Установить приложение в /opt/bad

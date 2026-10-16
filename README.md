@@ -52,15 +52,14 @@ cd agent
 dotnet build BadAgent.sln -c Release
 # Локальные тесты (untracked agent/tests/): dotnet test tests/BadAgent.Tests -c Release
 
-# Указать локальный сервер (HTTP только с явным opt-in):
+# server_url — https:// (prod). Cleartext http:// только lab + BAD_ALLOW_HTTP=1.
 export BAD_CONFIG_DIR=/tmp/bad-agent-config
-export BAD_SERVER_URL=http://127.0.0.1:8000
+export BAD_SERVER_URL=https://bad.example.com
 export BAD_ENROLLMENT_TOKEN=dev-enrollment-token-change-me-please-32b
-export BAD_ALLOW_HTTP=1
 dotnet run --project src/BadAgent -c Release
 ```
 
-На Windows установка службы через MSI (`installer/msi/`) с public properties `SERVERURL` и `ENROLLMENTTOKEN`.
+На Windows установка службы через MSI (`installer/msi/`) с public properties `SERVERURL` (`https://…`) и `ENROLLMENTTOKEN`.
 
 Управление службой (elevated):
 

@@ -37,6 +37,12 @@ public static class HtmlReportWriter
         if (config is not null && !string.IsNullOrWhiteSpace(config.ServerUrl))
         {
             sb.AppendLine($"<p class=\"note\">server_url в конфиге: <code>{Enc(config.ServerUrl)}</code> — отчёт собран локально, сервер не вызывался.</p>");
+            if (config.ServerUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            {
+                sb.AppendLine(
+                    "<p class=\"note warn\">Cleartext <code>http://</code> служба агента отклонит — "
+                    + "нужен <code>https://</code>. <code>BAD_ALLOW_HTTP=1</code> только для lab.</p>");
+            }
         }
         else
         {
@@ -392,6 +398,9 @@ h3 { margin: 1.25rem 0 0.5rem; font-size: 1rem; color: var(--muted); font-weight
   background: var(--bg-solid); border: 1px solid var(--border-strong);
   padding: 0.7rem 0.9rem; border-radius: var(--radius-control);
   color: var(--muted); font-size: 0.9rem;
+}
+.note.warn {
+  color: var(--error); border-color: var(--error);
 }
 code { font-family: var(--mono); font-size: 0.9em; }
 .grid {

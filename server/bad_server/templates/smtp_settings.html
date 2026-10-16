@@ -12,46 +12,55 @@
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
   {% if test_result %}<p class="{% if test_result.startswith('ОК') %}ok{% else %}error{% endif %}">{{ test_result }}</p>{% endif %}
 
+  {% if tls_mode == 'http' %}
+  <div class="warn-box" role="status">
+    HTTP bootstrap: не сохраняйте пароль SMTP по cleartext.
+    Сначала <a href="/settings/tls">загрузите сертификат</a>, затем настройте почту по HTTPS.
+  </div>
+  {% endif %}
+
   <form method="post" action="/settings/mail" class="settings-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label class="check">
-      <input type="checkbox" name="enabled" value="1" {% if smtp.enabled %}checked{% endif %}>
+      <input type="checkbox" name="enabled" value="1" {% if smtp.enabled %}checked{% endif %} {% if tls_mode == 'http' %}disabled{% endif %}>
       Включить отправку писем
     </label>
 
     <h2>SMTP</h2>
     <label for="host">SMTP-хост</label>
-    <input id="host" name="host" type="text" value="{{ smtp.host }}" placeholder="smtp.example.com" autocomplete="off">
+    <input id="host" name="host" type="text" value="{{ smtp.host }}" placeholder="smtp.example.com" autocomplete="off" {% if tls_mode == 'http' %}disabled{% endif %}>
 
     <label for="port">Порт</label>
-    <input id="port" name="port" type="number" min="1" max="65535" value="{{ smtp.port }}">
+    <input id="port" name="port" type="number" min="1" max="65535" value="{{ smtp.port }}" {% if tls_mode == 'http' %}disabled{% endif %}>
 
     <label class="check">
-      <input type="checkbox" name="use_ssl" value="1" {% if smtp.use_ssl %}checked{% endif %}>
+      <input type="checkbox" name="use_ssl" value="1" {% if smtp.use_ssl %}checked{% endif %} {% if tls_mode == 'http' %}disabled{% endif %}>
       SSL (SMTPS, обычно порт 465)
     </label>
     <label class="check">
-      <input type="checkbox" name="use_starttls" value="1" {% if smtp.use_starttls %}checked{% endif %}>
+      <input type="checkbox" name="use_starttls" value="1" {% if smtp.use_starttls %}checked{% endif %} {% if tls_mode == 'http' %}disabled{% endif %}>
       STARTTLS (обычно порт 587)
     </label>
 
     <label for="username">Пользователь</label>
-    <input id="username" name="username" type="text" value="{{ smtp.username }}" autocomplete="off">
+    <input id="username" name="username" type="text" value="{{ smtp.username }}" autocomplete="off" {% if tls_mode == 'http' %}disabled{% endif %}>
 
     <label for="password">Пароль</label>
     <input id="password" name="password" type="password" value=""
       placeholder="{% if has_password %}без изменений{% endif %}"
-      autocomplete="new-password">
+      autocomplete="new-password"
+      {% if tls_mode == 'http' %}disabled{% endif %}>
     {% if has_password %}
     <p class="hint">Оставьте пустым, чтобы сохранить текущий пароль.</p>
     {% endif %}
 
     <label for="from_addr">From</label>
-    <input id="from_addr" name="from_addr" type="email" value="{{ smtp.from_addr }}" placeholder="bad@example.com">
+    <input id="from_addr" name="from_addr" type="email" value="{{ smtp.from_addr }}" placeholder="bad@example.com" {% if tls_mode == 'http' %}disabled{% endif %}>
 
     <label for="to_addrs">Получатели (админы)</label>
     <input id="to_addrs" name="to_addrs" type="text" value="{{ smtp.to_addrs }}"
-      placeholder="ops@example.com, oncall@example.com">
+      placeholder="ops@example.com, oncall@example.com"
+      {% if tls_mode == 'http' %}disabled{% endif %}>
     <p class="hint">Один адрес или несколько через запятую.</p>
 
     <h2>Какие события слать</h2>
@@ -62,14 +71,18 @@
     {% for key, label in notify_labels %}
     <label class="check">
       <input type="checkbox" name="notify_{{ key }}" value="1"
-        {% if notify[key] %}checked{% endif %}>
+        {% if notify[key] %}checked{% endif %}
+        {% if tls_mode == 'http' %}disabled{% endif %}>
       {{ label }}
     </label>
     {% endfor %}
 
     <div class="form-actions">
-      <button type="submit">Сохранить</button>
-      <button type="submit" formaction="/settings/mail/test" formmethod="post" class="secondary">Отправить тест</button>
+      <button type="submit" {% if tls_mode == 'http' %}disabled title="Доступно после HTTPS"{% endif %}>Сохранить</button>
+      <button type="submit" formaction="/settings/mail/test" formmethod="post" class="secondary" {% if tls_mode == 'http' %}disabled title="Доступно после HTTPS"{% endif %}>Отправить тест</button>
+      {% if tls_mode == 'http' %}
+      <a class="btn secondary" href="/settings/tls">Перейти к сертификату</a>
+      {% endif %}
     </div>
   </form>
 </section>
