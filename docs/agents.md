@@ -157,21 +157,29 @@ Heartbeat health (опционально → meta устройства): `last_i
 
 ## Где живёт версия (bump checklist)
 
-Канон: корневой файл **`VERSION`** (`1.0.1`). Bump: patch +0.0.1 / minor +0.1.0 / major только по решению владельца. При релизе синхронизировать:
+Две линии semver: **server** = корневой `VERSION`; **agent** = `agent/VERSION`. Major — только владелец. Не бампать MSI/agent при server-only релизе.
+
+### Server
 
 | Место | Поле |
 |-------|------|
-| `VERSION` | одна строка semver |
+| `VERSION` (корень) | одна строка semver |
 | `server/bad_server/__init__.py` | `__version__` |
 | `server/pyproject.toml` | `project.version` |
-| `agent/src/BadAgent/BadAgent.csproj` | `Version`, `AssemblyVersion`, `FileVersion`, `InformationalVersion` |
-| `agent/src/BadAgent/InventoryModels.cs` | default `AgentVersion` (fallback) |
-| `agent/src/BadAgent/VersionUtil.cs` | fallback default |
-| `installer/msi/Product.wxs` | `ProductVersion` / `Package/@Version` + имя `bad-agent-<semver>.msi` |
 | `deploy/debian/install.sh` | default `BAD_VERSION` |
-| тесты / README / operator-guide | ожидаемые строки версии при необходимости |
 
-Агент отправляет `agent_version` из assembly version (трёхкомпонентный semver). Сервер отдаёт версию в `/v1/health` и в footer web UI.
+### Agent
+
+| Место | Поле |
+|-------|------|
+| **`agent/VERSION`** | канон agent semver (`1.0.x`); **не** читать корневой `VERSION` |
+| `agent/Directory.Build.props` | `Version` / Assembly* / Informational ← `agent/VERSION` |
+| `agent/src/BadAgent/InventoryModels.cs` | default `AgentVersion` (fallback = agent/VERSION) |
+| `agent/src/BadAgent/VersionUtil.cs` | fallback default (= agent/VERSION) |
+| `installer/msi/Product.wxs` | `ProductVersion` из того же semver, что publish/MSI |
+| `release-msi` | input `version` → tag `agent-v*`/`v*` → **`agent/VERSION`** |
+
+Агент отправляет `agent_version` из assembly (трёхкомпонентный semver). Сервер в `/v1/health` / footer — **server** VERSION.
 
 `schema_version` inventory (**integer `1`|`2`**; агент 0.4+ шлёт `2` с optional `software`) — отдельный контракт; не менять вместе с semver без миграции протокола.
 
