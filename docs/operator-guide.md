@@ -7,14 +7,47 @@
 | # | Правило | Детали |
 |---|---------|--------|
 | 1 | **Cert из панели — канон** | Install **без** `BAD_TLS_CERT`/`BAD_TLS_KEY` → HTTP bootstrap → загрузка PEM в **Параметры → Сертификат**. Cert при install — только shortcut, не обязанность. |
-| 2 | **Daily backup БД ≠ ключи** | `bad-YYYY-MM-DD.db` **не** содержит `/etc/bad/data_key` и `session_secret`. Для DR — site bundle или отдельный escrow ключей. |
+| 2 | **Дамп / daily backup БД ≠ ключи** | SQLite-файл или `pg_dump` **не** содержат `/etc/bad/data_key` и `session_secret`. Для DR — site bundle или отдельный escrow ключей. |
 | 3 | **После волны MSI — ротация enrollment** | Сменить site token **обязательно** ([runbook](#ротация-enrollment-token-после-волны-msi)); обновить Intune/GPO; не шарить msiexec-логи. |
 
-Postgres в бою **не** требуется (оценка отдельно; продукт на SQLite + файлы ключей).
+БД: **fresh install → local Postgres** (`BAD_DATABASE_URL`); lab — `BAD_USE_SQLITE=1`. HA Postgres / ACME — вне scope. Ключи всегда в `/etc/bad/*`, вне БД.
 
 ## 1. Сервер (Debian 12)
 
-**Канон (panel-first, 1.0.x):** install без TLS-файлов → cert загружается в UI. `BAD_TLS_*` при install — опция «сразу HTTPS», не требование.
+**Канон (panel-first):** install без TLS-файлов → cert в UI. `BAD_TLS_*` при install — shortcut, не обязанность.
+
+### БД: SQLite | Postgres
+
+| Режим | Когда | Env |
+|-------|-------|-----|
+| **Postgres (fresh default)** | новый install без `BAD_USE_SQLITE` | `BAD_DATABASE_URL=postgresql://…@127.0.0.1:5432/…` в `site.env` (`640` root:bad) |
+| **SQLite (lab)** | `BAD_USE_SQLITE=1` (или `true`) | `BAD_DB_PATH=/var/lib/bad/bad.db` |
+| **SQLite (существующий сайт)** | в `site.env` уже есть `BAD_DB_PATH` и **нет** `BAD_DATABASE_URL` | re-run install **не** конвертит |
+
+- API/web **не** ветвятся: один контракт `/v1`.  
+- Runtime: задан `BAD_DATABASE_URL` → Postgres; иначе SQLite (`BAD_DB_PATH`).  
+- Явный `BAD_DATABASE_URL` в окружении install перекрывает lab-флаг и поднимает PG.  
+- Local cluster: **localhost only** (не наружу).  
+- Deprecate SQLite в prod — **не** в этой волне.
+
+Lab:
+
+```bash
+BAD_USE_SQLITE=1 BAD_DOMAIN=bad.example.com sudo -E bash deploy/debian/install.sh
+```
+
+### Этапы one-liner (`install.sh`)
+
+Скрипт печатает `[1/6]…[6/6]`:
+
+1. Пакеты (+ `postgresql` / `postgresql-client`, если не lab SQLite)  
+2. Пользователь / каталоги / venv  
+3. БД (local PG + schema **или** SQLite path при lab / existing)  
+4. systemd `bad-api` (+ tls-apply)  
+5. nginx  
+6. Готово → **памятка** «что дальше»
+
+Полный текст памятки — в хвосте install (не дублируем здесь). Дальше — чеклист bootstrap и [ротация](#ротация-enrollment-token-после-волны-msi).
 
 ### Install без cert → загрузка в панели (канон)
 
@@ -125,7 +158,7 @@ curl -fsS https://bad.example.com/v1/health  # после TLS / с cert при i
 4. **Сохранить**, затем **Проверить подключение**
 5. Включите вход по LDAP; пользователи каталога смогут входить на `/login` (сначала пробуются локальные)
 
-Bind password хранится в SQLite зашифрованным и после save больше не показывается (оставьте поле пустым, чтобы не менять).
+Bind password хранится в БД зашифрованным и после save больше не показывается (оставьте поле пустым, чтобы не менять).
 
 **TLS к LDAP (SEC-003):** по умолчанию LDAPS/StartTLS с `CERT_REQUIRED` (system CA или свой). Lab opt-in: флаг `tls_insecure` в настройках LDAP — только для лаборатории, не для боевого AD через недоверенную сеть.
 
@@ -219,26 +252,25 @@ GitHub: **«Синхронизировать сейчас»** (`POST /settings/u
 
 ## 5. Site backup / restore
 
-Три разных артефакта (не путать):
+Три разных артефакта (не путать). **Дамп БД ≠ ключи.**
 
-| Артефакт | Что внутри | Роль |
-|----------|------------|------|
-| **Daily DB** (`/var/lib/bad/backups/bad-YYYY-MM-DD.db`) | только SQLite | inventory/метаданные; **не** полный DR, если keys в `/etc/bad/*` |
-| **Key escrow** | `/etc/bad/data_key` + `session_secret` | отдельно от DB; права как секреты (`440` root:bad) |
-| **Site bundle** (`.tar.gz`) | DB + keys + meta зеркала | полный DR; MSI по умолчанию нет; хранить в сейфе |
+| Артефакт | SQLite | Postgres | Роль |
+|----------|--------|----------|------|
+| **Daily DB** | `bad-YYYY-MM-DD.db` | `pg_dump -Fc` → `bad-YYYY-MM-DD.dump` в `BAD_BACKUP_DIR` (keep ≈ сегодня+вчера) | данные сайта; **не** полный DR без keys |
+| **Key escrow** | `/etc/bad/data_key` + `session_secret` | то же | отдельно от dump; `440` root:bad |
+| **Site bundle** | `bad.db` + keys + meta | **`bad.dump`** (`-Fc`) + keys + meta | полный DR; MSI опционально |
 
-**Скачать bundle:** **Параметры → Резервные копии** → **«Скачать site bundle»** (`GET /settings/backups/site-bundle`) — **только по HTTPS**. Секреты в файле, не в HTML.
+**Не** бэкапить Postgres копированием data directory. Restore PG: `pg_restore` из `bad.dump` (скрипт `restore-site-bundle.sh`).
+
+**Скачать bundle:** **Параметры → Резервные копии** → **«Скачать site bundle»** — **только по HTTPS**.
 
 **Escrow ключей (ops), без DB:**
 
 ```bash
-# пример: только ключи, каталог 700
 sudo install -d -m 700 /root/bad-key-escrow
 sudo tar -C /etc/bad -czf /root/bad-key-escrow/bad-keys-$(date -u +%Y%m%d).tar.gz data_key session_secret
 sudo chmod 600 /root/bad-key-escrow/*
 ```
-
-Не копируйте key files молча рядом с `bad-*.db` без пометки «секреты». Не кладите plaintext keys обратно в SQLite «для удобства бэкапа».
 
 **Restore (drill) — канон через bundle:**
 
@@ -246,7 +278,20 @@ sudo chmod 600 /root/bad-key-escrow/*
 sudo bash deploy/debian/restore-site-bundle.sh /path/to/bad-site-bundle-….tar.gz
 ```
 
-Скрипт (root): stop `bad-api`, перезаписывает `/var/lib/bad/bad.db` и ключи в `/etc/bad`, start. Перед боем — пробный прогон. После: `curl -fsS https://…/v1/health`, login, при необходимости доложить MSI в `/settings/updates`.
+Скрипт (root): stop `bad-api` → восстановить dump/DB + keys в `/etc/bad` → start. Перед боем — пробный прогон. После: health, login, при необходимости MSI в `/settings/updates`.
+
+### SQLite → Postgres (апгрейд существующего сайта)
+
+Re-run `install.sh` **не** конвертит (если в `site.env` уже `BAD_DB_PATH` без URL). One-shot (downtime):
+
+```bash
+# из venv сервера; URL целевой PG (schema создаётся при import)
+sudo -u bad /opt/bad/.venv/bin/bad-sqlite-to-pg \
+  --sqlite /var/lib/bad/bad.db \
+  --database-url 'postgresql://bad:…@127.0.0.1:5432/bad'
+```
+
+После OK counts: прописать `BAD_DATABASE_URL` в `site.env`, убрать runtime-зависимость от `BAD_DB_PATH`, `systemctl restart bad-api`. При mismatch — **не** flip URL. Опция `--no-truncate` — не чистить таблицы PG перед import.
 
 ## 6. Ops-блок на Обзоре
 
@@ -273,13 +318,13 @@ Admin token печатается при install и лежит в `/etc/bad/site.
 
 ### БД и бэкапы (SEC-005): DB ≠ ключи
 
-**Fresh install:** keys **вне** SQLite — `/etc/bad/data_key` + `/etc/bad/session_secret` (`440` root:bad); пути в `site.env` (`BAD_DATA_KEY_FILE` / `BAD_SESSION_SECRET_FILE`).
+**Fresh install:** keys **вне** БД — `/etc/bad/data_key` + `/etc/bad/session_secret` (`440` root:bad); пути в `site.env`.
 
 | Что | Полный restore? |
 |-----|-----------------|
-| Daily `bad-YYYY-MM-DD.db` | **Нет** — без файлов ключей не восстановить шифрование SMTP/LDAP и сессии |
-| Key escrow (`data_key` + `session_secret`) | Нужен вместе с DB (или используйте bundle) |
-| Site bundle | **Да** — DB+keys (+ meta); единая точка утечки → хранить как секрет |
+| Daily SQLite / `pg_dump -Fc` | **Нет** — без файлов ключей нет SMTP/LDAP decrypt и сессий |
+| Key escrow | Нужен вместе с dump (или bundle) |
+| Site bundle | **Да** — dump/DB + keys (+ meta); хранить как секрет |
 
 **Legacy:** если ключи ещё в `site_secrets` SQLite — любая копия `bad.db` = полный компромисс. Не смягчать.
 

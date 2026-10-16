@@ -12,9 +12,9 @@
 | Компонент | Путь | Роль |
 |-----------|------|------|
 | **Agent** | `agent/` | .NET 8 Worker Service (`BlazerityAssetDiscovery`): collect → enroll/heartbeat/inventory; self-update через сервер; CLI `service …` |
-| **Server** | `server/` | FastAPI + SQLite: API `/v1/*`, web UI (session login + LDAP), зеркало MSI с GitHub Release, uvicorn на `127.0.0.1:8000` |
+| **Server** | `server/` | FastAPI + **SQLite \| Postgres** (dual-run): API `/v1/*`, web UI, зеркало MSI, uvicorn `127.0.0.1:8000` |
 | **MSI** | `installer/msi/` | WiX: Program Files, служба, public properties `SERVERURL` / `ENROLLMENTTOKEN`; MajorUpgrade сохраняет ProgramData; полный uninstall чистит config/queue; optional Authenticode в `release-msi` |
-| **Deploy** | `deploy/debian/` | one-line `install.sh` для Debian 12: venv, systemd, nginx (HTTP bootstrap → TLS), ufw, `agent-updates/` |
+| **Deploy** | `deploy/debian/` | one-line `install.sh`: `[1/6]…[6/6]`, fresh → local PG, lab `BAD_USE_SQLITE=1`, systemd, nginx, ufw, памятка |
 | **GitHub Release** | `.github/workflows/release-msi.yml` | Источник `bad-agent-<ver>.msi` + `agent-release.json`; агенты к GitHub **не** ходят |
 
 ```mermaid
@@ -27,13 +27,15 @@ flowchart LR
   subgraph Deb["Debian 12"]
     NGX["nginx TLS :443"]
     API["uvicorn FastAPI :8000"]
-    DB[("SQLite /var/lib/bad/bad.db")]
+    DB[("SQLite file или Postgres\nBAD_DATABASE_URL")]
     STORE["/var/lib/bad/agent-updates/"]
     NGX --> API --> DB
     API --> STORE
   end
   SVC -->|"HTTPS JSON + update check"| NGX
 ```
+
+**Persistence (dual-run):** fresh install → local Postgres (`BAD_DATABASE_URL`); lab — `BAD_USE_SQLITE=1` → SQLite (`BAD_DB_PATH`). Runtime: URL set → PG, иначе file. Один интерфейс `Database`; API/web без ветвления. Существующий SQLite `site.env` re-install не конвертит; апгрейд — `bad-sqlite-to-pg` + flip URL. Keys вне БД. HA / ACME — out of scope.
 
 ## Клиент (агент)
 
@@ -274,7 +276,7 @@ flowchart LR
 | `/settings/tls` | nav **Сертификат**; статус HTTP/HTTPS; upload PEM cert+key[+chain] → nginx reload (key не в HTML) |
 | `/settings/mail` | SMTP + получатели + toggles уведомлений |
 | `/settings/retention` | сроки хранения events/inventory |
-| `/settings/backups` | daily SQLite + **Скачать site bundle** (`GET …/site-bundle`) |
+| `/settings/backups` | daily SQLite / `pg_dump -Fc` + **Скачать site bundle** (`GET …/site-bundle`) |
 | `/settings/policies` | CRUD; knob `update_target` = `latest` \| pin semver |
 | `/settings/updates` | каталог MSI, upload air-gap, sync, Latest/Удалить; секция **Enrollment token** + `POST /settings/enrollment/rotate` |
 | `/account/password` | смена пароля локального пользователя |
@@ -307,14 +309,15 @@ flowchart LR
 - Ingest: GitHub sync и ручная заливка UI/API; cap ~10 версий; delete запрещён для latest и pin.
 - Remote-config knob **`update_target`**: `latest` (default) или semver из зеркала; check отдаёт target даже для downgrade.
 - Enrollment rotate из UI/API (hash в SQLite); restart не обязателен.
-- Site bundle: DB + keys + meta зеркала (MSI в tar опционально); restore — `deploy/debian/restore-site-bundle.sh`.
+- Site bundle: `bad.db`/`bad.dump` + keys + meta зеркала (MSI в tar опционально); restore — `deploy/debian/restore-site-bundle.sh`.
 
-**Резервные копии SQLite**
+**Резервные копии**
 
 - Каталог `BAD_BACKUP_DIR` (default `/var/lib/bad/backups`).
-- Ежедневно файл `bad-YYYY-MM-DD.db` (sqlite3 backup API); хранятся сегодня + вчера.
-- Restore вручную: остановить сервис, скопировать файл на `BAD_DB_PATH`.
-- **SEC-005:** бэкап/копия БД содержит plaintext `data_key` + `session_secret` в `site_secrets` → расшифровка SMTP/LDAP и подделка сессий. Права на БД/бэкапы и (когда доступно) вынос ключа в `BAD_DATA_KEY` вне БД: [operator-guide.md](operator-guide.md#безопасность-для-операторов).
+- SQLite: ежедневно `bad-YYYY-MM-DD.db` (sqlite backup API); keep сегодня+вчера.
+- Postgres: daily **`pg_dump -Fc`** → `bad-YYYY-MM-DD.dump` (не copy data directory); prune как KEEP_DAILY.
+- Site bundle: `bad.db` или `bad.dump` + keys + mirror meta; restore — `restore-site-bundle.sh` (`pg_restore` для PG).
+- **SEC-005:** **dump ≠ ключи**; fresh install keys в `/etc/bad/*`. Legacy keys в `site_secrets` → копия DB = компромисс. [operator-guide.md](operator-guide.md#безопасность-для-операторов).
 
 **Сессия**
 
@@ -330,8 +333,9 @@ flowchart LR
 
 ### Данные
 
-- SQLite: `/var/lib/bad/bad.db` (prod), владелец `bad:bad`, WAL.
-- Таблицы: `devices` (+ `tags_json`, `revoked`, `archived`), `inventory_snapshots`, `device_events`, `site_secrets`, `local_users`, `ldap_settings` (+ `allowed_group`), `retention_settings`, `smtp_settings`, `agent_update`, `agent_policies`, `device_config_overrides`.
+- **Postgres (fresh default):** `BAD_DATABASE_URL` в `site.env` (localhost); credentials не в git; cluster не слушать мир.
+- **SQLite (lab / legacy site):** `BAD_DB_PATH` (`/var/lib/bad/bad.db`), `bad:bad`, WAL — при `BAD_USE_SQLITE=1` или существующем site без URL.
+- Логическая схема (оба драйвера): `devices` (+ `tags_json`, `revoked`, `archived`), `inventory_snapshots`, `device_events`, `site_secrets`, `local_users`, `ldap_settings`, `retention_settings`, `smtp_settings`, `agent_update`, `agent_policies`, `device_config_overrides`, …
 - Каталог MSI: `/var/lib/bad/agent-updates/`; бэкапы: `/var/lib/bad/backups/`.
 
 ## Enrollment и inventory
@@ -347,14 +351,14 @@ flowchart LR
 ## Deploy
 
 ```bash
-# HTTP bootstrap (cert later via UI) or with BAD_TLS_CERT/KEY for immediate HTTPS
+# Fresh → local Postgres + памятка; lab: BAD_USE_SQLITE=1 …
 BAD_DOMAIN=… sudo -E bash deploy/debian/install.sh
 ```
 
-Скрипт: пакеты, user `bad`, `/opt/bad` + venv, `bad-api.service`, `bad-tls-apply.path`, nginx site (HTTP или HTTPS), ufw 22/80/443, `agent-updates/`, печать enrollment/admin tokens один раз. Web UI: `admin`/`admin` (сменить сразу); admin Bearer — для API. В `site.env` также `BAD_DOMAIN`, `BAD_COOKIE_SECURE`, `BAD_GITHUB_REPO` и параметры sync.
+Скрипт `[1/6]…[6/6]`: пакеты → user/dirs/venv → БД (local PG **или** SQLite lab/existing) → `bad-api` / tls-apply → nginx → готово + памятка. ufw 22/80/443 (PG localhost). `site.env`: `BAD_DOMAIN`, `BAD_COOKIE_SECURE`, `BAD_DATABASE_URL` (fresh) или `BAD_DB_PATH` (lab). Import: `bad-sqlite-to-pg`.
 
 Артефакты релиза агента: `bad-agent-<semver>.msi`, `agent-release.json` (через GitHub Release). Как вырезать релиз: [guideline.md](guideline.md).
 
 ## Вне scope v1
 
-macOS/Linux агенты (полноценный collect), расширенный software/патчи, RBAC/SSO, HA SQLite, push-команды на агент, Let’s Encrypt как основной путь, полноценный product dashboard. Прямой доступ агентов к GitHub — вне модели (только server mirror).
+macOS/Linux агенты (полноценный collect), расширенный software/патчи, RBAC/SSO, **HA Postgres**, push-команды на агент, Let’s Encrypt как основной путь, полноценный product dashboard. Прямой доступ агентов к GitHub — вне модели (только server mirror). Deprecate SQLite в prod — отдельное решение владельца.
