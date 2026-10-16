@@ -3,7 +3,7 @@
   MSI Windows-агента bAD (WiX v4/v5).
   Сборка на Windows после publish агента:
 
-    dotnet publish ..\..\agent\src\BadAgent\BadAgent.csproj -c Release -r win-x64 --self-contained true -o .\publish
+    dotnet publish ..\..\agent\src\BadAgent\BadAgent.csproj -c Release -r win-x64 -p:SelfContained=true -o .\publish
     Copy-Item .\write-config.ps1 .\publish\
     Copy-Item .\cleanup-uninstall.ps1 .\publish\
     Copy-Item .\bad-paths.ps1 .\publish\
