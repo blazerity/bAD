@@ -2,22 +2,25 @@
 {% from "macros/icons.html" import icon %}
 {% block title %}Дашборд — bAD{% endblock %}
 {% block content %}
-<section class="dashboard-page">
-  <h1 class="with-icon">{{ icon('dashboard') }}Дашборд</h1>
-  <p class="muted">
-    Визуальная картина парка.
+<section class="dashboard-page" data-dashboard>
+  <h1 class="with-icon dash-reveal">{{ icon('dashboard') }}Дашборд</h1>
+  <p class="muted dash-reveal" style="--dash-delay:40ms">
+    Визуальная картина парка. Операционные списки —
+    <a href="/">Обзор</a>.
     Устарел — нет контакта дольше {{ stale_after_seconds }} с.
-    <a href="/">К Обзору</a>
+    Подписи: <strong>версия агента</strong> (не версия сервера в footer).
   </p>
 
   {# D1 — парк #}
-  <div class="dash-widget" data-widget="park">
+  <article class="dash-widget dash-card dash-reveal" style="--dash-delay:80ms" data-widget="park">
     <h2>Парк</h2>
     {% set park = dashboard.park_bar %}
     {% if park.total_active %}
     <div class="park-bar" role="img" aria-label="Онлайн {{ park.segments[0].count }}, устарели {{ park.segments[1].count }}">
       {% for seg in park.segments %}
-      <a class="park-seg park-seg-{{ seg.id }}" href="{{ seg.href }}" style="width: {{ seg.pct }}%" title="{{ seg.label }}: {{ seg.count }} ({{ seg.pct }}%)">
+      <a class="park-seg park-seg-{{ seg.id }}" href="{{ seg.href }}"
+         style="width: {{ seg.pct }}%"
+         title="{{ seg.label }}: {{ seg.count }} ({{ seg.pct }}%)">
         <span class="park-seg-label">{{ seg.label }} {{ seg.count }}</span>
       </a>
       {% endfor %}
@@ -30,10 +33,10 @@
     {% else %}
     <p class="muted">Пока нет активных устройств.</p>
     {% endif %}
-  </div>
+  </article>
 
   {# D2 — версии агента #}
-  <div class="dash-widget" data-widget="agent-versions">
+  <article class="dash-widget dash-card dash-reveal" style="--dash-delay:120ms" data-widget="agent-versions">
     <h2>Версия агента</h2>
     {% set vb = dashboard.agent_version_bars %}
     {% if vb.latest %}
@@ -46,13 +49,17 @@
     {% if vb.items %}
     <ul class="hbar-list">
       {% for row in vb.items %}
-      <li class="hbar-row{% if row.is_other %} is-other{% endif %}">
+      <li class="hbar-row{% if row.is_other %} is-other{% endif %}{% if vb.latest and row.version == vb.latest %} is-latest{% endif %}">
         <div class="hbar-meta">
-          <span class="mono">{{ row.version }}</span>
+          {% if row.is_other %}
+          <a class="hbar-link mono" href="{{ vb.drift_href or '/devices?wave=drift' }}">{{ row.version }}</a>
+          {% else %}
+          <a class="hbar-link mono" href="/devices?q={{ row.version|urlencode }}" title="Устройства с версией {{ row.version }}">{{ row.version }}</a>
+          {% endif %}
           <span class="muted">{{ row.count }} · {{ row.pct }}%</span>
         </div>
         <div class="hbar-track" aria-hidden="true">
-          <span class="hbar-fill" style="width: {{ row.pct }}%"></span>
+          <span class="hbar-fill" style="width: {{ row.pct }}%; --bar-delay: {{ loop.index0 * 45 }}ms"></span>
         </div>
       </li>
       {% endfor %}
@@ -60,24 +67,26 @@
     {% else %}
     <p class="muted">Нет данных о версиях агента.</p>
     {% endif %}
-  </div>
+  </article>
 
   {# D3 — волна #}
-  <div class="dash-widget" data-widget="wave">
+  <article class="dash-widget dash-card dash-reveal" style="--dash-delay:160ms" data-widget="wave">
     <h2>Риски волны</h2>
+    <p class="muted">Нажмите chip — фильтр устройств.</p>
     <div class="wave-chips">
       {% for chip in dashboard.wave_chips %}
-      <a class="wave-chip" href="{{ chip.href }}">
+      <a class="wave-chip{% if chip.count %} has-count{% endif %}" href="{{ chip.href }}"
+         title="{{ chip.label }}: {{ chip.count }}">
         <span class="wave-chip-label">{{ chip.label }}</span>
         <span class="wave-chip-count mono">{{ chip.count }}</span>
       </a>
       {% endfor %}
     </div>
-  </div>
+  </article>
 
   {# D4 — OS / domain #}
-  <div class="dash-grid">
-    <div class="dash-widget" data-widget="os">
+  <div class="dash-grid dash-reveal" style="--dash-delay:200ms">
+    <article class="dash-widget dash-card" data-widget="os">
       <h2>ОС</h2>
       {% set osb = dashboard.os_bars %}
       {% if osb.items %}
@@ -89,7 +98,7 @@
             <span class="muted">{{ row.count }} · {{ row.pct }}%</span>
           </div>
           <div class="hbar-track" aria-hidden="true">
-            <span class="hbar-fill" style="width: {{ row.pct }}%"></span>
+            <span class="hbar-fill" style="width: {{ row.pct }}%; --bar-delay: {{ loop.index0 * 45 }}ms"></span>
           </div>
         </li>
         {% endfor %}
@@ -98,9 +107,9 @@
       {% else %}
       <p class="muted">Нет inventory для среза ОС.</p>
       {% endif %}
-    </div>
+    </article>
 
-    <div class="dash-widget" data-widget="domain">
+    <article class="dash-widget dash-card" data-widget="domain">
       <h2>Домен</h2>
       {% set dbars = dashboard.domain_bars %}
       {% if dbars.items %}
@@ -112,7 +121,7 @@
             <span class="muted">{{ row.count }} · {{ row.pct }}%</span>
           </div>
           <div class="hbar-track" aria-hidden="true">
-            <span class="hbar-fill" style="width: {{ row.pct }}%"></span>
+            <span class="hbar-fill" style="width: {{ row.pct }}%; --bar-delay: {{ loop.index0 * 45 }}ms"></span>
           </div>
         </li>
         {% endfor %}
@@ -121,11 +130,11 @@
       {% else %}
       <p class="muted">Нет inventory для среза домена.</p>
       {% endif %}
-    </div>
+    </article>
   </div>
 
   {# D5 — модели #}
-  <div class="dash-widget" data-widget="models">
+  <article class="dash-widget dash-card dash-reveal" style="--dash-delay:240ms" data-widget="models">
     <h2>Модели</h2>
     {% set mb = dashboard.model_bars %}
     {% if mb.items %}
@@ -137,7 +146,7 @@
           <span class="muted">{{ row.count }} · {{ row.pct }}%</span>
         </div>
         <div class="hbar-track" aria-hidden="true">
-          <span class="hbar-fill" style="width: {{ row.pct }}%"></span>
+          <span class="hbar-fill" style="width: {{ row.pct }}%; --bar-delay: {{ loop.index0 * 45 }}ms"></span>
         </div>
       </li>
       {% endfor %}
@@ -146,13 +155,24 @@
     {% else %}
     <p class="muted">Нет inventory для среза моделей.</p>
     {% endif %}
-  </div>
+  </article>
 
-  <p class="muted">
-    <a href="/devices">Устройства</a> · <a href="/events">События</a>
+  <p class="muted dash-reveal" style="--dash-delay:280ms">
+    <a href="/">Обзор</a> ·
+    <a href="/devices">Устройства</a> ·
+    <a href="/events">События</a>
     {% if dashboard.mirror %}
     · <a href="{{ dashboard.mirror.href }}">Обновления агента</a>
     {% endif %}
   </p>
 </section>
+<script>
+(function () {
+  try {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      document.documentElement.classList.add('dash-reduced-motion');
+    }
+  } catch (e) {}
+})();
+</script>
 {% endblock %}

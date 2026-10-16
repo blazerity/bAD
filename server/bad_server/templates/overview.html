@@ -2,9 +2,12 @@
 {% from "macros/icons.html" import icon %}
 {% block title %}Обзор — bAD{% endblock %}
 {% block content %}
-<section>
-  <h1 class="with-icon">{{ icon('devices') }}Обзор</h1>
-  <p class="muted">Сводка по парку. Устарел — нет контакта дольше {{ stale_after_seconds }} с.</p>
+<section class="overview-admin">
+  <h1 class="with-icon">{{ icon('overview') }}Обзор</h1>
+  <p class="muted">
+    Командный пункт оператора. Устарел — нет контакта дольше {{ stale_after_seconds }} с.
+    Графики парка — <a href="/dashboard">Дашборд</a>.
+  </p>
   <p class="muted">
     Версия сервера:
     <span class="mono">{{ (server_current.version if server_current else None) or app_version }}</span>
@@ -46,6 +49,9 @@
     {% if security.secrets %}
     · ключи: <span class="mono">{{ security.secrets.data_key_source }}/{{ security.secrets.session_secret_source }}</span>
     {% endif %}
+    {% if ops.enrollment_rotation_due %}
+    · <a href="/settings/updates#enrollment">смена enrollment token</a>
+    {% endif %}
   </p>
   {% endif %}
 
@@ -68,6 +74,8 @@
   <p class="ok attention-empty">Сейчас нет срочных действий по парку.</p>
   {% endif %}
 
+  <h2>Парк устройств</h2>
+  <p class="muted">Цифры для решения — без bar-chart. <a href="/dashboard">Подробнее на Дашборде</a>.</p>
   <div class="stat-row">
     <div class="stat">
       <div class="stat-value">{{ stats.total_active }}</div>
@@ -86,9 +94,6 @@
       <div class="stat-label">В архиве</div>
     </div>
   </div>
-  <p class="muted park-dash-link">
-    <a href="/dashboard">Подробнее на Дашборде</a>
-  </p>
 
   {# O8 — риски волны: числа-ссылки, не график #}
   {% if wave_chips or ops.wave_chips %}
@@ -132,13 +137,20 @@
 
   <h2>Зеркало MSI</h2>
   {% if ops.mirror_empty %}
-  <p class="error">Зеркало пусто — <a href="/settings/updates">загрузите MSI или sync</a>.</p>
+  <div class="warn-box" role="status">
+    <strong>Зеркало пусто</strong>
+    <p class="muted" style="margin:0.35rem 0 0">
+      Агенты не получат обновления —
+      <a href="/settings/updates">Параметры → Обновления агента</a>.
+    </p>
+  </div>
   {% else %}
-  <p class="muted">
-    Версия агента (latest): <span class="mono">{{ ops.latest_version or "—" }}</span>
-    · версий в каталоге: <span class="mono">{{ ops.mirror_count }}</span>
-    · sync: <span class="mono">{{ ops.latest_synced_at or "—" }}</span>
-  </p>
+  <dl class="meta">
+    <div><dt>Версия агента (latest)</dt><dd class="mono">{{ ops.latest_version or "—" }}</dd></div>
+    <div><dt>Версий в каталоге</dt><dd class="mono">{{ ops.mirror_count }}</dd></div>
+    <div><dt>Последний sync</dt><dd class="mono">{{ ops.latest_synced_at or "—" }}</dd></div>
+  </dl>
+  <p class="hint"><a href="/settings/updates">Управление зеркалом</a></p>
   {% endif %}
 
   {% if ops.version_drift_count %}
@@ -167,30 +179,19 @@
 
   <h2 class="with-icon">{{ icon('events') }}Недавние изменения железа</h2>
   {% if stats.recent_hardware_events %}
-  <div class="table-scroll">
-  <table class="devices">
-    <thead>
-      <tr>
-        <th>Когда</th>
-        <th>Устройство</th>
-        <th>Тип</th>
-        <th>Кратко</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for e in stats.recent_hardware_events %}
-      <tr>
-        <td class="mono">{{ e.created_at }}</td>
-        <td><a href="/devices/{{ e.device_id }}">{{ e.hostname or e.device_id }}</a></td>
-        <td class="mono">{{ e.type }}</td>
-        <td>{{ e.summary }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  </div>
+  <ul class="overview-hw-list">
+    {% for e in stats.recent_hardware_events[:8] %}
+    <li>
+      <span class="mono muted">{{ e.created_at }}</span>
+      · <a href="/devices/{{ e.device_id }}">{{ e.hostname or e.device_id }}</a>
+      · <span class="mono">{{ e.type }}</span>
+      {% if e.summary %}<span class="muted">— {{ e.summary }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  <p class="muted"><a href="/events">Все события</a></p>
   {% else %}
-  <p class="muted">Событий изменения железа пока нет.</p>
+  <p class="muted">Событий изменения железа пока нет. <a href="/events">Все события</a></p>
   {% endif %}
 
   <p class="muted">

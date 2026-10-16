@@ -1284,43 +1284,84 @@ dl.speccy-kv dd {
   .nav a span { font-size: 0.82rem; }
 }
 
-/* Дашборд (/dashboard): лёгкие bars/chips; UI Lead полирует Win11 motion */
-.dashboard-page .dash-widget {
-  margin: 1.25rem 0 1.5rem;
-  padding: 0.85rem 0 0;
+/* —— Обзор admin —— */
+.overview-hw-list {
+  list-style: none;
+  margin: 0.5rem 0 0.75rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  font-size: 0.92rem;
+}
+.wave-links { margin: 0.35rem 0 1rem; }
+.park-dash-link { margin: 0.35rem 0 1rem; }
+
+/* —— Дашборд: Win11-lite motion (UI polish поверх #85) —— */
+.dashboard-page .dash-card {
+  margin: 1.1rem 0 1.25rem;
+  padding: 1rem 1.1rem 1.05rem;
+  border-radius: var(--radius-surface);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(12px);
+  transition:
+    transform var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+.dashboard-page .dash-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-md);
+}
+.dashboard-page .dash-card h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.1rem;
 }
 .dashboard-page .dash-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 1rem 1.5rem;
+  gap: 1rem 1.25rem;
+  margin: 1.1rem 0 1.25rem;
 }
+.dashboard-page .dash-grid .dash-card { margin: 0; }
+
 .park-bar {
   display: flex;
   width: 100%;
   min-height: 2.25rem;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-surface);
   overflow: hidden;
-  background: var(--surface-muted, #e8eef5);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
 }
 .park-seg {
   display: flex;
   align-items: center;
   justify-content: center;
   min-width: 0;
-  color: #fff;
+  color: var(--fg-on-accent);
   text-decoration: none;
   font-size: 0.85rem;
-  transition: filter 180ms ease, transform 180ms ease;
+  transition: filter 180ms var(--ease), transform 180ms var(--ease);
 }
-.park-seg:hover { filter: brightness(1.06); }
-.park-seg-online { background: var(--accent, #0078d4); }
-.park-seg-stale { background: var(--warn, #c47a00); }
+.park-seg:hover {
+  filter: brightness(1.08);
+  text-decoration: none;
+  color: var(--fg-on-accent);
+}
+.park-seg-online { background: var(--ok); }
+.park-seg-stale { background: var(--warn); }
 .park-seg-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   padding: 0 0.4rem;
 }
+.park-aside { margin: 0.55rem 0 0; }
+
 .hbar-list { list-style: none; margin: 0.5rem 0 0; padding: 0; }
 .hbar-row { margin: 0.45rem 0; }
 .hbar-meta {
@@ -1330,20 +1371,34 @@ dl.speccy-kv dd {
   font-size: 0.9rem;
   margin-bottom: 0.2rem;
 }
+.hbar-link {
+  color: inherit;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hbar-link:hover { color: var(--accent); text-decoration: underline; }
 .hbar-track {
-  height: 0.55rem;
+  height: 0.6rem;
   border-radius: 999px;
-  background: var(--surface-muted, #e8eef5);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
   overflow: hidden;
 }
 .hbar-fill {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: var(--accent, #0078d4);
-  transition: width 220ms ease;
+  background: var(--accent);
+  transform-origin: left center;
+  transform: scaleX(0);
+  animation: dash-bar-grow 220ms var(--ease) forwards;
+  animation-delay: var(--bar-delay, 0ms);
 }
 .hbar-row.is-other .hbar-fill { opacity: 0.55; }
+.hbar-row.is-latest .hbar-fill { background: var(--ok); }
+
 .wave-chips {
   display: flex;
   flex-wrap: wrap;
@@ -1352,35 +1407,101 @@ dl.speccy-kv dd {
 }
 .wave-chip {
   display: inline-flex;
-  align-items: baseline;
-  gap: 0.45rem;
+  flex-direction: column;
+  min-width: 5.5rem;
+  min-height: 2.75rem;
+  justify-content: center;
+  gap: 0.1rem;
   padding: 0.45rem 0.75rem;
-  border-radius: 0.5rem;
-  border: 1px solid var(--border, #c9d4e3);
-  background: var(--surface, #fff);
+  border-radius: var(--radius-surface);
+  border: 1px solid var(--border);
+  background: var(--bg-solid);
   text-decoration: none;
   color: inherit;
-  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+  box-shadow: var(--shadow-sm);
+  transition:
+    background 160ms var(--ease),
+    border-color 160ms var(--ease),
+    transform 160ms var(--ease),
+    box-shadow 160ms var(--ease);
 }
 .wave-chip:hover {
-  background: var(--surface-muted, #eef3f9);
-  border-color: var(--accent, #0078d4);
+  text-decoration: none;
+  transform: translateY(-1px);
+  background: var(--bg-elev);
+  border-color: var(--accent);
+  box-shadow: var(--shadow-md);
 }
-.wave-chip-count { font-weight: 600; }
-.wave-links { margin: 0.35rem 0 1rem; }
-.park-dash-link { margin: 0.35rem 0 1rem; }
+.wave-chip.has-count {
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
+}
+.wave-chip-label {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.wave-chip-count {
+  font-weight: 600;
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
+}
+
+.dash-reveal {
+  opacity: 0;
+  transform: translateY(6px);
+  animation: dash-reveal-in 200ms var(--ease) forwards;
+  animation-delay: var(--dash-delay, 0ms);
+}
+@keyframes dash-reveal-in {
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes dash-bar-grow {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+.nav a[aria-current="page"] {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+@media (max-width: 900px) {
+  .dashboard-page .dash-grid { grid-template-columns: 1fr; }
+}
 
 @media (max-width: 640px) {
   .dashboard-page .dash-grid { grid-template-columns: 1fr; }
+  .dashboard-page .dash-card { padding: 0.85rem 0.9rem; }
   .park-bar { flex-direction: column; min-height: 0; }
-  .park-seg { width: 100% !important; min-height: 2rem; justify-content: flex-start; }
+  .park-seg {
+    width: 100% !important;
+    min-height: 2rem;
+    justify-content: flex-start;
+  }
+  .wave-chips {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
+@media (prefers-reduced-motion: reduce),
+html.dash-reduced-motion {
+  .dashboard-page .dash-card,
+  .wave-chip,
+  .park-seg {
+    transition: none !important;
+  }
+  .dashboard-page .dash-card:hover,
+  .wave-chip:hover {
+    transform: none;
+  }
+  .dash-reveal {
+    opacity: 1;
+    transform: none;
+    animation: none;
+  }
+  .hbar-fill {
+    transform: none !important;
+    animation: none !important;
   }
 }
