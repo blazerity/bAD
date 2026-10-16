@@ -2,12 +2,12 @@
 
 Сборка только на Windows. Исходники в репозитории; **Linux CI MSI-бинарник не выпускает**.
 
-Workflow GitHub Actions [`.github/workflows/release-msi.yml`](../../.github/workflows/release-msi.yml) собирает на `windows-latest` по тегу `v*` (или `workflow_dispatch`) и загружает:
+Workflow GitHub Actions [`.github/workflows/release-msi.yml`](../../.github/workflows/release-msi.yml) собирает на `windows-latest` по тегу **`agent-v*`** (переходно голый `v*` = agent) или `workflow_dispatch` и загружает:
 
-- `bad-agent-<semver>.msi`
+- `bad-agent-<agent-semver>.msi`
 - `agent-release.json` (`version`, `msi_name`, `sha256`)
 
-в GitHub Release для этого тега.
+в GitHub Release для тега агента. Semver MSI = **только agent** (`agent/VERSION` / csproj); корневой/`server` `VERSION` панели **не** читается. `server-v*` MSI не триггерит.
 
 ## Права / secrets
 
@@ -145,31 +145,34 @@ msiexec /x bad-agent-1.0.1.msi /qn
 
 При полном uninstall (не upgrade): служба Stop+Remove, файлы Program Files снимаются, `cleanup-uninstall.ps1` удаляет `config.json`, `queue\`, `logs\` (enrollment leftovers). Запись PATH от `ADDPATH=1` снимается.
 
-## Вырезать релиз
+## Вырезать релиз (agent line)
 
 ```bash
-git tag v1.0.1
-git push origin v1.0.1
-# → workflow release-msi публикует MSI (+ Authenticode, если secrets) + agent-release.json
-# → on-prem сервер sync'ит с GitHub Release (admin sync или фоновый job)
-# → агенты опрашивают GET /v1/agent/update/check и ставят через msiexec
+# bump agent/VERSION (+ csproj через Directory.Build.props) — не корневой VERSION сервера
+git tag agent-v1.0.1
+git push origin agent-v1.0.1
+# → release-msi: ProductVersion = agent semver → MSI + agent-release.json на Release agent-v1.0.1
+# → on-prem sync / ingest зеркала агента
+# Переходный alias: голый v* ещё = agent; server bumps — только server-v* (без MSI).
 ```
+
+Semver в CI: `inputs.version` → tag `agent-v*`/`v*` → `agent/VERSION` → else csproj. **Запрет:** читать корневой или server `VERSION`.
 
 ## Сборка из панели (опционально)
 
-Отдельный путь волны «Обновление сервера»: кнопка в UI **не** собирает MSI локально и **не** трогает self-update панели (`/var/lib/bad/server-releases/`). Только trigger GitHub Actions → артефакт → ingest в **зеркало агента** (`BAD_AGENT_UPDATES_DIR` / `ingest_uploaded_msi`). Authenticode для этого пути **не** требуется (unsigned OK).
+Отдельный путь волны «Обновление сервера»: кнопка в UI **не** собирает MSI локально и **не** трогает self-update панели (`/var/lib/bad/server-releases/`). Только trigger GitHub Actions → артефакт → ingest в **зеркало агента** (`BAD_AGENT_UPDATES_DIR` / `ingest_uploaded_msi`). Authenticode для этого пути **не** требуется (unsigned OK). В `inputs.version` передавать **agent** semver, не server `VERSION`.
 
 | Что | Значение |
 |-----|----------|
 | Workflow | `release-msi` (`.github/workflows/release-msi.yml`) |
 | Trigger | `workflow_dispatch` (Actions UI или `POST …/actions/workflows/release-msi.yml/dispatches`) |
-| `ref` | ветка/тег сборки (обычно та же, что «Обновление сервера», default `main`) |
-| `inputs.version` | опционально; пусто → `Version` из csproj на этом `ref` |
-| `inputs.publish_release` | `true` (default) → assets в GitHub Release; `false` → только Actions artifact (удобно для панели без нового Release) |
-| Artifact | имя `bad-agent-msi-<semver>`; внутри `bad-agent-<semver>.msi` + `agent-release.json` |
-| Job outputs | `version`, `msi_name`, `artifact_name` после success |
-| Ingest | Release path → существующий `sync_from_github`; artifact path → скачать zip → `ingest_uploaded_msi` (+ manifest) |
-| Token (`BAD_GITHUB_TOKEN`) | `actions:write` (dispatch); для артефакта — `actions:read`; для Release — `contents:read` (как сейчас) |
+| `ref` | ветка исходников (часто `main`); version = agent semver отдельно |
+| `inputs.version` | **agent** semver (предпочтительно для панели); пусто → `agent/VERSION` или csproj |
+| `inputs.publish_release` | `true` (default) → GitHub Release `agent-v<semver>`; `false` → только Actions artifact |
+| Artifact | имя `bad-agent-msi-<agent-semver>`; внутри `bad-agent-<ver>.msi` + `agent-release.json` |
+| Job outputs | `version`, `msi_name`, `artifact_name`, `tag` после success |
+| Ingest | Release path → `sync_from_github`; artifact path → `ingest_uploaded_msi` (+ manifest) |
+| Token (`BAD_GITHUB_TOKEN`) | `actions:write` (dispatch); артефакт — `actions:read`; Release — `contents:read` |
 
 Ошибки GH/quota / failed run — зона Server Lead (RU-сообщения в UI); MSI workflow при fail просто не отдаёт артефакт. Не смешивать кнопку sync MSI и Apply server update.
 

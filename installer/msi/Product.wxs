@@ -10,6 +10,7 @@
     Copy-Item .\bad.cmd .\publish\
     wix extension add (флаг global) WixToolset.Util.wixext/5.0.2
     wix build Product.wxs -ext WixToolset.Util.wixext -arch x64 -d AgentPublishDir=publish -d ProductVersion=1.0.1 -o bad-agent-1.0.1.msi
+    ProductVersion = agent semver only (agent/VERSION / csproj); never root/server VERSION.
 
   Публичные свойства (msiexec):
     SERVERURL=https://bad.example.com
@@ -29,6 +30,7 @@
   и в msiexec-логе (MsiLogging=voicewarmupx → %TEMP%\MSI*.log; WixQuietExec пишет stderr).
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <!-- Fallback = agent line; CI passes -d ProductVersion=<agent semver>. Not server VERSION. -->
   <?ifndef ProductVersion?>
     <?define ProductVersion = "1.0.1" ?>
   <?endif?>
