@@ -48,7 +48,11 @@ from .agent_update import (
     sync_from_github,
 )
 from .backup import backup_status, run_daily_backup
-from .enrollment_ops import enrollment_status, rotate_enrollment_token
+from .enrollment_ops import (
+    enrollment_rotation_signals,
+    enrollment_status,
+    rotate_enrollment_token,
+)
 from .http_bootstrap import HTTP_SENSITIVE_MSG, sensitive_over_http_blocked
 from .ops_panel import (
     build_attention_queue,
@@ -1953,11 +1957,13 @@ def _backup_context(
     message: Optional[str] = None,
     error: Optional[str] = None,
 ) -> dict:
+    secrets = security_status(db, settings).get("secrets") or {}
     return {
         "user": user,
         "settings_section": "backups",
         "backup": backup_status(settings.backup_dir),
         "last_backup_at": db.get_site_secret("last_backup_at"),
+        "secrets": secrets,
         "message": message,
         "error": error,
     }
@@ -2261,6 +2267,7 @@ def _updates_context(
     error: Optional[str] = None,
     new_enrollment_token: Optional[str] = None,
 ) -> dict:
+    enrollment_rotation = enrollment_rotation_signals(db, settings)
     return {
         "user": user,
         "settings_section": "updates",
@@ -2270,6 +2277,7 @@ def _updates_context(
         "updates_dir": str(settings.agent_updates_dir),
         "sync_interval": settings.agent_update_sync_interval_seconds,
         "enrollment": enrollment_status(db, settings),
+        "enrollment_rotation": enrollment_rotation,
         "message": message,
         "error": error,
         "new_enrollment_token": new_enrollment_token,

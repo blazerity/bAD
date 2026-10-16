@@ -5,8 +5,8 @@
 <section class="settings">
   <h1>Сертификат TLS</h1>
   <p class="muted">
-    Загрузите сертификат сайта, чтобы панель открывалась по HTTPS.
-    Закрытый ключ на странице и в логах не показывается.
+    Сертификат не ставят при установке сервера — загрузите его здесь.
+    После установки откройте панель по HTTPS. Закрытый ключ на странице не показывается.
   </p>
   {% if message %}<p class="ok">{{ message }}</p>{% endif %}
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
@@ -18,6 +18,13 @@
   </ul>
   {% endif %}
 
+  {% if mode != 'https' and not tls_applied %}
+  <div class="warn-box tls-https-cta" role="status">
+    <strong>Сейчас панель на HTTP.</strong>
+    Путь: загрузите сертификат ниже → дождитесь установки → откройте HTTPS и войдите снова.
+  </div>
+  {% endif %}
+
   {% if tls_applied and mode == 'https' %}
   <div class="ok-box tls-https-cta" role="status">
     <p><strong>HTTPS готов.</strong> Откройте панель по защищённому адресу и войдите снова — старые cookie без Secure на HTTPS не отправятся.</p>
@@ -25,7 +32,7 @@
       {% if https_url %}
       <a class="btn" href="{{ https_url }}">Открыть HTTPS</a>
       {% else %}
-      <span class="hint">Домен (BAD_DOMAIN) не задан — откройте UI вручную по <span class="mono">https://…</span>.</span>
+      <span class="hint">Домен не задан — откройте UI вручную по <span class="mono">https://…</span>.</span>
       {% endif %}
     </p>
   </div>

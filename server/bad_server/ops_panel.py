@@ -80,19 +80,19 @@ def build_bootstrap_checklist(
         },
         {
             "id": "tls",
-            "label": "Загрузить сертификат (HTTPS)",
+            "label": "Параметры → Сертификат → HTTPS",
             "done": https_done,
             "href": "/settings/tls",
         },
         {
             "id": "enrollment",
-            "label": "Enrollment token готов",
+            "label": "Токен подключения готов",
             "done": enroll_done,
-            "href": "/settings/updates",
+            "href": "/settings/updates#enrollment",
         },
         {
             "id": "mirror",
-            "label": "Зеркало MSI не пусто",
+            "label": "Каталог установщиков не пуст",
             "done": mirror_done,
             "href": "/settings/updates",
         },
@@ -104,7 +104,7 @@ def build_bootstrap_checklist(
         },
         {
             "id": "secrets",
-            "label": "Ключи вне SQLite (SEC-005)",
+            "label": "Ключи вне базы данных",
             "done": secrets_ok,
             "href": "/settings/backups",
         },
@@ -157,12 +157,12 @@ def build_attention_queue(
             {
                 "id": "tls",
                 "severity": "high",
-                "title": "HTTP bootstrap",
+                "title": "Нужен HTTPS",
                 "detail": ops.get("https_first_hint")
                 or https.get("hint_ru")
-                or "Только доверенная сеть — загрузите сертификат.",
+                or "Параметры → Сертификат: загрузите сертификат с боевого ресурса.",
                 "href": "/settings/tls",
-                "cta": "Сертификат",
+                "cta": "Параметры → Сертификат",
             }
         )
     if ops.get("legacy_keys_in_sqlite") or secrets.get("legacy_keys_in_sqlite"):
@@ -188,14 +188,12 @@ def build_attention_queue(
             {
                 "id": "enrollment_rotate",
                 "severity": "high",
-                "title": "Ротация enrollment после волны",
+                "title": "Смените токен после волны установок",
                 "detail": ops.get("enrollment_rotation_hint")
                 or er.get("hint_ru")
-                or f"Новых enroll с прошлой ротации: {n}.",
-                "href": ops.get("enrollment_rotate_path")
-                or er.get("ui_path")
-                or "/settings/updates",
-                "cta": "Сменить token",
+                or f"Новых подключений с прошлой смены: {n}.",
+                "href": "/settings/updates#enrollment",
+                "cta": "Сменить токен",
             }
         )
     if ops.get("mirror_empty"):
