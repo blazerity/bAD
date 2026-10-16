@@ -49,8 +49,9 @@ ensure_dirs() {
   chmod 770 "${RELEASES_DIR}" || true
   chown bad:bad "${STAGING}" 2>/dev/null || chown root:bad "${STAGING}" 2>/dev/null || true
   chmod 770 "${STAGING}" || true
+  # 750: bad читает слоты, не пишет tree (spot-check should)
   chown root:bad "${SLOTS}" 2>/dev/null || true
-  chmod 770 "${SLOTS}" || true
+  chmod 750 "${SLOTS}" || true
 }
 
 read_site_env_var() {

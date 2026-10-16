@@ -94,7 +94,9 @@ chmod 700 /var/lib/bad/backups
 chown root:bad /var/lib/bad/server-releases
 chmod 770 /var/lib/bad/server-releases
 chown bad:bad /var/lib/bad/server-releases/staging
-chmod 770 /var/lib/bad/server-releases/staging /var/lib/bad/server-releases/slots
+chmod 770 /var/lib/bad/server-releases/staging
+chown root:bad /var/lib/bad/server-releases/slots
+chmod 750 /var/lib/bad/server-releases/slots
 chmod 750 /etc/bad
 chown root:bad /etc/bad/tls
 chmod 770 /etc/bad/tls

@@ -162,7 +162,8 @@ def ensure_releases_layout(directory: Optional[Path] = None) -> Path:
     staging_dir(root).mkdir(parents=True, exist_ok=True)
     try:
         root.chmod(0o770)
-        slots_dir(root).chmod(0o770)
+        # slots: 750 — process bad read-only; write только root helper
+        slots_dir(root).chmod(0o750)
         staging_dir(root).chmod(0o770)
     except OSError:
         pass
