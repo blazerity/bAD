@@ -13,6 +13,7 @@ public sealed class InventorySnapshot
     [JsonPropertyName("collected_at")]
     public string CollectedAt { get; set; } = "";
 
+    /// <summary>Fallback = <c>agent/VERSION</c> (не server VERSION). В рантайме обычно из assembly.</summary>
     [JsonPropertyName("agent_version")]
     public string AgentVersion { get; set; } = "1.0.1";
 

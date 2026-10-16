@@ -11,7 +11,10 @@ public static class VersionUtil
         @"^\s*v?(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    /// <summary>Версия сборки как major.minor.patch или <paramref name="fallback"/>.</summary>
+    /// <summary>
+    /// Версия сборки как major.minor.patch или <paramref name="fallback"/>.
+    /// Fallback = <c>agent/VERSION</c> (линия агента; не корневой/server VERSION).
+    /// </summary>
     public static string GetAgentVersion(string fallback = "1.0.1") =>
         Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? fallback;
 

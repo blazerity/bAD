@@ -73,12 +73,17 @@ jobs:
         run: |
           $input = "${{ github.event.inputs.version }}".Trim()
           if ($input) {
-            $version = $input.TrimStart('v', 'V')
-          } elseif ($env:GITHUB_REF_TYPE -eq "tag" -and $env:GITHUB_REF_NAME -match '^v(.+)$') {
+            $version = $input -replace '^(?i)(agent-)?v', ''
+          } elseif ($env:GITHUB_REF_TYPE -eq "tag" -and $env:GITHUB_REF_NAME -match '^(?:agent-)?v(.+)$') {
+            # Канон: agent-vX.Y.Z; переходный alias vX.Y.Z. Не читать корневой/server VERSION.
             $version = $Matches[1]
+          } elseif (Test-Path agent/VERSION) {
+            $version = (Get-Content agent/VERSION -Raw).Trim()
           } else {
             [xml]$csproj = Get-Content agent/src/BadAgent/BadAgent.csproj
-            $version = $csproj.Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+            $version = @($csproj.Project.PropertyGroup.Version) |
+              Where-Object { $_ -match '^\d+\.\d+\.\d+$' } |
+              Select-Object -First 1
             if (-not $version) { $version = "1.0.1" }
           }
           if ($version -notmatch '^\d+\.\d+\.\d+') {
