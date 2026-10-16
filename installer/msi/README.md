@@ -33,7 +33,7 @@ Workflow GitHub Actions [`.github/workflows/release-msi.yml`](../../.github/work
 
 ```powershell
 signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
-  /f .\codesign.pfx /p <password> .\bad-agent-0.10.1.msi
+  /f .\codesign.pfx /p <password> .\bad-agent-1.0.1.msi
 ```
 
 ## Локальная сборка (Windows)
@@ -47,7 +47,7 @@ wix extension add --global WixToolset.Util.wixext/5.0.2
 # 2. Publish агента
 dotnet publish ..\..\agent\src\BadAgent\BadAgent.csproj `
   -c Release -r win-x64 --self-contained true `
-  -p:Version=0.10.1 `
+  -p:Version=1.0.1 `
   -o .\publish
 
 # 3. Скопировать scripts + shim bad.cmd рядом с опубликованным exe
@@ -63,14 +63,14 @@ wix build Product.wxs `
   -ext WixToolset.Util.wixext `
   -arch x64 `
   -d AgentPublishDir=publish `
-  -d ProductVersion=0.10.1 `
-  -o bad-agent-0.10.1.msi
+  -d ProductVersion=1.0.1 `
+  -o bad-agent-1.0.1.msi
 ```
 
 ## Установка / апгрейд
 
 ```powershell
-msiexec /i bad-agent-0.10.1.msi `
+msiexec /i bad-agent-1.0.1.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=your-enrollment-token `
   /qn
@@ -79,7 +79,7 @@ msiexec /i bad-agent-0.10.1.msi `
 Опционально: добавить каталог установки в **Machine PATH**, чтобы команда `bad` работала из cmd.exe / Win+R (`bad.cmd` → `BadAgent.exe`). По умолчанию **выключено** (`ADDPATH=0` / не указано).
 
 ```powershell
-msiexec /i bad-agent-0.10.1.msi `
+msiexec /i bad-agent-1.0.1.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=your-enrollment-token `
   ADDPATH=1 `
@@ -129,7 +129,7 @@ Deferred CA `write-config.ps1` **не** получает `ENROLLMENTTOKEN` / `SE
 Явный verbose (если нужен отдельный файл для отладки **локально**):
 
 ```powershell
-msiexec /i bad-agent-0.10.1.msi `
+msiexec /i bad-agent-1.0.1.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=your-enrollment-token `
   /qn /l*v "$env:TEMP\bad-agent-install.log"
@@ -140,7 +140,7 @@ msiexec /i bad-agent-0.10.1.msi `
 ### Uninstall
 
 ```powershell
-msiexec /x bad-agent-0.10.1.msi /qn
+msiexec /x bad-agent-1.0.1.msi /qn
 ```
 
 При полном uninstall (не upgrade): служба Stop+Remove, файлы Program Files снимаются, `cleanup-uninstall.ps1` удаляет `config.json`, `queue\`, `logs\` (enrollment leftovers). Запись PATH от `ADDPATH=1` снимается.
@@ -148,8 +148,8 @@ msiexec /x bad-agent-0.10.1.msi /qn
 ## Вырезать релиз
 
 ```bash
-git tag v0.10.1
-git push origin v0.10.1
+git tag v1.0.1
+git push origin v1.0.1
 # → workflow release-msi публикует MSI (+ Authenticode, если secrets) + agent-release.json
 # → on-prem сервер sync'ит с GitHub Release (admin sync или фоновый job)
 # → агенты опрашивают GET /v1/agent/update/check и ставят через msiexec

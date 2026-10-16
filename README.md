@@ -16,7 +16,7 @@ server/           # FastAPI app, web UI, зеркало обновлений а�
 installer/msi/    # исходники WiX (MSI собирается на Windows / GHA release-msi)
 deploy/debian/    # install.sh, systemd, шаблон nginx
 docs/             # архитектура, гайдлайны, заметки по агенту, операторский гайд
-VERSION           # semver продукта (1.0.0)
+VERSION           # semver продукта (1.0.1)
 .github/workflows # ci.yml (Linux build/import) + release-msi.yml (Windows, теги)
 ```
 
@@ -73,7 +73,7 @@ Self-update: агенты опрашивают **сервер** (не GitHub) н
 
 ## Релизы (агент MSI)
 
-Тег `v1.0.0` (или ручной запуск `release-msi`) → Windows GHA собирает MSI + `agent-release.json` → GitHub Release → sync на сервере → апгрейд агентов. Linux CI MSI **не** собирает. Подробности: [docs/guideline.md](docs/guideline.md).
+Тег `v1.0.1` (или ручной запуск `release-msi`) → Windows GHA собирает MSI + `agent-release.json` → GitHub Release → sync на сервере → апгрейд агентов. Linux CI MSI **не** собирает. Подробности: [docs/guideline.md](docs/guideline.md).
 
 ## Документация
 
@@ -81,6 +81,7 @@ Self-update: агенты опрашивают **сервер** (не GitHub) н
 |----------|----------|
 | [docs/api-v1.md](docs/api-v1.md) | Интеграционный гайд `/v1` (1C Itilium, admin Bearer, inventory) |
 | [docs/release-notes-1.0.0.md](docs/release-notes-1.0.0.md) | Релизные заметки **1.0.0** |
+| [docs/release-notes-1.0.1.md](docs/release-notes-1.0.1.md) | Релизные заметки **1.0.1** |
 | [docs/architecture.md](docs/architecture.md) | Архитектура + web LDAP auth + pipeline обновления агента |
 | [docs/guideline.md](docs/guideline.md) | Инженерные правила + как релизить MSI |
 | [docs/agents.md](docs/agents.md) | Агент, service CLI, version bump, LDAP/web auth map, инварианты |
