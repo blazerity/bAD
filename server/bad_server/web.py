@@ -154,6 +154,7 @@ def _device_inventory_nav(
     software_info: Optional[dict],
     minidumps_info: Optional[dict],
     collector_errors: Optional[list],
+    security_info: Optional[dict] = None,
 ) -> list[dict]:
     """Пункты Speccy-навигации + краткие строки для Обзора (макс. ~2)."""
     hw = hardware_summary if isinstance(hardware_summary, dict) else None
@@ -172,11 +173,21 @@ def _device_inventory_nav(
     if host_info:
         os_line = _format_os(host_info.get("os"))
         domain = host_info.get("domain") or host_info.get("hostname") or ""
+        host_extra: list[str] = []
+        if host_info.get("last_boot_at"):
+            host_extra.append(f"загрузка {host_info.get('last_boot_at')}")
+        if host_info.get("pending_reboot") is True:
+            host_extra.append("ожидает перезагрузку")
+        elif host_info.get("timezone"):
+            host_extra.append(str(host_info.get("timezone")))
+        line2 = str(domain) if domain else ""
+        if host_extra:
+            line2 = " · ".join(x for x in (line2, "; ".join(host_extra)) if x)
         add(
             "os",
             "host",
             "Операционная система",
-            [os_line, str(domain) if domain else ""],
+            [os_line, line2],
         )
 
     if hw and hw.get("cpu"):
@@ -231,15 +242,27 @@ def _device_inventory_nav(
         extra = f"+{len(gpus) - 1}" if len(gpus) > 1 else (first.get("vendor") or "")
         add("gpu", "gpu", "Видео", [str(name), str(extra)])
 
-    if hw and (hw.get("disks") or hw.get("volumes")):
+    if hw and (
+        hw.get("disks")
+        or hw.get("volumes")
+        or hw.get("chassis_type")
+    ):
         disks = hw.get("disks") or []
         volumes = hw.get("volumes") or []
         if disks and isinstance(disks[0], dict):
             d0 = disks[0]
-            line1 = f"{d0.get('model') or 'диск'} · {_format_bytes(d0.get('size_bytes'))}"
+            disk_bits = [d0.get("model") or "диск", _format_bytes(d0.get("size_bytes"))]
+            if d0.get("interface_type"):
+                disk_bits.append(str(d0.get("interface_type")))
+            if d0.get("serial_number"):
+                disk_bits.append(str(d0.get("serial_number")))
+            line1 = " · ".join(str(x) for x in disk_bits if x and x != "—")
         else:
             line1 = f"{len(disks)} диск(ов)" if disks else "тома"
         line2 = f"{len(volumes)} том(ов)" if volumes else (f"{len(disks)} диск(ов)" if len(disks) > 1 else "")
+        if hw.get("chassis_type"):
+            chassis = str(hw.get("chassis_type"))
+            line2 = " · ".join(x for x in (f"корпус {chassis}", line2) if x)
         add("storage", "disk", "Накопители", [line1, line2])
 
     if hw and hw.get("monitors"):
@@ -293,10 +316,51 @@ def _device_inventory_nav(
             line1 = f"{len(programs)} программ"
         add("software", "software", "ПО", [line1])
 
+    sec = security_info if isinstance(security_info, dict) else None
+    if sec and (
+        sec.get("tpm_present") is not None
+        or sec.get("secure_boot") is not None
+        or sec.get("antivirus")
+        or sec.get("tpm_spec_version")
+    ):
+        tpm = sec.get("tpm_present")
+        if tpm is True:
+            tpm_line = "TPM есть"
+            if sec.get("tpm_spec_version"):
+                tpm_line = f"{tpm_line} · {sec.get('tpm_spec_version')}"
+        elif tpm is False:
+            tpm_line = "TPM нет"
+        else:
+            tpm_line = ""
+        sb = sec.get("secure_boot")
+        if sb is True:
+            sb_line = "Secure Boot on"
+        elif sb is False:
+            sb_line = "Secure Boot off"
+        else:
+            sb_line = ""
+        av_names: list[str] = []
+        for item in sec.get("antivirus") or []:
+            if isinstance(item, dict) and item.get("name"):
+                av_names.append(str(item["name"]))
+            elif isinstance(item, str) and item.strip():
+                av_names.append(item.strip())
+        line1 = " · ".join(x for x in (tpm_line, sb_line) if x) or "security"
+        line2 = ", ".join(av_names[:3])
+        add("security", "settings", "Безопасность", [line1, line2])
+
     if minidumps_info is not None:
         count = minidumps_info.get("count", "—")
         mem = "Memory.dmp есть" if minidumps_info.get("memory_dmp_present") else "Memory.dmp нет"
-        add("minidumps", "events", "Минидампы BSOD", [f"{count} файлов", mem])
+        bug = ""
+        for f in minidumps_info.get("files") or []:
+            if isinstance(f, dict) and f.get("bugcheck_code"):
+                bug = str(f.get("bugcheck_code"))
+                if f.get("bugcheck_message"):
+                    bug = f"{bug} · {str(f.get('bugcheck_message'))[:60]}"
+                break
+        line2 = " · ".join(x for x in (mem, bug) if x)
+        add("minidumps", "events", "Минидампы BSOD", [f"{count} файлов", line2])
 
     if collector_errors:
         add("errors", "events", "Ошибки сбора", [f"{len(collector_errors)} ошибок"])
@@ -408,6 +472,7 @@ class SmtpFormData:
         notify_enroll: Optional[str] = Form(None),
         notify_hostname: Optional[str] = Form(None),
         notify_domain: Optional[str] = Form(None),
+        notify_pending_reboot: Optional[str] = Form(None),
     ):
         self.enabled = enabled
         self.host = host
@@ -423,6 +488,7 @@ class SmtpFormData:
         self.notify_enroll = notify_enroll
         self.notify_hostname = notify_hostname
         self.notify_domain = notify_domain
+        self.notify_pending_reboot = notify_pending_reboot
 
 
 def _overview_page_context(
@@ -890,6 +956,7 @@ def _device_config_context(
     users_info = None
     software_info = None
     minidumps_info = None
+    security_info = None
     collector_errors = None
     latest = detail.get("latest_inventory")
     if latest and latest.get("payload") is not None:
@@ -914,6 +981,9 @@ def _device_config_context(
             md = payload.get("minidumps")
             if isinstance(md, dict):
                 minidumps_info = md
+            sec = payload.get("security")
+            if isinstance(sec, dict):
+                security_info = sec
             errs = payload.get("collector_errors")
             if isinstance(errs, list):
                 collector_errors = errs
@@ -931,6 +1001,7 @@ def _device_config_context(
         software_info=software_info,
         minidumps_info=minidumps_info,
         collector_errors=collector_errors,
+        security_info=security_info,
     )
     inventory_ids = {item["id"] for item in inventory_nav}
     view = (active_view or "").strip()
@@ -946,6 +1017,7 @@ def _device_config_context(
         "users_info": users_info,
         "software_info": software_info,
         "minidumps_info": minidumps_info,
+        "security_info": security_info,
         "collector_errors": collector_errors,
         "inventory_nav": inventory_nav,
         "active_view": view or "overview",
@@ -1993,6 +2065,7 @@ def _parse_smtp_form(form: SmtpFormData) -> tuple[dict, Optional[str]]:
         "enroll": form.notify_enroll,
         "hostname": form.notify_hostname,
         "domain": form.notify_domain,
+        "pending_reboot": form.notify_pending_reboot,
     }
     for key, raw in notify_flags.items():
         if key in flags and raw is not None:
