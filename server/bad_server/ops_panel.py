@@ -69,7 +69,9 @@ def build_bootstrap_checklist(
     enroll_done = bool(enroll.get("configured"))
     mirror_done = not bool(ops.get("mirror_empty"))
     fleet_done = active_devices > 0
-    secrets_ok = not bool(ops.get("legacy_keys_in_sqlite"))
+    secrets_ok = not bool(
+        ops.get("legacy_keys_in_db") or ops.get("legacy_keys_in_sqlite")
+    )
 
     steps = [
         {
@@ -131,7 +133,7 @@ def build_attention_queue(
 ) -> list[dict[str, Any]]:
     """Одна приоритизированная лента «требует действия» для Обзора.
 
-    Хуки Server A: ``ops.enrollment_rotation_due``, ``ops.legacy_keys_in_sqlite``,
+    Хуки Server A: ``ops.enrollment_rotation_due``, ``ops.legacy_keys_in_db``,
     ``security.https_first`` / ``security.secrets`` / ``security.enrollment_rotation``.
     """
     items: list[dict[str, Any]] = []
@@ -140,6 +142,12 @@ def build_attention_queue(
     secrets = security.get("secrets") or {}
     https = security.get("https_first") or {}
     mode = str(tls_mode or ops.get("tls_mode") or https.get("tls_mode") or "http").lower()
+    legacy_keys = bool(
+        ops.get("legacy_keys_in_db")
+        or ops.get("legacy_keys_in_sqlite")
+        or secrets.get("legacy_keys_in_db")
+        or secrets.get("legacy_keys_in_sqlite")
+    )
 
     if user.must_change_password:
         items.append(
@@ -165,12 +173,12 @@ def build_attention_queue(
                 "cta": "Параметры → Сертификат",
             }
         )
-    if ops.get("legacy_keys_in_sqlite") or secrets.get("legacy_keys_in_sqlite"):
+    if legacy_keys:
         items.append(
             {
                 "id": "secrets",
                 "severity": "high",
-                "title": "Ключи ещё в SQLite (SEC-005)",
+                "title": "Ключи ещё в БД (SEC-005)",
                 "detail": ops.get("secrets_hint")
                 or secrets.get("hint_ru")
                 or "Вынесите data_key / session_secret в /etc/bad.",

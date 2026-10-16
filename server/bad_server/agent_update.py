@@ -60,7 +60,7 @@ def version_from_msi_name(msi_name: str) -> Optional[str]:
 
 
 def sync_from_github(db: Database, settings: Settings) -> dict[str, Any]:
-    """Скачать assets последнего Release, сохранить MSI в каталог updates, записать в SQLite."""
+    """Скачать assets последнего Release, сохранить MSI в каталог updates, записать в БД."""
     if not settings.github_repo:
         raise RuntimeError("BAD_GITHUB_REPO is not configured")
 

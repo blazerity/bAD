@@ -3,11 +3,10 @@ from __future__ import annotations
 import json
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Iterator, Optional, Union
+from typing import Any, Iterator, Optional
 
 from .db_backend import (
-    SCHEMA_SQL_POSTGRES,
+    SCHEMA_SQL,
     CompatConnection,
     connect_postgres,
 )
@@ -18,14 +17,12 @@ def utc_now() -> str:
 
 
 class Database:
-    """Persistence hub — только Postgres (`BAD_DATABASE_URL`)."""
+    """Persistence hub — Postgres через `BAD_DATABASE_URL`."""
 
     def __init__(self, database_url: str) -> None:
         url = (database_url or "").strip()
         if not url:
-            raise ValueError(
-                "BAD_DATABASE_URL is required (Postgres only; SQLite removed)"
-            )
+            raise RuntimeError("BAD_DATABASE_URL is required (Postgres only)")
         self.database_url = url
         self._init_schema()
 
@@ -34,7 +31,7 @@ class Database:
 
     def _init_schema(self) -> None:
         with self._connect() as conn:
-            conn.executescript(SCHEMA_SQL_POSTGRES)
+            conn.executescript(SCHEMA_SQL)
             for table in ("ldap_settings", "retention_settings", "smtp_settings"):
                 conn.execute(
                     f"INSERT INTO {table}(id) VALUES (1) ON CONFLICT DO NOTHING"
@@ -1673,10 +1670,5 @@ class Database:
 
 
 def open_database(*, database_url: Optional[str] = None) -> Database:
-    """Factory: требует BAD_DATABASE_URL (Postgres only)."""
-    url = (database_url or "").strip()
-    if not url:
-        raise RuntimeError(
-            "BAD_DATABASE_URL is required — SQLite runtime removed"
-        )
-    return Database(url)
+    """Factory: требует непустой BAD_DATABASE_URL."""
+    return Database(database_url or "")

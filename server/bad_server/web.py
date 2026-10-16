@@ -2248,7 +2248,6 @@ def backups_site_bundle_download(
             data_key_file=settings.data_key_file,
             session_secret_file=settings.session_secret_file,
             include_msi_files=False,
-            database_url=settings.database_url,
         )
     except Exception as exc:  # noqa: BLE001
         return _html(
@@ -2500,7 +2499,7 @@ def enrollment_rotate(
         notes.append(f"файл {result.get('token_file')}")
     elif result.get("wrote_fallback_file"):
         notes.append("файл рядом с БД")
-    note = "; ".join(notes) if notes else "только hash в SQLite (restart не нужен)"
+    note = "; ".join(notes) if notes else "только hash в БД (restart не нужен)"
     return _html(
         request,
         "updates_settings.html",

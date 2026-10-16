@@ -231,7 +231,7 @@ def ensure_bootstrap_secrets(db: Database, settings: Settings) -> tuple[str, str
             if created:
                 db.set_site_secret(kind, value)
             return
-        # Env already set — drop any plaintext SQLite copy.
+        # Env already set — drop any plaintext copy from site_secrets.
         if kind == "session_secret" and env_session:
             if db.get_site_secret(kind):
                 db.delete_site_secret(kind)

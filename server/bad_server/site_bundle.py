@@ -114,11 +114,10 @@ def build_site_bundle(
     session_secret_file: Path,
     include_msi_files: bool = False,
     extra_key_files: Optional[list[Path]] = None,
-    database_url: Optional[str] = None,
 ) -> tuple[bytes, str]:
     """Собрать tar.gz site bundle. Возвращает (bytes, filename)."""
     backup_dir.mkdir(parents=True, exist_ok=True)
-    url = (database_url or getattr(db, "database_url", None) or "").strip()
+    url = (db.database_url or "").strip()
     if not url:
         raise RuntimeError("BAD_DATABASE_URL required for site bundle")
     snap = run_daily_backup(backup_dir, database_url=url)
