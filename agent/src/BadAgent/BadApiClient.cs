@@ -7,12 +7,8 @@ namespace BadAgent;
 
 public sealed class BadApiClient : IDisposable
 {
-    /// <summary>
-    /// Сообщение при отклонении cleartext <c>http://</c> (служба / CLI). Русская подсказка для оператора.
-    /// </summary>
-    public const string CleartextHttpRejectedMessage =
-        "Cleartext http:// запрещён: укажите https:// в server_url. "
-        + "BAD_ALLOW_HTTP=1 — только для lab/локальной разработки, не для production.";
+    /// <summary>Совместимость с CLI/Worker: то же, что <see cref="ServerUrlRules.CleartextHttpRejectedMessage"/>.</summary>
+    public const string CleartextHttpRejectedMessage = ServerUrlRules.CleartextHttpRejectedMessage;
 
     private readonly HttpClient _http;
     private readonly string _baseUrl;
@@ -26,27 +22,8 @@ public sealed class BadApiClient : IDisposable
 
     public BadApiClient(string serverUrl, string agentVersion)
     {
-        if (string.IsNullOrWhiteSpace(serverUrl))
-        {
-            throw new ArgumentException("server_url is required", nameof(serverUrl));
-        }
-
-        var allowHttp = string.Equals(
-            Environment.GetEnvironmentVariable("BAD_ALLOW_HTTP"), "1", StringComparison.Ordinal);
-
-        if (serverUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && !allowHttp)
-        {
-            throw new InvalidOperationException(CleartextHttpRejectedMessage);
-        }
-
-        if (!serverUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
-            && !serverUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException(
-                "server_url должен быть абсолютным URL (https://…; http:// — только lab с BAD_ALLOW_HTTP=1)");
-        }
-
-        _baseUrl = serverUrl.TrimEnd('/');
+        // Тема A: https в бою; http:// только BAD_ALLOW_HTTP=1 (lab). Не ослаблять.
+        _baseUrl = ServerUrlRules.RequireNormalized(serverUrl);
         _agentVersion = agentVersion;
         var handler = new HttpClientHandler
         {

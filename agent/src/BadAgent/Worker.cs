@@ -133,10 +133,10 @@ public sealed class Worker : BackgroundService
             {
                 break;
             }
-            catch (InvalidOperationException ex) when (ex.Message == BadApiClient.CleartextHttpRejectedMessage)
+            catch (InvalidOperationException ex) when (ServerUrlRules.IsCleartextRejectedException(ex))
             {
-                _logger.LogError("{Message}", BadApiClient.CleartextHttpRejectedMessage);
-                WindowsEventLog.WriteError(BadApiClient.CleartextHttpRejectedMessage);
+                _logger.LogError("{Message}", ServerUrlRules.CleartextHttpRejectedMessage);
+                WindowsEventLog.WriteError(ServerUrlRules.CleartextHttpRejectedMessage);
                 try
                 {
                     await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);

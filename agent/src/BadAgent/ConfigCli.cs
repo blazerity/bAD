@@ -415,34 +415,9 @@ public static class ConfigCli
 
     private static bool TryApplyServerUrl(AgentConfig config, string value, out string? error)
     {
-        error = null;
-        var url = value.Trim().TrimEnd('/');
-        if (string.IsNullOrWhiteSpace(url))
+        // Те же правила, что у службы (ServerUrlRules / BadApiClient) — без дрейфа сообщений.
+        if (!ServerUrlRules.TryNormalize(value, out var url, out error))
         {
-            error = "server_url: пустое значение недопустимо";
-            return false;
-        }
-
-        var allowHttp = string.Equals(
-            Environment.GetEnvironmentVariable("BAD_ALLOW_HTTP"), "1", StringComparison.Ordinal);
-
-        if (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && !allowHttp)
-        {
-            error = BadApiClient.CleartextHttpRejectedMessage;
-            return false;
-        }
-
-        if (!url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
-            && !url.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
-        {
-            error = "server_url: нужен абсолютный URL (https://…)";
-            return false;
-        }
-
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)
-            || (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp))
-        {
-            error = "server_url: некорректный URL";
             return false;
         }
 
@@ -453,7 +428,7 @@ public static class ConfigCli
     private static void PrintServerUrlWarning(string previous, string current, TextWriter output)
     {
         output.WriteLine();
-        output.WriteLine("Важно: в production используйте https://.");
+        output.WriteLine("Важно: в production — только https:// (http:// без BAD_ALLOW_HTTP=1 служба отклонит).");
         if (!string.Equals(previous, current, StringComparison.OrdinalIgnoreCase))
         {
             output.WriteLine(
