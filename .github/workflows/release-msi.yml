@@ -1,15 +1,29 @@
 # Build Windows agent MSI with WiX and publish to a GitHub Release.
-# Triggers: tag v* (e.g. v1.0.1) or manual workflow_dispatch.
+# Triggers: tag v* (e.g. v1.0.1) or manual / panel workflow_dispatch.
 #
 # Required permissions: contents: write (create/update Release + upload assets).
 # Secrets: GITHUB_TOKEN is sufficient for a public repo.
 # Optional Authenticode (owner cert — do not invent a fake cert):
 #   CODE_SIGN_PFX_BASE64, CODE_SIGN_PFX_PASSWORD, optional CODE_SIGN_TIMESTAMP_URL
 #   If CODE_SIGN_PFX_BASE64 is empty, MSI ships unsigned (build still succeeds).
+#   Panel path does NOT require Authenticode.
+#
+# Panel / on-prem server (optional, not server self-update):
+#   POST …/actions/workflows/release-msi.yml/dispatches
+#     ref    = git branch/tag to build (usually same as server-update branch, default main)
+#     inputs.version          = optional semver; empty → csproj on that ref
+#     inputs.publish_release  = "true" → GitHub Release assets (existing sync_from_github)
+#                             = "false" → only Actions artifact (download → ingest_uploaded_msi)
+#   Artifact name: bad-agent-msi-<semver>
+#   Files: bad-agent-<semver>.msi + agent-release.json (version, msi_name, sha256)
+#   Job outputs: version, msi_name, artifact_name (after success)
+#   Token for panel trigger: BAD_GITHUB_TOKEN with actions:write (+ actions:read for artifacts,
+#   or contents:read if using Release path). Never mix with /var/lib/bad/server-releases/.
 #
 # Bootstrap notes (WiX v5 via .NET tool):
 #   - Runs on windows-latest
 #   - `dotnet tool install --global wix --version 5.0.2`
+#   - `wix extension add --global WixToolset.Util.wixext/5.0.2` (WixQuietExec; avoid WIX0144)
 #   - Harvests published agent files via Product.wxs <Files Include=...>
 #   - First successful tag build produces the first downloadable MSI
 
@@ -26,7 +40,7 @@ on:
         required: false
         type: string
       publish_release:
-        description: "Create or update GitHub Release?"
+        description: "Create or update GitHub Release? (panel ingest-only: false)"
         required: true
         default: true
         type: boolean
@@ -40,6 +54,10 @@ jobs:
     defaults:
       run:
         shell: pwsh
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      msi_name: ${{ steps.ver.outputs.msi_name }}
+      artifact_name: bad-agent-msi-${{ steps.ver.outputs.version }}
 
     steps:
       - name: Checkout
