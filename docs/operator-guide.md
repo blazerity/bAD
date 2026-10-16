@@ -30,11 +30,29 @@ BAD_DOMAIN=bad.example.com \
 # → UI: http://bad.example.com/  (пока нет сертификата)
 ```
 
-1. Откройте **`http://bad.example.com/login`** (не https).
+Краткий порядок (детали — [чеклист окна HTTP bootstrap](#чеклист-окна-http-bootstrap-011)):
+
+1. Откройте **`http://bad.example.com/login`** (не https) **только** из доверенного контура.
 2. Войдите `admin` / `admin`, **сразу смените пароль**.
 3. Загрузите cert+key: [§ Сертификат из панели](#сертификат-tls-из-панели-011).
-4. После успешного apply — **`https://…`**, перелогиньтесь (старые non-Secure cookies на HTTPS могут не уйти).
+4. После успешного apply — **`https://…`**, **обязательный повторный вход** (non-Secure cookies на HTTPS не уходят).
 5. **Агентов (MSI) ставьте только после HTTPS** — bootstrap HTTP для агентов не предназначен (`BAD_ALLOW_HTTP` — только lab).
+
+#### Чеклист окна HTTP bootstrap (0.11)
+
+Временный режим UI до managed cert. **Risk rating: Medium** при соблюдении runbook (доверенная сеть + короткое окно); на публичном `:80` до cert — **High**.
+
+| # | Действие | Статус |
+|---|----------|--------|
+| 1 | Доступ к `:80` **только** из доверенного контура (LAN / VPN / `ssh -L`). **Не** публиковать панель в интернет до cert. | ☐ |
+| 2 | Войти `admin` / `admin` → **сразу** сменить пароль (`/account/password`). | ☐ |
+| 3 | Загрузить cert+key на **Параметры → Сертификат** → «Установить и перезагрузить nginx». | ☐ |
+| 4 | Открыть **`https://…`**, **войти заново** (старые non-Secure cookies на HTTPS не уходят). | ☐ |
+| 5 | **Не** ставить MSI / агентов, пока режим «HTTP bootstrap». Только после «HTTPS активен». | ☐ |
+| 6 | **Не** по HTTP: скачивание site-bundle, сохранение LDAP/SMTP с боевыми паролями, ротация enrollment «впрок», массовый enroll. | ☐ |
+| 7 | Если cert уже есть на диске — install сразу с `BAD_TLS_CERT`/`BAD_TLS_KEY`, без HTTP-окна. | ☐ |
+
+После волны MSI — [ротация enrollment](#ротация-enrollment-token-после-волны-msi) (SEC-011).
 
 Проверка health:
 
@@ -79,7 +97,7 @@ curl -fsS https://bad.example.com/v1/health  # после TLS / с cert при i
 2. Секция **«Загрузить сертификат и ключ»**: поля **«Сертификат (PEM)»**, **«Private key (PEM)»**, опционально **«Цепочка / intermediates»**.
 3. **«Установить и перезагрузить nginx»** (`POST /settings/tls`, CSRF). Validate → staging → helper `bad-apply-tls` (`nginx -t` + reload через `bad-tls-apply.path`). uvicorn TLS не держит.
 4. При ошибке (bad PEM / key mismatch / `nginx -t`) боевые файлы не меняются — сообщение в UI.
-5. После успеха: режим **«HTTPS активен»**, :80→301, HSTS, `BAD_COOKIE_SECURE=1`. Откройте **HTTPS**, войдите снова.
+5. После успеха: режим **«HTTPS активен»**, :80→301, HSTS; cookie Secure сразу по `X-Forwarded-Proto` (`BAD_COOKIE_SECURE=auto`). Откройте **HTTPS**, войдите снова.
 6. Повторная загрузка тех же полей = ротация cert (тот же flow).
 
 Ручной retry apply: `systemctl start bad-tls-apply.service` (логи: `journalctl -u bad-tls-apply`). Let’s Encrypt / ACME в 0.11 нет. Смена `BAD_DOMAIN` из UI — вне scope.
@@ -226,42 +244,35 @@ sudo bash deploy/debian/restore-site-bundle.sh /path/to/bad-site-bundle-….tar.
 
 ### БД и бэкапы = секреты сайта (SEC-005)
 
-Fernet-ключ `data_key` (расшифровка SMTP/LDAP bind) и `session_secret` (подделка cookie `bad_session`) по умолчанию лежат **в той же SQLite**, что и `*_password_enc`. Поэтому:
+**Fresh install (0.11+):** `deploy/debian/install.sh` кладёт master keys **вне SQLite**:
 
-- копия `/var/lib/bad/bad.db` или daily backup `bad-YYYY-MM-DD.db` = **полный компромисс** секретов сайта (не «просто inventory»);
-- шифрование полей в БД **не** защищает at-rest при краже файла, пока master key рядом в той же БД.
+| Файл | Назначение | Права |
+|------|------------|--------|
+| `/etc/bad/data_key` | Fernet (SMTP/LDAP bind) | `440` `root:bad` |
+| `/etc/bad/session_secret` | подпись cookie `bad_session` | `440` `root:bad` |
 
-**Права сейчас (минимум):**
+В `site.env`: `BAD_DATA_KEY_FILE` / `BAD_SESSION_SECRET_FILE` (сервис `prefer_external_secrets`). Daily backup БД **не** содержит эти ключи.
+
+**Residual (legacy / lab / старые инстансы):** если ключи остались в `site_secrets` SQLite — копия `bad.db` или daily backup = полный компромисс SMTP/LDAP и session cookies.
+
+**Права на БД и бэкапы (минимум):**
 
 ```bash
-# БД и WAL — только владелец bad
 chown bad:bad /var/lib/bad/bad.db /var/lib/bad/bad.db-* 2>/dev/null || true
 chmod 600 /var/lib/bad/bad.db
-
-# Каталог бэкапов — не world-readable; файлы бэкапа как секреты
 chown -R bad:bad /var/lib/bad/backups
 chmod 700 /var/lib/bad/backups
 chmod 600 /var/lib/bad/backups/bad-*.db
+
+chown root:bad /etc/bad/data_key /etc/bad/session_secret
+chmod 440 /etc/bad/data_key /etc/bad/session_secret
 ```
 
-Не кладите бэкапы БД в общие шары/тикеты без отдельного контроля доступа. Не бэкапьте master key **вместе** с копией БД без раздельного key escrow.
-
-**Вынести ключ из БД (`BAD_DATA_KEY`):** единственный способ, при котором кража *только* файла БД не даёт расшифровку SMTP/LDAP и подделку сессий — держать master key **вне** SQLite (env или файл). Пока ключ в `site_secrets`, считайте БД и бэкапы равносильными компромиссу. Когда ключ вынесен в файл:
-
-```bash
-# пример: отдельный файл ключа (не рядом с бэкапами без изоляции)
-install -d -o root -g bad -m 750 /etc/bad/keys
-# содержимое — url-safe Fernet key; читать может только сервис
-install -o root -g bad -m 440 /path/from/secure/source /etc/bad/keys/data.key
-# в site.env: BAD_DATA_KEY=/etc/bad/keys/data.key
-# (или сам ключ в env — хуже для ps/audit)
-```
-
-Файл ключа: **не** 644/666; типично `440` или `400`, владелец `root:bad`. Не коммитьте ключ в git и не кладите в тот же tar, что и `bad.db`, без отдельного сейфа.
+Не кладите бэкапы БД в общие шары/тикеты. Не коммитьте `/etc/bad/data_key` / `session_secret` и не кладите их в тот же tar, что и `bad.db`.
 
 ### Cookie и TLS
 
-До managed cert (HTTP bootstrap) UI и CSRF работают по HTTP (`BAD_COOKIE_SECURE=0` / auto + `X-Forwarded-Proto: http`). После upload+reload — только HTTPS через nginx (HSTS, redirect 80→443), cookie `Secure`. Не открывайте uvicorn наружу. Агентов на HTTP bootstrap не направляйте.
+До managed cert (HTTP bootstrap) UI и CSRF работают по HTTP (`BAD_COOKIE_SECURE=auto` + `X-Forwarded-Proto: http`). После upload+reload — только HTTPS через nginx (HSTS, redirect 80→443), cookie `Secure` без ожидания restart API. Site-bundle и сохранение LDAP/SMTP пароля по HTTP — 403 (lab: `BAD_ALLOW_SENSITIVE_OVER_HTTP=1`). При активном managed TLS cleartext `/v1/enroll` — 403 (lab: `BAD_ALLOW_ENROLL_OVER_HTTP=1`). Не открывайте uvicorn наружу. Агентов на HTTP bootstrap не направляйте.
 
 ### Enrollment token (SEC-011)
 

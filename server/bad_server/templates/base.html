@@ -41,6 +41,16 @@
     </form>
     {% endif %}
   </header>
+  {% if tls_mode is defined and tls_mode == 'http' %}
+  <div class="banner banner-http" role="status">
+    HTTP bootstrap — только доверенная сеть.
+    {% if user is defined and user and user.is_admin and not user.must_change_password %}
+    <a href="/settings/tls">Загрузите сертификат</a>
+    {% else %}
+    Загрузите сертификат в Параметры → Сертификат.
+    {% endif %}
+  </div>
+  {% endif %}
   {% if user is defined and user and user.must_change_password %}
   <div class="banner">Используется пароль по умолчанию — <a href="/account/password">смените его сейчас</a>.</div>
   {% endif %}

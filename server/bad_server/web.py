@@ -48,8 +48,16 @@ from .agent_update import (
 )
 from .backup import backup_status, run_daily_backup
 from .enrollment_ops import enrollment_status, rotate_enrollment_token
+from .http_bootstrap import HTTP_SENSITIVE_MSG, sensitive_over_http_blocked
 from .site_bundle import build_site_bundle
-from .tls_ops import save_tls_materials, tls_status, wait_for_apply
+from .tls_ops import (
+    https_panel_url,
+    read_domain_from_env,
+    save_tls_materials,
+    tls_panel_mode,
+    tls_status,
+    wait_for_apply,
+)
 from .smtp_mail import (
     DEFAULT_NOTIFY,
     NOTIFY_LABELS_RU,
@@ -300,6 +308,13 @@ def _html(
     token = get_csrf_token(request)
     ctx = dict(context)
     ctx["csrf_token"] = token
+    # Global HTTP bootstrap chrome (banner + gated settings actions).
+    if "tls_mode" not in ctx:
+        ctx["tls_mode"] = tls_panel_mode()
+    if "tls_domain" not in ctx:
+        ctx["tls_domain"] = read_domain_from_env()
+    if "https_url" not in ctx:
+        ctx["https_url"] = https_panel_url(ctx.get("tls_domain") or "")
     resp = templates.TemplateResponse(request, name, ctx, status_code=status_code)
     settings = get_settings()
     set_csrf_cookie(
@@ -1477,6 +1492,7 @@ def ldap_settings_save(
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
     data_key: str = Depends(get_data_key),
+    settings: Settings = Depends(get_settings),
 ):
     parsed, err = _parse_ldap_form(form)
     if err:
@@ -1490,6 +1506,14 @@ def ldap_settings_save(
 
     enc: Optional[str] = None
     if parsed["bind_password"].strip():
+        if sensitive_over_http_blocked(settings):
+            row = db.get_ldap_settings()
+            return _html(
+                request,
+                "ldap_settings.html",
+                _ldap_form_context(row, user=user, error=HTTP_SENSITIVE_MSG),
+                status_code=403,
+            )
         enc = encrypt_secret(data_key, parsed["bind_password"])
 
     db.update_ldap_settings(
@@ -1576,18 +1600,25 @@ def _tls_context(
     message: Optional[str] = None,
     error: Optional[str] = None,
     warnings: Optional[list[str]] = None,
+    tls_applied: bool = False,
 ) -> dict:
     status = tls_status()
     cert = status.get("cert") or {}
     configured = bool(status.get("configured"))
+    mode = status.get("mode") or "http"
+    domain = status.get("domain") or ""
     return {
         "user": user,
         "settings_section": "tls",
         "message": message,
         "error": error,
         "warnings": warnings or cert.get("warnings") or [],
-        "mode": status.get("mode") or "http",
-        "domain": status.get("domain") or "",
+        "mode": mode,
+        "tls_mode": mode,
+        "domain": domain,
+        "tls_domain": domain,
+        "https_url": status.get("https_url") or https_panel_url(domain),
+        "tls_applied": tls_applied,
         "has_private_key": bool(status.get("has_private_key")),
         "cert_path": status.get("cert_path") or "",
         "cert": cert if configured else None,
@@ -1603,12 +1634,17 @@ def _tls_html(
     message: Optional[str] = None,
     error: Optional[str] = None,
     warnings: Optional[list[str]] = None,
+    tls_applied: bool = False,
 ):
     return _html(
         request,
         "tls_settings.html",
         _tls_context(
-            user=user, message=message, error=error, warnings=warnings
+            user=user,
+            message=message,
+            error=error,
+            warnings=warnings,
+            tls_applied=tls_applied,
         ),
         status_code=status_code,
     )
@@ -1661,11 +1697,16 @@ async def tls_settings_upload(
     warnings = list(info.get("warnings") or [])
     if apply.get("ok") is True:
         message = apply.get("message") or "Сертификат установлен"
-        if apply.get("mode") == "https":
-            message += (
-                ". Откройте UI по HTTPS; при необходимости войдите снова."
-            )
-        return _tls_html(request, user, message=message, warnings=warnings)
+        https_ok = apply.get("mode") == "https"
+        if https_ok:
+            message += ". HTTPS активен — откройте панель по HTTPS и войдите снова."
+        return _tls_html(
+            request,
+            user,
+            message=message,
+            warnings=warnings,
+            tls_applied=https_ok,
+        )
     if apply.get("ok") is False:
         return _tls_html(
             request,
@@ -1862,6 +1903,7 @@ def mail_settings_save(
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
     data_key: str = Depends(get_data_key),
+    settings: Settings = Depends(get_settings),
 ):
     parsed, err = _parse_smtp_form(form)
     if err:
@@ -1873,6 +1915,15 @@ def mail_settings_save(
         )
     enc: Optional[str] = None
     if parsed["password"].strip():
+        if sensitive_over_http_blocked(settings):
+            return _html(
+                request,
+                "smtp_settings.html",
+                _smtp_form_context(
+                    db.get_smtp_settings(), user=user, error=HTTP_SENSITIVE_MSG
+                ),
+                status_code=403,
+            )
         enc = encrypt_secret(data_key, parsed["password"])
     db.update_smtp_settings(
         enabled=parsed["enabled"],
@@ -2025,6 +2076,13 @@ def backups_site_bundle_download(
     settings: Settings = Depends(get_settings),
 ):
     """Скачать site bundle (DB + keys + MSI). Секреты только в файле, не в HTML."""
+    if sensitive_over_http_blocked(settings):
+        return _html(
+            request,
+            "backup_settings.html",
+            _backup_context(db, settings, user=user, error=HTTP_SENSITIVE_MSG),
+            status_code=403,
+        )
     try:
         payload, filename = build_site_bundle(
             db=db,

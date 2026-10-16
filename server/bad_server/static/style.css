@@ -225,6 +225,36 @@ a.secondary:hover {
   border-bottom: 1px solid var(--warn-border);
 }
 .banner a { color: var(--accent); font-weight: 600; }
+.banner-http {
+  font-weight: 500;
+}
+
+button:disabled,
+.btn:disabled,
+.btn.disabled,
+span.btn.disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: none;
+  box-shadow: none;
+  transform: none;
+}
+
+.ok-box {
+  margin: 1rem 0;
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius-surface);
+  background: var(--ok-bg);
+  border: 1px solid var(--ok-border);
+  color: var(--fg);
+}
+.ok-box .form-actions {
+  margin-top: 0.75rem;
+  margin-bottom: 0;
+}
+.tls-https-cta strong {
+  color: var(--ok);
+}
 
 main {
   max-width: 1040px;

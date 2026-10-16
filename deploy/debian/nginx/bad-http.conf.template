@@ -7,6 +7,10 @@ server {
     listen [::]:80;
     server_name __BAD_DOMAIN__;
 
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
+    add_header Content-Security-Policy "frame-ancestors 'none'" always;
+
     client_max_body_size 5m;
 
     location /v1/enroll {

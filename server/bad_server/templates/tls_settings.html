@@ -19,6 +19,19 @@
   </ul>
   {% endif %}
 
+  {% if tls_applied and mode == 'https' %}
+  <div class="ok-box tls-https-cta" role="status">
+    <p><strong>HTTPS готов.</strong> Откройте панель по защищённому адресу и войдите снова — старые cookie без Secure на HTTPS не отправятся.</p>
+    <p class="form-actions">
+      {% if https_url %}
+      <a class="btn" href="{{ https_url }}">Открыть HTTPS</a>
+      {% else %}
+      <span class="hint">Домен (BAD_DOMAIN) не задан — откройте UI вручную по <span class="mono">https://…</span>.</span>
+      {% endif %}
+    </p>
+  </div>
+  {% endif %}
+
   <dl class="meta">
     <div>
       <dt>Режим</dt>
@@ -61,14 +74,14 @@
     или включить в файл сертификата. После validate материалы пишутся в staging;
     root-helper делает <span class="mono">nginx -t</span> и reload.
   </p>
-  <form method="post" action="/settings/tls" enctype="multipart/form-data" class="settings-form">
+  <form method="post" action="/settings/tls" enctype="multipart/form-data" class="settings-form" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
     <label for="certificate">Сертификат (PEM)</label>
     <input id="certificate" name="certificate" type="file" accept=".pem,.crt,.cer,.txt,application/x-pem-file,application/octet-stream" required>
 
     <label for="private_key">Private key (PEM)</label>
-    <input id="private_key" name="private_key" type="file" accept=".pem,.key,.txt,application/x-pem-file,application/octet-stream" required>
+    <input id="private_key" name="private_key" type="file" accept=".pem,.key,.txt,application/x-pem-file,application/octet-stream" required autocomplete="off">
 
     <label for="chain">Цепочка / intermediates (опционально)</label>
     <input id="chain" name="chain" type="file" accept=".pem,.crt,.cer,.txt,application/x-pem-file,application/octet-stream">

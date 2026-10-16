@@ -9,56 +9,64 @@
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
   {% if test_result %}<p class="{% if test_result.startswith('ОК') or test_result.startswith('OK') %}ok{% else %}error{% endif %}">{{ test_result }}</p>{% endif %}
 
+  {% if tls_mode == 'http' %}
+  <div class="warn-box" role="status">
+    HTTP bootstrap: не сохраняйте боевой пароль bind по cleartext.
+    Сначала <a href="/settings/tls">загрузите сертификат</a>, затем настройте LDAP по HTTPS.
+  </div>
+  {% endif %}
+
   <form method="post" action="/settings/ldap" class="settings-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label class="check">
-      <input type="checkbox" name="enabled" value="1" {% if ldap.enabled %}checked{% endif %}>
+      <input type="checkbox" name="enabled" value="1" {% if ldap.enabled %}checked{% endif %} {% if tls_mode == 'http' %}disabled{% endif %}>
       Включить вход через LDAP
     </label>
 
     <label for="host">Хост</label>
-    <input id="host" name="host" type="text" value="{{ ldap.host }}" placeholder="ldap.example.com" autocomplete="off">
+    <input id="host" name="host" type="text" value="{{ ldap.host }}" placeholder="ldap.example.com" autocomplete="off" {% if tls_mode == 'http' %}disabled{% endif %}>
 
     <label for="port">Порт</label>
-    <input id="port" name="port" type="number" min="1" max="65535" value="{{ ldap.port }}">
+    <input id="port" name="port" type="number" min="1" max="65535" value="{{ ldap.port }}" {% if tls_mode == 'http' %}disabled{% endif %}>
 
     <label class="check">
-      <input type="checkbox" name="use_ssl" value="1" {% if ldap.use_ssl %}checked{% endif %}>
+      <input type="checkbox" name="use_ssl" value="1" {% if ldap.use_ssl %}checked{% endif %} {% if tls_mode == 'http' %}disabled{% endif %}>
       LDAPS (SSL)
     </label>
     <label class="check">
-      <input type="checkbox" name="start_tls" value="1" {% if ldap.start_tls %}checked{% endif %}>
+      <input type="checkbox" name="start_tls" value="1" {% if ldap.start_tls %}checked{% endif %} {% if tls_mode == 'http' %}disabled{% endif %}>
       StartTLS
     </label>
     <label class="check">
-      <input type="checkbox" name="tls_insecure" value="1" {% if ldap.tls_insecure %}checked{% endif %}>
+      <input type="checkbox" name="tls_insecure" value="1" {% if ldap.tls_insecure %}checked{% endif %} {% if tls_mode == 'http' %}disabled{% endif %}>
       Не проверять TLS-сертификат LDAP (только lab)
     </label>
     <p class="hint">По умолчанию сертификат LDAP-сервера проверяется. Включайте insecure только в тестовой среде.</p>
 
     <label for="bind_dn">Bind DN</label>
-    <input id="bind_dn" name="bind_dn" type="text" value="{{ ldap.bind_dn }}" placeholder="cn=svc-bad,ou=services,dc=example,dc=com" autocomplete="off">
+    <input id="bind_dn" name="bind_dn" type="text" value="{{ ldap.bind_dn }}" placeholder="cn=svc-bad,ou=services,dc=example,dc=com" autocomplete="off" {% if tls_mode == 'http' %}disabled{% endif %}>
 
     <label for="bind_password">Пароль bind</label>
     <input id="bind_password" name="bind_password" type="password" value=""
       placeholder="{% if has_bind_password %}без изменений{% else %}{% endif %}"
-      autocomplete="new-password">
+      autocomplete="new-password"
+      {% if tls_mode == 'http' %}disabled{% endif %}>
     {% if has_bind_password %}
     <p class="hint">Оставьте пустым, чтобы сохранить текущий пароль bind.</p>
     {% endif %}
 
     <label for="user_search_base">База поиска пользователей</label>
-    <input id="user_search_base" name="user_search_base" type="text" value="{{ ldap.user_search_base }}" placeholder="ou=people,dc=example,dc=com" autocomplete="off">
+    <input id="user_search_base" name="user_search_base" type="text" value="{{ ldap.user_search_base }}" placeholder="ou=people,dc=example,dc=com" autocomplete="off" {% if tls_mode == 'http' %}disabled{% endif %}>
 
     <label for="user_filter_template">Шаблон фильтра пользователя</label>
-    <input id="user_filter_template" name="user_filter_template" type="text" value="{{ ldap.user_filter_template }}" placeholder="(uid={username})" autocomplete="off">
+    <input id="user_filter_template" name="user_filter_template" type="text" value="{{ ldap.user_filter_template }}" placeholder="(uid={username})" autocomplete="off" {% if tls_mode == 'http' %}disabled{% endif %}>
     <p class="hint">Должен содержать <span class="mono">{username}</span>. Пример для AD: <span class="mono">(sAMAccountName={username})</span></p>
 
     <label for="display_name_attr">Атрибут отображаемого имени</label>
-    <input id="display_name_attr" name="display_name_attr" type="text" value="{{ ldap.display_name_attr }}" placeholder="cn" autocomplete="off">
+    <input id="display_name_attr" name="display_name_attr" type="text" value="{{ ldap.display_name_attr }}" placeholder="cn" autocomplete="off" {% if tls_mode == 'http' %}disabled{% endif %}>
 
     <label for="default_role">Роль по умолчанию для LDAP</label>
-    <select id="default_role" name="default_role">
+    <select id="default_role" name="default_role" {% if tls_mode == 'http' %}disabled{% endif %}>
       <option value="operator" {% if ldap.default_role == 'operator' %}selected{% endif %}>operator (только устройства)</option>
       <option value="admin" {% if ldap.default_role == 'admin' %}selected{% endif %}>admin (включая параметры)</option>
     </select>
@@ -67,15 +75,19 @@
     <input id="allowed_group" name="allowed_group" type="text"
       value="{{ ldap.allowed_group }}"
       placeholder="bAD-Operators"
-      autocomplete="off">
+      autocomplete="off"
+      {% if tls_mode == 'http' %}disabled{% endif %}>
     <p class="hint">
       <span class="mono">sAMAccountName</span> группы безопасности AD (или полный DN).
       Пусто — без ограничения. Локальный admin всегда может войти.
     </p>
 
     <div class="form-actions">
-      <button type="submit">Сохранить</button>
-      <button type="submit" formaction="/settings/ldap/test" formmethod="post" class="secondary">Проверить соединение</button>
+      <button type="submit" {% if tls_mode == 'http' %}disabled title="Доступно после HTTPS"{% endif %}>Сохранить</button>
+      <button type="submit" formaction="/settings/ldap/test" formmethod="post" class="secondary" {% if tls_mode == 'http' %}disabled title="Доступно после HTTPS"{% endif %}>Проверить соединение</button>
+      {% if tls_mode == 'http' %}
+      <a class="btn secondary" href="/settings/tls">Перейти к сертификату</a>
+      {% endif %}
     </div>
   </form>
 </section>

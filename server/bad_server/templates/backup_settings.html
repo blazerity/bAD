@@ -12,6 +12,13 @@
   {% if message %}<p class="ok">{{ message }}</p>{% endif %}
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
 
+  {% if tls_mode == 'http' %}
+  <div class="warn-box" role="status">
+    HTTP bootstrap: site bundle содержит ключи и секреты — не скачивайте по cleartext.
+    Сначала <a href="/settings/tls">загрузите сертификат</a>.
+  </div>
+  {% endif %}
+
   <dl class="meta">
     <div><dt>Каталог</dt><dd class="mono">{{ backup.backup_dir }}</dd></div>
     <div><dt>Последний бэкап (meta)</dt><dd class="mono">{{ last_backup_at or "—" }}</dd></div>
@@ -40,7 +47,10 @@
 
   <form method="post" action="/settings/backups/run" class="form-actions">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <button type="submit">Сделать бэкап сейчас</button>
+    <button type="submit" {% if tls_mode == 'http' %}disabled title="Доступно после HTTPS"{% endif %}>Сделать бэкап сейчас</button>
+    {% if tls_mode == 'http' %}
+    <a class="btn secondary" href="/settings/tls">Перейти к сертификату</a>
+    {% endif %}
   </form>
   <h2>Site bundle</h2>
   <p class="muted">
@@ -52,7 +62,11 @@
     (сервис будет остановлен).
   </p>
   <p class="form-actions">
+    {% if tls_mode == 'http' %}
+    <span class="btn disabled" aria-disabled="true" title="Доступно после HTTPS">Скачать site bundle (.tar.gz)</span>
+    {% else %}
     <a href="/settings/backups/site-bundle">Скачать site bundle (.tar.gz)</a>
+    {% endif %}
   </p>
 
 </section>

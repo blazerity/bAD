@@ -133,6 +133,19 @@ public sealed class Worker : BackgroundService
             {
                 break;
             }
+            catch (InvalidOperationException ex) when (ex.Message == BadApiClient.CleartextHttpRejectedMessage)
+            {
+                _logger.LogError("{Message}", BadApiClient.CleartextHttpRejectedMessage);
+                WindowsEventLog.WriteError(BadApiClient.CleartextHttpRejectedMessage);
+                try
+                {
+                    await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    break;
+                }
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Agent loop error");

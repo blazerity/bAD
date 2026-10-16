@@ -33,7 +33,12 @@ class Settings(BaseSettings):
     )
     prefer_external_secrets: bool = _env_bool("BAD_PREFER_EXTERNAL_SECRETS", True)
     # Cookie Secure: True/False force; None = auto (X-Forwarded-Proto / HTTPS).
+    # Prefer BAD_COOKIE_SECURE=auto so Secure flips with nginx without API restart.
     cookie_secure: Optional[bool] = None
+    # Lab opt-out: site-bundle + LDAP/SMTP password save while mode=http.
+    allow_sensitive_over_http: bool = False
+    # Lab opt-out: /v1/enroll on cleartext when managed TLS is already active.
+    allow_enroll_over_http: bool = False
     enroll_rate_limit_per_minute: int = 30
     login_rate_limit_per_minute: int = 10
     login_username_rate_limit_per_minute: int = 5
