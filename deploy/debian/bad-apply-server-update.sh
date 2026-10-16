@@ -131,14 +131,41 @@ for k in ("action", "branch", "sha", "slot_id", "requested_at"):
 PY
 }
 
+write_slot_meta() {
+  # path slot_id branch sha version source
+  python3 - "$@" <<'PY'
+import json, sys
+from datetime import datetime, timezone
+path, slot_id, branch, sha, version, source = sys.argv[1:7]
+meta = {
+  "slot_id": slot_id,
+  "branch": branch or None,
+  "sha": sha or None,
+  "version": version or None,
+  "installed_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+  "source": source,
+}
+open(path, "w", encoding="utf-8").write(json.dumps(meta, ensure_ascii=False, indent=2) + "\n")
+PY
+}
+
 archive_current_slot() {
   # Сохранить текущий /opt/bad/server в слот, если есть current.json с sha.
   [[ -f "${CURRENT}" ]] || return 0
-  local branch sha slot_id version source installed_at
-  branch="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("branch") or "unknown")' "${CURRENT}")"
-  sha="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("sha") or "")' "${CURRENT}")"
-  slot_id="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("slot_id") or "")' "${CURRENT}")"
-  version="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("version") or "")' "${CURRENT}")"
+  local branch sha slot_id version
+  eval "$(python3 - "${CURRENT}" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1], encoding="utf-8"))
+sha = str(d.get("sha") or "")
+branch = str(d.get("branch") or "unknown")
+slot_id = str(d.get("slot_id") or "")
+version = str(d.get("version") or "")
+print(f"branch={branch!r}")
+print(f"sha={sha!r}")
+print(f"slot_id={slot_id!r}")
+print(f"version={version!r}")
+PY
+)"
   [[ -n "${sha}" ]] || return 0
   if [[ -z "${slot_id}" ]]; then
     local bsafe
@@ -160,25 +187,10 @@ archive_current_slot() {
   fi
   if [[ -f "${OPT_BAD}/VERSION" ]]; then
     cp -a "${OPT_BAD}/VERSION" "${dest}/tree/VERSION"
-  elif [[ -f "${OPT_BAD}/../VERSION" ]]; then
-    true
   fi
   # VERSION at repo root is copied beside opt in install; also check /opt/bad/VERSION
   [[ -f /opt/bad/VERSION ]] && cp -a /opt/bad/VERSION "${dest}/tree/VERSION" || true
-  python3 - "${dest}/meta.json" "${slot_id}" "${branch}" "${sha}" "${version}" <<'PY'
-import json, sys
-from datetime import datetime, timezone
-path, slot_id, branch, sha, version = sys.argv[1:6]
-meta = {
-  "slot_id": slot_id,
-  "branch": branch,
-  "sha": sha,
-  "version": version or None,
-  "installed_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-  "source": "archive",
-}
-open(path, "w", encoding="utf-8").write(json.dumps(meta, ensure_ascii=False, indent=2) + "\n")
-PY
+  write_slot_meta "${dest}/meta.json" "${slot_id}" "${branch}" "${sha}" "${version}" "archive"
   chown -R root:bad "${dest}" 2>/dev/null || true
 }
 
@@ -223,20 +235,7 @@ download_and_fill_slot() {
   if [[ -f "${dest}/tree/VERSION" ]]; then
     version="$(head -1 "${dest}/tree/VERSION" | tr -d '\r\n')"
   fi
-  python3 - "${dest}/meta.json" "${slot_id}" "${branch}" "${sha}" "${version}" <<'PY'
-import json, sys
-from datetime import datetime, timezone
-path, slot_id, branch, sha, version = sys.argv[1:6]
-meta = {
-  "slot_id": slot_id,
-  "branch": branch,
-  "sha": sha,
-  "version": version or None,
-  "installed_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-  "source": "apply",
-}
-open(path, "w", encoding="utf-8").write(json.dumps(meta, ensure_ascii=False, indent=2) + "\n")
-PY
+  write_slot_meta "${dest}/meta.json" "${slot_id}" "${branch}" "${sha}" "${version}" "apply"
   rm -rf "${tmp}"
   chown -R root:bad "${dest}" 2>/dev/null || true
   printf '%s' "${slot_id}"
@@ -286,36 +285,20 @@ promote_slot() {
   fi
 
   local branch sha version
-  branch="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("branch") or "")' "${dest}/meta.json")"
-  sha="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("sha") or "")' "${dest}/meta.json")"
-  version="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("version") or "")' "${dest}/meta.json")"
-  python3 - "${CURRENT}" "${slot_id}" "${branch}" "${sha}" "${version}" "${source_label}" <<'PY'
+  eval "$(python3 - "${dest}/meta.json" <<'PY'
 import json, sys
-from datetime import datetime, timezone
-path, slot_id, branch, sha, version, source = sys.argv[1:7]
-meta = {
-  "slot_id": slot_id,
-  "branch": branch or None,
-  "sha": sha or None,
-  "version": version or None,
-  "installed_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-  "source": source,
-}
-open(path, "w", encoding="utf-8").write(json.dumps(meta, ensure_ascii=False, indent=2) + "\n")
+d = json.load(open(sys.argv[1], encoding="utf-8"))
+print(f"branch={str(d.get('branch') or '')!r}")
+print(f"sha={str(d.get('sha') or '')!r}")
+print(f"version={str(d.get('version') or '')!r}")
 PY
+)"
+  write_slot_meta "${CURRENT}" "${slot_id}" "${branch}" "${sha}" "${version}" "${source_label}"
   chmod 640 "${CURRENT}" || true
   chown root:bad "${CURRENT}" 2>/dev/null || true
 
   # Update slot meta source/time for promote
-  python3 - "${dest}/meta.json" "${source_label}" <<'PY'
-import json, sys
-from datetime import datetime, timezone
-path, source = sys.argv[1:3]
-meta = json.load(open(path, encoding="utf-8"))
-meta["source"] = source
-meta["installed_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-open(path, "w", encoding="utf-8").write(json.dumps(meta, ensure_ascii=False, indent=2) + "\n")
-PY
+  write_slot_meta "${dest}/meta.json" "${slot_id}" "${branch}" "${sha}" "${version}" "${source_label}"
 }
 
 prune_slots() {

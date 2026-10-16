@@ -40,35 +40,45 @@ _SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 _SLOT_RE = re.compile(r"^[A-Za-z0-9._-]{1,120}$")
 
 
+def _root(directory: Optional[Path] = None) -> Path:
+    return directory or DEFAULT_RELEASES_DIR
+
+
 def releases_dir(settings: Optional[Settings] = None) -> Path:
-    if settings is not None and getattr(settings, "server_releases_dir", None):
+    if settings is not None:
         return Path(settings.server_releases_dir)
     raw = os.environ.get("BAD_SERVER_RELEASES_DIR", "").strip()
     return Path(raw) if raw else DEFAULT_RELEASES_DIR
 
 
+def _resolve_root(
+    settings: Settings, directory: Optional[Path] = None
+) -> Path:
+    return directory if directory is not None else releases_dir(settings)
+
+
 def apply_request_path(directory: Optional[Path] = None) -> Path:
-    return (directory or DEFAULT_RELEASES_DIR) / APPLY_REQUEST
+    return _root(directory) / APPLY_REQUEST
 
 
 def apply_status_path(directory: Optional[Path] = None) -> Path:
-    return (directory or DEFAULT_RELEASES_DIR) / APPLY_STATUS
+    return _root(directory) / APPLY_STATUS
 
 
 def current_meta_path(directory: Optional[Path] = None) -> Path:
-    return (directory or DEFAULT_RELEASES_DIR) / CURRENT_META
+    return _root(directory) / CURRENT_META
 
 
 def prefs_path(directory: Optional[Path] = None) -> Path:
-    return (directory or DEFAULT_RELEASES_DIR) / PREFS_META
+    return _root(directory) / PREFS_META
 
 
 def slots_dir(directory: Optional[Path] = None) -> Path:
-    return (directory or DEFAULT_RELEASES_DIR) / SLOTS_DIRNAME
+    return _root(directory) / SLOTS_DIRNAME
 
 
 def staging_dir(directory: Optional[Path] = None) -> Path:
-    return (directory or DEFAULT_RELEASES_DIR) / STAGING_DIRNAME
+    return _root(directory) / STAGING_DIRNAME
 
 
 def sanitize_branch(branch: str) -> str:
@@ -104,28 +114,22 @@ def slot_id_for(branch: str, sha: str) -> str:
     return f"{b}_{s}"
 
 
+def _read_secret_file(path: Path) -> str:
+    if not path.is_file():
+        return ""
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 def github_token(settings: Settings) -> str:
-    """Токен из env/settings или из файла; plaintext наружу не отдавать."""
+    """Токен из settings.env или github_token_file; plaintext наружу не отдавать."""
     tok = (settings.github_token or "").strip()
     if tok:
         return tok
-    path = getattr(settings, "github_token_file", None)
-    if path:
-        p = Path(path)
-        if p.is_file():
-            try:
-                return p.read_text(encoding="utf-8").strip()
-            except OSError:
-                pass
-    file_env = os.environ.get("BAD_GITHUB_TOKEN_FILE", "").strip()
-    if file_env:
-        p = Path(file_env)
-        if p.is_file():
-            try:
-                return p.read_text(encoding="utf-8").strip()
-            except OSError:
-                pass
-    return ""
+    # Settings.github_token_file уже учитывает BAD_GITHUB_TOKEN_FILE.
+    return _read_secret_file(Path(settings.github_token_file))
 
 
 def token_configured(settings: Settings) -> bool:
@@ -156,15 +160,17 @@ def _write_json(path: Path, data: dict[str, Any], *, mode: int = 0o640) -> None:
 
 
 def ensure_releases_layout(directory: Optional[Path] = None) -> Path:
-    root = directory or DEFAULT_RELEASES_DIR
+    root = _root(directory)
     root.mkdir(parents=True, exist_ok=True)
-    slots_dir(root).mkdir(parents=True, exist_ok=True)
-    staging_dir(root).mkdir(parents=True, exist_ok=True)
+    slots = slots_dir(root)
+    staging = staging_dir(root)
+    slots.mkdir(parents=True, exist_ok=True)
+    staging.mkdir(parents=True, exist_ok=True)
     try:
         root.chmod(0o770)
         # slots: 750 — process bad read-only; write только root helper
-        slots_dir(root).chmod(0o750)
-        staging_dir(root).chmod(0o770)
+        slots.chmod(0o750)
+        staging.chmod(0o770)
     except OSError:
         pass
     return root
@@ -229,7 +235,7 @@ def _read_installed_version() -> Optional[str]:
 
 def list_rollback_slots(directory: Optional[Path] = None) -> list[dict[str, Any]]:
     """Прошлые слоты (не текущий), новые первые; ≤ MAX_PAST_SLOTS в UI."""
-    root = directory or DEFAULT_RELEASES_DIR
+    root = _root(directory)
     current = read_current(root)
     current_id = str(current.get("slot_id") or "")
     base = slots_dir(root)
@@ -379,7 +385,7 @@ def check_updates(
     directory: Optional[Path] = None,
 ) -> dict[str, Any]:
     """Сравнить установленный ref с HEAD выбранной ветки."""
-    root = releases_dir(settings) if directory is None else directory
+    root = _resolve_root(settings, directory)
     prefs = read_prefs(root)
     b = sanitize_branch(branch or prefs.get("branch") or DEFAULT_BRANCH)
     current = read_current(root)
@@ -486,7 +492,7 @@ def status_panel(
     *,
     directory: Optional[Path] = None,
 ) -> dict[str, Any]:
-    root = releases_dir(settings) if directory is None else directory
+    root = _resolve_root(settings, directory)
     prefs = read_prefs(root)
     return {
         "prefs": prefs,
@@ -524,7 +530,7 @@ def trigger_msi_workflow(
         raise RuntimeError(
             "Нужен BAD_GITHUB_TOKEN с правом actions:write для запуска workflow"
         )
-    root = releases_dir(settings) if directory is None else directory
+    root = _resolve_root(settings, directory)
     ensure_releases_layout(root)
     b = sanitize_branch(branch or read_prefs(root).get("branch") or DEFAULT_BRANCH)
     api = settings.github_api_base.rstrip("/")
@@ -570,7 +576,7 @@ def poll_msi_workflow(
     if not settings.github_repo:
         raise RuntimeError("BAD_GITHUB_REPO не задан")
     token = github_token(settings)
-    root = releases_dir(settings) if directory is None else directory
+    root = _resolve_root(settings, directory)
     meta = _read_json(root / MSI_JOB_META) or {}
     branch = str(meta.get("branch") or read_prefs(root).get("branch") or DEFAULT_BRANCH)
     api = settings.github_api_base.rstrip("/")

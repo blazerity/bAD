@@ -2573,22 +2573,60 @@ def _server_update_context(
     }
 
 
+def _server_update_page(
+    request: Request,
+    settings: Settings,
+    user: WebUser,
+    *,
+    message: Optional[str] = None,
+    error: Optional[str] = None,
+    check: Optional[dict] = None,
+    branches: Optional[list] = None,
+    status_code: int = 200,
+):
+    return _html(
+        request,
+        "server_update_settings.html",
+        _server_update_context(
+            settings,
+            user=user,
+            message=message,
+            error=error,
+            check=check,
+            branches=branches,
+        ),
+        status_code=status_code,
+    )
+
+
+def _server_update_wait_outcome(
+    root: Path,
+    req: dict,
+    *,
+    ok_default: str,
+    fail_default: str,
+    pending: str,
+    timeout_seconds: float = 180.0,
+) -> tuple[Optional[str], Optional[str], int]:
+    apply = server_wait_for_apply(
+        root,
+        since=str(req.get("requested_at") or ""),
+        timeout_seconds=timeout_seconds,
+    )
+    if apply.get("ok") is True:
+        return apply.get("message") or ok_default, None, 200
+    if apply.get("ok") is False:
+        return None, apply.get("message") or fail_default, 502
+    return pending, None, 200
+
+
 @router.get("/settings/server-update", response_class=HTMLResponse)
 def server_update_settings_page(
     request: Request,
     user: WebUser = Depends(require_web_admin),
     settings: Settings = Depends(get_settings),
 ):
-    branches: list = []
-    try:
-        branches = list_remote_branches(settings)
-    except Exception:  # noqa: BLE001
-        branches = []
-    return _html(
-        request,
-        "server_update_settings.html",
-        _server_update_context(settings, user=user, branches=branches),
-    )
+    return _server_update_page(request, settings, user)
 
 
 @router.post("/settings/server-update/branch")
@@ -2607,11 +2645,8 @@ def server_update_set_branch(
         message = None
         error = str(exc)
         code = 400
-    return _html(
-        request,
-        "server_update_settings.html",
-        _server_update_context(settings, user=user, message=message, error=error),
-        status_code=code,
+    return _server_update_page(
+        request, settings, user, message=message, error=error, status_code=code
     )
 
 
@@ -2646,12 +2681,13 @@ def server_update_check(
         message = None
         error = str(exc)
         code = 400
-    return _html(
+    return _server_update_page(
         request,
-        "server_update_settings.html",
-        _server_update_context(
-            settings, user=user, message=message, error=error, check=result
-        ),
+        settings,
+        user,
+        message=message,
+        error=error,
+        check=result,
         status_code=code,
     )
 
@@ -2672,24 +2708,16 @@ def server_update_apply(
             sha=sha,
             directory=root,
         )
-        apply = server_wait_for_apply(
-            root, since=str(req.get("requested_at") or ""), timeout_seconds=180.0
-        )
-        if apply.get("ok") is True:
-            message = apply.get("message") or "Обновление применено"
-            error = None
-            code = 200
-        elif apply.get("ok") is False:
-            message = None
-            error = apply.get("message") or "apply не удался"
-            code = 502
-        else:
-            message = (
+        message, error, code = _server_update_wait_outcome(
+            root,
+            req,
+            ok_default="Обновление применено",
+            fail_default="apply не удался",
+            pending=(
                 "Запрос записан; ожидание helper "
                 "(bad-server-update-apply.path). Обновите страницу через минуту."
-            )
-            error = None
-            code = 200
+            ),
+        )
     except ValueError as exc:
         message = None
         error = str(exc)
@@ -2698,11 +2726,8 @@ def server_update_apply(
         message = None
         error = f"Не удалось записать apply.request: {exc}"
         code = 500
-    return _html(
-        request,
-        "server_update_settings.html",
-        _server_update_context(settings, user=user, message=message, error=error),
-        status_code=code,
+    return _server_update_page(
+        request, settings, user, message=message, error=error, status_code=code
     )
 
 
@@ -2718,30 +2743,19 @@ def server_update_rollback(
         req = server_request_apply(
             action="rollback", slot_id=slot_id, directory=root
         )
-        apply = server_wait_for_apply(
-            root, since=str(req.get("requested_at") or ""), timeout_seconds=180.0
+        message, error, code = _server_update_wait_outcome(
+            root,
+            req,
+            ok_default="Откат выполнен",
+            fail_default="rollback не удался",
+            pending="Запрос отката записан; ожидание helper.",
         )
-        if apply.get("ok") is True:
-            message = apply.get("message") or "Откат выполнен"
-            error = None
-            code = 200
-        elif apply.get("ok") is False:
-            message = None
-            error = apply.get("message") or "rollback не удался"
-            code = 502
-        else:
-            message = "Запрос отката записан; ожидание helper."
-            error = None
-            code = 200
     except ValueError as exc:
         message = None
         error = str(exc)
         code = 400
-    return _html(
-        request,
-        "server_update_settings.html",
-        _server_update_context(settings, user=user, message=message, error=error),
-        status_code=code,
+    return _server_update_page(
+        request, settings, user, message=message, error=error, status_code=code
     )
 
 
@@ -2771,12 +2785,12 @@ def server_update_set_token(
         message = None
         error = str(exc)
         code = 400
-    return _html(
+    return _server_update_page(
         request,
-        "server_update_settings.html",
-        _server_update_context(
-            get_settings(), user=user, message=message, error=error
-        ),
+        get_settings(),
+        user,
+        message=message,
+        error=error,
         status_code=code,
     )
 
@@ -2802,11 +2816,8 @@ def server_update_msi_trigger(
         message = None
         error = str(exc)
         code = 502
-    return _html(
-        request,
-        "server_update_settings.html",
-        _server_update_context(settings, user=user, message=message, error=error),
-        status_code=code,
+    return _server_update_page(
+        request, settings, user, message=message, error=error, status_code=code
     )
 
 
@@ -2840,9 +2851,6 @@ def server_update_msi_poll(
         message = None
         error = str(exc)
         code = 502
-    return _html(
-        request,
-        "server_update_settings.html",
-        _server_update_context(settings, user=user, message=message, error=error),
-        status_code=code,
+    return _server_update_page(
+        request, settings, user, message=message, error=error, status_code=code
     )
