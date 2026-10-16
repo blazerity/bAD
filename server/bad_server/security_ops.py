@@ -7,9 +7,20 @@ from typing import Any, Optional
 
 from .config import Settings
 from .db import Database
-from .enrollment_ops import enrollment_rotation_signals, enrollment_status
+from .enrollment_ops import enrollment_rotation_signals
 from .http_bootstrap import sensitive_over_http_blocked
 from .tls_ops import tls_status
+
+# Поля enrollment_status внутри enrollment_rotation_signals (**status).
+_ENROLLMENT_STATUS_KEYS = (
+    "configured",
+    "has_hash",
+    "rotated_at",
+    "token_file",
+    "token_file_exists",
+    "env_bootstrap",
+    "last_enrollment_at",
+)
 
 
 def _secret_source(
@@ -97,12 +108,14 @@ def https_first_status(settings: Settings) -> dict[str, Any]:
 
 def security_status(db: Database, settings: Settings) -> dict[str, Any]:
     """Сводка для UI Lead / admin API (без секретов plaintext)."""
-    enrollment = enrollment_rotation_signals(db, settings)
+    # Один проход: rotation_signals уже включает enrollment_status.
+    rotation = enrollment_rotation_signals(db, settings)
+    enrollment = {k: rotation.get(k) for k in _ENROLLMENT_STATUS_KEYS}
     return {
         "https_first": https_first_status(settings),
         "secrets": secrets_status(db, settings),
-        "enrollment_rotation": enrollment,
-        "enrollment": enrollment_status(db, settings),
+        "enrollment_rotation": rotation,
+        "enrollment": enrollment,
     }
 
 

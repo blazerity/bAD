@@ -10,6 +10,7 @@ from typing import Any, Optional
 
 from .agent_config import ALLOWED_SETTING_KEYS, compute_setting_sources
 from .device_health import device_silence_status
+from .enrollment_ops import enrollment_status
 from .tls_ops import tls_panel_mode
 
 WAVE_FILTERS = frozenset({"drift", "revoked", "agent_local", "stale"})
@@ -56,8 +57,6 @@ def build_bootstrap_checklist(
     security: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Компактный прогресс первого запуска. Скрывается после HTTPS + смена пароля."""
-    from .enrollment_ops import enrollment_status
-
     security = security or {}
     https = security.get("https_first") or {}
     enroll_block = security.get("enrollment") or {}
@@ -267,12 +266,14 @@ def normalize_wave_filter(raw: Optional[str]) -> Optional[str]:
 
 
 def device_has_agent_local(device: dict[str, Any]) -> bool:
-    meta = device.get("meta") if isinstance(device.get("meta"), dict) else {}
-    block = meta.get("config_local") if isinstance(meta, dict) else None
+    meta = device.get("meta")
+    if not isinstance(meta, dict):
+        return False
+    block = meta.get("config_local")
     if not isinstance(block, dict):
         return False
-    keys = block.get("keys") or []
-    return bool(isinstance(keys, list) and keys)
+    keys = block.get("keys")
+    return isinstance(keys, list) and bool(keys)
 
 
 def filter_devices_by_wave(
@@ -284,24 +285,22 @@ def filter_devices_by_wave(
 ) -> list[dict[str, Any]]:
     if not wave:
         return devices
-    out: list[dict[str, Any]] = []
-    for d in devices:
+
+    def _match(d: dict[str, Any]) -> bool:
         if wave == "drift":
-            if d.get("device_id") in drift_ids:
-                out.append(d)
-        elif wave == "revoked":
-            if d.get("revoked"):
-                out.append(d)
-        elif wave == "agent_local":
-            if device_has_agent_local(d):
-                out.append(d)
-        elif wave == "stale":
+            return d.get("device_id") in drift_ids
+        if wave == "revoked":
+            return bool(d.get("revoked"))
+        if wave == "agent_local":
+            return device_has_agent_local(d)
+        if wave == "stale":
             silence = d.get("silence") or device_silence_status(
                 d.get("last_seen_at"), stale_after_seconds=stale_after_seconds
             )
-            if (silence or {}).get("status") == "stale":
-                out.append(d)
-    return out
+            return (silence or {}).get("status") == "stale"
+        return False
+
+    return [d for d in devices if _match(d)]
 
 
 def build_config_winner(

@@ -68,17 +68,10 @@ public static class ServerUrlRules
             return false;
         }
 
-        if (uri.Scheme == Uri.UriSchemeHttp)
+        // Схема уже http или https (см. фильтр выше).
+        if (uri.Scheme == Uri.UriSchemeHttp && !IsLabHttpAllowed())
         {
-            if (!IsLabHttpAllowed())
-            {
-                error = CleartextHttpRejectedMessage;
-                return false;
-            }
-        }
-        else if (uri.Scheme != Uri.UriSchemeHttps)
-        {
-            error = AbsoluteUrlRequiredMessage;
+            error = CleartextHttpRejectedMessage;
             return false;
         }
 
