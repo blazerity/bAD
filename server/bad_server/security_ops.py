@@ -28,18 +28,18 @@ def _secret_source(
     env_value: str,
     file_path: Path,
     db_value: Optional[str],
-    db_path: Path,
+    data_dir: Path,
     kind: str,
 ) -> str:
     if (env_value or "").strip():
         return "env"
     if file_path.is_file() and file_path.stat().st_size > 0:
         return "file"
-    fallback = db_path.parent / f".{kind}"
+    fallback = data_dir / f".{kind}"
     if fallback.is_file() and fallback.stat().st_size > 0:
         return "fallback_file"
     if db_value:
-        return "sqlite"
+        return "db"
     return "missing"
 
 
@@ -51,27 +51,28 @@ def secrets_status(db: Database, settings: Settings) -> dict[str, Any]:
         env_value=settings.data_key,
         file_path=settings.data_key_file,
         db_value=db_data,
-        db_path=settings.db_path,
+        data_dir=settings.data_dir,
         kind="data_key",
     )
     session_source = _secret_source(
         env_value=settings.session_secret,
         file_path=settings.session_secret_file,
         db_value=db_session,
-        db_path=settings.db_path,
+        data_dir=settings.data_dir,
         kind="session_secret",
     )
-    legacy = data_source == "sqlite" or session_source == "sqlite"
+    legacy = data_source == "db" or session_source == "db"
     return {
         "prefer_external_secrets": bool(settings.prefer_external_secrets),
         "data_key_source": data_source,
         "session_secret_source": session_source,
         "data_key_path": str(settings.data_key_file),
         "session_secret_path": str(settings.session_secret_file),
-        "legacy_keys_in_sqlite": legacy,
+        "legacy_keys_in_db": legacy,
+        "legacy_keys_in_sqlite": legacy,  # alias для UI до переименования шаблонов
         "ok": not legacy and data_source != "missing" and session_source != "missing",
         "hint_ru": (
-            "Master keys всё ещё в SQLite — копия bad.db/backup компрометирует "
+            "Master keys всё ещё в БД — dump/backup компрометирует "
             "SMTP/LDAP и сессии. Вынесите в /etc/bad/data_key и session_secret (440)."
             if legacy
             else "Ключи вне БД (SEC-005)."
@@ -130,7 +131,10 @@ def merge_security_into_ops(ops: dict[str, Any], security: dict[str, Any]) -> di
     out["enrollment_rotated_at"] = er.get("rotated_at")
     out["enrollment_rotation_hint"] = er.get("hint_ru")
     out["enrollment_rotate_path"] = er.get("ui_path") or "/settings/updates"
-    out["legacy_keys_in_sqlite"] = bool(secrets.get("legacy_keys_in_sqlite"))
+    out["legacy_keys_in_db"] = bool(
+        secrets.get("legacy_keys_in_db") or secrets.get("legacy_keys_in_sqlite")
+    )
+    out["legacy_keys_in_sqlite"] = out["legacy_keys_in_db"]  # alias UI
     out["secrets_hint"] = secrets.get("hint_ru")
     out["tls_mode"] = https.get("tls_mode") or "http"
     out["https_first_hint"] = https.get("hint_ru")

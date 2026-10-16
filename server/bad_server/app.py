@@ -76,8 +76,7 @@ async def _backup_loop(app: FastAPI) -> None:
             result = await asyncio.to_thread(
                 run_daily_backup,
                 settings.backup_dir,
-                db_path=settings.db_path,
-                database_url=settings.database_url or None,
+                database_url=settings.database_url,
             )
             if result.get("ok"):
                 db.set_site_secret("last_backup_at", utc_now())
@@ -85,7 +84,7 @@ async def _backup_loop(app: FastAPI) -> None:
             else:
                 logger.warning("Daily backup skipped/failed: %s", result.get("error"))
         except Exception:  # noqa: BLE001
-            logger.exception("Background DB backup failed")
+            logger.exception("Background pg_dump backup failed")
         try:
             await asyncio.sleep(interval)
         except asyncio.CancelledError:
@@ -130,11 +129,16 @@ async def _stale_alert_loop(app: FastAPI) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
-    db = open_database(
-        db_path=settings.db_path,
-        database_url=settings.database_url or None,
-    )
+    if not (settings.database_url or "").strip():
+        raise RuntimeError(
+            "BAD_DATABASE_URL is required (Postgres only; set in site.env)"
+        )
+    db = open_database(database_url=settings.database_url)
     settings.agent_updates_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        settings.data_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
     try:
         settings.backup_dir.mkdir(parents=True, exist_ok=True)
     except OSError:
@@ -148,13 +152,6 @@ async def lifespan(app: FastAPI):
 
     session_secret, data_key = ensure_bootstrap_secrets(db, settings)
     seed_default_admin(db, settings)
-
-    # SQLite: ограничить права на файл БД. Postgres — URL в site.env.
-    if not settings.uses_postgres:
-        try:
-            settings.db_path.chmod(0o600)
-        except OSError:
-            pass
 
     app.state.db = db
     app.state.session_secret = session_secret

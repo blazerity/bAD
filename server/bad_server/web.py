@@ -1968,9 +1968,7 @@ def _backup_context(
     return {
         "user": user,
         "settings_section": "backups",
-        "backup": backup_status(
-            settings.backup_dir, database_url=settings.database_url or None
-        ),
+        "backup": backup_status(settings.backup_dir),
         "keys": keys,
         "last_backup_at": db.get_site_secret("last_backup_at"),
         "secrets": secrets,
@@ -2208,8 +2206,7 @@ def backups_settings_run(
 
     result = run_daily_backup(
         settings.backup_dir,
-        db_path=settings.db_path,
-        database_url=settings.database_url or None,
+        database_url=settings.database_url,
     )
     if result.get("ok"):
         db.set_site_secret("last_backup_at", utc_now())
@@ -2246,13 +2243,12 @@ def backups_site_bundle_download(
     try:
         payload, filename = build_site_bundle(
             db=db,
-            db_path=settings.db_path,
             backup_dir=settings.backup_dir,
             updates_dir=settings.agent_updates_dir,
             data_key_file=settings.data_key_file,
             session_secret_file=settings.session_secret_file,
             include_msi_files=False,
-            database_url=settings.database_url or None,
+            database_url=settings.database_url,
         )
     except Exception as exc:  # noqa: BLE001
         return _html(

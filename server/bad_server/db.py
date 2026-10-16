@@ -1,164 +1,16 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator, Optional, Union
 
 from .db_backend import (
-    BACKEND_POSTGRES,
-    BACKEND_SQLITE,
     SCHEMA_SQL_POSTGRES,
     CompatConnection,
     connect_postgres,
-    connect_sqlite,
 )
-
-SCHEMA_SQL = """
-PRAGMA journal_mode=WAL;
-PRAGMA busy_timeout=5000;
-PRAGMA foreign_keys=ON;
-
-CREATE TABLE IF NOT EXISTS devices (
-  device_id TEXT PRIMARY KEY,
-  hostname TEXT,
-  api_key_hash TEXT NOT NULL,
-  api_key_lookup TEXT,
-  enrolled_at TEXT NOT NULL,
-  last_seen_at TEXT,
-  agent_version TEXT,
-  meta_json TEXT,
-  tags_json TEXT NOT NULL DEFAULT '[]',
-  revoked INTEGER NOT NULL DEFAULT 0,
-  archived INTEGER NOT NULL DEFAULT 0
-);
-
-CREATE INDEX IF NOT EXISTS idx_devices_api_key_lookup
-  ON devices(api_key_lookup);
-
-CREATE TABLE IF NOT EXISTS inventory_snapshots (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  device_id TEXT NOT NULL REFERENCES devices(device_id),
-  received_at TEXT NOT NULL,
-  schema_version INTEGER NOT NULL,
-  payload_json TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_snapshots_device_received
-  ON inventory_snapshots(device_id, received_at DESC);
-
-CREATE TABLE IF NOT EXISTS site_secrets (
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS local_users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  username TEXT NOT NULL COLLATE NOCASE UNIQUE,
-  password_hash TEXT NOT NULL,
-  role TEXT NOT NULL DEFAULT 'admin',
-  must_change_password INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL,
-  last_login_at TEXT
-);
-
-CREATE TABLE IF NOT EXISTS ldap_settings (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
-  enabled INTEGER NOT NULL DEFAULT 0,
-  host TEXT NOT NULL DEFAULT '',
-  port INTEGER NOT NULL DEFAULT 389,
-  use_ssl INTEGER NOT NULL DEFAULT 0,
-  start_tls INTEGER NOT NULL DEFAULT 0,
-  bind_dn TEXT NOT NULL DEFAULT '',
-  bind_password_enc TEXT NOT NULL DEFAULT '',
-  user_search_base TEXT NOT NULL DEFAULT '',
-  user_filter_template TEXT NOT NULL DEFAULT '(uid={username})',
-  display_name_attr TEXT NOT NULL DEFAULT 'cn',
-  default_role TEXT NOT NULL DEFAULT 'operator',
-  allowed_group TEXT NOT NULL DEFAULT '',
-  tls_insecure INTEGER NOT NULL DEFAULT 0,
-  updated_at TEXT
-);
-
-CREATE TABLE IF NOT EXISTS retention_settings (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
-  events_days INTEGER NOT NULL DEFAULT 90,
-  inventory_days INTEGER NOT NULL DEFAULT 180,
-  updated_at TEXT
-);
-
-CREATE TABLE IF NOT EXISTS smtp_settings (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
-  enabled INTEGER NOT NULL DEFAULT 0,
-  host TEXT NOT NULL DEFAULT '',
-  port INTEGER NOT NULL DEFAULT 587,
-  use_ssl INTEGER NOT NULL DEFAULT 0,
-  use_starttls INTEGER NOT NULL DEFAULT 1,
-  username TEXT NOT NULL DEFAULT '',
-  password_enc TEXT NOT NULL DEFAULT '',
-  from_addr TEXT NOT NULL DEFAULT '',
-  to_addrs TEXT NOT NULL DEFAULT '',
-  notify_json TEXT NOT NULL DEFAULT '',
-  updated_at TEXT
-);
-
-CREATE TABLE IF NOT EXISTS agent_update (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
-  version TEXT NOT NULL,
-  msi_name TEXT NOT NULL,
-  sha256 TEXT NOT NULL,
-  file_path TEXT NOT NULL,
-  source_tag TEXT,
-  release_url TEXT,
-  synced_at TEXT NOT NULL
-);
-
--- Каталог зеркалированных MSI (несколько версий; agent_update = указатель на latest).
-CREATE TABLE IF NOT EXISTS agent_msi_versions (
-  version TEXT PRIMARY KEY,
-  msi_name TEXT NOT NULL,
-  sha256 TEXT NOT NULL,
-  file_path TEXT NOT NULL,
-  source TEXT NOT NULL DEFAULT 'github',
-  source_tag TEXT,
-  release_url TEXT,
-  mirrored_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS agent_policies (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL,
-  enabled INTEGER NOT NULL DEFAULT 1,
-  priority INTEGER NOT NULL DEFAULT 100,
-  conditions_json TEXT NOT NULL,
-  settings_json TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS device_config_overrides (
-  device_id TEXT PRIMARY KEY REFERENCES devices(device_id) ON DELETE CASCADE,
-  settings_json TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS device_events (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  device_id TEXT NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
-  type TEXT NOT NULL,
-  summary TEXT NOT NULL,
-  detail_json TEXT,
-  created_at TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_device_events_created
-  ON device_events(created_at DESC, id DESC);
-
-CREATE INDEX IF NOT EXISTS idx_device_events_device_created
-  ON device_events(device_id, created_at DESC, id DESC);
-"""
 
 
 def utc_now() -> str:
@@ -166,142 +18,26 @@ def utc_now() -> str:
 
 
 class Database:
-    """Persistence hub. SQLite (lab/default) или Postgres при BAD_DATABASE_URL."""
+    """Persistence hub — только Postgres (`BAD_DATABASE_URL`)."""
 
-    def __init__(
-        self,
-        path: Optional[Union[Path, str]] = None,
-        *,
-        database_url: Optional[str] = None,
-    ) -> None:
+    def __init__(self, database_url: str) -> None:
         url = (database_url or "").strip()
-        if url:
-            self.backend = BACKEND_POSTGRES
-            self.database_url = url
-            self.path = Path(path) if path else Path("./data/bad.db")
-        else:
-            if path is None:
-                raise ValueError("SQLite backend requires db path")
-            self.backend = BACKEND_SQLITE
-            self.database_url = None
-            self.path = Path(path)
-            self.path.parent.mkdir(parents=True, exist_ok=True)
+        if not url:
+            raise ValueError(
+                "BAD_DATABASE_URL is required (Postgres only; SQLite removed)"
+            )
+        self.database_url = url
         self._init_schema()
 
-    @property
-    def is_postgres(self) -> bool:
-        return self.backend == BACKEND_POSTGRES
-
     def _connect(self) -> CompatConnection:
-        if self.is_postgres:
-            assert self.database_url
-            return connect_postgres(self.database_url)
-        return connect_sqlite(str(self.path))
+        return connect_postgres(self.database_url)
 
     def _init_schema(self) -> None:
-        if self.is_postgres:
-            self._init_schema_postgres()
-        else:
-            self._init_schema_sqlite()
-
-    def _ensure_singleton_settings(self, conn: CompatConnection) -> None:
-        # INSERT OR IGNORE → на PG adapt_sql даёт ON CONFLICT DO NOTHING.
-        for table in ("ldap_settings", "retention_settings", "smtp_settings"):
-            conn.execute(f"INSERT OR IGNORE INTO {table}(id) VALUES (1)")
-
-    def _init_schema_postgres(self) -> None:
         with self._connect() as conn:
             conn.executescript(SCHEMA_SQL_POSTGRES)
-            self._ensure_singleton_settings(conn)
-            conn.commit()
-
-    def _init_schema_sqlite(self) -> None:
-        with self._connect() as conn:
-            conn.executescript(SCHEMA_SQL)
-            self._ensure_singleton_settings(conn)
-            # Лёгкие миграции для существующих БД (CREATE IF NOT EXISTS
-            # не добавляет новые колонки).
-            cols = {
-                row["name"]
-                for row in conn.execute("PRAGMA table_info(devices)").fetchall()
-            }
-            if "tags_json" not in cols:
+            for table in ("ldap_settings", "retention_settings", "smtp_settings"):
                 conn.execute(
-                    "ALTER TABLE devices ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'"
-                )
-            if "revoked" not in cols:
-                conn.execute(
-                    "ALTER TABLE devices ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0"
-                )
-            if "archived" not in cols:
-                conn.execute(
-                    "ALTER TABLE devices ADD COLUMN archived INTEGER NOT NULL DEFAULT 0"
-                )
-            if "api_key_lookup" not in cols:
-                conn.execute("ALTER TABLE devices ADD COLUMN api_key_lookup TEXT")
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_devices_api_key_lookup "
-                "ON devices(api_key_lookup)"
-            )
-            ldap_cols = {
-                row["name"]
-                for row in conn.execute("PRAGMA table_info(ldap_settings)").fetchall()
-            }
-            if "allowed_group" not in ldap_cols:
-                conn.execute(
-                    "ALTER TABLE ldap_settings ADD COLUMN allowed_group "
-                    "TEXT NOT NULL DEFAULT ''"
-                )
-            if "tls_insecure" not in ldap_cols:
-                conn.execute(
-                    "ALTER TABLE ldap_settings ADD COLUMN tls_insecure "
-                    "INTEGER NOT NULL DEFAULT 0"
-                )
-            # Multi-version MSI mirror (0.10): migrate singleton agent_update → catalog.
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS agent_msi_versions (
-                  version TEXT PRIMARY KEY,
-                  msi_name TEXT NOT NULL,
-                  sha256 TEXT NOT NULL,
-                  file_path TEXT NOT NULL,
-                  source TEXT NOT NULL DEFAULT 'github',
-                  source_tag TEXT,
-                  release_url TEXT,
-                  mirrored_at TEXT NOT NULL
-                )
-                """
-            )
-            legacy = conn.execute(
-                "SELECT version, msi_name, sha256, file_path, source_tag, "
-                "release_url, synced_at FROM agent_update WHERE id = 1"
-            ).fetchone()
-            if legacy:
-                conn.execute(
-                    """
-                    INSERT OR IGNORE INTO agent_msi_versions(
-                      version, msi_name, sha256, file_path, source,
-                      source_tag, release_url, mirrored_at
-                    ) VALUES (?, ?, ?, ?, 'github', ?, ?, ?)
-                    """,
-                    (
-                        legacy["version"],
-                        legacy["msi_name"],
-                        legacy["sha256"],
-                        legacy["file_path"],
-                        legacy["source_tag"],
-                        legacy["release_url"],
-                        legacy["synced_at"],
-                    ),
-                )
-            smtp_cols = {
-                row["name"]
-                for row in conn.execute("PRAGMA table_info(smtp_settings)").fetchall()
-            }
-            if "notify_json" not in smtp_cols:
-                conn.execute(
-                    "ALTER TABLE smtp_settings ADD COLUMN notify_json "
-                    "TEXT NOT NULL DEFAULT ''"
+                    f"INSERT INTO {table}(id) VALUES (1) ON CONFLICT DO NOTHING"
                 )
             conn.commit()
 
@@ -418,7 +154,7 @@ class Database:
         verify_fn,
         *,
         lookup_hash: Optional[str] = None,
-    ) -> Optional[sqlite3.Row]:
+    ) -> Optional[Any]:
         """O(1) lookup by HMAC index, then one Argon2 verify (SEC-006).
 
         Legacy rows without api_key_lookup are scanned once and backfilled.
@@ -1031,7 +767,7 @@ class Database:
     # --- зеркало agent update (каталог версий + указатель latest) ---
 
     @staticmethod
-    def _msi_row(row: sqlite3.Row) -> dict[str, Any]:
+    def _msi_row(row: Any) -> dict[str, Any]:
         return {
             "version": row["version"],
             "msi_name": row["msi_name"],
@@ -1267,7 +1003,7 @@ class Database:
     # --- remote config агента (policies + per-device overrides) ---
 
     @staticmethod
-    def _row_to_policy(row: sqlite3.Row) -> dict[str, Any]:
+    def _row_to_policy(row: Any) -> dict[str, Any]:
         try:
             conditions = json.loads(row["conditions_json"] or "[]")
         except json.JSONDecodeError:
@@ -1936,15 +1672,11 @@ class Database:
 
 
 
-def open_database(
-    *,
-    db_path: Optional[Union[Path, str]] = None,
-    database_url: Optional[str] = None,
-) -> Database:
-    """Factory: BAD_DATABASE_URL → Postgres, иначе SQLite file."""
+def open_database(*, database_url: Optional[str] = None) -> Database:
+    """Factory: требует BAD_DATABASE_URL (Postgres only)."""
     url = (database_url or "").strip()
-    if url:
-        return Database(database_url=url)
-    if db_path is None:
-        raise ValueError("db_path required when BAD_DATABASE_URL is empty")
-    return Database(Path(db_path))
+    if not url:
+        raise RuntimeError(
+            "BAD_DATABASE_URL is required — SQLite runtime removed"
+        )
+    return Database(url)

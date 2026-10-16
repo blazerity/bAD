@@ -29,9 +29,6 @@ dev = [
   "ruff>=0.7.0",
 ]
 
-[project.scripts]
-bad-sqlite-to-pg = "bad_server.sqlite_to_pg:cli"
-
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["bad_server*"]

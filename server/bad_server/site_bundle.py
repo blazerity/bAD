@@ -95,8 +95,8 @@ def build_key_escrow_archive(
                 "product_version": __version__,
                 "files": included,
                 "notes": [
-                    "Escrow only — no SQLite. Treat as secret (SEC-005).",
-                    "Daily DB backup alone is not full DR when keys are external.",
+                    "Escrow only — no DB dump. Treat as secret (SEC-005).",
+                    "Daily pg_dump alone is not full DR when keys are external.",
                 ],
             },
         )
@@ -108,7 +108,6 @@ def build_key_escrow_archive(
 def build_site_bundle(
     *,
     db: Database,
-    db_path: Path,
     backup_dir: Path,
     updates_dir: Path,
     data_key_file: Path,
@@ -119,15 +118,14 @@ def build_site_bundle(
 ) -> tuple[bytes, str]:
     """Собрать tar.gz site bundle. Возвращает (bytes, filename)."""
     backup_dir.mkdir(parents=True, exist_ok=True)
-    url = (database_url or getattr(db, "database_url", None) or "").strip() or None
-    # Свежий снимок: SQLite Online Backup или pg_dump.
-    snap = run_daily_backup(
-        backup_dir, db_path=db_path, database_url=url
-    )
+    url = (database_url or getattr(db, "database_url", None) or "").strip()
+    if not url:
+        raise RuntimeError("BAD_DATABASE_URL required for site bundle")
+    snap = run_daily_backup(backup_dir, database_url=url)
     if not snap.get("ok"):
-        raise RuntimeError(snap.get("error") or "DB backup failed")
+        raise RuntimeError(snap.get("error") or "pg_dump failed")
     db_snapshot = Path(snap["path"])
-    db_arcname = "bad.dump" if url else "bad.db"
+    db_arcname = "bad.dump"
 
     versions = db.list_agent_msi_versions()
     mirror_meta = {
@@ -153,14 +151,12 @@ def build_site_bundle(
         DEFAULT_KEY_CANDIDATES,
         extra_key_files or [],
     )
-    backend = "postgres" if url else "sqlite"
-
     included: list[dict[str, Any]] = []
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
         info = _add_file(tar, db_arcname, db_snapshot)
         if info:
-            included.append({**info, "kind": "db", "backend": backend})
+            included.append({**info, "kind": "db", "backend": "postgres"})
 
         for path in key_paths:
             info = _add_file(tar, f"keys/{path.name}", path)
@@ -203,14 +199,10 @@ def build_site_bundle(
                 "format": "bad-site-bundle/v1",
                 "created_at": _utc_stamp(),
                 "product_version": __version__,
-                "db_backend": backend,
+                "db_backend": "postgres",
                 "files": included,
                 "notes": [
-                    (
-                        "Contains pg_dump (-Fc) and site key files — treat as secret."
-                        if url
-                        else "Contains SQLite snapshot and site key files — treat as secret."
-                    ),
+                    "Contains pg_dump (-Fc) and site key files — treat as secret.",
                     "DB dump ≠ keys. Restore: deploy/debian/restore-site-bundle.sh.",
                 ],
             },

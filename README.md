@@ -5,7 +5,7 @@
 | Компонент | Стек |
 |-----------|------|
 | Агент | .NET 8 Worker Service (служба Windows), WiX MSI |
-| Сервер | Python 3.11+ FastAPI + SQLite, uvicorn за nginx TLS |
+| Сервер | Python 3.11+ FastAPI + Postgres, uvicorn за nginx TLS |
 | Deploy | `deploy/debian/install.sh` — установка одной командой на Debian 12 |
 
 ## Структура репозитория
@@ -27,7 +27,7 @@ cd server
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-export BAD_DB_PATH=./data/bad.db
+export BAD_DATABASE_URL=postgresql://bad:bad@127.0.0.1:5432/bad
 export BAD_ENROLLMENT_TOKEN=dev-enrollment-token-change-me-please-32b
 export BAD_ADMIN_TOKEN=dev-admin-token-change-me-please-32bytes
 

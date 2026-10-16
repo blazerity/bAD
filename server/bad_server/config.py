@@ -19,12 +19,13 @@ def _env_bool(name: str, default: bool) -> bool:
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="BAD_", extra="ignore")
 
-    db_path: Path = Path(os.environ.get("BAD_DB_PATH", "./data/bad.db"))
-    # Если set → Postgres (prod opt-in). Иначе SQLite по db_path (lab/default).
+    # Единственный runtime DB — Postgres URL (обязателен при старте API).
     database_url: str = ""
+    # Каталог для lab fallback-файлов секретов (не БД).
+    data_dir: Path = Path(os.environ.get("BAD_DATA_DIR", "./data"))
     enrollment_token: str = ""
     admin_token: str = ""
-    # Master secrets — prefer env/file outside SQLite (SEC-005).
+    # Master secrets — prefer env/file outside DB (SEC-005).
     session_secret: str = ""
     data_key: str = ""
     session_secret_file: Path = Path(
@@ -64,7 +65,7 @@ class Settings(BaseSettings):
     agent_update_sync_interval_seconds: int = 3600
     agent_update_sync_on_startup: bool = True
 
-    # Ежедневные бэкапы (SQLite file или pg_dump) — сегодня + вчера.
+    # Ежедневные бэкапы pg_dump — сегодня + вчера.
     backup_dir: Path = Path(
         os.environ.get("BAD_BACKUP_DIR", "/var/lib/bad/backups")
     )
@@ -85,10 +86,6 @@ class Settings(BaseSettings):
         if text in {"auto", "none"}:
             return None
         return None
-
-    @property
-    def uses_postgres(self) -> bool:
-        return bool((self.database_url or "").strip())
 
 
 @lru_cache

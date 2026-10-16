@@ -1,13 +1,9 @@
-"""Dual-run connection adapter: SQLite (lab) + Postgres (BAD_DATABASE_URL)."""
+"""Postgres connection adapter for Database (канон: BAD_DATABASE_URL)."""
 
 from __future__ import annotations
 
 import re
-import sqlite3
 from typing import Any, Iterable, Optional, Sequence, Union
-
-BACKEND_SQLITE = "sqlite"
-BACKEND_POSTGRES = "postgres"
 
 _PLACEHOLDER_RE = re.compile(r"\?")
 _COLLATE_NOCASE_RE = re.compile(
@@ -20,26 +16,22 @@ _INSERT_OR_IGNORE_RE = re.compile(
 )
 
 
-def adapt_sql(sql: str, backend: str) -> str:
-    """Translate SQLite-flavoured SQL for the active backend."""
-    if backend == BACKEND_SQLITE:
-        return sql
+def adapt_sql(sql: str) -> str:
+    """SQLite-flavoured helpers → Postgres (placeholders, COLLATE, OR IGNORE)."""
     text = _COLLATE_NOCASE_RE.sub(r"LOWER(\1) = LOWER(?)", sql)
+    had_ignore = bool(_INSERT_OR_IGNORE_RE.search(text))
     text = _INSERT_OR_IGNORE_RE.sub("INSERT INTO", text)
-    if _INSERT_OR_IGNORE_RE.search(sql) and "ON CONFLICT" not in text.upper():
+    if had_ignore and "ON CONFLICT" not in text.upper():
         text = text.rstrip().rstrip(";") + " ON CONFLICT DO NOTHING"
-    # psycopg uses %s placeholders.
-    text = _PLACEHOLDER_RE.sub("%s", text)
-    return text
+    return _PLACEHOLDER_RE.sub("%s", text)
 
 
 class CompatCursor:
-    """Cursor façade: fetchone/fetchall + lastrowid for both backends."""
+    """Cursor façade: fetchone/fetchall (+ optional lastrowid)."""
 
-    def __init__(self, raw: Any, *, backend: str, lastrowid: Optional[int] = None) -> None:
+    def __init__(self, raw: Any, *, lastrowid: Optional[int] = None) -> None:
         self._raw = raw
-        self.backend = backend
-        self.lastrowid = lastrowid if lastrowid is not None else getattr(raw, "lastrowid", None)
+        self.lastrowid = lastrowid
 
     def fetchone(self) -> Any:
         return self._raw.fetchone()
@@ -61,26 +53,18 @@ class CompatCursor:
 
 
 class CompatConnection:
-    """Minimal sqlite3-compatible connection for Database.connection()."""
+    """Minimal connection API for Database.connection()."""
 
-    def __init__(self, raw: Any, *, backend: str) -> None:
+    def __init__(self, raw: Any) -> None:
         self._raw = raw
-        self.backend = backend
 
     def execute(
         self, sql: str, params: Optional[Union[Sequence[Any], dict[str, Any]]] = None
     ) -> CompatCursor:
-        adapted = adapt_sql(sql, self.backend)
-        cur = self._raw.execute(adapted, params or ())
-        # lastrowid — SQLite; у psycopg его нет (RETURNING отдельно при необходимости).
-        lastrowid = None if self.backend == BACKEND_POSTGRES else getattr(cur, "lastrowid", None)
-        return CompatCursor(cur, backend=self.backend, lastrowid=lastrowid)
+        cur = self._raw.execute(adapt_sql(sql), params or ())
+        return CompatCursor(cur)
 
     def executescript(self, script: str) -> None:
-        if self.backend == BACKEND_SQLITE:
-            self._raw.executescript(script)
-            return
-        # Postgres: run statements one-by-one (no PRAGMA).
         for stmt in _split_sql_statements(script):
             if stmt.strip():
                 self._raw.execute(stmt)
@@ -126,25 +110,16 @@ def _split_sql_statements(script: str) -> list[str]:
     return parts
 
 
-def connect_sqlite(path: str) -> CompatConnection:
-    conn = sqlite3.connect(path, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=5000")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return CompatConnection(conn, backend=BACKEND_SQLITE)
-
-
 def connect_postgres(database_url: str) -> CompatConnection:
     try:
         import psycopg
         from psycopg.rows import dict_row
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError(
-            "Postgres backend requires psycopg: pip install 'psycopg[binary]'"
+            "Postgres requires psycopg: pip install 'psycopg[binary]'"
         ) from exc
     raw = psycopg.connect(database_url, row_factory=dict_row)
-    return CompatConnection(raw, backend=BACKEND_POSTGRES)
+    return CompatConnection(raw)
 
 
 SCHEMA_SQL_POSTGRES = """

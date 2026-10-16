@@ -200,17 +200,17 @@ def _write_secret_file(path: Path, value: str) -> bool:
 def ensure_bootstrap_secrets(db: Database, settings: Settings) -> tuple[str, str]:
     """Resolve session_secret + data_key from env/file first, DB only as legacy.
 
-    New secrets are written outside SQLite when possible (SEC-005). A copy of
+    New secrets are written outside the database when possible (SEC-005). A copy of
     ``bad.db`` / daily backups must not be treated as safe if keys still live
     only in ``site_secrets``.
     """
     env_session = (settings.session_secret or "").strip()
     env_data = (settings.data_key or "").strip()
     file_session = _read_secret_file(settings.session_secret_file) or _read_secret_file(
-        settings.db_path.parent / ".session_secret"
+        settings.data_dir / ".session_secret"
     )
     file_data = _read_secret_file(settings.data_key_file) or _read_secret_file(
-        settings.db_path.parent / ".data_key"
+        settings.data_dir / ".data_key"
     )
     db_session = db.get_site_secret("session_secret")
     db_data = db.get_site_secret("data_key")
@@ -244,16 +244,16 @@ def ensure_bootstrap_secrets(db: Database, settings: Settings) -> tuple[str, str
             if db.get_site_secret(kind):
                 db.delete_site_secret(kind)
                 logger.info(
-                    "Removed plaintext %s from SQLite; using file %s", kind, path
+                    "Removed plaintext %s from the database; using file %s", kind, path
                 )
             return
         if _write_secret_file(path, value):
             if db.get_site_secret(kind):
                 db.delete_site_secret(kind)
-            logger.info("Stored %s outside SQLite at %s", kind, path)
+            logger.info("Stored %s outside the database at %s", kind, path)
             return
         # Dev fallback next to DB.
-        fallback = settings.db_path.parent / f".{kind}"
+        fallback = settings.data_dir / f".{kind}"
         if _write_secret_file(fallback, value):
             if db.get_site_secret(kind):
                 db.delete_site_secret(kind)
@@ -267,7 +267,7 @@ def ensure_bootstrap_secrets(db: Database, settings: Settings) -> tuple[str, str
         if created:
             db.set_site_secret(kind, value)
             logger.warning(
-                "%s stored in SQLite — DB/backup copies are sensitive. "
+                "%s stored in the database — DB/backup copies are sensitive. "
                 "Set BAD_%s or create %s (mode 0400).",
                 kind,
                 kind.upper(),
@@ -288,7 +288,7 @@ def ensure_bootstrap_secrets(db: Database, settings: Settings) -> tuple[str, str
     )
     if db_data and not env_data and not file_data and not settings.data_key_file.is_file():
         logger.warning(
-            "data_key loaded from SQLite. Backups of bad.db expose Fernet material "
+            "data_key loaded from the database. Backups of DB dumps expose Fernet material "
             "for SMTP/LDAP passwords. Move key to BAD_DATA_KEY or %s.",
             settings.data_key_file,
         )
