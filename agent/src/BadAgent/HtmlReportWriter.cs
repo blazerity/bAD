@@ -90,6 +90,9 @@ public static class HtmlReportWriter
             Kv(sb, "Производитель", hw.Manufacturer, "model");
             Kv(sb, "Модель", hw.Model, "model");
             Kv(sb, "Серийный номер", hw.SerialNumber, "serial");
+            Kv(sb, "BIOS serial", hw.BiosSerial, "serial");
+            Kv(sb, "IdentifyingNumber", hw.IdentifyingNumber, "serial");
+            Kv(sb, "Baseboard serial", hw.BaseboardSerial, "serial");
             Kv(sb, "SMBIOS UUID", hw.SmbiosUuid, "serial");
             Kv(sb, "Тип корпуса", hw.ChassisType, "model");
             Kv(sb, "Версия BIOS", hw.BiosVersion, "serial");
