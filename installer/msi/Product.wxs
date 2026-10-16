@@ -33,7 +33,7 @@
       Name="blazerity Asset Discovery Agent"
       Manufacturer="blazerity"
       Version="$(ProductVersion)"
-      UpgradeCode="BADA0001-BADA-4B01-8BAD-BLAZERITY0BAD"
+      UpgradeCode="BADA0001-BADA-4B01-8BAD-00BADA000001"
       Scope="perMachine">
 
     <!-- AllowDowngrades: политика pin может откатить агент на более старый MSI (0.10). -->
