@@ -45,6 +45,12 @@ public static class AsciiReportWriter
         Row(sb, "AD OU", snap.Host?.AdOu);
         Row(sb, "AD DN", snap.Host?.AdDistinguishedName);
         Row(sb, "ОС", ReportFormat.FormatOs(snap.Host?.Os));
+        Row(sb, "Последняя загрузка", snap.Host?.LastBootAt);
+        Row(sb, "Часовой пояс", snap.Host?.Timezone);
+        if (snap.Host?.PendingReboot is bool pending)
+        {
+            Row(sb, "Ожидает перезагрузку", pending ? "да" : "нет");
+        }
 
         if (snap.Hardware is null)
         {
@@ -65,6 +71,7 @@ public static class AsciiReportWriter
             Row(sb, "Производитель", hw.Manufacturer);
             Row(sb, "Модель", hw.Model);
             Row(sb, "Серийный №", hw.SerialNumber);
+            Row(sb, "Корпус", hw.ChassisType);
             Row(sb, "BIOS", hw.BiosVersion);
             Row(sb, "Произв. BIOS", hw.BiosManufacturer);
             Row(sb, "Дата BIOS", hw.BiosReleaseDate);
@@ -113,7 +120,12 @@ public static class AsciiReportWriter
             {
                 foreach (var d in hw.Disks)
                 {
-                    Row(sb, Trunc(d.Model ?? "disk", 28), $"{ReportFormat.FormatBytes(d.SizeBytes)}  {d.MediaType}");
+                    var iface = string.IsNullOrWhiteSpace(d.InterfaceType) ? "" : $" {d.InterfaceType}";
+                    var serial = string.IsNullOrWhiteSpace(d.SerialNumber) ? "" : $" [{d.SerialNumber}]";
+                    Row(
+                        sb,
+                        Trunc(d.Model ?? "disk", 28),
+                        $"{ReportFormat.FormatBytes(d.SizeBytes)}  {d.MediaType}{iface}{serial}".Trim());
                 }
             }
             else
@@ -212,6 +224,30 @@ public static class AsciiReportWriter
             Row(sb, "Статус", "пропущено (collect_software=false)");
         }
 
+        if (snap.Security is not null)
+        {
+            sb.AppendLine(BoxMid("Безопасность"));
+            if (snap.Security.TpmPresent is bool tpm)
+            {
+                Row(sb, "TPM", tpm
+                    ? (snap.Security.TpmSpecVersion is null ? "да" : $"да ({snap.Security.TpmSpecVersion})")
+                    : "нет");
+            }
+
+            if (snap.Security.SecureBoot is bool secureBootOn)
+            {
+                Row(sb, "Secure Boot", secureBootOn ? "on" : "off");
+            }
+
+            if (snap.Security.Antivirus is { Count: > 0 })
+            {
+                foreach (var av in snap.Security.Antivirus)
+                {
+                    Row(sb, "AV", av.Name);
+                }
+            }
+        }
+
         if (snap.Minidumps is not null)
         {
             sb.AppendLine(BoxMid("Минидампы BSOD"));
@@ -223,7 +259,10 @@ public static class AsciiReportWriter
             {
                 foreach (var f in snap.Minidumps.Files.Take(5))
                 {
-                    Row(sb, Trunc(f.Name ?? "?", 28), f.ModifiedAt ?? "-");
+                    var bug = f.BugcheckCode is null
+                        ? (f.ModifiedAt ?? "-")
+                        : $"{f.BugcheckCode} {f.BugcheckMessage}".Trim();
+                    Row(sb, Trunc(f.Name ?? "?", 28), Trunc(bug, 40));
                 }
             }
         }

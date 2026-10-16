@@ -24,6 +24,9 @@ public sealed class InventoryCollector : IInventoryCollector
     /// <summary>Макс. метаданных minidump-файлов в inventory (тела не читаем).</summary>
     public const int MaxMinidumpFiles = 20;
 
+    /// <summary>Макс. продуктов AV из SecurityCenter2.</summary>
+    public const int MaxAntivirusProducts = 8;
+
     public InventorySnapshot Collect(string deviceId, string agentVersion, CollectorOptions? options = null)
     {
         options ??= new CollectorOptions();
@@ -65,6 +68,9 @@ public sealed class InventoryCollector : IInventoryCollector
             }
 
             WmiHelper.YieldBriefly();
+            snap.Security = CollectSecurity(snap.CollectorErrors);
+
+            WmiHelper.YieldBriefly();
             snap.Minidumps = CollectMinidumps(snap.CollectorErrors);
         }
         finally
@@ -95,7 +101,7 @@ public sealed class InventoryCollector : IInventoryCollector
             if (OperatingSystem.IsWindows())
             {
                 using var searcher = new ManagementObjectSearcher(
-                    "SELECT Caption, Version, BuildNumber, OSArchitecture, InstallDate, CSName FROM Win32_OperatingSystem");
+                    "SELECT Caption, Version, BuildNumber, OSArchitecture, InstallDate, CSName, LastBootUpTime FROM Win32_OperatingSystem");
                 foreach (ManagementObject obj in searcher.Get())
                 {
                     using (obj)
@@ -108,6 +114,7 @@ public sealed class InventoryCollector : IInventoryCollector
                             Arch = obj["OSArchitecture"]?.ToString(),
                             InstallDate = obj["InstallDate"]?.ToString()
                         };
+                        host.LastBootAt = TryWmiDateToUtcIso(obj["LastBootUpTime"]?.ToString());
                         var domain = obj["CSName"]?.ToString();
                         if (!string.IsNullOrWhiteSpace(domain))
                         {
@@ -115,6 +122,18 @@ public sealed class InventoryCollector : IInventoryCollector
                         }
                     }
                 }
+
+                try
+                {
+                    var tz = TimeZoneInfo.Local;
+                    host.Timezone = string.IsNullOrWhiteSpace(tz.Id) ? tz.DisplayName : tz.Id;
+                }
+                catch
+                {
+                    // soft-fail timezone
+                }
+
+                host.PendingReboot = TryDetectPendingReboot(errors);
 
                 string? dnsDomain = null;
                 string? partOfDomain = null;
@@ -147,6 +166,19 @@ public sealed class InventoryCollector : IInventoryCollector
                     Version = Environment.OSVersion.VersionString,
                     Arch = RuntimeInformation.OSArchitecture.ToString()
                 };
+            }
+
+            if (host.Timezone is null)
+            {
+                try
+                {
+                    var tz = TimeZoneInfo.Local;
+                    host.Timezone = string.IsNullOrWhiteSpace(tz.Id) ? tz.DisplayName : tz.Id;
+                }
+                catch
+                {
+                    // ignore
+                }
             }
         }
         catch (Exception ex)
@@ -268,6 +300,8 @@ public sealed class InventoryCollector : IInventoryCollector
         CollectHardwareRamTotal(hw, errors);
         WmiHelper.YieldBriefly();
         CollectHardwareSystemIdentity(hw, errors);
+        WmiHelper.YieldBriefly();
+        CollectHardwareChassis(hw, errors);
         WmiHelper.YieldBriefly();
         CollectHardwareBattery(hw, errors);
         WmiHelper.YieldBriefly();
@@ -413,6 +447,63 @@ public sealed class InventoryCollector : IInventoryCollector
             errors.Add(new CollectorError
             {
                 Section = "hardware.system",
+                Error = Truncate(ex.Message, 200)
+            });
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void CollectHardwareChassis(HardwareInfo hw, List<CollectorError> errors)
+    {
+        try
+        {
+            var raw = new List<int>();
+            using var searcher = new ManagementObjectSearcher(
+                "SELECT ChassisTypes FROM Win32_SystemEnclosure");
+            foreach (ManagementObject obj in searcher.Get())
+            {
+                using (obj)
+                {
+                    if (obj["ChassisTypes"] is ushort[] codes)
+                    {
+                        foreach (var c in codes)
+                        {
+                            raw.Add(c);
+                        }
+                    }
+                    else if (obj["ChassisTypes"] is Array arr)
+                    {
+                        foreach (var item in arr)
+                        {
+                            if (item is null)
+                            {
+                                continue;
+                            }
+
+                            try
+                            {
+                                raw.Add(Convert.ToInt32(item));
+                            }
+                            catch
+                            {
+                                // skip
+                            }
+                        }
+                    }
+
+                    break;
+                }
+            }
+
+            hw.ChassisTypesRaw = raw.Count > 0 ? raw : null;
+            hw.ChassisType = HardwareMaps.NormalizeChassisType(
+                hw.ChassisTypesRaw, hw.Manufacturer, hw.Model);
+        }
+        catch (Exception ex)
+        {
+            errors.Add(new CollectorError
+            {
+                Section = "hardware.chassis",
                 Error = Truncate(ex.Message, 200)
             });
         }
@@ -693,17 +784,34 @@ public sealed class InventoryCollector : IInventoryCollector
                     top.Sort((a, b) => b.Mtime.CompareTo(a.Mtime));
                 }
 
-                foreach (var (_, path) in top)
+                foreach (var (mtime, path) in top)
                 {
                     try
                     {
                         var f = new FileInfo(path);
-                        info.Files.Add(new MinidumpFileInfo
+                        var file = new MinidumpFileInfo
                         {
                             Name = f.Name,
                             SizeBytes = f.Exists ? f.Length : null,
                             ModifiedAt = f.LastWriteTimeUtc.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
-                        });
+                        };
+                        // Только заголовок / Event Log — тело .dmp не читаем целиком и не upload.
+                        var bug = MinidumpBugcheck.TryRead(path);
+                        if (bug.Code is null)
+                        {
+                            bug = MinidumpBugcheck.TryFromEventLog(mtime);
+                        }
+
+                        if (bug.Code is not null)
+                        {
+                            file.BugcheckCode = bug.Code;
+                            file.BugcheckParameters = bug.Parameters is { Count: > 0 }
+                                ? bug.Parameters.ToList()
+                                : null;
+                            file.BugcheckMessage = bug.Message;
+                        }
+
+                        info.Files.Add(file);
                     }
                     catch
                     {
@@ -737,7 +845,7 @@ public sealed class InventoryCollector : IInventoryCollector
         {
             hw.Disks = new List<DiskInfo>();
             using var disks = new ManagementObjectSearcher(
-                "SELECT Model, Size, MediaType FROM Win32_DiskDrive");
+                "SELECT Model, Size, MediaType, SerialNumber, InterfaceType FROM Win32_DiskDrive");
             foreach (ManagementObject obj in disks.Get())
             {
                 using (obj)
@@ -746,7 +854,9 @@ public sealed class InventoryCollector : IInventoryCollector
                     {
                         Model = HardwareMaps.CleanWmiString(obj["Model"]?.ToString()),
                         SizeBytes = ToLong(obj["Size"]),
-                        MediaType = HardwareMaps.CleanWmiString(obj["MediaType"]?.ToString())
+                        MediaType = HardwareMaps.CleanWmiString(obj["MediaType"]?.ToString()),
+                        SerialNumber = HardwareMaps.CleanWmiString(obj["SerialNumber"]?.ToString()),
+                        InterfaceType = HardwareMaps.CleanWmiString(obj["InterfaceType"]?.ToString())
                     });
                 }
             }
@@ -1139,6 +1249,200 @@ public sealed class InventoryCollector : IInventoryCollector
         }
 
         return modules;
+    }
+
+    private static SecurityInfo? CollectSecurity(List<CollectorError> errors)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return null;
+        }
+
+        var sec = new SecurityInfo();
+        CollectSecurityTpm(sec, errors);
+        WmiHelper.YieldBriefly();
+        CollectSecuritySecureBoot(sec, errors);
+        WmiHelper.YieldBriefly();
+        CollectSecurityAntivirus(sec, errors);
+        return sec;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void CollectSecurityTpm(SecurityInfo sec, List<CollectorError> errors)
+    {
+        try
+        {
+            var scope = new ManagementScope(@"\\.\root\cimv2\Security\MicrosoftTpm");
+            scope.Connect();
+            using var searcher = new ManagementObjectSearcher(
+                scope, new ObjectQuery("SELECT SpecVersion, IsEnabled_InitialValue FROM Win32_Tpm"));
+            foreach (ManagementObject obj in searcher.Get())
+            {
+                using (obj)
+                {
+                    sec.TpmPresent = true;
+                    sec.TpmSpecVersion = HardwareMaps.CleanWmiString(obj["SpecVersion"]?.ToString());
+                    break;
+                }
+            }
+
+            if (sec.TpmPresent is null)
+            {
+                sec.TpmPresent = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            errors.Add(new CollectorError
+            {
+                Section = "security.tpm",
+                Error = Truncate(ex.Message, 200)
+            });
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void CollectSecuritySecureBoot(SecurityInfo sec, List<CollectorError> errors)
+    {
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(
+                @"SYSTEM\CurrentControlSet\Control\SecureBoot\State");
+            if (key?.GetValue("UEFISecureBootEnabled") is int v)
+            {
+                sec.SecureBoot = v != 0;
+            }
+            else if (key?.GetValue("UEFISecureBootEnabled") is long lv)
+            {
+                sec.SecureBoot = lv != 0;
+            }
+            else
+            {
+                sec.SecureBoot = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            errors.Add(new CollectorError
+            {
+                Section = "security.secure_boot",
+                Error = Truncate(ex.Message, 200)
+            });
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void CollectSecurityAntivirus(SecurityInfo sec, List<CollectorError> errors)
+    {
+        try
+        {
+            var list = new List<AntivirusProductInfo>();
+            var scope = new ManagementScope(@"\\.\root\SecurityCenter2");
+            scope.Connect();
+            using var searcher = new ManagementObjectSearcher(
+                scope, new ObjectQuery("SELECT displayName, productState FROM AntiVirusProduct"));
+            foreach (ManagementObject obj in searcher.Get())
+            {
+                using (obj)
+                {
+                    if (list.Count >= MaxAntivirusProducts)
+                    {
+                        break;
+                    }
+
+                    var name = HardwareMaps.CleanWmiString(obj["displayName"]?.ToString());
+                    if (name is null)
+                    {
+                        continue;
+                    }
+
+                    list.Add(new AntivirusProductInfo
+                    {
+                        Name = name,
+                        ProductState = ToInt(obj["productState"])
+                    });
+                }
+            }
+
+            sec.Antivirus = list.Count > 0 ? list : null;
+        }
+        catch (Exception ex)
+        {
+            errors.Add(new CollectorError
+            {
+                Section = "security.antivirus",
+                Error = Truncate(ex.Message, 200)
+            });
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static bool? TryDetectPendingReboot(List<CollectorError> errors)
+    {
+        try
+        {
+            if (RegistryKeyExists(
+                    @"SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending")
+                || RegistryKeyExists(
+                    @"SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootInProgress")
+                || RegistryKeyExists(
+                    @"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired")
+                || RegistryValueExists(
+                    @"SYSTEM\CurrentControlSet\Control\Session Manager",
+                    "PendingFileRenameOperations"))
+            {
+                return true;
+            }
+
+            return false;
+        }
+        catch (Exception ex)
+        {
+            errors.Add(new CollectorError
+            {
+                Section = "host.pending_reboot",
+                Error = Truncate(ex.Message, 200)
+            });
+            return null;
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static bool RegistryKeyExists(string relativePath)
+    {
+        using var key = Registry.LocalMachine.OpenSubKey(relativePath);
+        return key is not null;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static bool RegistryValueExists(string relativePath, string valueName)
+    {
+        using var key = Registry.LocalMachine.OpenSubKey(relativePath);
+        if (key is null)
+        {
+            return false;
+        }
+
+        return key.GetValue(valueName) is not null;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static string? TryWmiDateToUtcIso(string? dmtf)
+    {
+        if (string.IsNullOrWhiteSpace(dmtf))
+        {
+            return null;
+        }
+
+        try
+        {
+            var dt = ManagementDateTimeConverter.ToDateTime(dmtf).ToUniversalTime();
+            return dt.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'");
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     /// <summary>Читать опциональное WMI-свойство; отсутствующие → null (без throw).</summary>

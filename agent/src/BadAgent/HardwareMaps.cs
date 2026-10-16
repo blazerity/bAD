@@ -200,4 +200,89 @@ public static class HardwareMaps
 
         return null;
     }
+
+    /// <summary>
+    /// Нормализация SMBIOS ChassisTypes → laptop|desktop|server|vm|other.
+    /// VM hint из manufacturer/model перекрывает, если похоже на гипервизор.
+    /// </summary>
+    public static string NormalizeChassisType(
+        IReadOnlyList<int>? chassisTypesRaw,
+        string? manufacturer,
+        string? model)
+    {
+        if (LooksLikeVirtualMachine(manufacturer, model))
+        {
+            return "vm";
+        }
+
+        if (chassisTypesRaw is null || chassisTypesRaw.Count == 0)
+        {
+            return "other";
+        }
+
+        foreach (var code in chassisTypesRaw)
+        {
+            if (code is 8 or 9 or 10 or 14 or 30 or 31 or 32)
+            {
+                return "laptop";
+            }
+        }
+
+        foreach (var code in chassisTypesRaw)
+        {
+            if (code is 17 or 23 or 28 or 29)
+            {
+                return "server";
+            }
+        }
+
+        foreach (var code in chassisTypesRaw)
+        {
+            if (code is 3 or 4 or 5 or 6 or 7 or 13 or 15 or 16 or 24 or 34 or 35 or 36)
+            {
+                return "desktop";
+            }
+        }
+
+        return "other";
+    }
+
+    public static bool LooksLikeVirtualMachine(string? manufacturer, string? model)
+    {
+        var blob = $"{manufacturer} {model}".ToLowerInvariant();
+        return blob.Contains("vmware", StringComparison.Ordinal)
+               || blob.Contains("virtualbox", StringComparison.Ordinal)
+               || blob.Contains("vbox", StringComparison.Ordinal)
+               || blob.Contains("hyper-v", StringComparison.Ordinal)
+               || blob.Contains("virtual machine", StringComparison.Ordinal)
+               || blob.Contains("kvm", StringComparison.Ordinal)
+               || blob.Contains("qemu", StringComparison.Ordinal)
+               || blob.Contains("xen", StringComparison.Ordinal)
+               || blob.Contains("parallels", StringComparison.Ordinal)
+               || blob.Contains("bochs", StringComparison.Ordinal);
+    }
+
+    /// <summary>Короткие имена известных bugcheck; иначе null (код всё равно отдаём).</summary>
+    public static string? BugcheckMessage(uint code) => code switch
+    {
+        0x0000000A => "IRQL_NOT_LESS_OR_EQUAL",
+        0x0000001A => "MEMORY_MANAGEMENT",
+        0x0000001E => "KMODE_EXCEPTION_NOT_HANDLED",
+        0x0000003B => "SYSTEM_SERVICE_EXCEPTION",
+        0x00000050 => "PAGE_FAULT_IN_NONPAGED_AREA",
+        0x0000007E => "SYSTEM_THREAD_EXCEPTION_NOT_HANDLED",
+        0x0000007F => "UNEXPECTED_KERNEL_MODE_TRAP",
+        0x0000009F => "DRIVER_POWER_STATE_FAILURE",
+        0x000000C2 => "BAD_POOL_CALLER",
+        0x000000D1 => "DRIVER_IRQL_NOT_LESS_OR_EQUAL",
+        0x000000D8 => "DRIVER_VERIFIER_DETECTED_VIOLATION",
+        0x000000EA => "THREAD_STUCK_IN_DEVICE_DRIVER",
+        0x000000F4 => "CRITICAL_OBJECT_TERMINATION",
+        0x00000109 => "CRITICAL_STRUCTURE_CORRUPTION",
+        0x00000133 => "DPC_WATCHDOG_VIOLATION",
+        0x00000139 => "KERNEL_SECURITY_CHECK_FAILURE",
+        0x00000144 => "BUGCODE_USB_DRIVER",
+        0x000001C4 => "DRIVER_VERIFIER_DETECTED_VIOLATION",
+        _ => null
+    };
 }

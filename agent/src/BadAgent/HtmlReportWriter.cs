@@ -59,6 +59,13 @@ public static class HtmlReportWriter
         Kv(sb, "AD OU", snap.Host?.AdOu);
         Kv(sb, "AD DN", snap.Host?.AdDistinguishedName);
         Kv(sb, "ОС", ReportFormat.FormatOs(snap.Host?.Os, "—"));
+        Kv(sb, "Последняя загрузка", snap.Host?.LastBootAt);
+        Kv(sb, "Часовой пояс", snap.Host?.Timezone);
+        if (snap.Host?.PendingReboot is bool pendingReboot)
+        {
+            Kv(sb, "Ожидает перезагрузку", pendingReboot ? "да" : "нет");
+        }
+
         sb.AppendLine("</dl>");
 
         if (snap.Hardware is null)
@@ -83,6 +90,7 @@ public static class HtmlReportWriter
             Kv(sb, "Производитель", hw.Manufacturer, "model");
             Kv(sb, "Модель", hw.Model, "model");
             Kv(sb, "Серийный номер", hw.SerialNumber, "serial");
+            Kv(sb, "Тип корпуса", hw.ChassisType, "model");
             Kv(sb, "Версия BIOS", hw.BiosVersion, "serial");
             Kv(sb, "Производитель BIOS", hw.BiosManufacturer, "serial");
             Kv(sb, "Дата BIOS", hw.BiosReleaseDate, "serial");
@@ -139,10 +147,15 @@ public static class HtmlReportWriter
             if (hw.Disks is { Count: > 0 })
             {
                 SubHead(sb, "disk", "Диски");
-                sb.AppendLine("<table><thead><tr><th>Модель</th><th>Размер</th><th>Носитель</th></tr></thead><tbody>");
+                sb.AppendLine(
+                    "<table><thead><tr><th>Модель</th><th>Размер</th><th>Носитель</th>" +
+                    "<th>Интерфейс</th><th>Серийный №</th></tr></thead><tbody>");
                 foreach (var d in hw.Disks)
                 {
-                    sb.AppendLine($"<tr><td>{Enc(d.Model)}</td><td>{Enc(ReportFormat.FormatBytes(d.SizeBytes, "—"))}</td><td>{Enc(d.MediaType)}</td></tr>");
+                    sb.AppendLine(
+                        $"<tr><td>{Enc(d.Model)}</td><td>{Enc(ReportFormat.FormatBytes(d.SizeBytes, "—"))}</td>" +
+                        $"<td>{Enc(d.MediaType)}</td><td>{Enc(d.InterfaceType)}</td>" +
+                        $"<td>{Enc(d.SerialNumber)}</td></tr>");
                 }
 
                 sb.AppendLine("</tbody></table>");
@@ -253,6 +266,39 @@ public static class HtmlReportWriter
             sb.AppendLine("</tbody></table>");
         }
 
+        if (snap.Security is not null)
+        {
+            Section(sb, "events", "Безопасность");
+            sb.AppendLine("<dl class=\"grid\">");
+            if (snap.Security.TpmPresent is bool tpmPresent)
+            {
+                Kv(
+                    sb,
+                    "TPM",
+                    tpmPresent
+                        ? (snap.Security.TpmSpecVersion is null ? "да" : $"да ({snap.Security.TpmSpecVersion})")
+                        : "нет");
+            }
+
+            if (snap.Security.SecureBoot is bool secureBoot)
+            {
+                Kv(sb, "Secure Boot", secureBoot ? "on" : "off");
+            }
+
+            sb.AppendLine("</dl>");
+            if (snap.Security.Antivirus is { Count: > 0 })
+            {
+                sb.AppendLine("<table><thead><tr><th>Антивирус</th><th>product_state</th></tr></thead><tbody>");
+                foreach (var av in snap.Security.Antivirus)
+                {
+                    sb.AppendLine(
+                        $"<tr><td>{Enc(av.Name)}</td><td>{Enc(av.ProductState?.ToString())}</td></tr>");
+                }
+
+                sb.AppendLine("</tbody></table>");
+            }
+        }
+
         if (snap.Minidumps is not null)
         {
             Section(sb, "events", "Минидампы BSOD");
@@ -264,16 +310,19 @@ public static class HtmlReportWriter
             sb.AppendLine("</dl>");
             if (snap.Minidumps.Files is { Count: > 0 })
             {
-                sb.AppendLine("<table><thead><tr><th>Имя</th><th>Размер</th><th>Изменён (UTC)</th></tr></thead><tbody>");
+                sb.AppendLine(
+                    "<table><thead><tr><th>Имя</th><th>Размер</th><th>Изменён (UTC)</th>" +
+                    "<th>Bugcheck</th><th>Причина</th></tr></thead><tbody>");
                 foreach (var f in snap.Minidumps.Files)
                 {
                     sb.AppendLine(
                         $"<tr><td>{Enc(f.Name)}</td><td>{Enc(ReportFormat.FormatBytes(f.SizeBytes, "—"))}</td>" +
-                        $"<td>{Enc(f.ModifiedAt)}</td></tr>");
+                        $"<td>{Enc(f.ModifiedAt)}</td><td>{Enc(f.BugcheckCode)}</td>" +
+                        $"<td>{Enc(f.BugcheckMessage)}</td></tr>");
                 }
 
                 sb.AppendLine("</tbody></table>");
-                sb.AppendLine("<p class=\"muted\">Тела дампов на сервер не загружаются — только метаданные.</p>");
+                sb.AppendLine("<p class=\"muted\">Тела дампов на сервер не загружаются — только метаданные/заголовок.</p>");
             }
         }
 
