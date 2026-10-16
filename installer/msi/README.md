@@ -41,7 +41,8 @@ signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
 ```powershell
 # 1. Установить WiX v5 как .NET tool (один раз)
 dotnet tool install --global wix --version 5.0.2
-wix extension add WixToolset.Util.wixext/5.0.2
+# --global: иначе extension кэшируется в cwd, а build из installer/msi его не видит (WIX0144)
+wix extension add --global WixToolset.Util.wixext/5.0.2
 
 # 2. Publish агента
 dotnet publish ..\..\agent\src\BadAgent\BadAgent.csproj `
