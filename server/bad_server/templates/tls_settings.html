@@ -1,0 +1,92 @@
+{% extends "settings_base.html" %}
+{% set settings_section = 'tls' %}
+{% block title %}Сертификат TLS — bAD{% endblock %}
+{% block settings_content %}
+<section class="settings">
+  <h1>Сертификат TLS</h1>
+  <p class="muted">
+    TLS терминирует nginx (не uvicorn). До загрузки сертификата UI доступен по HTTP;
+    после успешной установки — HTTPS, redirect 80→443 и Secure-cookie.
+    Private key в HTML и логах не показывается.
+  </p>
+  {% if message %}<p class="ok">{{ message }}</p>{% endif %}
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  {% if warnings %}
+  <ul class="warn-list">
+    {% for w in warnings %}
+    <li class="warn">{{ w }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  <dl class="meta">
+    <div>
+      <dt>Режим</dt>
+      <dd>
+        {% if mode == 'https' %}
+        <span class="ok">HTTPS активен</span>
+        {% else %}
+        <span class="warn">HTTP bootstrap</span>
+        {% endif %}
+      </dd>
+    </div>
+    <div><dt>Домен (BAD_DOMAIN)</dt><dd class="mono">{{ domain or "—" }}</dd></div>
+    <div><dt>fullchain</dt><dd class="mono">{{ cert_path }}</dd></div>
+    <div><dt>privkey на диске</dt><dd>{% if has_private_key %}да{% else %}нет{% endif %}</dd></div>
+    {% if apply and apply.message %}
+    <div><dt>Последний apply</dt><dd>{{ apply.message }}{% if apply.applied_at %} · {{ apply.applied_at }}{% endif %}</dd></div>
+    {% endif %}
+  </dl>
+
+  {% if cert %}
+  <h2>Установленный сертификат</h2>
+  <dl class="meta">
+    <div><dt>Subject</dt><dd class="mono">{{ cert.subject }}</dd></div>
+    <div><dt>Issuer</dt><dd class="mono">{{ cert.issuer }}</dd></div>
+    <div><dt>Not after</dt><dd class="mono">{{ cert.not_after }}</dd></div>
+    <div><dt>SAN</dt><dd class="mono">{% if cert.san %}{{ cert.san | join(', ') }}{% else %}—{% endif %}</dd></div>
+    <div><dt>SHA-256</dt><dd class="mono">{{ cert.fingerprint_sha256 }}</dd></div>
+    <div><dt>Цепочка</dt><dd>{{ cert.chain_length }} блок(ов)</dd></div>
+    {% if cert.cert_mtime %}
+    <div><dt>Файл mtime</dt><dd class="mono">{{ cert.cert_mtime }}</dd></div>
+    {% endif %}
+  </dl>
+  {% else %}
+  <p class="muted">Управляемый сертификат ещё не установлен. Загрузите PEM ниже.</p>
+  {% endif %}
+
+  <h2>Загрузить сертификат и ключ</h2>
+  <p class="muted">
+    PEM: leaf (или fullchain) + private key. Цепочку intermediate можно отдельным полем
+    или включить в файл сертификата. После validate материалы пишутся в staging;
+    root-helper делает <span class="mono">nginx -t</span> и reload.
+  </p>
+  <form method="post" action="/settings/tls" enctype="multipart/form-data" class="settings-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <label for="certificate">Сертификат (PEM)</label>
+    <input id="certificate" name="certificate" type="file" accept=".pem,.crt,.cer,.txt,application/x-pem-file,application/octet-stream" required>
+
+    <label for="private_key">Private key (PEM)</label>
+    <input id="private_key" name="private_key" type="file" accept=".pem,.key,.txt,application/x-pem-file,application/octet-stream" required>
+
+    <label for="chain">Цепочка / intermediates (опционально)</label>
+    <input id="chain" name="chain" type="file" accept=".pem,.crt,.cer,.txt,application/x-pem-file,application/octet-stream">
+
+    <div class="form-actions">
+      <button type="submit">Установить и перезагрузить nginx</button>
+    </div>
+  </form>
+
+  {% if mode == 'https' %}
+  <p class="hint">
+    После смены сертификата браузер может потребовать повторный вход
+    (старые non-Secure cookie на HTTPS не отправляются).
+  </p>
+  {% else %}
+  <p class="hint">
+    Агентов ставьте после появления HTTPS. Bootstrap HTTP для агентов не предназначен.
+  </p>
+  {% endif %}
+</section>
+{% endblock %}

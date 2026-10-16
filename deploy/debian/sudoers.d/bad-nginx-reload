@@ -1,0 +1,4 @@
+# Optional alternative to systemd path unit bad-tls-apply.path.
+# With NoNewPrivileges=true on bad-api.service, sudo from the app will NOT work —
+# prefer bad-tls-apply.path. Kept for manual/root tooling and future CAP changes.
+bad ALL=(root) NOPASSWD: /usr/sbin/nginx -t, /bin/systemctl reload nginx, /usr/local/sbin/bad-apply-tls

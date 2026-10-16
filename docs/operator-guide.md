@@ -4,10 +4,14 @@
 
 ## 1. Сервер (Debian 12)
 
-Подготовьте TLS-сертификат и ключ, у которых CN/SAN совпадает с публичным DNS-именем.
+С **0.11** сертификат при install **не обязателен**: можно поднять HTTP bootstrap, войти в UI и загрузить PEM на `/settings/tls`. Либо передать cert/key сразу — тогда сразу HTTPS.
 
 ```bash
-# Из release-тарбола или git checkout с deploy/debian + server/
+# HTTP bootstrap (сертификат позже из UI)
+BAD_DOMAIN=bad.example.com \
+  sudo -E bash deploy/debian/install.sh
+
+# Или сразу HTTPS
 BAD_DOMAIN=bad.example.com \
 BAD_TLS_CERT=/etc/ssl/certs/bad.fullchain.pem \
 BAD_TLS_KEY=/etc/ssl/private/bad.privkey.pem \
@@ -16,26 +20,39 @@ BAD_TLS_KEY=/etc/ssl/private/bad.privkey.pem \
 
 Скрипт один раз печатает:
 
-- `https://bad.example.com/`
-- enrollment token (для MSI агента)
+- URL (`http://…` при bootstrap или `https://…` если cert передан)
+- enrollment token (для MSI агента — **после** появления HTTPS)
 - admin API token (Bearer для автоматизации)
 
 Проверка:
 
 ```bash
+# bootstrap без cert:
+curl -fsS http://bad.example.com/v1/health
+# после TLS / с cert при install:
 curl -fsS https://bad.example.com/v1/health
-# → {"status":"ok","version":"0.10.0"}
+# → {"status":"ok","version":"0.11.0"}
 ```
 
 ### Вход в web (локальный)
 
-1. Откройте `https://bad.example.com/login`
+1. Откройте URL из вывода install (`http://…/login` при bootstrap или `https://…/login`)
 2. Войдите локальным аккаунтом по умолчанию: **`admin` / `admin`**
 3. **Сразу смените пароль** (`Пароль` в шапке / `/account/password`). До смены сервер пускает только `/account/password` и `/logout` (навигация скрыта). Не публикуйте UI за пределы доверенной сети, пока пароль не сменён.
 
 Работает **без настроенного LDAP**. Admin API token для браузерного UI **не** используется.
 
-Токены лежат в `/etc/bad/site.env` (режим `640`, `root:bad`). uvicorn слушает только `127.0.0.1:8000`; nginx терминирует TLS на 443 (в проде обязателен HTTPS — cookie сессии рассчитан на TLS; см. [Безопасность](#безопасность-для-операторов)).
+Токены лежат в `/etc/bad/site.env` (режим `640`, `root:bad`). uvicorn слушает только `127.0.0.1:8000`; TLS терминирует **nginx** (не uvicorn). См. [Безопасность](#безопасность-для-операторов).
+
+### TLS из UI (0.11)
+
+1. После install без cert откройте **Параметры → Сертификат** (`/settings/tls`)
+2. Загрузите PEM leaf (или fullchain), private key и при необходимости chain
+3. Сервер пишет staging → `nginx -t` → файлы `/etc/bad/tls/{fullchain,privkey}.pem` → reload; :80 → 301 на HTTPS; cookie `Secure`
+4. Откройте UI по **HTTPS** и при необходимости войдите снова
+5. Агентов (MSI) ставьте **после** появления cert — bootstrap HTTP для агентов не предназначен
+
+Let’s Encrypt / ACME в 0.11 не встроены. Ручной reload nginx: `systemctl start bad-tls-apply.service` (или `journalctl -u bad-tls-apply`).
 
 ### Опционально: LDAP из UI
 
@@ -205,7 +222,7 @@ install -o root -g bad -m 440 /path/from/secure/source /etc/bad/keys/data.key
 
 ### Cookie и TLS
 
-Штатный путь — только HTTPS через nginx (HSTS, redirect с 80). Не открывайте uvicorn наружу. Cookie `bad_session` должен уходить только по TLS (`Secure` за reverse-proxy / в prod); cleartext к приложению = риск перехвата сессии.
+До managed cert (HTTP bootstrap) UI и CSRF работают по HTTP (`BAD_COOKIE_SECURE=0` / auto + `X-Forwarded-Proto: http`). После upload+reload — только HTTPS через nginx (HSTS, redirect 80→443), cookie `Secure`. Не открывайте uvicorn наружу. Агентов на HTTP bootstrap не направляйте.
 
 ### Enrollment token (SEC-011)
 

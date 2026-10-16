@@ -9,7 +9,7 @@
 | **Agent** | `agent/` | .NET 8 Worker Service (`BlazerityAssetDiscovery`): collect → enroll/heartbeat/inventory; self-update через сервер; CLI `service …` |
 | **Server** | `server/` | FastAPI + SQLite: API `/v1/*`, web UI (session login + LDAP), зеркало MSI с GitHub Release, uvicorn на `127.0.0.1:8000` |
 | **MSI** | `installer/msi/` | WiX: Program Files, служба, public properties `SERVERURL` / `ENROLLMENTTOKEN`; MajorUpgrade сохраняет ProgramData; полный uninstall чистит config/queue; optional Authenticode в `release-msi` |
-| **Deploy** | `deploy/debian/` | one-line `install.sh` для Debian 12: venv, systemd, nginx TLS, ufw, `agent-updates/` |
+| **Deploy** | `deploy/debian/` | one-line `install.sh` для Debian 12: venv, systemd, nginx (HTTP bootstrap → TLS), ufw, `agent-updates/` |
 | **GitHub Release** | `.github/workflows/release-msi.yml` | Источник `bad-agent-<ver>.msi` + `agent-release.json`; агенты к GitHub **не** ходят |
 
 ```mermaid
@@ -135,9 +135,10 @@ flowchart LR
 
 ### TLS и nginx
 
-- nginx слушает 443, TLS 1.2+, HSTS; proxy на `http://127.0.0.1:8000`.
-- uvicorn не публикует внешний интерфейс.
-- Cert/key: пути при install → symlink в `/etc/bad/tls/`.
+- TLS только на **nginx**; uvicorn — `127.0.0.1:8000` без TLS.
+- Managed files: `/etc/bad/tls/fullchain.pem`, `/etc/bad/tls/privkey.pem` (UI upload или symlink при install).
+- **0.11 bootstrap:** без cert install поднимает HTTP-only site (`bad-http.conf.template`); после `/settings/tls` — HTTPS template, 80→443, HSTS, `BAD_COOKIE_SECURE=1`.
+- Apply: app пишет staging + `apply.request` → systemd `bad-tls-apply.path` → `/usr/local/sbin/bad-apply-tls` (`nginx -t` + reload). `NoNewPrivileges` на `bad-api` → sudo из процесса не используем.
 
 ### Web UI и аутентификация
 
@@ -156,6 +157,7 @@ flowchart LR
 | `/events` | события inventory + пагинация |
 | `/settings` | редирект в оболочку «Параметры» (левый nav) |
 | `/settings/ldap` | LDAP + группа доступа AD |
+| `/settings/tls` | (0.11) статус HTTP/HTTPS, upload PEM cert+key[+chain] → nginx reload |
 | `/settings/mail` | SMTP + получатели + toggles уведомлений |
 | `/settings/retention` | сроки хранения events/inventory |
 | `/settings/backups` | daily SQLite + (0.10) **Скачать site bundle** (`GET …/site-bundle`) |
@@ -232,10 +234,11 @@ flowchart LR
 ## Deploy
 
 ```bash
-BAD_DOMAIN=… BAD_TLS_CERT=… BAD_TLS_KEY=… sudo -E bash deploy/debian/install.sh
+# HTTP bootstrap (cert later via UI) or with BAD_TLS_CERT/KEY for immediate HTTPS
+BAD_DOMAIN=… sudo -E bash deploy/debian/install.sh
 ```
 
-Скрипт: пакеты, user `bad`, `/opt/bad` + venv, `bad-api.service`, nginx site, ufw 22/80/443, `agent-updates/`, печать enrollment/admin tokens один раз. Web UI: `admin`/`admin` (сменить сразу); admin Bearer — для API. В `site.env` также `BAD_GITHUB_REPO` и параметры sync.
+Скрипт: пакеты, user `bad`, `/opt/bad` + venv, `bad-api.service`, `bad-tls-apply.path`, nginx site (HTTP или HTTPS), ufw 22/80/443, `agent-updates/`, печать enrollment/admin tokens один раз. Web UI: `admin`/`admin` (сменить сразу); admin Bearer — для API. В `site.env` также `BAD_DOMAIN`, `BAD_COOKIE_SECURE`, `BAD_GITHUB_REPO` и параметры sync.
 
 Артефакты релиза агента: `bad-agent-<semver>.msi`, `agent-release.json` (через GitHub Release). Как вырезать релиз: [guideline.md](guideline.md).
 

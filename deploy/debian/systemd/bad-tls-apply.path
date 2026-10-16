@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch bAD TLS apply.request and reload nginx
+
+[Path]
+PathChanged=/etc/bad/tls/apply.request
+Unit=bad-tls-apply.service
+
+[Install]
+WantedBy=multi-user.target

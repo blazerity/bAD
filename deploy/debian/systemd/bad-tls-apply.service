@@ -1,0 +1,9 @@
+[Unit]
+Description=bAD apply TLS materials and reload nginx
+After=network.target nginx.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/sbin/bad-apply-tls
+Nice=5
