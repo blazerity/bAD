@@ -1,12 +1,32 @@
 # Полный uninstall (не MajorUpgrade): убрать enrollment leftovers из ProgramData.
 # Служба и Program Files снимает WiX ServiceControl / Component.
 # Upgrade сохраняет config (этот скрипт не вызывается при UPGRADINGPRODUCTCODE).
+# Лог best-effort: %TEMP%\bad-msi-cleanup.log (ProgramData logs как раз удаляем).
 
 $ErrorActionPreference = "Continue"
-. (Join-Path $PSScriptRoot "bad-paths.ps1")
+
+function Write-CleanupLog {
+    param([string]$Message)
+    $line = "{0:yyyy-MM-ddTHH:mm:ss.fffzzz} {1}" -f [DateTimeOffset]::Now, $Message
+    try { Write-Host $line } catch { }
+    try {
+        $p = Join-Path $env:TEMP "bad-msi-cleanup.log"
+        Add-Content -Path $p -Value $line -Encoding UTF8 -ErrorAction SilentlyContinue
+    } catch { }
+}
+
+try {
+    . (Join-Path $PSScriptRoot "bad-paths.ps1")
+} catch {
+    Write-CleanupLog "ERROR BAD_MSI_101 cannot load bad-paths.ps1: $($_.Exception.Message)"
+    exit 0
+}
+
 $dir = $BadProgramData
+Write-CleanupLog "INFO cleanup-uninstall start dir=$dir"
 
 if (-not (Test-Path $dir)) {
+    Write-CleanupLog "OK BAD_MSI_100 nothing to clean"
     exit 0
 }
 
@@ -35,7 +55,8 @@ try {
         Remove-Item -Force -ErrorAction SilentlyContinue $parent
     }
 } catch {
-    # ignore
+    Write-CleanupLog "WARN cleanup dirs: $($_.Exception.Message)"
 }
 
+Write-CleanupLog "OK BAD_MSI_100 cleanup-uninstall complete"
 exit 0

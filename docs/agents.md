@@ -184,7 +184,8 @@ Heartbeat health (опционально → meta устройства): `last_i
 - Public properties: `SERVERURL`, `ENROLLMENTTOKEN` → ProgramData; optional `ADDPATH=1` → Machine PATH + `bad.cmd`.
 - UpgradeCode фиксирован; major upgrade, ProgramData не сносить (`Permanent`); полный uninstall — Stop/Remove службы + `cleanup-uninstall.ps1` (config/queue/logs).
 - Authenticode: secrets `CODE_SIGN_PFX_BASE64` + `CODE_SIGN_PFX_PASSWORD` (optional timestamp URL); без них — unsigned MSI.
-- Артефакт: `bad-agent-0.10.0.msi` + `agent-release.json`.
+- Артефакт: `bad-agent-0.10.1.msi` + `agent-release.json` (сервер/Debian могут быть на другом semver — см. корневой `VERSION`).
+- Сбой CA до Serilog: `logs\msi-install.log` + `BAD_MSI_###`; msiexec `%TEMP%\MSI*.log`.
 
 ## Debian install
 

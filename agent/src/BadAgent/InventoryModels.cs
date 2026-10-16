@@ -14,7 +14,7 @@ public sealed class InventorySnapshot
     public string CollectedAt { get; set; } = "";
 
     [JsonPropertyName("agent_version")]
-    public string AgentVersion { get; set; } = "0.10.0";
+    public string AgentVersion { get; set; } = "0.10.1";
 
     [JsonPropertyName("host")]
     public HostInfo? Host { get; set; }
