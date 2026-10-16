@@ -152,7 +152,7 @@ else
   PRINT_TOKENS=0
   # Ensure secret file paths are present on upgrades.
   if ! grep -q '^BAD_DATA_KEY_FILE=' "${SITE_ENV}" 2>/dev/null; then
-    printf '\nBAD_DATA_KEY_FILE=/etc/bad/data_key\nBAD_SESSION_SECRET_FILE=/etc/bad/session_secret\nBAD_COOKIE_SECURE=%s\n' "${COOKIE_SECURE}" >> "${SITE_ENV}"
+    printf '\nBAD_DATA_KEY_FILE=/etc/bad/data_key\nBAD_SESSION_SECRET_FILE=/etc/bad/session_secret\n' >> "${SITE_ENV}"
   fi
   if ! grep -q '^BAD_DOMAIN=' "${SITE_ENV}" 2>/dev/null; then
     printf '\nBAD_DOMAIN=%s\n' "${BAD_DOMAIN}" >> "${SITE_ENV}"
@@ -168,14 +168,10 @@ chown -R bad:bad /opt/bad
 # Оставить venv/exec читаемыми для bad
 chmod -R u+rwX,g+rX,o-rwx /opt/bad
 
-# systemd: API + TLS apply path unit
+# systemd: API + TLS apply path unit (NoNewPrivileges — apply только через path unit)
 install -m 644 "${SCRIPT_DIR}/systemd/bad-api.service" /etc/systemd/system/bad-api.service
 install -m 644 "${SCRIPT_DIR}/systemd/bad-tls-apply.service" /etc/systemd/system/bad-tls-apply.service
 install -m 644 "${SCRIPT_DIR}/systemd/bad-tls-apply.path" /etc/systemd/system/bad-tls-apply.path
-# Optional sudoers (NoNewPrivileges blocks in-app sudo — path unit is preferred)
-if [[ -f "${SCRIPT_DIR}/sudoers.d/bad-nginx-reload" ]]; then
-  install -m 440 "${SCRIPT_DIR}/sudoers.d/bad-nginx-reload" /etc/sudoers.d/bad-nginx-reload
-fi
 systemctl daemon-reload
 systemctl enable --now bad-api.service
 systemctl enable --now bad-tls-apply.path

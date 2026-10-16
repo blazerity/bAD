@@ -14,6 +14,8 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
+from .db import utc_now
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_TLS_DIR = Path("/etc/bad/tls")
@@ -29,19 +31,10 @@ _PEM_CERT_RE = re.compile(
     re.DOTALL,
 )
 _PEM_KEY_RE = re.compile(
-    rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----.*?"
-    rb"-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
+    rb"-----BEGIN (?:RSA |EC )?PRIVATE KEY-----.*?"
+    rb"-----END (?:RSA |EC )?PRIVATE KEY-----",
     re.DOTALL,
 )
-
-
-def _utc_now() -> str:
-    return (
-        datetime.now(timezone.utc)
-        .replace(microsecond=0)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
 
 
 def tls_dir(settings_tls_dir: Optional[Path] = None) -> Path:
@@ -81,6 +74,10 @@ def _load_size_check(raw: bytes, label: str) -> None:
         raise ValueError(f"{label}: файл больше {MAX_UPLOAD_BYTES} байт")
 
 
+def _iso_z(dt: datetime) -> str:
+    return dt.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
 def validate_pem_pair(
     cert_pem: bytes | str,
     key_pem: bytes | str,
@@ -113,7 +110,6 @@ def validate_pem_pair(
         chain_blocks = _PEM_CERT_RE.findall(chain_bytes)
         if not chain_blocks:
             return False, "Цепочка (chain): нужен PEM с BEGIN CERTIFICATE.", {}
-        # leaf from certificate field + intermediates from chain
         full_blocks = [cert_blocks[0]] + chain_blocks
     else:
         full_blocks = cert_blocks
@@ -176,7 +172,6 @@ def validate_pem_pair(
     domain = (domain or "").strip()
     if domain and domain != "_":
         sans = {s.casefold() for s in info.get("san") or []}
-        # Also check CN
         try:
             for attr in leaf.subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME):
                 sans.add(str(attr.value).casefold())
@@ -214,12 +209,7 @@ def cert_info_from_leaf(leaf: x509.Certificate, *, chain_len: int = 1) -> dict[s
     return {
         "subject": subject,
         "issuer": issuer,
-        "not_before": leaf.not_valid_before_utc.replace(microsecond=0)
-        .isoformat()
-        .replace("+00:00", "Z"),
-        "not_after": leaf.not_valid_after_utc.replace(microsecond=0)
-        .isoformat()
-        .replace("+00:00", "Z"),
+        "not_after": _iso_z(leaf.not_valid_after_utc),
         "fingerprint_sha256": fp,
         "san": sans,
         "chain_length": chain_len,
@@ -239,9 +229,9 @@ def read_installed_cert_info(directory: Optional[Path] = None) -> Optional[dict[
         info = cert_info_from_leaf(leaf, chain_len=len(blocks))
         info["has_private_key"] = key_path(directory).is_file()
         try:
-            info["cert_mtime"] = datetime.fromtimestamp(
-                path.stat().st_mtime, tz=timezone.utc
-            ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+            info["cert_mtime"] = _iso_z(
+                datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+            )
         except OSError:
             info["cert_mtime"] = None
         return info
@@ -251,11 +241,8 @@ def read_installed_cert_info(directory: Optional[Path] = None) -> Optional[dict[
 
 
 def tls_configured(directory: Optional[Path] = None) -> bool:
-    c, k = cert_path(directory), key_path(directory)
-    if not (c.is_file() and k.is_file()):
-        return False
-    # Symlink-only bootstrap from old install still counts as configured.
-    return True
+    # Symlink bootstrap from old install still counts (both paths present).
+    return cert_path(directory).is_file() and key_path(directory).is_file()
 
 
 def read_domain_from_env() -> str:
@@ -319,9 +306,8 @@ def save_tls_materials(
 
     request_apply(directory)
     info["has_private_key"] = True
-    info["saved_at"] = _utc_now()
+    info["saved_at"] = utc_now()
     info["domain"] = domain
-    info["staging"] = True
     logger.info(
         "TLS staging saved subject=%s fp=%s",
         info.get("subject"),
@@ -333,7 +319,7 @@ def save_tls_materials(
 def request_apply(directory: Optional[Path] = None) -> None:
     path = apply_request_path(directory)
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"requested_at": _utc_now(), "pid": os.getpid()}
+    payload = {"requested_at": utc_now()}
     path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
     try:
         path.chmod(0o640)
@@ -387,6 +373,5 @@ def tls_status(directory: Optional[Path] = None) -> dict[str, Any]:
         "cert": read_installed_cert_info(directory),
         "apply": apply,
         "cert_path": str(cert_path(directory)),
-        "key_path": str(key_path(directory)),
         "has_private_key": key_path(directory).is_file(),
     }

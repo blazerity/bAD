@@ -1579,6 +1579,7 @@ def _tls_context(
 ) -> dict:
     status = tls_status()
     cert = status.get("cert") or {}
+    configured = bool(status.get("configured"))
     return {
         "user": user,
         "settings_section": "tls",
@@ -1587,13 +1588,30 @@ def _tls_context(
         "warnings": warnings or cert.get("warnings") or [],
         "mode": status.get("mode") or "http",
         "domain": status.get("domain") or "",
-        "configured": bool(status.get("configured")),
         "has_private_key": bool(status.get("has_private_key")),
         "cert_path": status.get("cert_path") or "",
-        "key_path": status.get("key_path") or "",
-        "cert": cert if status.get("configured") else None,
+        "cert": cert if configured else None,
         "apply": status.get("apply") or {},
     }
+
+
+def _tls_html(
+    request: Request,
+    user: WebUser,
+    *,
+    status_code: int = 200,
+    message: Optional[str] = None,
+    error: Optional[str] = None,
+    warnings: Optional[list[str]] = None,
+):
+    return _html(
+        request,
+        "tls_settings.html",
+        _tls_context(
+            user=user, message=message, error=error, warnings=warnings
+        ),
+        status_code=status_code,
+    )
 
 
 @router.get("/settings/tls", response_class=HTMLResponse)
@@ -1601,7 +1619,7 @@ def tls_settings_page(
     request: Request,
     user: WebUser = Depends(require_web_admin),
 ):
-    return _html(request, "tls_settings.html", _tls_context(user=user))
+    return _tls_html(request, user)
 
 
 @router.post("/settings/tls")
@@ -1619,37 +1637,23 @@ async def tls_settings_upload(
         chain_raw = await chain.read()
 
     if not cert_raw:
-        return _html(
-            request,
-            "tls_settings.html",
-            _tls_context(user=user, error="Пустой файл сертификата"),
-            status_code=400,
+        return _tls_html(
+            request, user, error="Пустой файл сертификата", status_code=400
         )
     if not key_raw:
-        return _html(
-            request,
-            "tls_settings.html",
-            _tls_context(user=user, error="Пустой файл private key"),
-            status_code=400,
+        return _tls_html(
+            request, user, error="Пустой файл private key", status_code=400
         )
 
     try:
         info = save_tls_materials(cert_raw, key_raw, chain_pem=chain_raw)
     except ValueError as exc:
-        return _html(
-            request,
-            "tls_settings.html",
-            _tls_context(user=user, error=str(exc)),
-            status_code=400,
-        )
+        return _tls_html(request, user, error=str(exc), status_code=400)
     except OSError as exc:
-        return _html(
+        return _tls_html(
             request,
-            "tls_settings.html",
-            _tls_context(
-                user=user,
-                error=f"Не удалось записать staging: {exc}",
-            ),
+            user,
+            error=f"Не удалось записать staging: {exc}",
             status_code=500,
         )
 
@@ -1661,33 +1665,23 @@ async def tls_settings_upload(
             message += (
                 ". Откройте UI по HTTPS; при необходимости войдите снова."
             )
-        return _html(
-            request,
-            "tls_settings.html",
-            _tls_context(user=user, message=message, warnings=warnings),
-        )
+        return _tls_html(request, user, message=message, warnings=warnings)
     if apply.get("ok") is False:
-        return _html(
+        return _tls_html(
             request,
-            "tls_settings.html",
-            _tls_context(
-                user=user,
-                error=apply.get("message") or "nginx apply не удался",
-                warnings=warnings,
-            ),
+            user,
+            error=apply.get("message") or "nginx apply не удался",
+            warnings=warnings,
             status_code=502,
         )
-    return _html(
+    return _tls_html(
         request,
-        "tls_settings.html",
-        _tls_context(
-            user=user,
-            message=(
-                "Материалы в staging; ожидание apply "
-                "(systemd bad-tls-apply.path). Обновите страницу через несколько секунд."
-            ),
-            warnings=warnings,
+        user,
+        message=(
+            "Материалы в staging; ожидание apply "
+            "(systemd bad-tls-apply.path). Обновите страницу через несколько секунд."
         ),
+        warnings=warnings,
     )
 
 

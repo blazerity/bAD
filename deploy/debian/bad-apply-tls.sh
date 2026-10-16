@@ -23,19 +23,18 @@ write_status() {
   local ok="$1" msg="$2" mode="$3"
   mkdir -p "${TLS_DIR}"
   umask 027
-  python3 - <<PY
-import json
+  python3 - "${STATUS}" "${ok}" "${msg}" "${mode}" <<'PY'
+import json, sys
 from datetime import datetime, timezone
-ok = ${ok}
-msg = $(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "${msg}")
-mode = $(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "${mode}")
+status_path, ok_s, msg, mode = sys.argv[1:5]
 data = {
-  "ok": ok,
+  "ok": ok_s.lower() in ("true", "1", "yes"),
   "message": msg,
   "mode": mode,
-  "applied_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00","Z"),
+  "applied_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
 }
-open("${STATUS}.tmp","w",encoding="utf-8").write(json.dumps(data, ensure_ascii=False) + "\n")
+tmp = status_path + ".tmp"
+open(tmp, "w", encoding="utf-8").write(json.dumps(data, ensure_ascii=False) + "\n")
 PY
   mv "${STATUS}.tmp" "${STATUS}"
   chmod 640 "${STATUS}" || true
