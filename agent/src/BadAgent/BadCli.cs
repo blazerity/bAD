@@ -66,37 +66,26 @@ public static class BadCli
 
     private static bool IsConfigCommand(string[] args, out string[] rest)
     {
+        if (args.Length > 0 && args[0] is "config" or "settings")
+        {
+            rest = args.AsSpan(1).ToArray();
+            return true;
+        }
+
         rest = [];
-        if (args.Length == 0)
-        {
-            return false;
-        }
-
-        if (args[0] is not ("config" or "settings"))
-        {
-            return false;
-        }
-
-        rest = args.AsSpan(1).ToArray();
-        return true;
+        return false;
     }
 
     private static bool IsHtml(string[] args, out string? pathArg)
     {
-        pathArg = null;
-        if (args.Length == 0)
-        {
-            return false;
-        }
-
-        var a0 = args[0];
         // -r/--report — канон; --html/html — совместимость со старыми примерами
-        if (a0 is "-r" or "--report" or "--html" or "html")
+        if (args.Length > 0 && args[0] is "-r" or "--report" or "--html" or "html")
         {
             pathArg = args.Length > 1 ? args[1] : null;
             return true;
         }
 
+        pathArg = null;
         return false;
     }
 

@@ -21,7 +21,7 @@ public static class ConfigCli
         "update_check_interval_hours"
     ];
 
-    /// <summary>Ключи <c>bad config set</c>: safe knobs + <c>server_url</c>.</summary>
+    /// <summary>Ключи <c>bad config set</c> для сообщений об ошибках (алфавит + server_url).</summary>
     public static IReadOnlyList<string> EditableKeys { get; } =
         ConfigStore.CliManualSettingKeys
             .OrderBy(k => k, StringComparer.Ordinal)
@@ -86,7 +86,7 @@ public static class ConfigCli
 
         var cfg = ConfigStore.LoadOrCreate();
         var previousServerUrl = cfg.ServerUrl;
-        var changedKeys = new List<string>();
+        var anyChanged = false;
         var serverUrlChanged = false;
 
         output.WriteLine("Интерактивная настройка агента (bad -c)");
@@ -96,68 +96,13 @@ public static class ConfigCli
 
         foreach (var key in InteractiveKeys)
         {
-            var current = FormatValue(GetEditable(cfg, key));
-            var hint = PromptHints.GetValueOrDefault(key, key);
-            while (true)
+            if (!PromptOneKey(input, output, cfg, key, ref anyChanged, ref serverUrlChanged))
             {
-                output.Write($"{hint} [{current}]: ");
-                output.Flush();
-                var line = input.ReadLine();
-                if (line is null)
-                {
-                    // EOF — прервать без сохранения текущих правок в этом проходе?
-                    // Уже применённые к cfg изменения сохраним ниже, если были.
-                    output.WriteLine();
-                    output.WriteLine("Ввод завершён (EOF).");
-                    goto DonePrompts;
-                }
-
-                if (string.IsNullOrWhiteSpace(line))
-                {
-                    output.WriteLine($"  → без изменений ({current})");
-                    break;
-                }
-
-                var raw = line.Trim();
-                if (raw.IndexOfAny(['\n', '\r', '\0']) >= 0
-                    || (key != "server_url" && raw.IndexOfAny(['|', ';', '&', '`', '$']) >= 0))
-                {
-                    output.WriteLine("  error: недопустимые символы, попробуйте ещё раз");
-                    continue;
-                }
-
-                if (!TryApply(cfg, key, raw, out var error))
-                {
-                    output.WriteLine($"  error: {error}");
-                    continue;
-                }
-
-                var next = FormatValue(GetEditable(cfg, key));
-                if (string.Equals(next, current, StringComparison.Ordinal))
-                {
-                    output.WriteLine($"  → без изменений ({current})");
-                }
-                else
-                {
-                    output.WriteLine($"  → {next}");
-                    if (key == "server_url")
-                    {
-                        serverUrlChanged = true;
-                        ConfigStore.MarkServerUrlLocal(cfg, true);
-                    }
-                    else
-                    {
-                        ConfigStore.MarkAgentLocalKey(cfg, key);
-                        changedKeys.Add(key);
-                    }
-                }
-
-                break;
+                break; // EOF
             }
         }
 
-        DonePrompts:
-        if (!serverUrlChanged && changedKeys.Count == 0)
+        if (!anyChanged)
         {
             output.WriteLine();
             output.WriteLine("Изменений нет — config.json не перезаписывали.");
@@ -173,6 +118,75 @@ public static class ConfigCli
         }
 
         return 0;
+    }
+
+    /// <returns><c>false</c> при EOF (прервать опрос).</returns>
+    private static bool PromptOneKey(
+        TextReader input,
+        TextWriter output,
+        AgentConfig cfg,
+        string key,
+        ref bool anyChanged,
+        ref bool serverUrlChanged)
+    {
+        var current = FormatValue(GetEditable(cfg, key));
+        var hint = PromptHints.GetValueOrDefault(key, key);
+
+        while (true)
+        {
+            output.Write($"{hint} [{current}]: ");
+            output.Flush();
+            var line = input.ReadLine();
+            if (line is null)
+            {
+                output.WriteLine();
+                output.WriteLine("Ввод завершён (EOF).");
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                output.WriteLine($"  → без изменений ({current})");
+                return true;
+            }
+
+            var raw = line.Trim();
+            if (raw.IndexOfAny(['\n', '\r', '\0']) >= 0
+                || (key != "server_url" && raw.IndexOfAny(['|', ';', '&', '`', '$']) >= 0))
+            {
+                output.WriteLine("  error: недопустимые символы, попробуйте ещё раз");
+                continue;
+            }
+
+            if (!TryApply(cfg, key, raw, out var error))
+            {
+                output.WriteLine($"  error: {error}");
+                continue;
+            }
+
+            var next = FormatValue(GetEditable(cfg, key));
+            if (string.Equals(next, current, StringComparison.Ordinal))
+            {
+                output.WriteLine($"  → без изменений ({current})");
+            }
+            else
+            {
+                output.WriteLine($"  → {next}");
+                if (key == "server_url")
+                {
+                    serverUrlChanged = true;
+                    ConfigStore.MarkServerUrlLocal(cfg, true);
+                }
+                else
+                {
+                    ConfigStore.MarkAgentLocalKey(cfg, key);
+                }
+
+                anyChanged = true;
+            }
+
+            return true;
+        }
     }
 
     private static int Unknown(string cmd)
@@ -293,8 +307,7 @@ public static class ConfigCli
             return 2;
         }
 
-        if (ForbiddenKeys.Contains(key)
-            || key is "api_key" or "enrollment_token")
+        if (ForbiddenKeys.Contains(key))
         {
             // Не эхоить valueRaw — даже при попытке set секрета.
             Console.Error.WriteLine(
@@ -314,7 +327,6 @@ public static class ConfigCli
         var previousServerUrl = cfg.ServerUrl;
         if (!TryApply(cfg, key, valueRaw, out var error))
         {
-            // error — шаблон валидации без пользовательского секрета.
             Console.Error.WriteLine($"error: {error}");
             return 1;
         }
@@ -352,69 +364,53 @@ public static class ConfigCli
                 return TryApplyServerUrl(config, value, out error);
 
             case "inventory_interval_hours":
-                if (!TryParsePositiveInt(value, out var inv))
-                {
-                    error = "inventory_interval_hours: нужно целое число ≥ 1";
-                    return false;
-                }
-
-                config.InventoryIntervalHours = inv;
-                return true;
+                return TrySetPositiveInt(value, key, v => config.InventoryIntervalHours = v, out error);
 
             case "heartbeat_interval_minutes":
-                if (!TryParsePositiveInt(value, out var hb))
-                {
-                    error = "heartbeat_interval_minutes: нужно целое число ≥ 1";
-                    return false;
-                }
-
-                config.HeartbeatIntervalMinutes = hb;
-                return true;
+                return TrySetPositiveInt(value, key, v => config.HeartbeatIntervalMinutes = v, out error);
 
             case "update_check_interval_hours":
-                if (!TryParsePositiveInt(value, out var uch))
-                {
-                    error = "update_check_interval_hours: нужно целое число ≥ 1";
-                    return false;
-                }
-
-                config.UpdateCheckIntervalHours = uch;
-                return true;
+                return TrySetPositiveInt(value, key, v => config.UpdateCheckIntervalHours = v, out error);
 
             case "collect_hardware":
-                if (!TryParseBool(value, out var ch))
-                {
-                    error = "collect_hardware: ожидается true/false (или 1/0, yes/no)";
-                    return false;
-                }
-
-                config.CollectHardware = ch;
-                return true;
+                return TrySetBool(value, key, v => config.CollectHardware = v, out error);
 
             case "collect_users":
-                if (!TryParseBool(value, out var cu))
-                {
-                    error = "collect_users: ожидается true/false (или 1/0, yes/no)";
-                    return false;
-                }
-
-                config.CollectUsers = cu;
-                return true;
+                return TrySetBool(value, key, v => config.CollectUsers = v, out error);
 
             case "collect_software":
-                if (!TryParseBool(value, out var cs))
-                {
-                    error = "collect_software: ожидается true/false (или 1/0, yes/no)";
-                    return false;
-                }
-
-                config.CollectSoftware = cs;
-                return true;
+                return TrySetBool(value, key, v => config.CollectSoftware = v, out error);
 
             default:
                 error = $"ключ '{key}' не поддерживается";
                 return false;
         }
+    }
+
+    private static bool TrySetPositiveInt(string value, string key, Action<int> set, out string? error)
+    {
+        if (!TryParsePositiveInt(value, out var n))
+        {
+            error = $"{key}: нужно целое число ≥ 1";
+            return false;
+        }
+
+        set(n);
+        error = null;
+        return true;
+    }
+
+    private static bool TrySetBool(string value, string key, Action<bool> set, out string? error)
+    {
+        if (!TryParseBool(value, out var b))
+        {
+            error = $"{key}: ожидается true/false (или 1/0, yes/no)";
+            return false;
+        }
+
+        set(b);
+        error = null;
+        return true;
     }
 
     private static bool TryApplyServerUrl(AgentConfig config, string value, out string? error)
@@ -470,17 +466,10 @@ public static class ConfigCli
             ? cfg.ServerUrlLocal
             : ConfigStore.IsAgentLocalKey(cfg, key);
 
-    private static object GetEditable(AgentConfig cfg, string key) => key switch
-    {
-        "server_url" => cfg.ServerUrl,
-        "inventory_interval_hours" => cfg.InventoryIntervalHours,
-        "heartbeat_interval_minutes" => cfg.HeartbeatIntervalMinutes,
-        "update_check_interval_hours" => cfg.UpdateCheckIntervalHours,
-        "collect_hardware" => cfg.CollectHardware,
-        "collect_users" => cfg.CollectUsers,
-        "collect_software" => cfg.CollectSoftware,
-        _ => ""
-    };
+    private static object GetEditable(AgentConfig cfg, string key) =>
+        key == "server_url"
+            ? cfg.ServerUrl
+            : ConfigStore.TryGetSafeKnobValue(cfg, key) ?? "";
 
     private static bool IsEditable(string key) =>
         key == "server_url" || ConfigStore.CliManualSettingKeys.Contains(key);
