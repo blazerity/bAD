@@ -237,41 +237,16 @@ public static class ConfigStore
     public static bool ApplyRemoteSettings(AgentConfig config, RemoteAgentSettings settings)
     {
         var changed = false;
-        if (settings.InventoryIntervalHours is int inv && inv >= 1
-            && !IsAgentLocalKey(config, "inventory_interval_hours")
-            && config.InventoryIntervalHours != inv)
-        {
-            config.InventoryIntervalHours = inv;
-            changed = true;
-        }
+        changed |= ApplyRemoteInt(config, "inventory_interval_hours", settings.InventoryIntervalHours,
+            () => config.InventoryIntervalHours, v => config.InventoryIntervalHours = v);
+        changed |= ApplyRemoteInt(config, "heartbeat_interval_minutes", settings.HeartbeatIntervalMinutes,
+            () => config.HeartbeatIntervalMinutes, v => config.HeartbeatIntervalMinutes = v);
+        changed |= ApplyRemoteInt(config, "update_check_interval_hours", settings.UpdateCheckIntervalHours,
+            () => config.UpdateCheckIntervalHours, v => config.UpdateCheckIntervalHours = v);
+        changed |= ApplyRemoteBool(config, "update_enabled", settings.UpdateEnabled,
+            () => config.UpdateEnabled, v => config.UpdateEnabled = v);
 
-        if (settings.HeartbeatIntervalMinutes is int hb && hb >= 1
-            && !IsAgentLocalKey(config, "heartbeat_interval_minutes")
-            && config.HeartbeatIntervalMinutes != hb)
-        {
-            config.HeartbeatIntervalMinutes = hb;
-            changed = true;
-        }
-
-        if (settings.UpdateCheckIntervalHours is int uch && uch >= 1
-            && !IsAgentLocalKey(config, "update_check_interval_hours")
-            && config.UpdateCheckIntervalHours != uch)
-        {
-            config.UpdateCheckIntervalHours = uch;
-            changed = true;
-        }
-
-        if (settings.UpdateEnabled is bool ue
-            && !IsAgentLocalKey(config, "update_enabled")
-            && config.UpdateEnabled != ue)
-        {
-            config.UpdateEnabled = ue;
-            changed = true;
-        }
-
-        var targetRaw = FirstNonEmpty(
-            settings.UpdateTarget,
-            settings.DesiredAgentVersion);
+        var targetRaw = FirstNonEmpty(settings.UpdateTarget, settings.DesiredAgentVersion);
         if (targetRaw is not null && !IsAgentLocalKey(config, "update_target"))
         {
             var normalized = VersionUtil.NormalizeDesiredAgentVersion(targetRaw);
@@ -283,50 +258,43 @@ public static class ConfigStore
             }
         }
 
-        if (settings.CollectHardware is bool ch
-            && !IsAgentLocalKey(config, "collect_hardware")
-            && config.CollectHardware != ch)
-        {
-            config.CollectHardware = ch;
-            changed = true;
-        }
-
-        if (settings.CollectUsers is bool cu
-            && !IsAgentLocalKey(config, "collect_users")
-            && config.CollectUsers != cu)
-        {
-            config.CollectUsers = cu;
-            changed = true;
-        }
-
-        if (settings.CollectSoftware is bool cs
-            && !IsAgentLocalKey(config, "collect_software")
-            && config.CollectSoftware != cs)
-        {
-            config.CollectSoftware = cs;
-            changed = true;
-        }
+        changed |= ApplyRemoteBool(config, "collect_hardware", settings.CollectHardware,
+            () => config.CollectHardware, v => config.CollectHardware = v);
+        changed |= ApplyRemoteBool(config, "collect_users", settings.CollectUsers,
+            () => config.CollectUsers, v => config.CollectUsers = v);
+        changed |= ApplyRemoteBool(config, "collect_software", settings.CollectSoftware,
+            () => config.CollectSoftware, v => config.CollectSoftware = v);
 
         return changed;
     }
 
-    public static bool IsAgentLocalKey(AgentConfig config, string key)
+    private static bool ApplyRemoteInt(
+        AgentConfig config, string key, int? incoming, Func<int> get, Action<int> set)
     {
-        if (config.AgentLocalKeys is null || config.AgentLocalKeys.Count == 0)
+        if (incoming is not int v || v < 1 || IsAgentLocalKey(config, key) || get() == v)
         {
             return false;
         }
 
-        foreach (var k in config.AgentLocalKeys)
+        set(v);
+        return true;
+    }
+
+    private static bool ApplyRemoteBool(
+        AgentConfig config, string key, bool? incoming, Func<bool> get, Action<bool> set)
+    {
+        if (incoming is not bool v || IsAgentLocalKey(config, key) || get() == v)
         {
-            if (string.Equals(k, key, StringComparison.Ordinal))
-            {
-                return true;
-            }
+            return false;
         }
 
-        return false;
+        set(v);
+        return true;
     }
+
+    public static bool IsAgentLocalKey(AgentConfig config, string key) =>
+        config.AgentLocalKeys is { Count: > 0 } keys
+        && keys.Exists(k => string.Equals(k, key, StringComparison.Ordinal));
 
     /// <summary>
     /// Пометить safe knob как заданный вручную (source <c>agent_local</c>).

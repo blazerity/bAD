@@ -20,8 +20,7 @@ public static class ReportPathResolver
         var fileName = $"{DefaultFilePrefix}{now:yyyyMMdd_HHmmss}.html";
         if (string.IsNullOrWhiteSpace(pathArg))
         {
-            var desktop = getDesktop?.Invoke() ?? GetDesktopDirectory();
-            return Path.Combine(desktop, fileName);
+            return Path.Combine(getDesktop?.Invoke() ?? GetDesktopDirectory(), fileName);
         }
 
         var trimmed = pathArg.Trim();
@@ -37,13 +36,7 @@ public static class ReportPathResolver
         }
 
         var full = Path.GetFullPath(trimmed);
-        var ext = Path.GetExtension(full);
-        if (string.IsNullOrEmpty(ext))
-        {
-            return full + ".html";
-        }
-
-        return full;
+        return string.IsNullOrEmpty(Path.GetExtension(full)) ? full + ".html" : full;
     }
 
     public static string GetDesktopDirectory()
