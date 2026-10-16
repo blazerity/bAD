@@ -150,7 +150,7 @@ Web UI (local/LDAP session) — **не** контракт для 1C.
   "hostname": "WS-01",
   "enrolled_at": "2026-10-01T10:00:00Z",
   "last_seen_at": "2026-10-16T11:00:00Z",
-  "agent_version": "0.12.0",
+  "agent_version": "1.0.0",
   "meta": {
     "last_inventory_at": "…",
     "os": "Microsoft Windows 11 …",
@@ -195,7 +195,7 @@ Web UI (local/LDAP session) — **не** контракт для 1C.
   "schema_version": 2,
   "device_id": "…",
   "collected_at": "2026-10-16T11:00:00Z",
-  "agent_version": "0.12.0",
+  "agent_version": "1.0.0",
   "host": {
     "hostname": "WS-01",
     "domain": "CONTOSO",
