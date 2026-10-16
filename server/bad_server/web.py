@@ -73,6 +73,18 @@ from .tls_ops import (
     tls_status,
     wait_for_apply,
 )
+from .server_update import (
+    check_updates as server_check_updates,
+    list_remote_branches,
+    poll_msi_workflow,
+    releases_dir,
+    request_apply as server_request_apply,
+    request_set_github_token,
+    set_preferred_branch,
+    status_panel as server_status_panel,
+    trigger_msi_workflow,
+    wait_for_apply as server_wait_for_apply,
+)
 from .smtp_mail import (
     DEFAULT_NOTIFY,
     NOTIFY_LABELS_RU,
@@ -2531,4 +2543,300 @@ def enrollment_wave_done(
             user=user,
             message="Волна отмечена. Смените enrollment token (лента на Обзоре + секция ниже).",
         ),
+    )
+
+
+def _server_update_context(
+    settings: Settings,
+    *,
+    user: WebUser,
+    message: Optional[str] = None,
+    error: Optional[str] = None,
+    check: Optional[dict] = None,
+    branches: Optional[list] = None,
+) -> dict:
+    panel = server_status_panel(settings)
+    return {
+        "user": user,
+        "settings_section": "server_update",
+        "panel": panel,
+        "check": check,
+        "branches": branches or [],
+        "message": message,
+        "error": error,
+    }
+
+
+@router.get("/settings/server-update", response_class=HTMLResponse)
+def server_update_settings_page(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    settings: Settings = Depends(get_settings),
+):
+    branches: list = []
+    try:
+        branches = list_remote_branches(settings)
+    except Exception:  # noqa: BLE001
+        branches = []
+    return _html(
+        request,
+        "server_update_settings.html",
+        _server_update_context(settings, user=user, branches=branches),
+    )
+
+
+@router.post("/settings/server-update/branch")
+def server_update_set_branch(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    settings: Settings = Depends(get_settings),
+    branch: str = Form(...),
+):
+    try:
+        set_preferred_branch(branch, releases_dir(settings))
+        message = f"Ветка обновления: {branch.strip()}"
+        error = None
+        code = 200
+    except ValueError as exc:
+        message = None
+        error = str(exc)
+        code = 400
+    return _html(
+        request,
+        "server_update_settings.html",
+        _server_update_context(settings, user=user, message=message, error=error),
+        status_code=code,
+    )
+
+
+@router.post("/settings/server-update/check")
+def server_update_check(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    settings: Settings = Depends(get_settings),
+    branch: str = Form(""),
+):
+    try:
+        result = server_check_updates(
+            settings, branch=(branch or "").strip() or None
+        )
+        if result.get("error"):
+            message = None
+            error = result["error"]
+            code = 502
+        elif result.get("update_available"):
+            remote = result.get("remote") or {}
+            message = (
+                f"Доступно обновление: {remote.get('short_sha') or remote.get('sha')}"
+            )
+            error = None
+            code = 200
+        else:
+            message = "Установленная версия совпадает с HEAD ветки"
+            error = None
+            code = 200
+    except ValueError as exc:
+        result = None
+        message = None
+        error = str(exc)
+        code = 400
+    return _html(
+        request,
+        "server_update_settings.html",
+        _server_update_context(
+            settings, user=user, message=message, error=error, check=result
+        ),
+        status_code=code,
+    )
+
+
+@router.post("/settings/server-update/apply")
+def server_update_apply(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    settings: Settings = Depends(get_settings),
+    branch: str = Form(""),
+    sha: str = Form(""),
+):
+    root = releases_dir(settings)
+    try:
+        req = server_request_apply(
+            action="apply",
+            branch=branch,
+            sha=sha,
+            directory=root,
+        )
+        apply = server_wait_for_apply(
+            root, since=str(req.get("requested_at") or ""), timeout_seconds=180.0
+        )
+        if apply.get("ok") is True:
+            message = apply.get("message") or "Обновление применено"
+            error = None
+            code = 200
+        elif apply.get("ok") is False:
+            message = None
+            error = apply.get("message") or "apply не удался"
+            code = 502
+        else:
+            message = (
+                "Запрос записан; ожидание helper "
+                "(bad-server-update-apply.path). Обновите страницу через минуту."
+            )
+            error = None
+            code = 200
+    except ValueError as exc:
+        message = None
+        error = str(exc)
+        code = 400
+    except OSError as exc:
+        message = None
+        error = f"Не удалось записать apply.request: {exc}"
+        code = 500
+    return _html(
+        request,
+        "server_update_settings.html",
+        _server_update_context(settings, user=user, message=message, error=error),
+        status_code=code,
+    )
+
+
+@router.post("/settings/server-update/rollback")
+def server_update_rollback(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    settings: Settings = Depends(get_settings),
+    slot_id: str = Form(...),
+):
+    root = releases_dir(settings)
+    try:
+        req = server_request_apply(
+            action="rollback", slot_id=slot_id, directory=root
+        )
+        apply = server_wait_for_apply(
+            root, since=str(req.get("requested_at") or ""), timeout_seconds=180.0
+        )
+        if apply.get("ok") is True:
+            message = apply.get("message") or "Откат выполнен"
+            error = None
+            code = 200
+        elif apply.get("ok") is False:
+            message = None
+            error = apply.get("message") or "rollback не удался"
+            code = 502
+        else:
+            message = "Запрос отката записан; ожидание helper."
+            error = None
+            code = 200
+    except ValueError as exc:
+        message = None
+        error = str(exc)
+        code = 400
+    return _html(
+        request,
+        "server_update_settings.html",
+        _server_update_context(settings, user=user, message=message, error=error),
+        status_code=code,
+    )
+
+
+@router.post("/settings/server-update/token")
+def server_update_set_token(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    settings: Settings = Depends(get_settings),
+    token: str = Form(...),
+):
+    root = releases_dir(settings)
+    try:
+        req = request_set_github_token(token, directory=root)
+        apply = server_wait_for_apply(
+            root, since=str(req.get("requested_at") or ""), timeout_seconds=30.0
+        )
+        get_settings.cache_clear()
+        if apply.get("ok") is False:
+            message = None
+            error = apply.get("message") or "не удалось записать токен"
+            code = 502
+        else:
+            message = "Токен GitHub сохранён (значение больше не показывается)."
+            error = None
+            code = 200
+    except ValueError as exc:
+        message = None
+        error = str(exc)
+        code = 400
+    return _html(
+        request,
+        "server_update_settings.html",
+        _server_update_context(
+            get_settings(), user=user, message=message, error=error
+        ),
+        status_code=code,
+    )
+
+
+@router.post("/settings/server-update/msi/trigger")
+def server_update_msi_trigger(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    settings: Settings = Depends(get_settings),
+    branch: str = Form(""),
+    version: str = Form(""),
+):
+    try:
+        meta = trigger_msi_workflow(
+            settings,
+            branch=(branch or "").strip() or None,
+            version=version,
+        )
+        message = f"Запущена сборка MSI (workflow release-msi, ветка {meta.get('branch')})"
+        error = None
+        code = 200
+    except Exception as exc:  # noqa: BLE001
+        message = None
+        error = str(exc)
+        code = 502
+    return _html(
+        request,
+        "server_update_settings.html",
+        _server_update_context(settings, user=user, message=message, error=error),
+        status_code=code,
+    )
+
+
+@router.post("/settings/server-update/msi/poll")
+def server_update_msi_poll(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    try:
+        meta = poll_msi_workflow(settings, ingest=True, db=db)
+        st = meta.get("status")
+        conclusion = meta.get("conclusion")
+        if meta.get("ingested"):
+            message = (
+                f"MSI ingest: {meta['ingested'].get('version')} "
+                f"({meta['ingested'].get('msi_name')})"
+            )
+            error = meta.get("error")
+            code = 200 if not error else 502
+        elif st == "completed" and conclusion != "success":
+            message = None
+            error = f"Сборка MSI завершилась: {conclusion}"
+            code = 502
+        else:
+            message = f"Статус сборки MSI: {st or '—'} / {conclusion or '—'}"
+            error = meta.get("error")
+            code = 200
+    except Exception as exc:  # noqa: BLE001
+        message = None
+        error = str(exc)
+        code = 502
+    return _html(
+        request,
+        "server_update_settings.html",
+        _server_update_context(settings, user=user, message=message, error=error),
+        status_code=code,
     )

@@ -587,6 +587,207 @@ def admin_agent_update_delete(
     return {"status": "ok", "deleted": version, "latest": db.get_agent_update()}
 
 
+@router.get("/admin/server-update")
+def admin_server_update_status(
+    _admin: str = Depends(require_admin_token),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    """Статус self-update сервера (ветка, current, слоты ≤3, apply, token yes/no)."""
+    from .server_update import status_panel
+
+    return status_panel(settings)
+
+
+@router.get("/admin/server-update/check")
+def admin_server_update_check(
+    branch: str = Query(default="", max_length=200),
+    _admin: str = Depends(require_admin_token),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    from .server_update import check_updates
+
+    try:
+        return check_updates(settings, branch=(branch or "").strip() or None)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+
+
+@router.get("/admin/server-update/branches")
+def admin_server_update_branches(
+    _admin: str = Depends(require_admin_token),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    from .server_update import list_remote_branches
+
+    try:
+        names = list_remote_branches(settings)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+        ) from exc
+    return {"branches": names, "github_repo": settings.github_repo}
+
+
+@router.post("/admin/server-update/branch")
+def admin_server_update_set_branch(
+    branch: str = Query(..., max_length=200),
+    _admin: str = Depends(require_admin_token),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    from .server_update import releases_dir, set_preferred_branch
+
+    try:
+        prefs = set_preferred_branch(branch, releases_dir(settings))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    return {"status": "ok", "prefs": prefs}
+
+
+@router.post("/admin/server-update/apply")
+def admin_server_update_apply(
+    branch: str = Query(default="", max_length=200),
+    sha: str = Query(default="", max_length=40),
+    wait: bool = Query(default=True),
+    _admin: str = Depends(require_admin_token),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    """Запросить apply через systemd path helper (+ опц. дождаться status)."""
+    from .server_update import (
+        releases_dir,
+        request_apply,
+        wait_for_apply,
+    )
+
+    root = releases_dir(settings)
+    try:
+        req = request_apply(
+            action="apply",
+            branch=branch,
+            sha=sha,
+            directory=root,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    since = str(req.get("requested_at") or "")
+    apply = wait_for_apply(root, since=since, timeout_seconds=180.0) if wait else None
+    return {"status": "ok", "request": req, "apply": apply}
+
+
+@router.post("/admin/server-update/rollback")
+def admin_server_update_rollback(
+    slot_id: str = Query(..., max_length=120),
+    wait: bool = Query(default=True),
+    _admin: str = Depends(require_admin_token),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    from .server_update import releases_dir, request_apply, wait_for_apply
+
+    root = releases_dir(settings)
+    try:
+        req = request_apply(action="rollback", slot_id=slot_id, directory=root)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    since = str(req.get("requested_at") or "")
+    apply = wait_for_apply(root, since=since, timeout_seconds=180.0) if wait else None
+    return {"status": "ok", "request": req, "apply": apply}
+
+
+@router.get("/admin/server-update/apply-status")
+def admin_server_update_apply_status(
+    _admin: str = Depends(require_admin_token),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    from .server_update import read_apply_status, releases_dir
+
+    return read_apply_status(releases_dir(settings))
+
+
+@router.post("/admin/server-update/token")
+def admin_server_update_set_token(
+    token: str = Form(...),
+    wait: bool = Form(True),
+    _admin: str = Depends(require_admin_token),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    """Записать GH token через helper в site.env. Ответ без plaintext."""
+    from .server_update import (
+        releases_dir,
+        request_set_github_token,
+        token_configured,
+        wait_for_apply,
+    )
+
+    root = releases_dir(settings)
+    try:
+        req = request_set_github_token(token, directory=root)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    apply = (
+        wait_for_apply(root, since=str(req.get("requested_at") or ""), timeout_seconds=30.0)
+        if wait
+        else None
+    )
+    # Сбросить кэш Settings после записи env (новый процесс после restart;
+    # set_token не рестартит API — токен подхватится при следующем старте /
+    # если уже был в env process — UI покажет configured после helper + file).
+    get_settings.cache_clear()
+    return {
+        "status": "ok",
+        "token_configured": token_configured(get_settings()),
+        "apply": apply,
+    }
+
+
+@router.post("/admin/server-update/msi/trigger")
+def admin_server_update_msi_trigger(
+    branch: str = Query(default="", max_length=200),
+    version: str = Query(default="", max_length=64),
+    _admin: str = Depends(require_admin_token),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    from .server_update import trigger_msi_workflow
+
+    try:
+        meta = trigger_msi_workflow(
+            settings,
+            branch=(branch or "").strip() or None,
+            version=version,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+        ) from exc
+    return {"status": "ok", "msi_build": meta}
+
+
+@router.post("/admin/server-update/msi/poll")
+def admin_server_update_msi_poll(
+    ingest: bool = Query(default=True),
+    _admin: str = Depends(require_admin_token),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    from .server_update import poll_msi_workflow
+
+    try:
+        meta = poll_msi_workflow(settings, ingest=ingest, db=db)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+        ) from exc
+    return {"status": "ok", "msi_build": meta}
+
+
 @router.post("/admin/enrollment/rotate")
 def admin_enrollment_rotate(
     _admin: str = Depends(require_admin_token),

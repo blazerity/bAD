@@ -84,10 +84,17 @@ apt-get install -y \
 step 2 "Пользователь / каталоги / venv"
 id -u bad >/dev/null 2>&1 || useradd --system --home /var/lib/bad --shell /usr/sbin/nologin bad
 
-mkdir -p /opt/bad /var/lib/bad /var/lib/bad/agent-updates /var/lib/bad/backups /etc/bad /etc/bad/tls/staging /var/log/bad
+mkdir -p /opt/bad /var/lib/bad /var/lib/bad/agent-updates /var/lib/bad/backups \
+  /var/lib/bad/server-releases /var/lib/bad/server-releases/slots \
+  /var/lib/bad/server-releases/staging \
+  /etc/bad /etc/bad/tls/staging /var/log/bad
 chown bad:bad /var/lib/bad /var/lib/bad/agent-updates /var/lib/bad/backups /var/log/bad
 chmod 750 /var/lib/bad /var/lib/bad/agent-updates /var/log/bad
 chmod 700 /var/lib/bad/backups
+chown root:bad /var/lib/bad/server-releases
+chmod 770 /var/lib/bad/server-releases
+chown bad:bad /var/lib/bad/server-releases/staging
+chmod 770 /var/lib/bad/server-releases/staging /var/lib/bad/server-releases/slots
 chmod 750 /etc/bad
 chown root:bad /etc/bad/tls
 chmod 770 /etc/bad/tls
@@ -111,6 +118,7 @@ find /opt/bad/server -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null |
 mkdir -p /opt/bad/deploy/debian/nginx
 cp -a "${SCRIPT_DIR}/nginx/." /opt/bad/deploy/debian/nginx/
 install -m 755 "${SCRIPT_DIR}/bad-apply-tls.sh" /usr/local/sbin/bad-apply-tls
+install -m 755 "${SCRIPT_DIR}/bad-apply-server-update.sh" /usr/local/sbin/bad-apply-server-update
 install -m 755 "${SCRIPT_DIR}/restore-site-bundle.sh" /usr/local/sbin/bad-restore-site-bundle
 
 cd /opt/bad
@@ -179,6 +187,7 @@ BAD_SESSION_SECRET_FILE=/etc/bad/session_secret
 BAD_COOKIE_SECURE=${COOKIE_SECURE}
 BAD_GITHUB_REPO=${BAD_GITHUB_REPO:-blazerity/bAD}
 BAD_AGENT_UPDATES_DIR=/var/lib/bad/agent-updates
+BAD_SERVER_RELEASES_DIR=/var/lib/bad/server-releases
 BAD_BACKUP_DIR=/var/lib/bad/backups
 BAD_AGENT_UPDATE_SYNC_INTERVAL_SECONDS=${BAD_AGENT_UPDATE_SYNC_INTERVAL_SECONDS:-3600}
 BAD_AGENT_UPDATE_SYNC_ON_STARTUP=${BAD_AGENT_UPDATE_SYNC_ON_STARTUP:-true}
@@ -224,13 +233,16 @@ chown -R bad:bad /opt/bad
 chmod -R u+rwX,g+rX,o-rwx /opt/bad
 
 # ========== [4/6] systemd ==========
-step 4 "systemd bad-api (+ tls-apply path)"
+step 4 "systemd bad-api (+ tls-apply / server-update path)"
 install -m 644 "${SCRIPT_DIR}/systemd/bad-api.service" /etc/systemd/system/bad-api.service
 install -m 644 "${SCRIPT_DIR}/systemd/bad-tls-apply.service" /etc/systemd/system/bad-tls-apply.service
 install -m 644 "${SCRIPT_DIR}/systemd/bad-tls-apply.path" /etc/systemd/system/bad-tls-apply.path
+install -m 644 "${SCRIPT_DIR}/systemd/bad-server-update-apply.service" /etc/systemd/system/bad-server-update-apply.service
+install -m 644 "${SCRIPT_DIR}/systemd/bad-server-update-apply.path" /etc/systemd/system/bad-server-update-apply.path
 systemctl daemon-reload
 systemctl enable --now bad-api.service
 systemctl enable --now bad-tls-apply.path
+systemctl enable --now bad-server-update-apply.path
 
 # ========== [5/6] nginx ==========
 step 5 "nginx"

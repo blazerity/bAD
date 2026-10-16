@@ -58,12 +58,20 @@ class Settings(BaseSettings):
     # Зеркало обновлений агента (GitHub Release → локальное хранилище).
     github_repo: str = "blazerity/bAD"
     github_token: str = ""
+    # Опционально: файл 440 с PAT (если не в site.env). Plaintext в UI не отдаём.
+    github_token_file: Path = Path(
+        os.environ.get("BAD_GITHUB_TOKEN_FILE", "/etc/bad/github_token")
+    )
     github_api_base: str = "https://api.github.com"
     agent_updates_dir: Path = Path(
         os.environ.get("BAD_AGENT_UPDATES_DIR", "/var/lib/bad/agent-updates")
     )
     agent_update_sync_interval_seconds: int = 3600
     agent_update_sync_on_startup: bool = True
+    # Self-update панели/API (слоты ≤3 прошлых + current).
+    server_releases_dir: Path = Path(
+        os.environ.get("BAD_SERVER_RELEASES_DIR", "/var/lib/bad/server-releases")
+    )
 
     # Ежедневные бэкапы pg_dump — сегодня + вчера.
     backup_dir: Path = Path(
