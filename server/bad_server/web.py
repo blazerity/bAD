@@ -212,53 +212,59 @@ def _device_inventory_nav(
     collector_errors: Optional[list],
     security_info: Optional[dict] = None,
 ) -> list[dict]:
-    """Пункты Speccy-навигации + краткие строки для Обзора (макс. ~2)."""
+    """Пункты Speccy-навигации + краткие строки для Обзора.
+
+    По умолчанию одна самая важная строка на характеристику.
+    Две — только если в одну никак или единиц две (диски / планки / GPU).
+    """
     hw = hardware_summary if isinstance(hardware_summary, dict) else None
     items: list[dict] = []
 
     def add(view_id: str, icon: str, title: str, lines: list[str]) -> None:
+        cleaned = [ln for ln in lines if ln]
         items.append(
             {
                 "id": view_id,
                 "icon": icon,
                 "title": title,
-                "lines": [ln for ln in lines if ln][:2],
+                "lines": cleaned[:2],
             }
         )
 
+    def _disk_overview_line(disk: dict) -> str:
+        bits = [disk.get("model") or "диск", _format_bytes(disk.get("size_bytes"))]
+        if disk.get("interface_type"):
+            bits.append(str(disk.get("interface_type")))
+        # serial — в разделе Накопители, не в Обзоре
+        return " · ".join(str(x) for x in bits if x and x != "—")
+
     if host_info:
         os_line = _format_os(host_info.get("os"))
-        domain = host_info.get("domain") or host_info.get("hostname") or ""
-        host_extra: list[str] = []
-        if host_info.get("last_boot_at"):
-            host_extra.append(f"загрузка {host_info.get('last_boot_at')}")
+        # boot / pending reboot / timezone — одна строка вместе с ОС
+        status = ""
         if host_info.get("pending_reboot") is True:
-            host_extra.append("ожидает перезагрузку")
+            status = "ожидает перезагрузку"
+        elif host_info.get("last_boot_at"):
+            status = f"загрузка {host_info.get('last_boot_at')}"
         elif host_info.get("timezone"):
-            host_extra.append(str(host_info.get("timezone")))
-        line2 = str(domain) if domain else ""
-        if host_extra:
-            line2 = " · ".join(x for x in (line2, "; ".join(host_extra)) if x)
+            status = str(host_info.get("timezone"))
         add(
             "os",
             "host",
             "Операционная система",
-            [os_line, line2],
+            [" · ".join(x for x in (os_line, status) if x)],
         )
 
     if hw and hw.get("cpu"):
         cpu = hw["cpu"] if isinstance(hw["cpu"], dict) else {}
+        name = str(cpu.get("name") or "").strip() or "CPU"
         cores = cpu.get("cores")
         logical = cpu.get("logical")
-        cores_line = ""
         if cores is not None or logical is not None:
-            cores_line = f"{cores or '—'} ядер / {logical or '—'} потоков"
-        add(
-            "cpu",
-            "cpu",
-            "Процессор",
-            [str(cpu.get("name") or "—"), cores_line],
-        )
+            c = cores if cores is not None else "-"
+            lg = logical if logical is not None else "-"
+            name = f"{name} · {c}/{lg}"
+        add("cpu", "cpu", "Процессор", [name])
 
     if hw and (
         hw.get("manufacturer")
@@ -267,16 +273,19 @@ def _device_inventory_nav(
         or hw.get("bios_version")
         or hw.get("bios_manufacturer")
         or hw.get("bios_release_date")
+        or hw.get("bios_serial")
+        or hw.get("identifying_number")
+        or hw.get("baseboard_serial")
     ):
+        # serials BIOS/board — в разделе, не в Обзоре
         model_line = " · ".join(
             str(x) for x in (hw.get("manufacturer"), hw.get("model")) if x
         )
-        bios = hw.get("bios_version")
         add(
             "mb",
             "model",
             "Материнская плата",
-            [model_line or (hw.get("serial_number") or "—"), f"BIOS {bios}" if bios else ""],
+            [model_line or str(hw.get("serial_number") or "плата")],
         )
 
     if hw and (
@@ -287,82 +296,106 @@ def _device_inventory_nav(
         ram = _format_bytes(hw.get("ram_bytes"))
         dtype = hw.get("ram_memory_type") or ""
         modules = hw.get("ram_modules") or []
-        line1 = " · ".join(x for x in (ram if ram != "—" else "", str(dtype)) if x) or "—"
-        line2 = f"{len(modules)} планок" if modules else ""
-        add("memory", "ram", "Память", [line1, line2])
+        line1 = " · ".join(
+            x for x in ((ram if ram != "—" else ""), str(dtype)) if x
+        ) or "ОЗУ"
+        if len(modules) >= 2:
+            # две планки → допускается вторая строка
+            add(
+                "memory",
+                "ram",
+                "Память",
+                [line1, f"{len(modules)} планок"],
+            )
+        else:
+            if len(modules) == 1:
+                line1 = f"{line1} · 1 планка" if line1 != "ОЗУ" else "1 планка"
+            add("memory", "ram", "Память", [line1])
 
     if hw and hw.get("gpus"):
         gpus = hw["gpus"]
-        first = gpus[0] if isinstance(gpus[0], dict) else {}
-        name = first.get("name") or "—"
-        extra = f"+{len(gpus) - 1}" if len(gpus) > 1 else (first.get("vendor") or "")
-        add("gpu", "gpu", "Видео", [str(name), str(extra)])
+        lines: list[str] = []
+        for g in gpus[:2]:
+            if isinstance(g, dict) and g.get("name"):
+                lines.append(str(g.get("name")))
+            elif isinstance(g, dict):
+                lines.append(str(g.get("vendor") or "GPU"))
+        if len(gpus) > 2:
+            lines = [lines[0], f"+{len(gpus) - 1} ещё"]
+        add("gpu", "gpu", "Видео", lines or ["GPU"])
 
     if hw and (
         hw.get("disks")
         or hw.get("volumes")
         or hw.get("chassis_type")
     ):
-        disks = hw.get("disks") or []
+        disks = [d for d in (hw.get("disks") or []) if isinstance(d, dict)]
         volumes = hw.get("volumes") or []
-        if disks and isinstance(disks[0], dict):
-            d0 = disks[0]
-            disk_bits = [d0.get("model") or "диск", _format_bytes(d0.get("size_bytes"))]
-            if d0.get("interface_type"):
-                disk_bits.append(str(d0.get("interface_type")))
-            if d0.get("serial_number"):
-                disk_bits.append(str(d0.get("serial_number")))
-            line1 = " · ".join(str(x) for x in disk_bits if x and x != "—")
+        if len(disks) >= 2:
+            add(
+                "storage",
+                "disk",
+                "Накопители",
+                [_disk_overview_line(disks[0]), _disk_overview_line(disks[1])],
+            )
+        elif disks:
+            add("storage", "disk", "Накопители", [_disk_overview_line(disks[0])])
+        elif volumes:
+            add(
+                "storage",
+                "disk",
+                "Накопители",
+                [f"{len(volumes)} том(ов)"],
+            )
         else:
-            line1 = f"{len(disks)} диск(ов)" if disks else "тома"
-        line2 = f"{len(volumes)} том(ов)" if volumes else (f"{len(disks)} диск(ов)" if len(disks) > 1 else "")
-        if hw.get("chassis_type"):
-            chassis = _format_chassis(hw.get("chassis_type")) or str(hw.get("chassis_type"))
-            line2 = " · ".join(x for x in (f"корпус {chassis}", line2) if x)
-        add("storage", "disk", "Накопители", [line1, line2])
+            chassis = _format_chassis(hw.get("chassis_type"))
+            add(
+                "storage",
+                "disk",
+                "Накопители",
+                [f"корпус {chassis}" if chassis else "накопители"],
+            )
 
     if hw and hw.get("monitors"):
-        mons = hw["monitors"]
-        m0 = mons[0] if isinstance(mons[0], dict) else {}
-        res = ""
-        if m0.get("width") and m0.get("height"):
-            res = f"{m0['width']}×{m0['height']}"
-        add(
-            "monitors",
-            "monitor",
-            "Мониторы",
-            [str(m0.get("name") or m0.get("manufacturer") or "монитор"), res or f"{len(mons)} шт."],
-        )
+        mons = [m for m in hw["monitors"] if isinstance(m, dict)]
+        lines = []
+        for m in mons[:2]:
+            label = str(m.get("name") or m.get("manufacturer") or "монитор")
+            if m.get("width") and m.get("height"):
+                label = f"{label} · {m['width']}×{m['height']}"
+            lines.append(label)
+        if len(mons) > 2:
+            lines = [lines[0], f"+{len(mons) - 1} ещё"]
+        add("monitors", "monitor", "Мониторы", lines)
 
     if hw and hw.get("battery"):
         bat = hw["battery"] if isinstance(hw["battery"], dict) else {}
         charge = bat.get("charge_percent")
-        line1 = f"{charge}%" if charge is not None else (bat.get("status") or "батарея")
-        line2 = str(bat.get("status") or "") if charge is not None else ""
-        add("battery", "battery", "Батарея", [str(line1), line2])
+        if charge is not None:
+            line = f"{charge}%"
+            if bat.get("status"):
+                line = f"{line} · {bat.get('status')}"
+        else:
+            line = str(bat.get("status") or "батарея")
+        add("battery", "battery", "Батарея", [line])
 
     if network_info and network_info.get("nics"):
-        nics = network_info["nics"]
-        n0 = nics[0] if isinstance(nics[0], dict) else {}
-        ipv4 = n0.get("ipv4") or []
-        ip = ipv4[0] if ipv4 else (n0.get("mac") or "")
-        add(
-            "network",
-            "network",
-            "Сеть",
-            [str(n0.get("name") or "NIC"), str(ip)],
-        )
+        nics = [n for n in network_info["nics"] if isinstance(n, dict)]
+        lines = []
+        for n in nics[:2]:
+            ipv4 = n.get("ipv4") or []
+            ip = ipv4[0] if ipv4 else (n.get("mac") or "")
+            name = str(n.get("name") or "NIC")
+            lines.append(" · ".join(x for x in (name, str(ip)) if x))
+        if len(nics) > 2:
+            lines = [lines[0], f"+{len(nics) - 1} ещё"]
+        add("network", "network", "Сеть", lines)
 
     if users_info:
-        add(
-            "users",
-            "users",
-            "Пользователи",
-            [
-                str(users_info.get("last_interactive") or "—"),
-                ", ".join(users_info.get("logged_on") or [])[:80],
-            ],
+        who = users_info.get("last_interactive") or (
+            ", ".join(users_info.get("logged_on") or [])[:80]
         )
+        add("users", "users", "Пользователи", [str(who) if who else "нет данных"])
 
     if software_info is not None:
         programs = software_info.get("programs")
@@ -379,44 +412,51 @@ def _device_inventory_nav(
         or sec.get("antivirus")
         or sec.get("tpm_spec_version")
     ):
-        tpm = sec.get("tpm_present")
-        if tpm is True:
-            tpm_line = "TPM есть"
-            if sec.get("tpm_spec_version"):
-                tpm_line = f"{tpm_line} · {sec.get('tpm_spec_version')}"
-        elif tpm is False:
-            tpm_line = "TPM нет"
-        else:
-            tpm_line = ""
-        sb = sec.get("secure_boot")
-        if sb is True:
-            sb_line = "Secure Boot on"
-        elif sb is False:
-            sb_line = "Secure Boot off"
-        else:
-            sb_line = ""
+        # одна строка в Обзоре; детали TPM/SB/AV — в разделе Безопасность
         av_names: list[str] = []
         for item in sec.get("antivirus") or []:
             if isinstance(item, dict) and item.get("name"):
                 av_names.append(str(item["name"]))
             elif isinstance(item, str) and item.strip():
                 av_names.append(item.strip())
-        line1 = " · ".join(x for x in (tpm_line, sb_line) if x) or "security"
-        line2 = ", ".join(av_names[:3])
-        add("security", "settings", "Безопасность", [line1, line2])
+        if av_names:
+            line = av_names[0]
+            if len(av_names) > 1:
+                line = f"{line} +{len(av_names) - 1}"
+        elif sec.get("tpm_present") is True:
+            line = "TPM есть"
+            if sec.get("tpm_spec_version"):
+                line = f"{line} · {sec.get('tpm_spec_version')}"
+        elif sec.get("tpm_present") is False:
+            line = "TPM нет"
+        elif sec.get("secure_boot") is True:
+            line = "Secure Boot вкл"
+        elif sec.get("secure_boot") is False:
+            line = "Secure Boot выкл"
+        else:
+            line = "security"
+        add("security", "tls", "Безопасность", [line])
 
     if minidumps_info is not None:
-        count = minidumps_info.get("count", "—")
-        mem = "Memory.dmp есть" if minidumps_info.get("memory_dmp_present") else "Memory.dmp нет"
+        # bugcheck — в Событиях; в Обзоре максимум одна строка при BSOD
         bug = ""
         for f in minidumps_info.get("files") or []:
             if isinstance(f, dict) and f.get("bugcheck_code"):
                 bug = str(f.get("bugcheck_code"))
-                if f.get("bugcheck_message"):
-                    bug = f"{bug} · {str(f.get('bugcheck_message'))[:60]}"
+                msg = f.get("bugcheck_message")
+                if msg:
+                    bug = f"{bug} · {str(msg)[:40]}"
                 break
-        line2 = " · ".join(x for x in (mem, bug) if x)
-        add("minidumps", "events", "Минидампы BSOD", [f"{count} файлов", line2])
+        if bug:
+            add("minidumps", "events", "Минидампы BSOD", [bug])
+        else:
+            count = minidumps_info.get("count")
+            if count:
+                add("minidumps", "events", "Минидампы BSOD", [f"{count} файлов"])
+            elif minidumps_info.get("memory_dmp_present"):
+                add("minidumps", "events", "Минидампы BSOD", ["Memory.dmp есть"])
+            else:
+                add("minidumps", "events", "Минидампы BSOD", ["нет дампов"])
 
     if collector_errors:
         add("errors", "events", "Ошибки сбора", [f"{len(collector_errors)} ошибок"])
