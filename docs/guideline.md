@@ -26,11 +26,11 @@
 
 - Агент отклоняет `http://` без явного opt-in для dev.
 - На сервере: hash секретов (argon2), файл БД `0600`, site.env `640` root:bad; каталог бэкапов — как секреты (`700` / файлы `600`).
-- **SEC-005:** fresh install (**0.11+**) кладёт `/etc/bad/data_key` + `/etc/bad/session_secret` (`440` root:bad) и пути в `site.env` — daily backup БД тогда **не** содержит master keys. Residual: legacy/lab, если ключи остались в SQLite `site_secrets` — копия БД = компромисс; не шарить бэкапы. Операторский чеклист: [operator-guide.md](operator-guide.md#безопасность-для-операторов).
-- **SEC-011:** MSI write-config не кладёт token в argv PowerShell (HKLM Setup); residual — родительский `msiexec … ENROLLMENTTOKEN=` / verbose logs — не пересылать; после волны ротировать site enrollment token (UI в **0.10**, runbook: [operator-guide.md](operator-guide.md#ротация-enrollment-token-после-волны-msi)).
+- **SEC-005:** fresh install кладёт `/etc/bad/data_key` + `/etc/bad/session_secret` (`440` root:bad) и пути в `site.env` — daily backup БД тогда **не** содержит master keys. Residual: legacy/lab, если ключи остались в SQLite `site_secrets` — копия БД = компромисс; не шарить бэкапы. Операторский чеклист: [operator-guide.md](operator-guide.md#безопасность-для-операторов).
+- **SEC-011:** MSI write-config не кладёт token в argv PowerShell (HKLM Setup); residual — родительский `msiexec … ENROLLMENTTOKEN=` / verbose logs — не пересылать; после волны ротировать site enrollment token (runbook: [operator-guide.md](operator-guide.md#ротация-enrollment-token-после-волны-msi)).
 - **SEC-003:** LDAP TLS — по умолчанию `CERT_REQUIRED`; lab opt-in `tls_insecure` только для лаборатории, не для боя.
 - После install **сразу** сменить `admin`/`admin` (`/account/password`); до смены UI пускает только `/account/password` и `/logout` (навигация скрыта).
-- Cookie `bad_session`: `BAD_COOKIE_SECURE=auto` (Secure по `X-Forwarded-Proto`); **инвариант 0.11+:** HTTP bootstrap = UI-only temporary; агенты всегда HTTPS (кроме lab). Risk rating bootstrap **Medium** при runbook ([чеклист](operator-guide.md#чеклист-окна-http-bootstrap-011)). TLS только nginx; UI **Параметры → Сертификат** (`/settings/tls`) → `/etc/bad/tls/*` + `bad-apply-tls`. ACME не обещать.
+- Cookie `bad_session`: `BAD_COOKIE_SECURE=auto` (Secure по `X-Forwarded-Proto`); **инвариант:** HTTP bootstrap = UI-only temporary; агенты всегда HTTPS (кроме lab). Risk rating bootstrap **Medium** при runbook ([чеклист](operator-guide.md#чеклист-окна-http-bootstrap)). TLS только nginx; UI **Параметры → Сертификат** (`/settings/tls`) → `/etc/bad/tls/*` + `bad-apply-tls`. ACME не обещать.
 - uvicorn не наружу.
 - nginx rate-limit / app enroll limiter — сохранять и ужесточать осторожно.
 - ProgramData ACL: Administrators + SYSTEM; не world-readable.
@@ -82,7 +82,7 @@ BAD_BACKUP_DIR=/var/lib/bad/backups
 
 ## Web UI (admin)
 
-Единый раздел (с **0.8.0**). Не плодить противоречащие описания «без дашборда» — обзорная сводка есть, marketing landing нет.
+Единый раздел. Не плодить противоречащие описания «без дашборда» — обзорная сводка есть, marketing landing нет.
 
 - **Язык / look**: Windows 11 / Fluent light, русский UI; `static/style.css`, favicon; stroke-иконки секций; HTML-отчёт CLI в той же семье токенов.
 - **Обзор** `/` (`/overview`): totals (активные / онлайн / устарели / архив), breakdown версий агента, последние события железа.
@@ -95,9 +95,9 @@ BAD_BACKUP_DIR=/var/lib/bad/backups
   - Резервные копии (daily SQLite + **Скачать site bundle**; restore `restore-site-bundle.sh`)
   - Политики агента (`update_target`: latest / pin)
   - Обновления агента (каталог MSI, «Подгрузить в зеркало», Latest; секция Enrollment + «Сменить enrollment token»)
-- **Обзор** (0.10): empty mirror, version drift, broken pin, revoked active.
+- **Обзор**: empty mirror, version drift, broken pin, revoked active.
 - Login: local first, optional LDAP; local admin — break-glass. Не возвращать paste-admin-token gate.
-- Операторский runbook 0.10: [operator-guide.md](operator-guide.md).
+- Операторский runbook: [operator-guide.md](operator-guide.md).
 
 ## Агент
 
@@ -121,5 +121,5 @@ BAD_BACKUP_DIR=/var/lib/bad/backups
 Unit tests (`agent/tests/`, `server/tests/`) — **только локально**, не коммитить в GitHub; CI их не гоняет.
 
 - Локально (если деревья есть): сервер — `pytest -q`; агент — `dotnet test tests/BadAgent.Tests -c Release`.
-- Покрывать: enroll → inventory → admin/web login + agent-update + policy/override; сервис 0.8.0 (revoke/rotate, archive, retention, SMTP, backup); xUnit collector/schema, cleartext reject, semver/sha256, service CLI, ApplyRemoteSettings.
+- Покрывать: enroll → inventory → admin/web login + agent-update + policy/override; revoke/rotate, archive, retention, SMTP, backup; xUnit collector/schema, cleartext reject, semver/sha256, service CLI, ApplyRemoteSettings.
 - Предпочитать узкие регрессии инвариантов (auth, schema, upsert, update compare, config precedence), а не хрупкие snapshot-гиганты.

@@ -2,10 +2,10 @@
 
 **blazerity Asset Discovery** — Windows-агент инвентаризации и on-prem сервер накопления снимков. Документ описывает фактическую архитектуру репозитория. Версия продукта: **1.0.0**.
 
-- **Инвариант 0.11+:** HTTP bootstrap = **только временный UI-режим** (доверенная сеть → смена пароля → upload cert → HTTPS). Агенты всегда HTTPS (кроме lab `BAD_ALLOW_HTTP=1`). Risk rating bootstrap: **Medium** при runbook; **High** на публичном `:80` до cert — не Critical defect.
-- **ACME / Let’s Encrypt:** вне scope **0.11**; не обещать без решения владельца.
-- **Альтернатива bootstrap (оценка, не реализация в 0.11):** self-signed / внутренний CA при install → сразу HTTPS на проводе vs warning в браузере; предпочтительно install сразу с `BAD_TLS_CERT`/`BAD_TLS_KEY`.
-- **Settings gate (0.11+):** HTML settings (в т.ч. `/settings/tls`) не обходят `ensure_csrf` + `require_web_admin`.
+- **Инвариант:** HTTP bootstrap = **только временный UI-режим** (доверенная сеть → смена пароля → upload cert → HTTPS). Агенты всегда HTTPS (кроме lab `BAD_ALLOW_HTTP=1`). Risk rating bootstrap: **Medium** при runbook; **High** на публичном `:80` до cert — не Critical defect.
+- **ACME / Let’s Encrypt:** вне scope 1.0; не обещать без решения владельца.
+- **Альтернатива bootstrap (оценка, не реализация в 1.0):** self-signed / внутренний CA при install → сразу HTTPS на проводе vs warning в браузере; предпочтительно install сразу с `BAD_TLS_CERT`/`BAD_TLS_KEY`.
+- **Settings gate:** HTML settings (в т.ч. `/settings/tls`) не обходят `ensure_csrf` + `require_web_admin`.
 
 ## Компоненты
 
@@ -40,7 +40,7 @@ flowchart LR
 - Установка: MSI → `%ProgramFiles%\blazerity\bAD\`, служба auto-start под LocalSystem.
 - Конфиг: `%ProgramData%\blazerity\bAD\config.json` (`server_url`, `enrollment_token` временно, `api_key`, `device_id`, интервалы, `update_*`, `remote_config_version`).
 - Жизненный цикл: при старте enroll (если нет API key) → flush offline queue → check update → полный inventory → heartbeat (с подтягиванием remote config) → циклы по эффективным интервалам.
-- Offline queue (0.10.0): при недоступном сервере inventory/heartbeat пишутся в `%ProgramData%\blazerity\bAD\queue\` и уходят с backoff (cap 64 / 14 дней); не молча теряются.
+- Offline queue: при недоступном сервере inventory/heartbeat пишутся в `%ProgramData%\blazerity\bAD\queue\` и уходят с backoff (cap 64 / 14 дней); не молча теряются.
 - Revoked API key (401/403): очистить `api_key`, сохранить `device_id`, запись в Application Event Log, не долбить API до re-enroll / reinstall.
 - Remote config: сервер считает effective settings (defaults &lt; matching policies &lt; per-device override); агент применяет только safe knobs, сохраняет в `config.json`. Секреты / `server_url` / `device_id` с сервера не принимаются.
 - `device_id`: MachineGuid (registry), fallback SMBIOS UUID.
@@ -229,7 +229,7 @@ flowchart LR
 
 #### API notes: transport (HTTPS) и enrollment
 
-**Prod expectation (0.11+).** `POST /v1/enroll` и agent endpoints (`/v1/heartbeat`, `/v1/inventory`, `/v1/agent/config`, `/v1/agent/update/*`) **ожидают HTTPS** за nginx. Cleartext `http://` — только lab: агент режет URL без `BAD_ALLOW_HTTP=1` (`BadApiClient`); HTTP bootstrap панели (UI до cert) **не** означает поддержку HTTP для агентов.
+**Prod expectation.** `POST /v1/enroll` и agent endpoints (`/v1/heartbeat`, `/v1/inventory`, `/v1/agent/config`, `/v1/agent/update/*`) **ожидают HTTPS** за nginx. Cleartext `http://` — только lab: агент режет URL без `BAD_ALLOW_HTTP=1` (`BadApiClient`); HTTP bootstrap панели (UI до cert) **не** означает поддержку HTTP для агентов.
 
 **Клиент vs сервер сегодня.** Агент уже отклоняет cleartext до сети. Сервер **пока принимает** `POST /v1/enroll` по HTTP (если запрос дошёл до uvicorn, в т.ч. при HTTP bootstrap) — это согласовано с временным UI bootstrap, но усиливает риск утечки enrollment token.
 
@@ -250,20 +250,20 @@ flowchart LR
 
 - TLS только на **nginx**; uvicorn — `127.0.0.1:8000` без TLS.
 - Managed files: `/etc/bad/tls/fullchain.pem`, `/etc/bad/tls/privkey.pem` (UI **Параметры → Сертификат** `/settings/tls` или cert при install).
-- **0.11 bootstrap:** без cert — HTTP-only (`bad-http.conf.template`); после upload — HTTPS template, 80→443, HSTS, `BAD_COOKIE_SECURE=auto` (Secure по `X-Forwarded-Proto`).
+- **HTTP bootstrap:** без cert — HTTP-only (`bad-http.conf.template`); после upload — HTTPS template, 80→443, HSTS, `BAD_COOKIE_SECURE=auto` (Secure по `X-Forwarded-Proto`).
 - Apply: app → staging + `apply.request` → systemd `bad-tls-apply.path` → `/usr/local/sbin/bad-apply-tls` (`nginx -t` + reload). Кнопка UI: **«Установить и перезагрузить nginx»**. `NoNewPrivileges` на `bad-api` → sudo из процесса не используем.
 - Агентам HTTP bootstrap не рекламируем.
 
 ### Web UI и аутентификация
 
-**SEC-004 / SEC-010 (0.9.x):** при `must_change_password` `require_web_user` пускает только `/account/password` и `/logout`; в `base.html` скрыта основная навигация. CSRF: cookie `bad_csrf` + поле формы `csrf_token`; все HTML POST — через `Depends(ensure_csrf)` на web-router (`bad_server/csrf.py`).
+**SEC-004 / SEC-010:** при `must_change_password` `require_web_user` пускает только `/account/password` и `/logout`; в `base.html` скрыта основная навигация. CSRF: cookie `bad_csrf` + поле формы `csrf_token`; все HTML POST — через `Depends(ensure_csrf)` на web-router (`bad_server/csrf.py`).
 
 
-Визуальный язык (с **0.8.0**, актуально в **0.9.0**): светлая оболочка в духе Windows 11 / Fluent — Segoe UI Variable, слоистые полупрозрачные поверхности, радиусы 4px (controls) / 8px (surfaces), акцент Fluent blue (`#0067C0`), UI copy на русском, stroke-иконки секций (без emoji). Стили: `server/bad_server/static/style.css` + `favicon.svg`/`favicon.ico`; локальный HTML-отчёт (`HtmlReportWriter`) — та же семья токенов/иконок. Иконка агента: `agent/assets/bad.ico` (`ApplicationIcon` + WiX `ARPPRODUCTICON`).
+Визуальный язык: светлая оболочка в духе Windows 11 / Fluent — Segoe UI Variable, слоистые полупрозрачные поверхности, радиусы 4px (controls) / 8px (surfaces), акцент Fluent blue (`#0067C0`), UI copy на русском, stroke-иконки секций (без emoji). Стили: `server/bad_server/static/style.css` + `favicon.svg`/`favicon.ico`; локальный HTML-отчёт (`HtmlReportWriter`) — та же семья токенов/иконок. Иконка агента: `agent/assets/bad.ico` (`ApplicationIcon` + WiX `ARPPRODUCTICON`).
 
 | Path | Назначение |
 |------|------------|
-| `/`, `/overview` | обзор: totals, версии агента, последние hardware events |
+| `/`, `/overview` | обзор: totals, версии агента, hardware events; ops: empty mirror, version drift, broken pin, revoked active |
 | `/login` | username/password (local, затем LDAP если включён) |
 | `/logout` | сброс cookie сессии |
 | `/devices`, `/devices/{id}` | список (поиск/архив/страницы/CSV); карточка — revoke/rotate, архив, delete, дубли, tags, override, hardware summary |
@@ -271,15 +271,13 @@ flowchart LR
 | `/events` | события inventory + пагинация |
 | `/settings` | редирект в оболочку «Параметры» (левый nav) |
 | `/settings/ldap` | LDAP + группа доступа AD |
-| `/settings/tls` | (0.11) статус HTTP/HTTPS, upload PEM cert+key[+chain] → nginx reload |
+| `/settings/tls` | nav **Сертификат**; статус HTTP/HTTPS; upload PEM cert+key[+chain] → nginx reload (key не в HTML) |
 | `/settings/mail` | SMTP + получатели + toggles уведомлений |
 | `/settings/retention` | сроки хранения events/inventory |
-| `/settings/backups` | daily SQLite + (0.10) **Скачать site bundle** (`GET …/site-bundle`) |
+| `/settings/backups` | daily SQLite + **Скачать site bundle** (`GET …/site-bundle`) |
 | `/settings/policies` | CRUD; knob `update_target` = `latest` \| pin semver |
-| `/settings/updates` | (0.10) каталог MSI, upload air-gap, sync, Latest/Удалить; секция **Enrollment token** + `POST /settings/enrollment/rotate` |
-| `/settings/tls` | (0.11) nav **Сертификат**; режим HTTP bootstrap / HTTPS активен; upload PEM; key не в HTML |
+| `/settings/updates` | каталог MSI, upload air-gap, sync, Latest/Удалить; секция **Enrollment token** + `POST /settings/enrollment/rotate` |
 | `/account/password` | смена пароля локального пользователя |
-| `/` `/overview` | (0.10) ops: empty mirror, version drift, broken pin, revoked active |
 
 **Локальные пользователи**
 
@@ -302,7 +300,7 @@ flowchart LR
 - Soft-fail: ошибки SMTP только в лог, enroll/inventory не ломаются.
 - Stale-алерты — фоновый цикл (~5 мин) с флагом `meta.stale_notified_at`.
 
-**Зеркало MSI (0.10)**
+**Зеркало MSI**
 
 - Диск: `{BAD_AGENT_UPDATES_DIR}/{version}/bad-agent-{version}.msi` (+ `agent-release.json`).
 - БД: `agent_msi_versions` + указатель `agent_update` / `site_secrets.agent_msi_latest_version`.
@@ -342,9 +340,9 @@ flowchart LR
 2. MSI/config передаёт `SERVERURL` + `ENROLLMENTTOKEN` (**SEC-011:** deferred CA читает token из HKLM Setup, не из argv PowerShell; residual — родительский `msiexec … ENROLLMENTTOKEN=` / verbose logs — не шарить).
 3. Агент `POST /v1/enroll` → получает `api_key`, сохраняет в ProgramData, затирает enrollment token.
 4. Повторные запуски используют API key; upsert по стабильному `device_id`.
-5. **Ротация enrollment (0.10):** UI на `/settings/updates` → **Сменить enrollment token** (`POST /settings/enrollment/rotate` + admin API `POST /v1/admin/enrollment/rotate`); hash в SQLite сразу, restart не нужен. Plaintext нового token — только по защищённому каналу (не HTTP bootstrap). Runbook: [operator-guide.md](operator-guide.md#ротация-enrollment-token-после-волны-msi).
-6. **Multi-version MSI (0.10):** `agent_msi_versions` + latest; upload/sync/set-latest/delete; `update_target`; check → target в т.ч. downgrade. Оператор: [operator-guide.md](operator-guide.md#4-обновления-агента-upload-msi-и-выбор-версии-010).
-7. **Site bundle (0.10):** `GET /settings/backups/site-bundle`; restore: `deploy/debian/restore-site-bundle.sh`. Daily DB-only без изменений.
+5. **Ротация enrollment:** UI на `/settings/updates` → **Сменить enrollment token** (`POST /settings/enrollment/rotate` + admin API `POST /v1/admin/enrollment/rotate`); hash в SQLite сразу, restart не нужен. Plaintext нового token — только по защищённому каналу (не HTTP bootstrap). Runbook: [operator-guide.md](operator-guide.md#ротация-enrollment-token-после-волны-msi).
+6. **Multi-version MSI:** `agent_msi_versions` + latest; upload/sync/set-latest/delete; `update_target`; check → target в т.ч. downgrade. Оператор: [operator-guide.md](operator-guide.md#4-обновления-агента-upload-msi-и-выбор-версии).
+7. **Site bundle:** `GET /settings/backups/site-bundle`; restore: `deploy/debian/restore-site-bundle.sh`. Daily DB-only без изменений.
 
 ## Deploy
 

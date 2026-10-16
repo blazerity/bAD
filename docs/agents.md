@@ -39,7 +39,7 @@ uvicorn bad_server.app:app --host 127.0.0.1 --port 8000
 - Health: `GET /v1/health` → `{"status":"ok","version":"1.0.0"}`
 - Web: `/login` (`admin`/`admin` first boot) → `/` обзор; устройства `/devices` (поиск/CSV/архив); карточка — revoke/rotate/delete
 - Параметры `/settings/*` (Win11 left-nav): LDAP (+ AD group), mail/SMTP toggles, retention, backups, policies, agent updates
-- UI look (0.8.0+): Win11/Fluent light + русский UI — `bad_server/static/style.css`, favicon; CLI HTML report — те же токены/иконки; `agent/assets/bad.ico`
+- UI look: Win11/Fluent light + русский UI — `bad_server/static/style.css`, favicon; CLI HTML report — те же токены/иконки; `agent/assets/bad.ico`
 
 ## Как собрать / тестировать агент
 
@@ -101,11 +101,11 @@ BadAgent.exe service status|start|stop|restart
 
 1. GHA `release-msi` публикует MSI + `agent-release.json` в Release.
 2. Сервер sync’ит в `/var/lib/bad/agent-updates/` (+ SQLite `agent_update`).
-3. Агент: `GET /v1/agent/update/check?current=` → follow `target_version` / `update_available` → download MSI (same-origin, `?version=`) → sha256 → `msiexec /i … /qn` → exit; WiX MajorUpgrade (**AllowDowngrades** с 0.10). Gate: не только `IsNewer` — pin ниже current тоже применяется.
+3. Агент: `GET /v1/agent/update/check?current=` → follow `target_version` / `update_available` → download MSI (same-origin, `?version=`) → sha256 → `msiexec /i … /qn` → exit; WiX MajorUpgrade (**AllowDowngrades**). Gate: не только `IsNewer` — pin ниже current тоже применяется.
 
 Конфиг: `update_enabled` (default true), `update_check_interval_hours` (default 24), **`update_target`** (`latest` | semver pin; алиас `desired_agent_version`). Env: `BAD_UPDATE_ENABLED`, `BAD_UPDATE_CHECK_INTERVAL_HOURS`, `BAD_UPDATE_TARGET`.
 
-Сценарии (0.10): **upgrade**, **downgrade** (pin↓ / latest→older mirror), **same** (no-op), **latest** (target = site latest). Anti-loop: `pending_update_*` cooldown 2h.
+Сценарии: **upgrade**, **downgrade** (pin↓ / latest→older mirror), **same** (no-op), **latest** (target = site latest). Anti-loop: `pending_update_*` cooldown 2h.
 
 Ключевые файлы: `AgentUpdater.cs`, `VersionUtil.cs`, `UpdatePathUtil.cs`, `server/bad_server/agent_update.py`, `github_release.py`.
 
@@ -130,24 +130,24 @@ Hardware (при `collect_hardware`): помимо CPU/RAM/disks/volumes — `se
 
 Heartbeat health (опционально → meta устройства): `last_inventory_ok`, `last_inventory_error`, `agent_uptime_seconds`, `system_drive_free_bytes`. Рядом (отдельно): optional `config_local` → provenance.
 
-### Web UI security (0.9.1)
+### Web UI security
 
 - **SEC-004:** при `must_change_password` UI пускает только `/account/password` и `/logout`; основная навигация скрыта.
 - **SEC-010:** CSRF на всех HTML POST — `Depends(ensure_csrf)` (cookie `bad_csrf` + поле `csrf_token`); детали в [architecture.md](architecture.md).
 
-### Offline queue / revoke (0.9.1)
+### Offline queue / revoke
 
 - Недоступный сервер → `%ProgramData%\blazerity\bAD\queue\` + backoff (`OfflineQueue`).
 - 401/403 → очистить `api_key`, оставить `device_id`, Event Log, не постить до re-enroll/reinstall (`Worker.HandleAuthFailure`).
 - Крупные сбои enroll/update/revoke → Application log, source `bAD Agent`.
 
-### Security harden (0.9.1)
+### Security harden
 
 - **SEC-002:** `msi_name` из update/check — только safe basename; путь обязан остаться в temp (`UpdatePathUtil.ResolveSafeMsiPath`).
 - **SEC-009:** download MSI — только relative / same-origin к `server_url`; чужой absolute URL отвергается (`UpdatePathUtil.ResolveSameOriginUpdateUrl`).
 - **SEC-011:** MSI write-config читает enrollment token из HKLM `…\Setup` (не argv PowerShell); residual risk родителя `msiexec … ENROLLMENTTOKEN=` — в `installer/msi/README.md`.
 
-### Server 0.10.0 — MSI catalog / enrollment / site bundle
+### MSI catalog / enrollment / site bundle
 
 - Каталог `agent_msi_versions` + UI заливка MSI; GitHub sync сохраняется.
 - Remote-config: `update_target` = `latest` | semver из зеркала (резолв на сервере в update/check).

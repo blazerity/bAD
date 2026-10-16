@@ -4,7 +4,7 @@
 
 ## 1. Сервер (Debian 12)
 
-Два пути (**0.11.0**): сразу с TLS-файлами при install **или** bootstrap по HTTP и загрузка cert из панели.
+Два пути (**1.0.0**): сразу с TLS-файлами при install **или** bootstrap по HTTP и загрузка cert из панели.
 
 ### Install сразу с TLS
 
@@ -22,7 +22,7 @@ BAD_TLS_KEY=/etc/ssl/private/bad.privkey.pem \
 
 ### Install без cert (HTTP bootstrap → upload в UI)
 
-С **0.11.0** `BAD_TLS_CERT` / `BAD_TLS_KEY` **опциональны**. Без них nginx поднимается в HTTP-only (:80), без HSTS и без 301 на HTTPS, пока не появится managed cert.
+Без cert `BAD_TLS_CERT` / `BAD_TLS_KEY` **опциональны**. Без них nginx поднимается в HTTP-only (:80), без HSTS и без 301 на HTTPS, пока не появится managed cert.
 
 ```bash
 BAD_DOMAIN=bad.example.com \
@@ -30,15 +30,15 @@ BAD_DOMAIN=bad.example.com \
 # → UI: http://bad.example.com/  (пока нет сертификата)
 ```
 
-Краткий порядок (детали — [чеклист окна HTTP bootstrap](#чеклист-окна-http-bootstrap-011)):
+Краткий порядок (детали — [чеклист окна HTTP bootstrap](#чеклист-окна-http-bootstrap)):
 
 1. Откройте **`http://bad.example.com/login`** (не https) **только** из доверенного контура.
 2. Войдите `admin` / `admin`, **сразу смените пароль**.
-3. Загрузите cert+key: [§ Сертификат из панели](#сертификат-tls-из-панели-011).
+3. Загрузите cert+key: [§ Сертификат из панели](#сертификат-tls-из-панели).
 4. После успешного apply — **`https://…`**, **обязательный повторный вход** (non-Secure cookies на HTTPS не уходят).
 5. **Агентов (MSI) ставьте только после HTTPS** — bootstrap HTTP для агентов не предназначен (`BAD_ALLOW_HTTP` — только lab).
 
-#### Чеклист окна HTTP bootstrap (0.11)
+#### Чеклист окна HTTP bootstrap
 
 Временный режим UI до managed cert. **Risk rating: Medium** при соблюдении runbook (доверенная сеть + короткое окно); на публичном `:80` до cert — **High**.
 
@@ -59,7 +59,7 @@ BAD_DOMAIN=bad.example.com \
 ```bash
 curl -fsS http://bad.example.com/v1/health   # bootstrap без cert
 curl -fsS https://bad.example.com/v1/health  # после TLS / с cert при install
-# → {"status":"ok","version":"0.11.0"}
+# → {"status":"ok","version":"1.0.0"}
 ```
 
 ### Вход в web (локальный)
@@ -72,7 +72,7 @@ curl -fsS https://bad.example.com/v1/health  # после TLS / с cert при i
 
 Токены лежат в `/etc/bad/site.env` (режим `640`, `root:bad`). uvicorn — только `127.0.0.1:8000`; TLS терминирует **nginx** (не uvicorn). См. [Безопасность](#безопасность-для-операторов).
 
-### Сертификат TLS из панели (0.11)
+### Сертификат TLS из панели
 
 Страница: **Параметры → Сертификат** (`/settings/tls`, nav desc «TLS для nginx») — только web admin. Заголовок **«Сертификат TLS»**.
 
@@ -100,7 +100,7 @@ curl -fsS https://bad.example.com/v1/health  # после TLS / с cert при i
 5. После успеха: режим **«HTTPS активен»**, :80→301, HSTS; cookie Secure сразу по `X-Forwarded-Proto` (`BAD_COOKIE_SECURE=auto`). Откройте **HTTPS**, войдите снова.
 6. Повторная загрузка тех же полей = ротация cert (тот же flow).
 
-Ручной retry apply: `systemctl start bad-tls-apply.service` (логи: `journalctl -u bad-tls-apply`). Let’s Encrypt / ACME в 0.11 нет. Смена `BAD_DOMAIN` из UI — вне scope.
+Ручной retry apply: `systemctl start bad-tls-apply.service` (логи: `journalctl -u bad-tls-apply`). Let’s Encrypt / ACME нет. Смена `BAD_DOMAIN` из UI — вне scope.
 
 **Что не делать с ключом**
 
@@ -126,7 +126,7 @@ Bind password хранится в SQLite зашифрованным и посл�
 На Windows build-хосте соберите MSI (см. `installer/msi/README.md`), затем установите:
 
 ```powershell
-msiexec /i bad-agent-0.10.1.msi `
+msiexec /i bad-agent-1.0.0.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=<enrollment-token-from-install> `
   /qn
@@ -135,7 +135,7 @@ msiexec /i bad-agent-0.10.1.msi `
 Опциональный PATH для локального CLI `bad` (по умолчанию выкл.):
 
 ```powershell
-msiexec /i bad-agent-0.10.1.msi `
+msiexec /i bad-agent-1.0.0.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=<enrollment-token-from-install> `
   ADDPATH=1 `
@@ -154,7 +154,7 @@ msiexec /i bad-agent-0.10.1.msi `
 
 **Когда.** Сразу после волны массовой установки MSI (или если токен мог утечь: логи ушли в тикет, скрипт деплоя в общем репо, и т.п.). Уже зарегистрированные устройства **не** нужно переустанавливать: у них в ProgramData лежит API key, enrollment token им больше не нужен.
 
-**Шаги (UI, 0.10):**
+**Шаги (UI):**
 
 1. Войдите как локальный **admin** (или LDAP admin).
 2. Откройте **Параметры → Обновления агента** (`/settings/updates`) — внизу секция **Enrollment token** (plaintext текущего token не показывается; видны «Hash в БД» / путь файла).
@@ -180,7 +180,7 @@ msiexec /i bad-agent-0.10.1.msi `
 
 Теги: правка на странице устройства (через запятую). Фильтр списка устройств по тегу. Политики тоже могут матчить `tag equals/contains`.
 
-Master-ключи (`/etc/bad/data_key`, `/etc/bad/session_secret`) не входят в daily SQLite backup — храните escrow отдельно (в **site bundle** 0.10 они уже есть). Порог stale по умолчанию 1 час (`BAD_DEVICE_STALE_AFTER_SECONDS`); поставьте ≈2× heartbeat, если удобнее (напр. `1800` при heartbeat 15 мин). Версия продукта **1.0.0**.
+Master-ключи (`/etc/bad/data_key`, `/etc/bad/session_secret`) не входят в daily SQLite backup — храните escrow отдельно (в **site bundle** они уже есть). Порог stale по умолчанию 1 час (`BAD_DEVICE_STALE_AFTER_SECONDS`); поставьте ≈2× heartbeat, если удобнее (напр. `1800` при heartbeat 15 мин). Версия продукта **1.0.0**.
 
 Альтернатива (автоматизация — admin API token):
 
@@ -191,7 +191,7 @@ curl -fsS -H "Authorization: Bearer <admin-token>" \
   'https://bad.example.com/v1/events?limit=50'
 ```
 
-## 4. Обновления агента: upload MSI и выбор версии (0.10)
+## 4. Обновления агента: upload MSI и выбор версии
 
 Страница: **Параметры → Обновления агента** (`/settings/updates`). Каталог на диске: `BAD_AGENT_UPDATES_DIR/{version}/bad-agent-{version}.msi` (+ `agent-release.json`). Агенты качают только с этого сервера; цель версии — knob `update_target` в политиках.
 
@@ -213,7 +213,7 @@ GitHub: **«Синхронизировать сейчас»** (`POST /settings/u
 
 Где задать: **Параметры → Политики** (`update_target` в форме) или override на карточке устройства. Канон — `update_target` (алиас `desired_agent_version`). `update_enabled=false` — агент MSI не ставит. Агент следует `update_available` с сервера (upgrade и downgrade).
 
-## 5. Site backup / restore (0.10)
+## 5. Site backup / restore
 
 Daily SQLite (`/var/lib/bad/backups/bad-YYYY-MM-DD.db`) **остаётся**. Отдельно — **Site bundle**.
 
@@ -227,7 +227,7 @@ sudo bash deploy/debian/restore-site-bundle.sh /path/to/bad-site-bundle-….tar.
 
 Скрипт (root): останавливает `bad-api`, перезаписывает `/var/lib/bad/bad.db` и ключи в `/etc/bad`, поднимает сервис. Перед боем — пробный прогон на копии. После: `curl -fsS https://…/v1/health`, login, `/settings/updates` (доложить MSI upload’ом, если бинарников не было в bundle).
 
-## 6. Ops-блок на Обзоре (0.10)
+## 6. Ops-блок на Обзоре
 
 На **`/` / `/overview`** помимо обычных счётчиков (в т.ч. **Устарел** / stale):
 
@@ -252,7 +252,7 @@ Admin token печатается при install и лежит в `/etc/bad/site.
 
 ### БД и бэкапы = секреты сайта (SEC-005)
 
-**Fresh install (0.11+):** `deploy/debian/install.sh` кладёт master keys **вне SQLite**:
+**Fresh install:** `deploy/debian/install.sh` кладёт master keys **вне SQLite**:
 
 | Файл | Назначение | Права |
 |------|------------|--------|
@@ -284,7 +284,7 @@ chmod 440 /etc/bad/data_key /etc/bad/session_secret
 
 ### Enrollment token (SEC-011)
 
-Не шарьте msiexec-логи / transcript’ы. После волны MSI — [ротация enrollment token](#ротация-enrollment-token-после-волны-msi) (UI в **0.10**).
+Не шарьте msiexec-логи / transcript’ы. После волны MSI — [ротация enrollment token](#ротация-enrollment-token-после-волны-msi) (UI).
 
 ## Заметки
 
