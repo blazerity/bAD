@@ -29,6 +29,7 @@
 
   <h2>Каталог версий</h2>
   {% if msi_versions %}
+  <div class="table-scroll">
   <table class="devices">
     <thead>
       <tr>
@@ -65,6 +66,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
   <p class="muted">Каталог пуст. Сделайте sync или загрузите MSI вручную.</p>
   {% endif %}

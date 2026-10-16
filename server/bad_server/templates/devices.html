@@ -53,7 +53,8 @@
   {% if not devices %}
   <p>Нет устройств{% if q %} по запросу <span class="mono">{{ q }}</span>{% endif %}{% if tag_filter %} с тегом <span class="mono">{{ tag_filter }}</span>{% endif %}{% if wave %} по фильтру <span class="mono">{{ wave }}</span>{% endif %}.</p>
   {% else %}
-  <table class="devices">
+  <div class="table-scroll">
+  <table class="devices devices-list">
     <thead>
       <tr>
         <th>Имя узла</th>
@@ -98,6 +99,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 
   {% if pages > 1 %}
   <nav class="pager" aria-label="Страницы">

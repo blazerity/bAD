@@ -27,6 +27,7 @@
 
   {% if backup.files %}
   <h2>Файлы</h2>
+  <div class="table-scroll">
   <table class="devices">
     <thead>
       <tr><th>Имя</th><th>Размер</th><th>mtime (UTC)</th></tr>
@@ -41,6 +42,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
   <p class="muted">Пока нет файлов бэкапа. Фоновая задача создаст снимок в течение часа.</p>
   {% endif %}

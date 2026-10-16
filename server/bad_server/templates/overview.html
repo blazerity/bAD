@@ -80,6 +80,7 @@
 
   <h2>Версии агента</h2>
   {% if stats.agent_versions %}
+  <div class="table-scroll">
   <table class="devices">
     <thead>
       <tr><th>Версия</th><th>Устройств</th></tr>
@@ -93,6 +94,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
   <p class="muted">Пока нет активных устройств.</p>
   {% endif %}
@@ -114,6 +116,7 @@
     {{ ops.version_drift_count }} —
     <a href="/devices?wave=drift">открыть фильтр волны</a>.
   </p>
+  <div class="table-scroll">
   <table class="devices">
     <thead><tr><th>Устройство</th><th>Сейчас</th><th>Цель</th><th>Want</th></tr></thead>
     <tbody>
@@ -127,10 +130,12 @@
     {% endfor %}
     </tbody>
   </table>
+  </div>
   {% endif %}
 
   <h2 class="with-icon">{{ icon('events') }}Недавние изменения железа</h2>
   {% if stats.recent_hardware_events %}
+  <div class="table-scroll">
   <table class="devices">
     <thead>
       <tr>
@@ -151,6 +156,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
   <p class="muted">Событий изменения железа пока нет.</p>
   {% endif %}
