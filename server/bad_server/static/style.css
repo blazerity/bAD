@@ -595,6 +595,92 @@ pre.inventory {
   min-width: 12rem;
 }
 
+/* —— Theme B: bootstrap + attention —— */
+.bootstrap-checklist {
+  margin: 1rem 0 1.25rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-surface);
+  background: var(--bg-elev);
+}
+.bootstrap-title {
+  margin: 0 0 0.55rem;
+  font-size: 1.05rem;
+}
+.bootstrap-steps {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+.bootstrap-steps li {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.2rem 0;
+  color: var(--fg);
+}
+.bootstrap-steps li.is-done {
+  color: var(--muted);
+}
+.bootstrap-mark {
+  width: 1.1rem;
+  text-align: center;
+  color: var(--ok);
+}
+.bootstrap-steps li:not(.is-done) .bootstrap-mark {
+  color: var(--warn);
+}
+
+.attention-queue {
+  margin: 0 0 1.5rem;
+}
+.attention-queue h2 {
+  margin-bottom: 0.55rem;
+}
+.attention-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.attention-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: var(--radius-surface);
+  border: 1px solid var(--border);
+  background: var(--bg-solid);
+}
+.attention-item.severity-high {
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
+}
+.attention-item.severity-medium {
+  border-color: var(--border-strong);
+}
+.attention-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 12rem;
+  flex: 1;
+}
+.attention-empty {
+  margin: 0.5rem 0 1rem;
+}
+table.config-winner tr.is-conflict td {
+  background: var(--warn-bg);
+}
+
+.security-strip {
+  margin: 0.35rem 0 0.85rem;
+}
+
 /* —— Overview stats —— */
 .stat-row {
   display: grid;
