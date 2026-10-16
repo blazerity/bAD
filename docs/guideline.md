@@ -43,29 +43,35 @@
 - Агент: Serilog file sink под `%ProgramData%\blazerity\bAD\logs\` (ротация ~7 дней); msiexec log рядом при upgrade.
 - Сообщения — actionable (enroll failed, backoff, update sha mismatch), без секретов.
 
-## Версионирование продукта
+## Версионирование (две линии)
 
-- Semver продукта: сейчас **`1.0.1`** (см. корневой `VERSION` и [agents.md](agents.md)).
-- Правило bump: **patch +0.0.1** для hotfix; **minor +0.1.0** для feature; **major** только по явному решению владельца.
-- `schema_version` протокола inventory — отдельный integer, не путать с semver агента/сервера.
-- Агент шлёт `agent_version`; сервер отдаёт `version` в `/v1/health`.
+| Линия | Канон | Tags |
+|-------|-------|------|
+| **Server** | корневой `VERSION` | `server-vX.Y.Z` |
+| **Agent** | `agent/VERSION` (+ csproj / MSI) | `agent-vX.Y.Z` (переходно голый `v*` = agent) |
+
+- Bump (обе): **patch** hotfix / **minor** feature / **major** — только владелец. Checklist: [agents.md](agents.md).
+- Агент стабилен → можно держать `1.0.x` и бампать только сервер (`1.1.0+`) без нового MSI.
+- **Не путать:** **Обновление сервера** (server) ≠ **Обновления агента** / «Собрать MSI» (agent semver в `workflow_dispatch.version`).
+- `schema_version` inventory — integer, третья ось. Агент шлёт `agent_version`; `/v1/health` → `version` = **server**.
 
 ## Как вырезать релиз агента (MSI)
 
-1. Версия на `main` = нужному semver (сейчас **1.0.1**); checklist в [agents.md](agents.md).
+1. Bump **agent** line (`agent/VERSION` + csproj / WiX) — не корневой `VERSION`; checklist в [agents.md](agents.md).
 2. Тег и push:
    ```bash
-   git tag v1.0.1
-   git push origin v1.0.1
+   git tag agent-v1.0.1
+   git push origin agent-v1.0.1
    ```
-3. Workflow **`release-msi`** (`windows-latest`): publish agent → WiX v5 → GitHub Release assets `bad-agent-<ver>.msi` + `agent-release.json`.
-4. Права: `contents: write`. Для public repo достаточно `GITHUB_TOKEN`. Private позже — `BAD_GITHUB_TOKEN` на сервере.
-5. На сервере: background sync или `POST /v1/admin/agent-update/sync`.
+   (переходно ещё принимают `v1.0.1` = agent, пока CI на `v*`.)
+3. Workflow **`release-msi`** (`windows-latest`): publish agent → WiX v5 → GitHub Release assets `bad-agent-<agent-ver>.msi` + `agent-release.json`. Semver: input `version` > tag > `agent/VERSION`; **не** читать server `VERSION`.
+4. Права: `contents: write`. Для public repo достаточно `GITHUB_TOKEN`. Private / panel — `BAD_GITHUB_TOKEN` на сервере.
+5. На сервере: background sync, `POST /v1/admin/agent-update/sync`, или кнопка MSI в панели (agent semver).
 6. Агенты подтянут на check (старт / раз в сутки) или после `BadAgent.exe service restart`.
 
-**Не обещать**: что MSI уже собирается в Linux CI — нет. Первый downloadable MSI появляется после успешного Windows GHA (или локальной Windows-сборки).
+**Не обещать**: что MSI уже собирается в Linux CI — нет. Server-tag **`server-v*`** MSI не публикует.
 
-Ручной запуск: Actions → `release-msi` → `workflow_dispatch`.
+Ручной запуск: Actions → `release-msi` → `workflow_dispatch` (поле `version` = agent).
 
 ## Зеркало на сервере
 

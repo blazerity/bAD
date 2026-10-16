@@ -1,18 +1,21 @@
 # Заметки для coding agents (bAD)
 
-Практическая карта репозитория: где что лежит, как гонять тесты, что нельзя сломать. Версия продукта: **1.0.1**.
+Практическая карта репозитория: где что лежит, как гонять тесты, что нельзя сломать.
+
+**Две линии semver:** сервер (`VERSION`) и агент (`agent/VERSION`). Не путать panel **Обновление сервера** и MSI / **Обновления агента**.
 
 ## Структура
 
 ```
 agent/                 # .NET 8 Worker + service CLI
+  VERSION              # канон semver агента (MSI / assembly)
   src/BadAgent/        # код службы (Worker, AgentUpdater, ServiceCli, …)
 server/                # FastAPI app + agent-update mirror
   bad_server/          # пакет приложения
 installer/msi/         # WiX Product.wxs, write-config.ps1, bad.cmd
 deploy/debian/         # install.sh, systemd/, nginx/
 docs/                  # операторские и архитектурные документы
-VERSION                # канонический semver продукта (сейчас 1.0.1)
+VERSION                # канон semver сервера (health / footer / panel-update)
 .github/workflows/     # ci.yml + release-msi.yml
 ```
 
@@ -36,7 +39,7 @@ uvicorn bad_server.app:app --host 127.0.0.1 --port 8000
 # локально, если есть untracked server/tests/: pytest -q
 ```
 
-- Health: `GET /v1/health` → `{"status":"ok","version":"1.0.1"}`
+- Health: `GET /v1/health` → `{"status":"ok","version":"<server VERSION>"}`
 - Web: `/login` (`admin`/`admin` first boot) → `/` обзор; устройства `/devices` (поиск/CSV/архив); карточка — revoke/rotate/delete
 - Параметры `/settings/*` (Win11 left-nav): LDAP (+ AD group), mail/SMTP toggles, retention, backups, policies, agent updates
 - UI look: Win11/Fluent light + русский UI — `bad_server/static/style.css`, favicon; CLI HTML report — те же токены/иконки; `agent/assets/bad.ico`
@@ -168,6 +171,8 @@ Heartbeat health (опционально → meta устройства): `last_i
 | `server/pyproject.toml` | `project.version` |
 | `deploy/debian/install.sh` | default `BAD_VERSION` |
 
+Tag: **`server-vX.Y.Z`**. Не триггерит MSI. Panel **Обновление сервера** — только server line.
+
 ### Agent
 
 | Место | Поле |
@@ -183,7 +188,7 @@ Heartbeat health (опционально → meta устройства): `last_i
 
 `schema_version` inventory (**integer `1`|`2`**; агент 0.4+ шлёт `2` с optional `software`) — отдельный контракт; не менять вместе с semver без миграции протокола.
 
-Релиз MSI: `git tag vX.Y.Z && git push origin vX.Y.Z` → см. [guideline.md](guideline.md).
+Релиз MSI: tag **`agent-vX.Y.Z`** (переходно `v*`) → см. [guideline.md](guideline.md).
 
 ## Инварианты — не ломать
 
@@ -205,7 +210,7 @@ Heartbeat health (опционально → meta устройства): `last_i
 - Public properties: `SERVERURL`, `ENROLLMENTTOKEN` → ProgramData; optional `ADDPATH=1` → Machine PATH + `bad.cmd`.
 - UpgradeCode фиксирован; major upgrade, ProgramData не сносить (`Permanent`); полный uninstall — Stop/Remove службы + `cleanup-uninstall.ps1` (config/queue/logs).
 - Authenticode: secrets `CODE_SIGN_PFX_BASE64` + `CODE_SIGN_PFX_PASSWORD` (optional timestamp URL); без них — unsigned MSI.
-- Артефакт: `bad-agent-1.0.1.msi` + `agent-release.json` (сервер/Debian могут быть на другом semver — см. корневой `VERSION`).
+- Артефакт: `bad-agent-<agent-semver>.msi` + `agent-release.json`. Server (`VERSION`) — другая линия; не синхронизировать с MSI без правок агента.
 - Сбой CA до Serilog: `logs\msi-install.log` + `BAD_MSI_###`; msiexec `%TEMP%\MSI*.log`.
 
 ## Debian install
@@ -240,7 +245,7 @@ Heartbeat health (опционально → meta устройства): `last_i
 ## CI
 
 - `.github/workflows/ci.yml`: import-check + ruff в `server/`, `dotnet build` Release в `agent/` (Linux; **без** pytest/dotnet test и **без** MSI). Тесты — local-only.
-- `.github/workflows/release-msi.yml`: Windows, тег `v*` / dispatch → GitHub Release.
+- `.github/workflows/release-msi.yml`: Windows, тег `agent-v*` (переходно `v*`) / `workflow_dispatch` с agent `version` → GitHub Release.
 
 ## Карта auth (не перепутать)
 

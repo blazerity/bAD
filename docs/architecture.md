@@ -1,6 +1,6 @@
 # Архитектура bAD
 
-**blazerity Asset Discovery** — Windows-агент инвентаризации и on-prem сервер накопления снимков. Документ описывает фактическую архитектуру репозитория. Версия продукта: **1.0.1**.
+**blazerity Asset Discovery** — Windows-агент инвентаризации и on-prem сервер накопления снимков. Документ описывает фактическую архитектуру репозитория. Semver: **две линии** — сервер (`VERSION`) и агент (`agent/VERSION`); panel server-update ≠ MSI.
 
 - **Инвариант:** HTTP bootstrap = **только временный UI-режим** (доверенная сеть → смена пароля → upload cert → HTTPS). Агенты всегда HTTPS (кроме lab `BAD_ALLOW_HTTP=1`). Risk rating bootstrap: **Medium** при runbook; **High** на публичном `:80` до cert — не Critical defect.
 - **ACME / Let’s Encrypt:** вне scope 1.0; не обещать без решения владельца.
@@ -104,7 +104,7 @@ flowchart LR
   end
 ```
 
-1. **GitHub → MSI** — workflow `release-msi.yml` на тег `v*` / `workflow_dispatch`: `dotnet publish` win-x64 self-contained → WiX v5 (`dotnet tool wix`) → optional Authenticode (`CODE_SIGN_PFX_*`, иначе unsigned) → upload MSI + `agent-release.json` (`version`, `msi_name`, `sha256`). Linux CI MSI **не** собирает. Агент при apply: sanitize `msi_name` (SEC-002) и same-origin download URL (SEC-009).
+1. **GitHub → MSI** — workflow `release-msi.yml` на тег `agent-v*` (переходно `v*`) / `workflow_dispatch` (agent `version`): `dotnet publish` win-x64 self-contained → WiX v5 → optional Authenticode → upload MSI + `agent-release.json`. Semver агента (`agent/VERSION`), не server `VERSION`. Linux CI MSI **не** собирает. Агент при apply: sanitize `msi_name` (SEC-002) и same-origin download URL (SEC-009).
 2. **Зеркало на сервере** — `BAD_GITHUB_REPO` (default `blazerity/bAD`), опционально `BAD_GITHUB_TOKEN`, интервал sync. Job / `POST /v1/admin/agent-update/sync` кладёт файлы в `BAD_AGENT_UPDATES_DIR` и метаданные в БД.
 3. **Агент применяет** — check на старте и по расписанию → follow `target_version` (вкл. downgrade) → download (same-origin) → verify sha256 → `msiexec /i … /qn` → выход; WiX `ServiceControl` / MajorUpgrade (**AllowDowngrades**). Remote knob: `update_target`. Anti-loop pending 2h. Токены не логируются.
 
