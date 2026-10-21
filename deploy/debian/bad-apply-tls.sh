@@ -54,22 +54,24 @@ read_domain() {
 
 pair_ok() {
   local cert="$1" key="$2"
-  python3 - <<'PY' "${cert}" "${key}"
-import sys
-import re
-from cryptography import x509
-from cryptography.hazmat.primitives.serialization import load_pem_private_key, Encoding, PublicFormat
-cert_pem = open(sys.argv[1], "rb").read()
-key_pem = open(sys.argv[2], "rb").read()
-blocks = re.findall(br"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----", cert_pem, re.S)
-if not blocks:
-    sys.exit(2)
-leaf = x509.load_pem_x509_certificate(blocks[0] + b"\n")
-key = load_pem_private_key(key_pem, password=None)
-a = leaf.public_key().public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)
-b = key.public_key().public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)
-sys.exit(0 if a == b else 1)
-PY
+  
+  # Вырезаем только первый сертификат (Leaf) на случай, если это цепочка (fullchain)
+  local leaf_cert
+  leaf_cert=$(sed -n '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/{p;/-----END CERTIFICATE-----/q}' "$cert")
+  
+  if [[ -z "$leaf_cert" ]]; then
+    return 2
+  fi
+
+  # Получаем MD5 публичного ключа из сертификата и приватного ключа
+  local cert_pub key_pub
+  cert_pub=$(echo "$leaf_cert" | openssl x509 -noout -pubkey 2>/dev/null | openssl pkey -pubin -outform DER 2>/dev/null | md5sum | cut -d' ' -f1)
+  key_pub=$(openssl pkey -in "$key" -pubout -outform DER 2>/dev/null | md5sum | cut -d' ' -f1)
+
+  if [[ -n "$cert_pub" && "$cert_pub" == "$key_pub" ]]; then
+    return 0
+  fi
+  return 1
 }
 
 ensure_tls_dirs() {
