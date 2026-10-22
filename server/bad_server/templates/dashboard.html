@@ -40,7 +40,7 @@
     <h2>Версия агента</h2>
     {% set vb = dashboard.agent_version_bars %}
     {% if vb.latest %}
-    <p class="muted">Цель MSI (latest): <span class="mono">{{ vb.latest }}</span>
+    <p class="muted">Целевая версия в каталоге: <span class="mono">{{ vb.latest }}</span>
       {% if vb.drift_count %}
       · <a href="{{ vb.drift_href }}">дрейф {{ vb.drift_count }}</a>
       {% endif %}

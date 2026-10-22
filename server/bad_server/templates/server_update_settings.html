@@ -6,7 +6,7 @@
 <section class="settings">
   <h1 class="with-icon">{{ icon('updates') }}Обновление сервера</h1>
   <p class="muted">
-    Обновление панели и API из GitHub.
+    Обновление панели с сервера разработки.
     Установщики агента — отдельно в
     <a href="/settings/updates">Обновления агента</a>.
   </p>
@@ -42,15 +42,15 @@
 
   {% if panel.apply and panel.apply.ok is sameas false %}
   <div class="warn-box" role="status">
-    <strong>Последний apply не удался</strong>
+    <strong>Последнее обновление не удалось</strong>
     <p class="muted" style="margin:0.35rem 0 0">
-      {{ panel.apply.message or "смотрите apply.status на сервере" }}
+      {{ panel.apply.message or "подробности — в журнале сервера" }}
       {% if panel.apply.applied_at %}· {{ panel.apply.applied_at }}{% endif %}
     </p>
   </div>
   {% elif panel.apply and panel.apply.ok is sameas true and panel.apply.message %}
   <p class="ok">
-    Последний apply: {{ panel.apply.message }}
+    Последнее обновление: {{ panel.apply.message }}
     {% if panel.apply.applied_at %}· {{ panel.apply.applied_at }}{% endif %}
   </p>
   {% endif %}
@@ -58,13 +58,13 @@
   <dl class="meta">
     <div><dt>Репозиторий</dt><dd class="mono">{{ panel.github_repo or "—" }}</dd></div>
     <div>
-      <dt>GitHub token</dt>
+      <dt>Токен для обновлений</dt>
       <dd>
         {% if panel.token_configured %}
         <span class="ok">задан</span>
         {% else %}
         <span class="muted">нет</span>
-        <span class="muted">— для public check/apply не нужен; для private и MSI — да</span>
+        <span class="muted">— для открытого репозитория не обязателен; для закрытого и сборки установщика — нужен</span>
         {% endif %}
       </dd>
     </div>
@@ -93,21 +93,21 @@
       <option value="{{ b }}"></option>
       {% endfor %}
     </datalist>
-    <p class="hint">По умолчанию <span class="mono">main</span>. Список — из GitHub, можно ввести вручную.</p>
+    <p class="hint">По умолчанию <span class="mono">main</span>. Список подсказывается с сервера, можно ввести вручную.</p>
     <div class="form-actions">
       <button type="submit">Сохранить ветку</button>
       <button type="submit" formaction="/settings/server-update/check" class="secondary">Проверить обновления</button>
     </div>
   </form>
 
-  <h2>Установить с GitHub</h2>
+  <h2>Установить обновление</h2>
   <p class="muted">
-    Helper скачает commit (public — без token; private — нужен PAT), переключит установку и перезапустит службы.
-    Пароль sudo в панели не нужен.
+    Сервер скачает выбранную версию, переключит установку и перезапустит службы.
+    Дополнительных паролей в панели не требуется.
   </p>
   {% if tls_mode == 'http' %}
   <div class="warn-box" role="status">
-    Пока сайт без HTTPS лучше сначала
+    Пока сайт без защищённого соединения лучше сначала
     <a href="/settings/tls">Параметры → Сертификат</a>.
   </div>
   {% endif %}
@@ -115,12 +115,12 @@
     onsubmit="return confirm('Установить обновление сервера и перезапустить службы?');">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="hidden" name="branch" value="{{ panel.prefs.branch or panel.default_branch or 'main' }}">
-    <label for="sha">Commit (опционально)</label>
+    <label for="sha">Версия сборки (необязательно)</label>
     <input id="sha" name="sha" type="text" class="mono" autocomplete="off"
       placeholder="пусто = HEAD выбранной ветки"
       value="{{ check.remote.sha if check and check.remote and check.update_available else '' }}">
     <div class="form-actions">
-      <button type="submit" {% if tls_mode == 'http' %}disabled title="Сначала HTTPS"{% endif %}>
+      <button type="submit" {% if tls_mode == 'http' %}disabled title="Сначала защищённое соединение"{% endif %}>
         Установить обновление
       </button>
       {% if tls_mode == 'http' %}
@@ -136,7 +136,7 @@
     <thead>
       <tr>
         <th>Ветка</th>
-        <th>Commit</th>
+        <th>Сборка</th>
         <th>Версия сервера</th>
         <th>Когда</th>
         <th></th>
@@ -166,41 +166,41 @@
   <p class="muted">Пока нет сохранённых прошлых сборок для отката.</p>
   {% endif %}
 
-  <h2>Токен GitHub</h2>
+  <h2>Токен для обновлений</h2>
   <p class="muted">
-    Опционально для public check/apply. Обязателен для private repo и запуска MSI Actions.
-    Пишется через helper в site.env / файл. Значение обратно в панель не возвращаем.
+    Нужен для закрытого репозитория и удалённой сборки установщика агента.
+    Сохраняется на сервере; значение в панели не показывается.
   </p>
   <form method="post" action="/settings/server-update/token" class="settings-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <label for="token">Новый token</label>
+    <label for="token">Новый токен</label>
     <input id="token" name="token" type="password" autocomplete="new-password" required
       {% if tls_mode == 'http' %}disabled{% endif %}>
     <div class="form-actions">
-      <button type="submit" {% if tls_mode == 'http' %}disabled title="Сначала HTTPS"{% endif %}>Сохранить токен</button>
+      <button type="submit" {% if tls_mode == 'http' %}disabled title="Сначала защищённое соединение"{% endif %}>Сохранить токен</button>
     </div>
   </form>
 
-  <h2>Сборка MSI на GitHub</h2>
+  <h2>Сборка установщика агента</h2>
   <p class="muted">
-    Отдельно от обновления сервера: нужен GitHub token (`actions:write`).
-    Запускает сборку установщика агента, затем ingest в «Обновления агента».
+    Отдельно от обновления панели: нужен токен для обновлений.
+    Запускает сборку на сервере разработки, затем добавляет файл в «Обновления агента».
   </p>
   <form method="post" action="/settings/server-update/msi/trigger" class="settings-form"
-    onsubmit="return confirm('Запустить сборку MSI на ветке {{ panel.prefs.branch or panel.default_branch or 'main' }}?');">
+    onsubmit="return confirm('Запустить сборку установщика на ветке {{ panel.prefs.branch or panel.default_branch or 'main' }}?');">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="hidden" name="branch" value="{{ panel.prefs.branch or panel.default_branch or 'main' }}">
     <label for="msi_version">Версия агента (опционально)</label>
-    <input id="msi_version" name="version" type="text" placeholder="например 1.0.2 — semver агента, не сервера" autocomplete="off"
+    <input id="msi_version" name="version" type="text" placeholder="например 1.0.2 — версия агента, не сервера" autocomplete="off"
       {% if not panel.token_configured %}disabled{% endif %}>
     <div class="form-actions">
       <button type="submit" class="secondary"
-        {% if not panel.token_configured %}disabled title="Сначала задайте GitHub token"{% endif %}>
-        Собрать MSI на GitHub
+        {% if not panel.token_configured %}disabled title="Сначала задайте токен для обновлений"{% endif %}>
+        Запустить сборку установщика
       </button>
       <button type="submit" formaction="/settings/server-update/msi/poll" class="secondary"
         {% if not panel.token_configured %}disabled{% endif %}>
-        Обновить статус / ingest
+        Проверить статус и добавить в каталог
       </button>
     </div>
   </form>
@@ -209,18 +209,13 @@
     <div><dt>Ветка</dt><dd class="mono">{{ panel.msi_build.branch or "—" }}</dd></div>
     <div><dt>Статус</dt><dd>{{ panel.msi_build.status or "—" }}{% if panel.msi_build.conclusion %} / {{ panel.msi_build.conclusion }}{% endif %}</dd></div>
     {% if panel.msi_build.html_url %}
-    <div><dt>Run</dt><dd><a href="{{ panel.msi_build.html_url }}" rel="noopener" target="_blank">Открыть в GitHub Actions</a></dd></div>
+    <div><dt>Сборка</dt><dd><a href="{{ panel.msi_build.html_url }}" rel="noopener" target="_blank">Открыть на сервере разработки</a></dd></div>
     {% endif %}
     {% if panel.msi_build.ingested %}
-    <div><dt>Версия агента в зеркале</dt><dd class="mono">{{ panel.msi_build.ingested.version }} · {{ panel.msi_build.ingested.msi_name }}</dd></div>
+    <div><dt>Версия в каталоге</dt><dd class="mono">{{ panel.msi_build.ingested.version }} · {{ panel.msi_build.ingested.msi_name }}</dd></div>
     {% endif %}
   </dl>
   {% endif %}
 
-  <p class="hint">
-    Helper: <span class="mono">{{ panel.helper.path_unit }}</span>
-    → <span class="mono">{{ panel.helper.script }}</span>
-    · слоты: <span class="mono">{{ panel.releases_dir }}</span>
-  </p>
 </section>
 {% endblock %}

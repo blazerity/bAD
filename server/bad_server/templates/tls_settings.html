@@ -6,7 +6,7 @@
   <h1>Сертификат TLS</h1>
   <p class="muted">
     Сертификат не ставят при установке сервера — загрузите его здесь.
-    После установки откройте панель по HTTPS. Закрытый ключ на странице не показывается.
+    После установки откройте панель по https-адресу. Закрытый ключ на странице не показывается.
   </p>
   {% if message %}<p class="ok">{{ message }}</p>{% endif %}
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
@@ -21,16 +21,16 @@
   {% if mode != 'https' and not tls_applied %}
   <div class="warn-box tls-https-cta" role="status">
     <strong>Сейчас панель на HTTP.</strong>
-    Путь: загрузите сертификат ниже → дождитесь установки → откройте HTTPS и войдите снова.
+    Загрузите сертификат ниже → дождитесь установки → откройте https-адрес и войдите снова.
   </div>
   {% endif %}
 
   {% if tls_applied and mode == 'https' %}
   <div class="ok-box tls-https-cta" role="status">
-    <p><strong>HTTPS готов.</strong> Откройте панель по защищённому адресу и войдите снова — старые cookie без Secure на HTTPS не отправятся.</p>
+    <p><strong>Защищённое соединение готово.</strong> Откройте панель по https-адресу и войдите снова — после перехода на HTTPS может потребоваться повторный вход.</p>
     <p class="form-actions">
       {% if https_url %}
-      <a class="btn" href="{{ https_url }}">Открыть HTTPS</a>
+      <a class="btn" href="{{ https_url }}">Открыть защищённый адрес</a>
       {% else %}
       <span class="hint">Домен не задан — откройте UI вручную по <span class="mono">https://…</span>.</span>
       {% endif %}
@@ -43,9 +43,9 @@
       <dt>Режим</dt>
       <dd>
         {% if mode == 'https' %}
-        <span class="ok">HTTPS активен</span>
+        <span class="ok">Защищённое соединение</span>
         {% else %}
-        <span class="warn">Пока без HTTPS</span>
+        <span class="warn">Пока без защиты</span>
         {% endif %}
       </dd>
     </div>
@@ -98,12 +98,11 @@
 
   {% if mode == 'https' %}
   <p class="hint">
-    После смены сертификата браузер может потребовать повторный вход
-    (старые non-Secure cookie на HTTPS не отправляются).
+    После смены сертификата браузер может потребовать повторный вход.
   </p>
   {% else %}
   <p class="hint">
-    Агентов ставьте после появления HTTPS. Bootstrap HTTP для агентов не предназначен.
+    Устанавливайте агентов после включения защищённого соединения на сайте.
   </p>
   {% endif %}
 </section>

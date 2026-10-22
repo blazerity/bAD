@@ -22,11 +22,11 @@
   {% if message %}<p class="ok">{{ message }}</p>{% endif %}
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
   {% if new_api_key %}
-  <p class="ok warn-box">Новый API-ключ (покажите один раз): <span class="mono">{{ copyable(new_api_key) }}</span></p>
+  <p class="ok warn-box">Новый ключ доступа агента (покажите один раз): <span class="mono">{{ copyable(new_api_key) }}</span></p>
   {% endif %}
 
   <dl class="meta identity-meta">
-    <div><dt>device_id</dt><dd class="mono">{{ device.device_id }}</dd></div>
+    <div><dt>Идентификатор</dt><dd class="mono">{{ device.device_id }}</dd></div>
     <div><dt>Версия агента</dt><dd class="mono">{{ device.agent_version or "—" }}</dd></div>
     <div>
       <dt>Последний контакт</dt>
@@ -162,8 +162,8 @@
         <h2 class="with-icon">{{ icon('overview') }}Обзор</h2>
         {% if inventory_pretty %}
         <p class="muted inventory-meta">
-          Inventory {{ local_time(device.latest_inventory.received_at) }}
-          · schema {{ device.latest_inventory.schema_version }}
+          Инвентаризация {{ local_time(device.latest_inventory.received_at) }}
+          · формат {{ device.latest_inventory.schema_version }}
         </p>
         {% if inventory_nav %}
         <ul class="overview-list">
@@ -559,12 +559,9 @@
       <div class="device-panel {% if view == 'config' %}is-active{% endif %}" data-device-panel="config">
         <h2 class="with-icon">{{ icon('settings') }}Параметры агента</h2>
         <p class="muted">
-          Эффективный конфиг (v<span class="mono">{{ config_version }}</span>):
-          defaults → политики → ручной override.
-          Источник на панели: <span class="mono">default</span> /
-          <span class="mono">policy</span> /
-          <span class="mono">device_override</span> /
-          <span class="mono">agent_local</span>.
+          Итоговые параметры (версия <span class="mono">{{ config_version }}</span>):
+          сначала значения по умолчанию, затем политики, затем ручная настройка в панели для этого устройства.
+          На компьютере могут быть свои значения — они отмечены отдельно.
         </p>
 
         <h3 class="with-icon">{{ icon('policies') }}Политика</h3>
@@ -582,38 +579,31 @@
           <a href="/settings/policies">Создать или изменить политики</a>.</p>
         {% endif %}
 
-        <h3>Кто победил</h3>
+        <h3>Приоритет настроек</h3>
         <p class="muted">
-          Remote merge для агента: <span class="mono">default &lt; policy &lt; override</span>.
-          Метка панели: <span class="mono">agent_local</span> важнее для отображения источника
-          (не меняет remote effective).
+          Для агента действуют настройки с сервера: политика перекрывает значения по умолчанию,
+          ручная настройка в панели — политику.
+          Если параметр задан на компьютере, в таблице это показано в колонке «Панель».
           {% if match_context %}
-          · match:
+          · совпадение политики:
           <span class="mono">{{ match_context.hostname or "—" }}</span>
           / <span class="mono">{{ match_context.domain or "—" }}</span>
           {% if match_context.ad_ou %}
-          / OU <span class="mono">{{ match_context.ad_ou }}</span>
+          / подразделение <span class="mono">{{ match_context.ad_ou }}</span>
           {% endif %}
           {% endif %}
         </p>
-        {% if policy_keys or override_keys %}
-        <p class="hint">
-          {% if policy_keys %}policy_keys: <span class="mono">{{ policy_keys | join(', ') }}</span>{% endif %}
-          {% if policy_keys and override_keys %} · {% endif %}
-          {% if override_keys %}override_keys: <span class="mono">{{ override_keys | join(', ') }}</span>{% endif %}
-        </p>
-        {% endif %}
         {% if config_winner and config_winner.has_rows %}
         {% if config_winner.conflicts %}
         <p class="warn-box">
-          Конфликт меток: {{ config_winner.conflicts }} knobs заданы на агенте
-          при наличии policy/override на сервере — смотрите колонку «панель».
+          Расхождение: {{ config_winner.conflicts }} параметров заданы на компьютере
+          и одновременно в политике или в панели — смотрите колонку «Панель».
         </p>
         {% endif %}
         <div class="table-scroll">
         <table class="devices config-winner">
           <thead>
-            <tr><th>Параметр</th><th>Значение (effective)</th><th>Remote</th><th>Панель</th></tr>
+            <tr><th>Параметр</th><th>Итоговое значение</th><th>С сервера</th><th>Панель</th></tr>
           </thead>
           <tbody>
             {% for row in config_winner.rows %}
@@ -623,7 +613,7 @@
               <td>{{ row.remote_label }}</td>
               <td>
                 {% if row.panel == 'agent_local' %}
-                <span class="badge badge-agent-local">задано на агенте</span>
+                <span class="badge badge-agent-local">задано на компьютере</span>
                 {% else %}
                 {{ row.panel_label }}
                 {% endif %}
@@ -634,14 +624,14 @@
         </table>
         </div>
         {% else %}
-        <p class="muted">Все focus-knobs — по умолчанию, без policy/override/agent_local.</p>
+        <p class="muted">Все основные параметры — по умолчанию, без политики и ручной настройки.</p>
         {% endif %}
 
         <h3>Эффективные значения</h3>
         {% if has_agent_local %}
         <p class="config-source-summary">
-          <span class="badge badge-agent-local">задано на агенте</span>
-          Есть knobs, заданные руками в агенте.
+          <span class="badge badge-agent-local">задано на компьютере</span>
+          Часть параметров задана на самом компьютере, не из панели.
           {% if config_local and config_local.reported_at %}
           <span class="muted">· отчёт {{ local_time(config_local.reported_at) }}</span>
           {% endif %}
@@ -653,17 +643,17 @@
             <dt>URL сервера</dt>
             <dd>
               <span class="mono">{{ config_local.server_url }}</span>
-              <span class="badge badge-agent-local" title="Display-only из отчёта агента">задано на агенте</span>
+              <span class="badge badge-agent-local" title="Только для отображения: из отчёта агента">задано на компьютере</span>
             </dd>
           </div>
           {% endif %}
           <div>
-            <dt>Inventory</dt>
+            <dt>Инвентаризация</dt>
             <dd>{{ effective.inventory_interval_hours }} ч
               {{ config_source_mark('inventory_interval_hours', sources, agent_local_keys) }}</dd>
           </div>
           <div>
-            <dt>Heartbeat</dt>
+            <dt>Связь с сервером</dt>
             <dd>{{ effective.heartbeat_interval_minutes }} мин
               {{ config_source_mark('heartbeat_interval_minutes', sources, agent_local_keys) }}</dd>
           </div>
@@ -696,22 +686,20 @@
         </dl>
 
         {% if user.is_admin %}
-        <h3>Ручной override</h3>
+        <h3>Ручная настройка в панели</h3>
         <p class="muted">
-          Пустое поле не попадает в override. Перекрывает политики для этого устройства.
-          Метка «задано на агенте» на панели важнее override для <em>отображения</em> источника
-          (remote merge не меняется).
+          Пустое поле не сохраняется. Заданные значения перекрывают политики только для этого устройства.
         </p>
         <form method="post" action="/devices/{{ device.device_id }}/config-override" class="settings-form compact-form">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
-          <label for="inventory_interval_hours">Интервал inventory (часы)
+          <label for="inventory_interval_hours">Интервал инвентаризации (часы)
             {{ config_source_mark('inventory_interval_hours', sources, agent_local_keys, mode='agent') }}</label>
           <input id="inventory_interval_hours" name="inventory_interval_hours" type="number" min="1"
             value="{{ override_settings.inventory_interval_hours if override_settings.inventory_interval_hours is defined else '' }}"
             placeholder="по умолчанию {{ defaults.inventory_interval_hours }}">
 
-          <label for="heartbeat_interval_minutes">Heartbeat (минуты)
+          <label for="heartbeat_interval_minutes">Интервал связи (минуты)
             {{ config_source_mark('heartbeat_interval_minutes', sources, agent_local_keys, mode='agent') }}</label>
           <input id="heartbeat_interval_minutes" name="heartbeat_interval_minutes" type="number" min="1"
             value="{{ override_settings.heartbeat_interval_minutes if override_settings.heartbeat_interval_minutes is defined else '' }}"
@@ -735,7 +723,7 @@
             {{ config_source_mark('update_target', sources, agent_local_keys, mode='agent') }}</label>
           <select id="update_target" name="update_target">
             <option value="" {% if override_settings.update_target is not defined %}selected{% endif %}>(не задавать)</option>
-            <option value="latest" {% if override_settings.update_target is defined and override_settings.update_target == 'latest' %}selected{% endif %}>latest</option>
+            <option value="latest" {% if override_settings.update_target is defined and override_settings.update_target == 'latest' %}selected{% endif %}>последняя в каталоге</option>
             {% for v in msi_versions or [] %}
             <option value="{{ v.version }}" {% if override_settings.update_target is defined and override_settings.update_target == v.version %}selected{% endif %}>{{ v.version }}</option>
             {% endfor %}
@@ -766,9 +754,9 @@
           </select>
 
           <div class="form-actions">
-            <button type="submit" class="subtle">Сохранить override</button>
+            <button type="submit" class="subtle">Сохранить настройку</button>
             {% if has_override %}
-            <button type="submit" name="clear_override" value="1" class="subtle">Очистить override</button>
+            <button type="submit" name="clear_override" value="1" class="subtle">Очистить ручную настройку</button>
             {% endif %}
           </div>
         </form>
@@ -792,14 +780,14 @@
         </form>
 
         <h3>Доступ агента</h3>
-        <p class="muted">Отзыв блокирует heartbeat/inventory (403).</p>
+        <p class="muted">После отзыва агент не сможет отправлять данные на сервер.</p>
         <div class="form-actions">
           {% if user.is_admin %}
           <form method="post" action="/devices/{{ device.device_id }}/revoke" onsubmit="return confirm('Отозвать доступ этого агента?');">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button type="submit" class="subtle">Отозвать доступ</button>
           </form>
-          <form method="post" action="/devices/{{ device.device_id }}/rotate-key" onsubmit="return confirm('Выпустить новый API-ключ? Старый перестанет работать.');">
+          <form method="post" action="/devices/{{ device.device_id }}/rotate-key" onsubmit="return confirm('Выпустить новый ключ доступа агента? Старый перестанет работать.');">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button type="submit" class="subtle">Выпустить новый ключ</button>
           </form>

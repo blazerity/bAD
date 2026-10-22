@@ -11,8 +11,8 @@ from .config import Settings
 from .tls_ops import tls_configured, tls_status
 
 HTTP_SENSITIVE_MSG = (
-    "Операция недоступна по HTTP bootstrap: сначала загрузите TLS-сертификат "
-    "(/settings/tls). Для lab: BAD_ALLOW_SENSITIVE_OVER_HTTP=1."
+    "Операция недоступна, пока сайт без защищённого соединения: "
+    "сначала загрузите сертификат в Параметры → Сертификат."
 )
 
 ENROLL_CLEARTEXT_MSG = (

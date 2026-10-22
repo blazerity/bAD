@@ -1400,7 +1400,7 @@ def device_revoke(
         device_id,
         user=user,
         settings=settings,
-        message="Доступ отозван: агент получит 403 до повторной регистрации или выпуска нового ключа",
+        message="Доступ отозван: агент не сможет связаться с сервером до повторной регистрации или выпуска нового ключа",
         active_view="admin",
     )
     assert ctx is not None
@@ -1433,7 +1433,7 @@ def device_rotate_key(
         device_id,
         user=user,
         settings=settings,
-        message="Выпущен новый API-ключ. Сохраните его — повторно показать нельзя.",
+        message="Выпущен новый ключ доступа агента. Сохраните его — повторно показать нельзя.",
         active_view="admin",
     )
     assert ctx is not None
@@ -1666,7 +1666,7 @@ def device_config_override_save(
             device_id,
             user=user,
             settings=settings,
-            error="Укажите хотя бы одно поле override (или очистите)",
+            error="Укажите хотя бы одно поле ручной настройки (или очистите)",
             active_view="config",
         )
         if not ctx:
@@ -1958,7 +1958,7 @@ def _validate_update_target_pin(db: Database, settings: dict) -> Optional[str]:
     if not target or target == UPDATE_TARGET_LATEST:
         return None
     if not db.get_agent_msi_version(target):
-        return f"update_target={target} нет в зеркале MSI — сначала загрузите версию"
+        return f"Версия {target} отсутствует в каталоге установщиков — сначала загрузите её"
     return None
 
 
@@ -2375,7 +2375,7 @@ async def tls_settings_upload(
         )
     if not key_raw:
         return _tls_html(
-            request, user, error="Пустой файл private key", status_code=400
+            request, user, error="Пустой файл закрытого ключа", status_code=400
         )
 
     try:
@@ -2386,7 +2386,7 @@ async def tls_settings_upload(
         return _tls_html(
             request,
             user,
-            error=f"Не удалось записать staging: {exc}",
+            error=f"Не удалось сохранить файлы для установки: {exc}",
             status_code=500,
         )
 
@@ -2396,7 +2396,7 @@ async def tls_settings_upload(
         message = apply.get("message") or "Сертификат установлен"
         https_ok = apply.get("mode") == "https"
         if https_ok:
-            message += ". HTTPS активен — откройте панель по HTTPS и войдите снова."
+            message += ". Защищённое соединение включено — откройте панель по https-адресу и войдите снова."
         return _tls_html(
             request,
             user,
@@ -2408,7 +2408,7 @@ async def tls_settings_upload(
         return _tls_html(
             request,
             user,
-            error=apply.get("message") or "nginx apply не удался",
+            error=apply.get("message") or "Не удалось применить сертификат на сервере",
             warnings=warnings,
             status_code=502,
         )
@@ -2416,8 +2416,8 @@ async def tls_settings_upload(
         request,
         user,
         message=(
-            "Материалы в staging; ожидание apply "
-            "(systemd bad-tls-apply.path). Обновите страницу через несколько секунд."
+            "Сертификат загружен; сервер применяет изменения. "
+            "Обновите страницу через несколько секунд."
         ),
         warnings=warnings,
     )
@@ -3028,7 +3028,7 @@ async def updates_settings_upload(
             request,
             "updates_settings.html",
             _updates_context(
-                db, settings, user=user, error="Пустой файл MSI"
+                db, settings, user=user, error="Пустой файл установщика"
             ),
             status_code=400,
         )
@@ -3041,7 +3041,7 @@ async def updates_settings_upload(
                 request,
                 "updates_settings.html",
                 _updates_context(
-                    db, settings, user=user, error="Не удалось прочитать manifest"
+                    db, settings, user=user, error="Не удалось прочитать файл описания версии"
                 ),
                 status_code=400,
             )
@@ -3104,7 +3104,7 @@ def updates_settings_set_latest(
 ):
     try:
         record = set_latest_msi_version(db, version.strip())
-        message = f"Latest → {record.get('version')}"
+        message = f"Основная версия в каталоге: {record.get('version')}"
         error = None
         code = 200
     except ValueError as exc:
@@ -3133,12 +3133,12 @@ def enrollment_rotate(
     )
     notes = []
     if result.get("updated_site_env"):
-        notes.append("site.env обновлён")
+        notes.append("настройки сервера обновлены")
     if result.get("wrote_token_file"):
-        notes.append(f"файл {result.get('token_file')}")
+        notes.append("токен записан на сервер")
     elif result.get("wrote_fallback_file"):
-        notes.append("файл рядом с БД")
-    note = "; ".join(notes) if notes else "только hash в БД (restart не нужен)"
+        notes.append("токен сохранён рядом с базой")
+    note = "; ".join(notes) if notes else "сохранён в базе, перезапуск не нужен"
     return _html(
         request,
         "updates_settings.html",
@@ -3146,7 +3146,7 @@ def enrollment_rotate(
             db,
             settings,
             user=user,
-            message=f"Enrollment token сменён ({note}). Сохраните значение — больше не показать.",
+            message=f"Токен подключения агентов сменён ({note}). Сохраните значение — больше не показать.",
             new_enrollment_token=result["token"],
         ),
     )
@@ -3168,7 +3168,7 @@ def enrollment_wave_done(
             db,
             settings,
             user=user,
-            message="Волна отмечена. Смените enrollment token (лента на Обзоре + секция ниже).",
+            message="Волна отмечена. Смените токен подключения агентов (лента на Обзоре и раздел ниже).",
         ),
     )
 
@@ -3341,8 +3341,8 @@ def server_update_apply(
             ok_default="Обновление применено",
             fail_default="apply не удался",
             pending=(
-                "Запрос записан; ожидание helper "
-                "(bad-server-update-apply.path). Обновите страницу через минуту."
+                "Запрос отправлен; сервер устанавливает обновление. "
+                "Обновите страницу через минуту."
             ),
         )
     except ValueError as exc:
@@ -3375,7 +3375,7 @@ def server_update_rollback(
             req,
             ok_default="Откат выполнен",
             fail_default="rollback не удался",
-            pending="Запрос отката записан; ожидание helper.",
+            pending="Запрос отката отправлен; дождитесь завершения на сервере.",
         )
     except ValueError as exc:
         message = None
@@ -3405,7 +3405,7 @@ def server_update_set_token(
             error = apply.get("message") or "не удалось записать токен"
             code = 502
         else:
-            message = "Токен GitHub сохранён (значение больше не показывается)."
+            message = "Токен для обновлений сохранён (значение больше не показывается)."
             error = None
             code = 200
     except ValueError as exc:
@@ -3436,7 +3436,7 @@ def server_update_msi_trigger(
             branch=(branch or "").strip() or None,
             version=version,
         )
-        message = f"Запущена сборка MSI (workflow release-msi, ветка {meta.get('branch')})"
+        message = f"Запущена сборка установщика агента (ветка {meta.get('branch')})"
         error = None
         code = 200
     except Exception as exc:  # noqa: BLE001
@@ -3461,17 +3461,17 @@ def server_update_msi_poll(
         conclusion = meta.get("conclusion")
         if meta.get("ingested"):
             message = (
-                f"MSI ingest: {meta['ingested'].get('version')} "
+                f"Установщик добавлен в каталог: {meta['ingested'].get('version')} "
                 f"({meta['ingested'].get('msi_name')})"
             )
             error = meta.get("error")
             code = 200 if not error else 502
         elif st == "completed" and conclusion != "success":
             message = None
-            error = f"Сборка MSI завершилась: {conclusion}"
+            error = f"Сборка установщика завершилась с ошибкой: {conclusion}"
             code = 502
         else:
-            message = f"Статус сборки MSI: {st or '—'} / {conclusion or '—'}"
+            message = f"Статус сборки установщика: {st or '—'} / {conclusion or '—'}"
             error = meta.get("error")
             code = 200
     except Exception as exc:  # noqa: BLE001

@@ -42,12 +42,12 @@
   </header>
   {% if tls_mode is defined and tls_mode == 'http' %}
   <div class="banner banner-http" role="status">
-    Сайт пока без HTTPS — только доверенная сеть.
+    Сайт пока без защищённого соединения — только доверенная сеть.
     Путь:
     {% if user is defined and user and user.is_admin and not user.must_change_password %}
-    <a href="/settings/tls">Параметры → Сертификат</a> → загрузите сертификат → откройте HTTPS.
+    <a href="/settings/tls">Параметры → Сертификат</a> → загрузите сертификат → откройте https-адрес.
     {% else %}
-    Параметры → Сертификат → загрузите сертификат → откройте HTTPS.
+    Параметры → Сертификат → загрузите сертификат → откройте https-адрес.
     {% endif %}
   </div>
   {% endif %}

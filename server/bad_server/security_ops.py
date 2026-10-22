@@ -72,10 +72,10 @@ def secrets_status(db: Database, settings: Settings) -> dict[str, Any]:
         "legacy_keys_in_sqlite": legacy,  # alias для UI до переименования шаблонов
         "ok": not legacy and data_source != "missing" and session_source != "missing",
         "hint_ru": (
-            "Master keys всё ещё в БД — dump/backup компрометирует "
-            "SMTP/LDAP и сессии. Вынесите в /etc/bad/data_key и session_secret (440)."
+            "Ключи шифрования всё ещё в базе — любая копия базы раскрывает "
+            "пароли LDAP, почту и сессии. Перенесите ключи в файлы на сервере."
             if legacy
-            else "Ключи вне БД (SEC-005)."
+            else "Ключи хранятся вне базы — так безопаснее для резервных копий."
         ),
     }
 
@@ -99,10 +99,10 @@ def https_first_status(settings: Settings) -> dict[str, Any]:
         "enroll_cleartext_blocked_when_tls": not bool(settings.allow_enroll_over_http),
         "allow_enroll_over_http": bool(settings.allow_enroll_over_http),
         "hint_ru": (
-            "HTTP bootstrap — только доверенная сеть; агентов и длительную панель "
-            "ведите по HTTPS."
+            "Пока сайт без защищённого соединения — только доверенная сеть. "
+            "Агентов и постоянную работу с панелью ведите по https-адресу."
             if mode != "https"
-            else "HTTPS активен; агенты и панель — только TLS."
+            else "Защищённое соединение включено — используйте https-адрес для панели и агентов."
         ),
     }
 

@@ -19,7 +19,7 @@
     <p class="mono">{{ copyable(new_enrollment_token) }}</p>
     {% if enrollment_msiexec_script %}
     <div class="enrollment-msiexec-block">
-      <h3>Установка MSI (msiexec)</h3>
+      <h3>Команда установки агента</h3>
       <div class="enrollment-msiexec-row">
         <button type="button" class="copy-btn" data-copy-target="#enrollment-msiexec-pre" aria-label="Копировать" title="Копировать команду">{{ icon('copy') }}<span class="copy-btn-label">Копировать команду</span></button>
       </div>
@@ -31,17 +31,17 @@
     {% endif %}
     <p class="muted">Старый больше не действует. Перезапуск не нужен — обновите установщики / GPO / Intune.</p>
     {% if tls_mode == 'http' %}
-    <p class="warn">Лучше скопировать токен уже по HTTPS — сначала
+    <p class="warn">Лучше скопировать токен по защищённому соединению — сначала
       <a href="/settings/tls">Параметры → Сертификат</a>.</p>
     {% endif %}
   </div>
   {% endif %}
 
   <dl class="meta">
-    <div><dt>GitHub repo</dt><dd class="mono">{{ github_repo }}</dd></div>
-    <div><dt>Каталог MSI</dt><dd class="mono">{{ updates_dir }}</dd></div>
-    <div><dt>Интервал sync</dt><dd class="mono">{{ sync_interval }} с</dd></div>
-    <div><dt>Версия агента (latest)</dt><dd class="mono">{% if agent_update %}{{ agent_update.version }}{% else %}—{% endif %}</dd></div>
+    <div><dt>Репозиторий установщиков</dt><dd class="mono">{{ github_repo }}</dd></div>
+    <div><dt>Каталог на сервере</dt><dd class="mono">{{ updates_dir }}</dd></div>
+    <div><dt>Интервал синхронизации</dt><dd class="mono">{{ sync_interval }} с</dd></div>
+    <div><dt>Основная версия в каталоге</dt><dd class="mono">{% if agent_update %}{{ agent_update.version }}{% else %}—{% endif %}</dd></div>
   </dl>
 
   <h2>Каталог версий агента</h2>
@@ -61,7 +61,7 @@
     <tbody>
       {% for v in msi_versions %}
       <tr>
-        <td class="mono">{{ v.version }}{% if agent_update and v.version == agent_update.version %} · latest{% endif %}</td>
+        <td class="mono">{{ v.version }}{% if agent_update and v.version == agent_update.version %} · основная{% endif %}</td>
         <td class="mono">{{ v.msi_name }}</td>
         <td class="mono">{{ v.source or "—" }}</td>
         <td class="mono" title="{{ v.sha256 }}">{{ v.sha256[:16] }}…</td>
@@ -70,7 +70,7 @@
           <form method="post" action="/settings/updates/set-latest" style="display:inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="version" value="{{ v.version }}">
-            <button type="submit" class="secondary">Latest</button>
+            <button type="submit" class="secondary">Сделать основной</button>
           </form>
           <form method="post" action="/settings/updates/delete" style="display:inline"
             onsubmit="return confirm('Удалить {{ v.version }} из каталога?');">
@@ -85,13 +85,13 @@
   </table>
   </div>
   {% else %}
-  <p class="muted">Каталог пуст. Синхронизируйте с GitHub или загрузите установщик вручную.</p>
+  <p class="muted">Каталог пуст. Получите установщики из репозитория или загрузите файл вручную.</p>
   {% endif %}
 
-  <h2>Синхронизация с GitHub</h2>
+  <h2>Получить установщики из репозитория</h2>
   <form method="post" action="/settings/updates/sync" class="form-actions">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <button type="submit">Синхронизировать сейчас</button>
+    <button type="submit">Синхронизировать установщики</button>
   </form>
 
   <h2>Загрузить установщик вручную</h2>
@@ -101,20 +101,20 @@
   </p>
   <form method="post" action="/settings/updates/upload" enctype="multipart/form-data" class="settings-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <label for="msi">MSI</label>
+    <label for="msi">Файл установки (.msi)</label>
     <input id="msi" name="msi" type="file" accept=".msi,application/octet-stream" required>
 
-    <label for="manifest">Manifest (необязательно)</label>
+    <label for="manifest">Описание версии (необязательно)</label>
     <input id="manifest" name="manifest" type="file" accept=".json,application/json">
 
-    <label for="version">Версия агента (если не в имени / manifest)</label>
+    <label for="version">Версия агента (если не в имени файла или описании)</label>
     <input id="version" name="version" type="text" placeholder="1.0.0" autocomplete="off">
 
     <label for="sha256">SHA256 (необязательно, проверка)</label>
     <input id="sha256" name="sha256" type="text" class="mono" placeholder="hex" autocomplete="off">
 
     <div class="form-actions">
-      <button type="submit">Подгрузить в зеркало</button>
+      <button type="submit">Добавить в каталог</button>
     </div>
   </form>
 
@@ -137,8 +137,7 @@
   </p>
   {% endif %}
   <dl class="meta">
-    <div><dt>Токен в базе</dt><dd>{% if enrollment.has_hash %}есть{% else %}нет{% endif %}</dd></div>
-    <div><dt>Файл токена</dt><dd class="mono">{{ enrollment.token_file }}</dd></div>
+    <div><dt>Токен настроен</dt><dd>{% if enrollment.has_hash %}да{% else %}нет{% endif %}</dd></div>
     {% if enrollment_rotation %}
     <div><dt>С прошлой смены</dt><dd class="mono">{{ enrollment_rotation.enrolled_since_rotation }} / {{ enrollment_rotation.threshold }}</dd></div>
     {% endif %}
@@ -154,11 +153,11 @@
   </form>
   {% if not (enrollment_rotation and enrollment_rotation.rotation_due) %}
   <form method="post" action="/settings/enrollment/wave-done" class="settings-form"
-    onsubmit="return confirm('Отметить волну MSI завершённой? Появится напоминание о ротации.');">
+    onsubmit="return confirm('Отметить волну установок завершённой? Появится напоминание о смене токена.');">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <p class="muted">Если волна закончилась раньше порога — отметьте вручную.</p>
     <div class="form-actions">
-      <button type="submit" class="secondary">Волна MSI завершена → предложить ротацию</button>
+      <button type="submit" class="secondary">Волна установок завершена</button>
     </div>
   </form>
   {% endif %}
