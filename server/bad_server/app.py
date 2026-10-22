@@ -16,6 +16,7 @@ from .backup import run_daily_backup
 from .config import get_settings
 from .crypto_util import decrypt_secret
 from .db import Database, open_database, utc_now
+from .device_health import effective_stale_after_seconds
 from .rate_limit import SlidingWindowRateLimiter
 from .security import hash_secret
 from .smtp_mail import notify_stale_device
@@ -105,7 +106,7 @@ async def _stale_alert_loop(app: FastAPI) -> None:
                 if enc and data_key:
                     password = decrypt_secret(data_key, enc) or ""
                 needing = db.devices_needing_stale_alert(
-                    stale_after_seconds=settings.device_stale_after_seconds
+                    stale_after_seconds=effective_stale_after_seconds(db, settings)
                 )
                 for device in needing:
                     notify_stale_device(

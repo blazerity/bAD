@@ -222,7 +222,7 @@ msiexec /i bad-agent-<версия из agent/VERSION>.msi `
 
 В панели и в локальных отчётах агента (`bad`, `bad -r`) даты/время — **местные**, вид **ЧЧ:ММ:СС ДД.ММ.ГГГГ**. В API и БД по-прежнему UTC (ISO).
 
-Daily DB backup **не** содержит master-ключи — см. [§ backup](#6-site-backup--restore). Порог stale по умолчанию 1 час (`BAD_DEVICE_STALE_AFTER_SECONDS`); ≈2× heartbeat при необходимости. Semver: **сервер** (`VERSION` / health) и **агент** (MSI / `agent_version`) — разные линии; см. [guideline](guideline.md#версионирование-две-линии).
+Daily DB backup **не** содержит master-ключи — см. [§ backup](#6-site-backup--restore). Порог **«устарел»** настраивается в панели: **Параметры → Хранение и очистка** (минуты без связи); если не задано — запасной вариант env `BAD_DEVICE_STALE_AFTER_SECONDS` (по умолчанию 1 ч). ≈2× heartbeat при необходимости. Semver: **сервер** (`VERSION` / health) и **агент** (MSI / `agent_version`) — разные линии; см. [guideline](guideline.md#версионирование-две-линии).
 
 Альтернатива (автоматизация — admin API token):
 

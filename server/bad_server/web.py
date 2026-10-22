@@ -37,7 +37,14 @@ from .config import Settings, get_settings
 from .crypto_util import decrypt_secret, encrypt_secret
 from .csrf import cookie_secure_for_request, ensure_csrf, get_csrf_token, set_csrf_cookie
 from .db import Database
-from .device_health import device_silence_status, health_snippet
+from .device_health import (
+    DEVICE_STALE_MAX_SECONDS,
+    DEVICE_STALE_MIN_SECONDS,
+    DEVICE_STALE_SITE_SECRET_KEY,
+    device_silence_status,
+    effective_stale_after_seconds,
+    health_snippet,
+)
 from .ldap_client import settings_from_row, test_connection
 from .security import api_key_lookup, generate_token, hash_secret, verify_secret
 from .sessions import SESSION_COOKIE, SESSION_MAX_AGE, WebUser, dump_session
@@ -615,13 +622,13 @@ def _fleet_snapshot(
         return cached["data"]
     active, archived = db.list_fleet_active_archived()
     stats = db.overview_stats(
-        stale_after_seconds=settings.device_stale_after_seconds,
+        stale_after_seconds=effective_stale_after_seconds(db, settings),
         active=active,
         archived=archived,
     )
     ops = ops_update_signals(
         db,
-        stale_after_seconds=settings.device_stale_after_seconds,
+        stale_after_seconds=effective_stale_after_seconds(db, settings),
         active=active,
     )
     result = (active, archived, stats, ops)
@@ -677,7 +684,7 @@ def _overview_page_context(
         "security": security,
         "bootstrap": bootstrap,
         "attention": attention,
-        "stale_after_seconds": settings.device_stale_after_seconds,
+        "stale_after_seconds": effective_stale_after_seconds(db, settings),
         "server_current": server_current,
         "wave_chips": wave["chips"],
         "agent_version_summary": {
@@ -721,7 +728,7 @@ def dashboard_page(
     ops = merge_security_into_ops(ops, security)
     dashboard = build_dashboard_stats(
         db,
-        stale_after_seconds=settings.device_stale_after_seconds,
+        stale_after_seconds=effective_stale_after_seconds(db, settings),
         stats=stats,
         ops=ops,
         active=active,
@@ -735,7 +742,7 @@ def dashboard_page(
             "ops": ops,
             "security": security,
             "dashboard": dashboard,
-            "stale_after_seconds": settings.device_stale_after_seconds,
+            "stale_after_seconds": effective_stale_after_seconds(db, settings),
         },
     )
 
@@ -829,7 +836,7 @@ def _enrich_device_row(device: dict, settings: Settings) -> dict:
     device = dict(device)
     device["silence"] = device_silence_status(
         device.get("last_seen_at"),
-        stale_after_seconds=settings.device_stale_after_seconds,
+        stale_after_seconds=effective_stale_after_seconds(db, settings),
     )
     return device
 
@@ -898,7 +905,7 @@ def _devices_wave_context(
         active = [d for d in fleet if not d.get("archived")]
         ops = ops_update_signals(
             db,
-            stale_after_seconds=settings.device_stale_after_seconds,
+            stale_after_seconds=effective_stale_after_seconds(db, settings),
             active=active,
         )
         drift_ids = {d["device_id"] for d in (ops.get("version_drift") or [])}
@@ -941,7 +948,7 @@ def _devices_wave_context(
         enriched,
         wave,
         drift_ids=drift_ids,
-        stale_after_seconds=settings.device_stale_after_seconds,
+        stale_after_seconds=effective_stale_after_seconds(db, settings),
     )
     total = len(filtered)
     page_size = DEVICES_PAGE_SIZE
@@ -1006,7 +1013,7 @@ def devices_page(
             "show_archive": show_archive,
             "wave": wave_filter or "",
             "all_tags": db.list_all_tags(),
-            "stale_after_seconds": settings.device_stale_after_seconds,
+            "stale_after_seconds": effective_stale_after_seconds(db, settings),
             "page": page_i,
             "pages": pages,
             "total": total,
@@ -1037,7 +1044,7 @@ def devices_csv_export(
         drift_ids: set[str] = set()
         if wave_filter == "drift":
             ops = ops_update_signals(
-                db, stale_after_seconds=settings.device_stale_after_seconds
+                db, stale_after_seconds=effective_stale_after_seconds(db, settings)
             )
             drift_ids = {d["device_id"] for d in (ops.get("version_drift") or [])}
         by_id = {
@@ -1062,7 +1069,7 @@ def devices_csv_export(
             as_devices,
             wave_filter,
             drift_ids=drift_ids,
-            stale_after_seconds=settings.device_stale_after_seconds,
+            stale_after_seconds=effective_stale_after_seconds(db, settings),
         )
         kept_ids = {d["device_id"] for d in filtered}
         rows = [r for r in rows if r.get("device_id") in kept_ids]
@@ -1257,7 +1264,7 @@ def _device_config_context(
                 collector_errors = errs
     silence = device_silence_status(
         detail.get("last_seen_at"),
-        stale_after_seconds=settings.device_stale_after_seconds,
+        stale_after_seconds=effective_stale_after_seconds(db, settings),
     )
     recent_events = db.list_device_events(device_id=device_id, limit=20)
     duplicates = db.find_duplicate_devices(device_id)
@@ -1519,7 +1526,7 @@ def device_merge(
         result = db.merge_devices(
             survivor_id,
             donor,
-            stale_after_seconds=settings.device_stale_after_seconds,
+            stale_after_seconds=effective_stale_after_seconds(db, settings),
         )
     except ValueError as exc:
         code = str(exc).strip() or "merge_failed"
@@ -2458,15 +2465,18 @@ def _parse_smtp_form(form: SmtpFormData) -> tuple[dict, Optional[str]]:
 
 def _retention_context(
     db: Database,
+    settings: Settings,
     *,
     user: WebUser,
     message: Optional[str] = None,
     error: Optional[str] = None,
 ) -> dict:
+    stale_sec = effective_stale_after_seconds(db, settings)
     return {
         "user": user,
         "settings_section": "retention",
         "retention": db.get_retention_settings(),
+        "stale_after_minutes": stale_sec // 60,
         "message": message,
         "error": error,
     }
@@ -2509,11 +2519,12 @@ def retention_settings_page(
     request: Request,
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ):
     return _html(
         request,
         "retention_settings.html",
-        _retention_context(db, user=user),
+        _retention_context(db, settings, user=user),
     )
 
 
@@ -2522,17 +2533,26 @@ def retention_settings_save(
     request: Request,
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
     events_days: str = Form("90"),
     inventory_days: str = Form("180"),
+    stale_after_minutes: str = Form("60"),
 ):
+    stale_min_max = DEVICE_STALE_MAX_SECONDS // 60
     try:
         ev = int((events_days or "90").strip())
         inv = int((inventory_days or "180").strip())
+        stale_min = int((stale_after_minutes or "60").strip())
     except ValueError:
         return _html(
             request,
             "retention_settings.html",
-            _retention_context(db, user=user, error="Укажите целые числа дней"),
+            _retention_context(
+                db,
+                settings,
+                user=user,
+                error="Укажите целые числа (дни и минуты)",
+            ),
             status_code=400,
         )
     if ev < 1 or inv < 1 or ev > 3650 or inv > 3650:
@@ -2540,16 +2560,40 @@ def retention_settings_save(
             request,
             "retention_settings.html",
             _retention_context(
-                db, user=user, error="Диапазон: от 1 до 3650 дней"
+                db,
+                settings,
+                user=user,
+                error="Диапазон: от 1 до 3650 дней",
+            ),
+            status_code=400,
+        )
+    stale_min_min = DEVICE_STALE_MIN_SECONDS // 60
+    if stale_min < stale_min_min or stale_min > stale_min_max:
+        return _html(
+            request,
+            "retention_settings.html",
+            _retention_context(
+                db,
+                settings,
+                user=user,
+                error=(
+                    f"Порог устаревания: от {stale_min_min} до {stale_min_max} минут"
+                ),
             ),
             status_code=400,
         )
     db.update_retention_settings(events_days=ev, inventory_days=inv)
+    db.set_site_secret(
+        DEVICE_STALE_SITE_SECRET_KEY, str(stale_min * 60)
+    )
     return _html(
         request,
         "retention_settings.html",
         _retention_context(
-            db, user=user, message="Настройки хранения сохранены"
+            db,
+            settings,
+            user=user,
+            message="Настройки хранения сохранены",
         ),
     )
 

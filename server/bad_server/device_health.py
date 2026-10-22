@@ -3,7 +3,40 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .config import Settings
+    from .db import Database
+
+DEVICE_STALE_SITE_SECRET_KEY = "device_stale_after_seconds"
+DEVICE_STALE_MIN_SECONDS = 60
+DEVICE_STALE_MAX_SECONDS = 604800  # 7 суток
+
+
+def _parse_site_stale_seconds(raw: Optional[str]) -> Optional[int]:
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    try:
+        value = int(text)
+    except (TypeError, ValueError):
+        return None
+    if DEVICE_STALE_MIN_SECONDS <= value <= DEVICE_STALE_MAX_SECONDS:
+        return value
+    return None
+
+
+def effective_stale_after_seconds(db: Database, settings: Settings) -> int:
+    """Порог «устарел»: site_secret в БД или env BAD_DEVICE_STALE_AFTER_SECONDS."""
+    override = _parse_site_stale_seconds(
+        db.get_site_secret(DEVICE_STALE_SITE_SECRET_KEY)
+    )
+    if override is not None:
+        return override
+    return int(settings.device_stale_after_seconds)
 
 
 def parse_utc(ts: Optional[str]) -> Optional[datetime]:

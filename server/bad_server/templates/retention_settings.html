@@ -22,6 +22,15 @@
       value="{{ retention.inventory_days }}" required>
     <p class="hint">По умолчанию 180 дней. Может действовать и лимит числа снимков на устройство.</p>
 
+    <h2>Устаревшие устройства</h2>
+    <label for="stale_after_minutes">Порог «устарел» (минут)</label>
+    <input id="stale_after_minutes" name="stale_after_minutes" type="number"
+      min="1" max="10080" value="{{ stale_after_minutes }}" required>
+    <p class="hint">
+      Если агент не выходил на связь дольше этого времени — статус «устарел». По умолчанию 60 мин.
+      Env <code>BAD_DEVICE_STALE_AFTER_SECONDS</code> — запасной вариант, если в панели не задано.
+    </p>
+
     <div class="form-actions">
       <button type="submit">Сохранить</button>
     </div>
