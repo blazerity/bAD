@@ -163,24 +163,5 @@
   </form>
   {% endif %}
 
-  {% if enrollment_msiexec_script is defined and enrollment_msiexec_script and not new_enrollment_token %}
-  {% set msi_token = enrollment_msiexec_token if enrollment_msiexec_token is defined else none %}
-  <div class="enrollment-msiexec-block" id="enrollment-msiexec">
-    <h3>Команда msiexec для установки</h3>
-    <p class="muted" style="margin:0 0 0.5rem">
-      Подставьте в GPO / Intune. Не сохраняйте verbose-логи с токеном.
-    </p>
-    {% if msi_token %}
-    <div class="enrollment-msiexec-row">
-      <span class="muted">Токен:</span>
-      <span class="mono">{{ copyable(msi_token) }}</span>
-    </div>
-    {% endif %}
-    <div class="enrollment-msiexec-row">
-      <button type="button" class="copy-btn" data-copy-target="#enrollment-msiexec-pre-persist" aria-label="Копировать" title="Копировать команду">{{ icon('copy') }}<span class="copy-btn-label">Копировать команду</span></button>
-    </div>
-    <pre id="enrollment-msiexec-pre-persist" class="enrollment-msiexec-script">{{ enrollment_msiexec_script }}</pre>
-  </div>
-  {% endif %}
 </section>
 {% endblock %}

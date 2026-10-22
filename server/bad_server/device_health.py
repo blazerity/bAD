@@ -14,7 +14,8 @@ DEVICE_STALE_MIN_SECONDS = 60
 DEVICE_STALE_MAX_SECONDS = 604800  # 7 суток
 
 
-def _parse_site_stale_seconds(raw: Optional[str]) -> Optional[int]:
+def parse_site_stale_seconds(raw: Optional[str]) -> Optional[int]:
+    """Распарсить секунды порога stale; вне диапазона → None."""
     if raw is None:
         return None
     text = str(raw).strip()
@@ -31,7 +32,7 @@ def _parse_site_stale_seconds(raw: Optional[str]) -> Optional[int]:
 
 def effective_stale_after_seconds(db: Database, settings: Settings) -> int:
     """Порог «устарел»: site_secret в БД или env BAD_DEVICE_STALE_AFTER_SECONDS."""
-    override = _parse_site_stale_seconds(
+    override = parse_site_stale_seconds(
         db.get_site_secret(DEVICE_STALE_SITE_SECRET_KEY)
     )
     if override is not None:

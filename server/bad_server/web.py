@@ -44,6 +44,7 @@ from .device_health import (
     device_silence_status,
     effective_stale_after_seconds,
     health_snippet,
+    parse_site_stale_seconds,
 )
 from .ldap_client import settings_from_row, test_connection
 from .security import api_key_lookup, generate_token, hash_secret, verify_secret
@@ -612,6 +613,11 @@ _FLEET_SNAPSHOT_TTL_SEC = 8.0
 _fleet_snapshot_cache: dict[str, Any] = {"ts": 0.0, "data": None}
 
 
+def _invalidate_fleet_snapshot_cache() -> None:
+    _fleet_snapshot_cache["data"] = None
+    _fleet_snapshot_cache["ts"] = 0.0
+
+
 def _fleet_snapshot(
     db: Database, settings: Settings
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
@@ -620,15 +626,16 @@ def _fleet_snapshot(
     cached = _fleet_snapshot_cache
     if cached["data"] is not None and (now - float(cached["ts"])) < _FLEET_SNAPSHOT_TTL_SEC:
         return cached["data"]
+    stale_sec = effective_stale_after_seconds(db, settings)
     active, archived = db.list_fleet_active_archived()
     stats = db.overview_stats(
-        stale_after_seconds=effective_stale_after_seconds(db, settings),
+        stale_after_seconds=stale_sec,
         active=active,
         archived=archived,
     )
     ops = ops_update_signals(
         db,
-        stale_after_seconds=effective_stale_after_seconds(db, settings),
+        stale_after_seconds=stale_sec,
         active=active,
     )
     result = (active, archived, stats, ops)
@@ -867,21 +874,11 @@ def _attach_duplicate_signals(
     devices: list[dict],
     device_signals: dict[str, dict[str, Any]],
 ) -> None:
-    """Пометить строки списка: hostname + hardware ids (без merge)."""
+    """Пометить строки списка: is_duplicate + kinds (без merge)."""
     for d in devices:
         sig = device_signals.get(d["device_id"]) or {}
-        kinds = list(sig.get("kinds") or [])
-        d["dup_hostname"] = bool(sig.get("hostname"))
-        d["dup_serial"] = bool(sig.get("serial_number"))
-        d["dup_smbios_uuid"] = bool(sig.get("smbios_uuid"))
-        d["dup_bios_serial"] = bool(sig.get("bios_serial"))
-        d["dup_identifying_number"] = bool(sig.get("identifying_number"))
-        d["dup_baseboard_serial"] = bool(sig.get("baseboard_serial"))
-        d["dup_disk_serial"] = bool(sig.get("disk_serial_number"))
-        d["dup_kinds"] = kinds
+        d["dup_kinds"] = list(sig.get("kinds") or [])
         d["is_duplicate"] = bool(sig.get("is_duplicate"))
-        # backward-compat для шаблона со старым hostname_dup
-        d["hostname_dup"] = d["is_duplicate"]
         d["has_agent_local"] = device_has_agent_local(d)
 
 
@@ -894,18 +891,19 @@ def _devices_wave_context(
     show_archive: bool,
     wave: Optional[str],
     page_i: int,
-) -> tuple[list[dict], int, int, int, dict[str, Any]]:
+) -> tuple[list[dict], int, int, int]:
     # Индекс дублей всегда по всему парку (meta), иначе поиск/тег ломают бейджи.
     fleet = db.list_devices(archived=None)
     dup_index = db.duplicate_signal_index(devices=fleet, meta_only=True)
     device_signals = dup_index.get("device_signals") or {}
 
     drift_ids: set[str] = set()
+    stale_sec = effective_stale_after_seconds(db, settings)
     if wave == "drift":
         active = [d for d in fleet if not d.get("archived")]
         ops = ops_update_signals(
             db,
-            stale_after_seconds=effective_stale_after_seconds(db, settings),
+            stale_after_seconds=stale_sec,
             active=active,
         )
         drift_ids = {d["device_id"] for d in (ops.get("version_drift") or [])}
@@ -942,7 +940,6 @@ def _devices_wave_context(
                     continue
         raw.append(d)
 
-    stale_sec = effective_stale_after_seconds(db, settings)
     enriched = [_enrich_device_row(d, stale_after_seconds=stale_sec) for d in raw]
     _attach_duplicate_signals(enriched, device_signals)
     filtered = filter_devices_by_wave(
@@ -957,13 +954,7 @@ def _devices_wave_context(
     if page_i > pages:
         page_i = pages
     offset = (page_i - 1) * page_size
-    return (
-        filtered[offset : offset + page_size],
-        total,
-        pages,
-        page_i,
-        device_signals,
-    )
+    return filtered[offset : offset + page_size], total, pages, page_i
 
 
 @router.get("/devices", response_class=HTMLResponse)
@@ -983,7 +974,7 @@ def devices_page(
     show_archive = (archive or "").strip() in {"1", "true", "yes"}
     wave_filter = normalize_wave_filter(wave)
     page_i = max(1, int(page or 1))
-    devices, total, pages, page_i, _device_signals = _devices_wave_context(
+    devices, total, pages, page_i = _devices_wave_context(
         db,
         settings,
         tag_filter=tag_filter,
@@ -2539,7 +2530,6 @@ def retention_settings_save(
     inventory_days: str = Form("180"),
     stale_after_minutes: str = Form("60"),
 ):
-    stale_min_max = DEVICE_STALE_MAX_SECONDS // 60
     try:
         ev = int((events_days or "90").strip())
         inv = int((inventory_days or "180").strip())
@@ -2568,8 +2558,10 @@ def retention_settings_save(
             ),
             status_code=400,
         )
-    stale_min_min = DEVICE_STALE_MIN_SECONDS // 60
-    if stale_min < stale_min_min or stale_min > stale_min_max:
+    stale_sec = parse_site_stale_seconds(str(stale_min * 60))
+    if stale_sec is None:
+        stale_min_min = DEVICE_STALE_MIN_SECONDS // 60
+        stale_min_max = DEVICE_STALE_MAX_SECONDS // 60
         return _html(
             request,
             "retention_settings.html",
@@ -2584,9 +2576,8 @@ def retention_settings_save(
             status_code=400,
         )
     db.update_retention_settings(events_days=ev, inventory_days=inv)
-    db.set_site_secret(
-        DEVICE_STALE_SITE_SECRET_KEY, str(stale_min * 60)
-    )
+    db.set_site_secret(DEVICE_STALE_SITE_SECRET_KEY, str(stale_sec))
+    _invalidate_fleet_snapshot_cache()
     return _html(
         request,
         "retention_settings.html",

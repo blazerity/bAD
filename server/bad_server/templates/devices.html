@@ -80,7 +80,7 @@
       <tr>
         <td>
           <a href="/devices/{{ d.device_id }}">{{ d.hostname or "(неизвестно)" }}</a>
-          {% if d.is_duplicate or d.hostname_dup %}
+          {% if d.is_duplicate %}
             {% set kinds = d.dup_kinds or [] %}
             <span class="badge badge-stale" title="Возможный дубль: {{ (kinds|join(', ')) if kinds else 'hostname/serial/smbios_uuid/disk' }} (автослияния нет)">дубль</span>
           {% endif %}
