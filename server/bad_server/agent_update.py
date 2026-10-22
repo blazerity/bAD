@@ -495,6 +495,7 @@ def ops_update_signals(
         or (latest or {}).get("mirrored_at"),
         "mirror_empty": not versions,
         "version_drift": drift[:25],
+        "version_drift_ids": [d["device_id"] for d in drift],
         "version_drift_count": len(drift),
         "pinned_missing": pinned_missing[:25],
         "pinned_missing_count": len(pinned_missing),
