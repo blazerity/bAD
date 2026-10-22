@@ -591,6 +591,7 @@ class SmtpFormData:
         notify_hostname: Optional[str] = Form(None),
         notify_domain: Optional[str] = Form(None),
         notify_pending_reboot: Optional[str] = Form(None),
+        digest_interval_hours: str = Form("3"),
     ):
         self.enabled = enabled
         self.host = host
@@ -607,6 +608,7 @@ class SmtpFormData:
         self.notify_hostname = notify_hostname
         self.notify_domain = notify_domain
         self.notify_pending_reboot = notify_pending_reboot
+        self.digest_interval_hours = digest_interval_hours
 
 
 _FLEET_SNAPSHOT_TTL_SEC = 8.0
@@ -2418,6 +2420,7 @@ def _smtp_form_context(
             "username": row.get("username") or "",
             "from_addr": row.get("from_addr") or "",
             "to_addrs": row.get("to_addrs") or "",
+            "digest_interval_hours": int(row.get("digest_interval_hours") or 3),
         },
     }
 
@@ -2429,6 +2432,12 @@ def _parse_smtp_form(form: SmtpFormData) -> tuple[dict, Optional[str]]:
         return {}, "Порт должен быть целым числом"
     if port_i < 1 or port_i > 65535:
         return {}, "Порт должен быть от 1 до 65535"
+    try:
+        digest_h = int((form.digest_interval_hours or "3").strip())
+    except ValueError:
+        return {}, "Интервал сводки должен быть целым числом часов"
+    if digest_h < 1 or digest_h > 48:
+        return {}, "Интервал сводки: от 1 до 48 часов"
     flags = {key: False for key in DEFAULT_NOTIFY}
     notify_flags = {
         "hardware": form.notify_hardware,
@@ -2451,6 +2460,7 @@ def _parse_smtp_form(form: SmtpFormData) -> tuple[dict, Optional[str]]:
         "password": form.password,
         "from_addr": (form.from_addr or "").strip(),
         "to_addrs": (form.to_addrs or "").strip(),
+        "digest_interval_hours": digest_h,
         "notify_json": dump_notify_flags(flags),
     }, None
 
@@ -2647,6 +2657,7 @@ def mail_settings_save(
         from_addr=parsed["from_addr"],
         to_addrs=parsed["to_addrs"],
         notify_json=parsed["notify_json"],
+        digest_interval_hours=parsed["digest_interval_hours"],
         password_enc=enc,
     )
     return _html(
@@ -2695,12 +2706,7 @@ def mail_settings_test(
     msg = build_hardware_email(
         device_id="test-device",
         hostname="TEST-HOST",
-        events=[
-            {
-                "type": "cpu_change",
-                "summary": "Тестовое письмо SMTP из панели bAD",
-            }
-        ],
+        events=[],
         from_addr=parsed["from_addr"],
         to_addrs=recipients,
     )
@@ -2725,6 +2731,7 @@ def mail_settings_test(
             "from_addr": parsed["from_addr"],
             "to_addrs": parsed["to_addrs"],
             "notify_json": parsed["notify_json"],
+            "digest_interval_hours": parsed["digest_interval_hours"],
         }
     )
     return _html(

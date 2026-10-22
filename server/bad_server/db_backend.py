@@ -203,6 +203,7 @@ CREATE TABLE IF NOT EXISTS smtp_settings (
   from_addr TEXT NOT NULL DEFAULT '',
   to_addrs TEXT NOT NULL DEFAULT '',
   notify_json TEXT NOT NULL DEFAULT '',
+  digest_interval_hours INTEGER NOT NULL DEFAULT 3,
   updated_at TEXT
 );
 
@@ -251,7 +252,8 @@ CREATE TABLE IF NOT EXISTS device_events (
   type TEXT NOT NULL,
   summary TEXT NOT NULL,
   detail_json TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  mailed_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_device_events_created
@@ -259,4 +261,7 @@ CREATE INDEX IF NOT EXISTS idx_device_events_created
 
 CREATE INDEX IF NOT EXISTS idx_device_events_device_created
   ON device_events(device_id, created_at DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_device_events_unmailed
+  ON device_events(mailed_at) WHERE mailed_at IS NULL;
 """

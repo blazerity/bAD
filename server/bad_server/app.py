@@ -19,7 +19,7 @@ from .db import Database, open_database, utc_now
 from .device_health import effective_stale_after_seconds
 from .rate_limit import SlidingWindowRateLimiter
 from .security import hash_secret
-from .smtp_mail import notify_stale_device
+from .smtp_mail import flush_inventory_mail_digest, notify_stale_device
 from .web import router as web_router
 
 logger = logging.getLogger(__name__)
@@ -92,6 +92,36 @@ async def _backup_loop(app: FastAPI) -> None:
             raise
 
 
+def _smtp_password(app: FastAPI, smtp_row: dict) -> str:
+    enc = smtp_row.get("password_enc") or ""
+    data_key = getattr(app.state, "data_key", None)
+    if enc and data_key:
+        return decrypt_secret(data_key, enc) or ""
+    return ""
+
+
+async def _inventory_mail_digest_loop(app: FastAPI) -> None:
+    """Периодическая сводка inventory-событий по почте."""
+    interval = 300  # 5 минут — проверка интервала digest внутри flush
+    db: Database = app.state.db
+    while True:
+        try:
+            smtp_row = db.get_smtp_settings()
+            if smtp_row.get("enabled"):
+                await asyncio.to_thread(
+                    flush_inventory_mail_digest,
+                    db,
+                    smtp_row,
+                    _smtp_password(app, smtp_row),
+                )
+        except Exception:  # noqa: BLE001
+            logger.exception("Background inventory mail digest failed")
+        try:
+            await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            raise
+
+
 async def _stale_alert_loop(app: FastAPI) -> None:
     settings = get_settings()
     interval = 300  # 5 минут
@@ -100,11 +130,7 @@ async def _stale_alert_loop(app: FastAPI) -> None:
         try:
             smtp_row = db.get_smtp_settings()
             if smtp_row.get("enabled"):
-                password = ""
-                enc = smtp_row.get("password_enc") or ""
-                data_key = getattr(app.state, "data_key", None)
-                if enc and data_key:
-                    password = decrypt_secret(data_key, enc) or ""
+                password = _smtp_password(app, smtp_row)
                 needing = db.devices_needing_stale_alert(
                     stale_after_seconds=effective_stale_after_seconds(db, settings)
                 )
@@ -188,6 +214,7 @@ async def lifespan(app: FastAPI):
     tasks.append(asyncio.create_task(_retention_prune_loop(app)))
     tasks.append(asyncio.create_task(_backup_loop(app)))
     tasks.append(asyncio.create_task(_stale_alert_loop(app)))
+    tasks.append(asyncio.create_task(_inventory_mail_digest_loop(app)))
 
     yield
 

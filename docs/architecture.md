@@ -1,6 +1,6 @@
 # Архитектура bAD
 
-**blazerity Asset Discovery** — Windows-агент инвентаризации и on-prem сервер накопления снимков. Документ описывает фактическую архитектуру репозитория. **Две независимые версии:** сервер (`VERSION`, сейчас 1.5.3) и агент (`agent/VERSION`, сейчас 1.1.0). Обновление панели с GitHub ≠ зеркало MSI агента.
+**blazerity Asset Discovery** — Windows-агент инвентаризации и on-prem сервер накопления снимков. Документ описывает фактическую архитектуру репозитория. **Две независимые версии:** сервер (`VERSION`, сейчас 1.6.0) и агент (`agent/VERSION`, сейчас 1.1.0). Обновление панели с GitHub ≠ зеркало MSI агента.
 
 - **Инвариант:** HTTP bootstrap = **только временный UI-режим** (доверенная сеть → смена пароля → upload cert → HTTPS). Агенты всегда HTTPS (кроме lab `BAD_ALLOW_HTTP=1`). Risk rating bootstrap: **Medium** при runbook; **High** на публичном `:80` до cert — не Critical defect.
 - **ACME / Let’s Encrypt:** вне scope 1.0; не обещать без решения владельца.
@@ -278,7 +278,7 @@ flowchart LR
 | `/settings` | редирект в оболочку «Параметры» (левый nav) |
 | `/settings/ldap` | LDAP + группа доступа AD |
 | `/settings/tls` | nav **Сертификат**; статус HTTP/HTTPS; upload PEM cert+key[+chain] → nginx reload (key не в HTML) |
-| `/settings/mail` | SMTP + получатели + toggles уведомлений |
+| `/settings/mail` | SMTP + получатели + toggles + интервал сводки inventory (часы) |
 | `/settings/retention` | сроки хранения events/inventory; порог **«устарел»** (минуты); запасной вариант — env `BAD_DEVICE_STALE_AFTER_SECONDS` |
 | `/settings/backups` | daily `pg_dump -Fc` + **Скачать site bundle** (`GET …/site-bundle`) |
 | `/settings/policies` | CRUD; knob `update_target` = `latest` \| pin semver |
@@ -301,10 +301,13 @@ flowchart LR
 
 **Почта (SMTP)**
 
-- Таблица `smtp_settings`: host/port/TLS, user, encrypted password, From, To (comma-separated), `notify_json` toggles.
+- Таблица `smtp_settings`: host/port/TLS, user, encrypted password, From, To (comma-separated), `notify_json` toggles, **`digest_interval_hours`** (1–48, default 3; UI «Интервал сводки, часы»).
+- **Inventory / железо:** diff после `POST /v1/inventory` сразу попадает в `device_events` и в web `/events`, но **не шлёт отдельное письмо на каждое изменение**. Неотправленные строки: `mailed_at IS NULL`. Фоновый цикл ~каждые 5 мин проверяет digest: если с прошлей успешной сводки прошло ≥ `digest_interval_hours`, одно письмо **multipart plain+HTML** — группировка по устройствам, бейджи **Появилось** / **Пропало** / **Изменилось**, inline SVG иконки компонентов (диск, RAM, CPU, …). Чекбоксы `notify_json` фильтруют, какие типы событий попадают в сводку; если после фильтра пусто — письмо не уходит, события всё равно помечаются отправленными (не копятся бесконечно).
+- **Сразу (не digest):** новый enroll и stale-устройство — при включённых toggles и готовом SMTP.
 - Defaults ON: hardware (RAM/CPU/disks/serial/model), stale, enroll. Defaults OFF: hostname, domain. Без webhooks.
-- Soft-fail: ошибки SMTP только в лог, enroll/inventory не ломаются.
-- Stale-алерты — фоновый цикл (~5 мин) с флагом `meta.stale_notified_at`.
+- Soft-fail: ошибки SMTP только в лог; API enroll/inventory не ломаются. Ошибка digest — события остаются с `mailed_at` NULL до следующей попытки.
+- Bootstrap миграция `mail_digest_schema_v1`: при первом подъёме схемы существующие `device_events` получают `mailed_at = created_at`, чтобы **не разослать старую историю**.
+- Stale-алерты — тот же фоновый цикл (~5 мин), флаг `meta.stale_notified_at` (отдельно от digest inventory).
 
 **Зеркало MSI**
 
@@ -332,7 +335,7 @@ flowchart LR
 
 ### События inventory
 
-При каждом upsert сравнивается предыдущий и новый snapshot. Пишутся осмысленные изменения: hostname/domain, logged-on / last_interactive, диск добавлен/удалён, сильное падение free space тома, смена IPv4 NIC, **CPU / RAM bytes / RAM modules / serial / model / manufacturer**. Таблица `device_events`. Первый снимок событий не создаёт.
+При каждом upsert сравнивается предыдущий и новый snapshot. Пишутся осмысленные изменения: hostname/domain, logged-on / last_interactive, диск добавлен/удалён, сильное падение free space тома, смена IPv4 NIC, **CPU / RAM bytes / RAM modules / serial / model / manufacturer**. Таблица `device_events` (+ `mailed_at` для очереди почты). Первый снимок событий не создаёт. Уведомления по почте для этих событий — **периодическая сводка**, не мгновенно (см. [Почта (SMTP)](#почта-smtp)); панель `/events` и API `GET /v1/events` — без задержки digest.
 
 ### Данные
 

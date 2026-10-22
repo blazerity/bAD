@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import html
 import json
 import logging
 import smtplib
 import ssl
+from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
-from typing import Any, Optional
+from typing import Any, Literal, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .db import Database
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +42,64 @@ DEFAULT_NOTIFY: dict[str, bool] = {
     "domain": False,  # смена domain
     # inventory-plus: ops-сигнал; default off (не спамить)
     "pending_reboot": False,
+}
+
+INVENTORY_MAIL_LAST_DIGEST_KEY = "inventory_mail_last_digest_at"
+
+Polarity = Literal["added", "removed", "changed"]
+
+_POLARITY_LABEL_RU: dict[Polarity, str] = {
+    "added": "Появилось",
+    "removed": "Пропало",
+    "changed": "Изменилось",
+}
+
+_POLARITY_STYLE: dict[Polarity, tuple[str, str]] = {
+    "added": ("#166534", "#dcfce7"),
+    "removed": ("#991b1b", "#fee2e2"),
+    "changed": ("#92400e", "#fef3c7"),
+}
+
+# Внутренности SVG (viewBox 0 0 20 20), как в templates/macros/icons.html
+_ICON_PATHS: dict[str, str] = {
+    "host": (
+        '<rect x="2.5" y="3.5" width="15" height="10" rx="1.75"/>'
+        '<path d="M7 16.5h6M10 13.5v3"/>'
+    ),
+    "cpu": (
+        '<rect x="5" y="5" width="10" height="10" rx="1.5"/>'
+        '<rect x="7.5" y="7.5" width="5" height="5" rx="0.75"/>'
+        '<path d="M8 2.75v2.25M12 2.75v2.25M8 15v2.25M12 15v2.25M2.75 8h2.25M2.75 12h2.25M15 8h2.25M15 12h2.25"/>'
+    ),
+    "ram": (
+        '<rect x="2.5" y="6" width="15" height="8" rx="1.25"/>'
+        '<path d="M5.5 6V4.25M8.5 6V4.25M11.5 6V4.25M14.5 6V4.25M6.5 10.25h2M11.5 10.25h2"/>'
+    ),
+    "disk": (
+        '<ellipse cx="10" cy="5.5" rx="6.5" ry="2.4"/>'
+        '<path d="M3.5 5.5v8.5c0 1.35 2.9 2.45 6.5 2.45s6.5-1.1 6.5-2.45V5.5"/>'
+        '<path d="M3.5 10c0 1.35 2.9 2.45 6.5 2.45s6.5-1.1 6.5-2.45"/>'
+    ),
+    "serial": (
+        '<rect x="3.5" y="5" width="13" height="10" rx="1.5"/>'
+        '<path d="M6.5 8v4M9 8v4M11.5 8v4M14 8v4"/>'
+    ),
+    "model": (
+        '<rect x="2.5" y="4.5" width="15" height="10" rx="1.75"/>'
+        '<path d="M8 14.5h4"/>'
+    ),
+    "events": (
+        '<path d="M10 3.5v2M10 14.5v2M3.5 10h2M14.5 10h2"/>'
+        '<circle cx="10" cy="10" r="3.25"/>'
+    ),
+    "bios": (
+        '<rect x="3.5" y="4" width="13" height="12" rx="1.5"/>'
+        '<path d="M6.5 7h7M6.5 10h7M6.5 13h4"/>'
+    ),
+    "updates": (
+        '<path d="M10 3.5a6.5 6.5 0 1 0 6.1 4.1"/>'
+        '<path d="M16.5 3.5v4h-4"/>'
+    ),
 }
 
 NOTIFY_LABELS_RU: dict[str, str] = {
@@ -111,7 +174,124 @@ def build_alert_email(
     return msg
 
 
-def build_inventory_events_email(
+def event_visual(event_type: str) -> dict[str, str]:
+    """Иконка и полярность события для digest-письма."""
+    t = (event_type or "").strip()
+    polarity: Polarity = "changed"
+    if t.endswith("_added"):
+        polarity = "added"
+    elif t.endswith("_removed"):
+        polarity = "removed"
+
+    icon = "events"
+    if "disk" in t:
+        icon = "disk"
+    elif "ram" in t:
+        icon = "ram"
+    elif "cpu" in t:
+        icon = "cpu"
+    elif "serial" in t:
+        icon = "serial"
+    elif any(x in t for x in ("model", "manufacturer", "chassis")):
+        icon = "model"
+    elif "hostname" in t or "domain" in t:
+        icon = "host"
+    elif "pending_reboot" in t or "reboot" in t:
+        icon = "updates"
+    elif "bios" in t or "bugcheck" in t or "minidump" in t:
+        icon = "bios"
+    return {"icon": icon, "polarity": polarity}
+
+
+def _svg_icon(icon_name: str, size: int = 18) -> str:
+    inner = _ICON_PATHS.get(icon_name) or _ICON_PATHS["events"]
+    return (
+        f'<svg width="{size}" height="{size}" viewBox="0 0 20 20" '
+        f'fill="none" stroke="currentColor" stroke-width="1.5" '
+        f'stroke-linecap="round" stroke-linejoin="round" '
+        f'style="vertical-align:middle;display:inline-block">'
+        f"{inner}</svg>"
+    )
+
+
+def _badge_html(polarity: Polarity) -> str:
+    fg, bg = _POLARITY_STYLE[polarity]
+    label = _POLARITY_LABEL_RU[polarity]
+    return (
+        f'<span style="display:inline-block;padding:2px 8px;border-radius:4px;'
+        f"font-size:12px;font-weight:600;color:{fg};background:{bg}\">"
+        f"{html.escape(label)}</span>"
+    )
+
+
+def build_inventory_digest_email(
+    *,
+    devices_groups: list[dict[str, Any]],
+    from_addr: str,
+    to_addrs: list[str],
+    window_label: str,
+) -> EmailMessage:
+    """Сводка inventory-событий: plain + HTML, группировка по устройствам."""
+    n_devices = len(devices_groups)
+    n_events = sum(len(g.get("events") or []) for g in devices_groups)
+    subject = f"bAD: сводка изменений ({n_devices} устр., {n_events} событ.)"
+    plain_lines = [
+        f"Сводка изменений конфигурации устройств ({window_label}).",
+        "",
+    ]
+    html_parts = [
+        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body "
+        'style="font-family:Segoe UI,system-ui,sans-serif;font-size:14px;'
+        'color:#1f2937;line-height:1.45;margin:0;padding:16px">',
+        f"<p style=\"margin:0 0 16px\">Сводка изменений "
+        f"({html.escape(window_label)}).</p>",
+    ]
+    for group in devices_groups:
+        device_id = group.get("device_id") or "—"
+        hostname = group.get("hostname") or device_id
+        plain_lines.append(f"=== {hostname} ({device_id}) ===")
+        html_parts.append(
+            '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+            'style="margin:0 0 20px;border:1px solid #e5e7eb;border-radius:8px;'
+            'border-collapse:separate;overflow:hidden">'
+            f'<tr><td colspan="2" style="padding:10px 12px;background:#f3f4f6;'
+            f'font-weight:600">{html.escape(hostname)}'
+            f' <span style="color:#6b7280;font-weight:400;font-size:12px">'
+            f"{html.escape(device_id)}</span></td></tr>"
+        )
+        for ev in group.get("events") or []:
+            vis = event_visual(str(ev.get("type") or ""))
+            polarity = vis["polarity"]
+            badge_plain = _POLARITY_LABEL_RU[polarity]
+            summary = str(ev.get("summary") or "")
+            plain_lines.append(f"  [{badge_plain}] {summary}")
+            icon_svg = _svg_icon(vis["icon"])
+            html_parts.append(
+                "<tr><td style=\"padding:8px 12px;width:28px;vertical-align:top;"
+                'color:#4b5563">'
+                f"{icon_svg}</td>"
+                f'<td style="padding:8px 12px;vertical-align:top">'
+                f"{_badge_html(polarity)} "
+                f'<span style="margin-left:6px">{html.escape(summary)}</span>'
+                "</td></tr>"
+            )
+        html_parts.append("</table>")
+        plain_lines.append("")
+    plain_lines.extend(["—", "Сообщение сформировано сервером bAD."])
+    html_parts.append(
+        '<p style="margin:16px 0 0;color:#9ca3af;font-size:12px">'
+        "Сообщение сформировано сервером bAD.</p></body></html>"
+    )
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = from_addr
+    msg["To"] = ", ".join(to_addrs)
+    msg.set_content("\n".join(plain_lines))
+    msg.add_alternative("".join(html_parts), subtype="html")
+    return msg
+
+
+def build_hardware_email(
     *,
     device_id: str,
     hostname: Optional[str],
@@ -119,24 +299,166 @@ def build_inventory_events_email(
     from_addr: str,
     to_addrs: list[str],
 ) -> EmailMessage:
-    host = hostname or device_id
-    subject = f"bAD: изменения — {host}"
-    lines = [
-        f"Устройство: {host}",
-        f"device_id: {device_id}",
-        "",
-        "События:",
-        "",
+    """Образец digest для тестовой отправки из настроек почты."""
+    sample_groups = [
+        {
+            "device_id": device_id,
+            "hostname": hostname or "WORKSTATION-01",
+            "events": [
+                {
+                    "type": "disk_added",
+                    "summary": "Диск Samsung SSD 500 ГБ (пример: появилось)",
+                },
+                {
+                    "type": "ram_module_removed",
+                    "summary": "Модуль ОЗУ 8 ГБ слот 2 (пример: пропало)",
+                },
+                {
+                    "type": "cpu_change",
+                    "summary": "Тестовое письмо SMTP / сводка digest (пример: изменилось)",
+                },
+            ],
+        },
+        {
+            "device_id": "sample-device-2",
+            "hostname": "LAPTOP-02",
+            "events": [
+                {
+                    "type": "hostname_change",
+                    "summary": "hostname: OLD → NEW (пример второго устройства)",
+                },
+            ],
+        },
     ]
-    for ev in events:
-        lines.append(f"• [{ev.get('type')}] {ev.get('summary')}")
-    return build_alert_email(
-        subject=subject, body_lines=lines, from_addr=from_addr, to_addrs=to_addrs
+    if events:
+        sample_groups[0]["events"] = events
+    return build_inventory_digest_email(
+        devices_groups=sample_groups,
+        from_addr=from_addr,
+        to_addrs=to_addrs,
+        window_label="тестовая отправка",
     )
 
 
-# Alias для обратной совместимости (форма тестовой отправки в settings).
-build_hardware_email = build_inventory_events_email
+def _inventory_notify_enabled(flags: dict[str, bool]) -> bool:
+    return bool(
+        flags.get("hardware")
+        or flags.get("hostname")
+        or flags.get("domain")
+        or flags.get("pending_reboot")
+    )
+
+
+def _parse_utc_iso(ts: str) -> Optional[datetime]:
+    raw = (ts or "").strip()
+    if not raw:
+        return None
+    try:
+        if raw.endswith("Z"):
+            raw = raw[:-1] + "+00:00"
+        dt = datetime.fromisoformat(raw)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
+def _mark_digest_mailed(db: "Database", event_ids: list[int], mailed_at: str) -> None:
+    db.mark_device_events_mailed(event_ids, mailed_at)
+    db.set_site_secret(INVENTORY_MAIL_LAST_DIGEST_KEY, mailed_at)
+
+
+def flush_inventory_mail_digest(
+    db: "Database",
+    smtp_row: dict[str, Any],
+    password: str,
+    *,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Отправить накопленные inventory-события одним digest (soft-fail)."""
+    result: dict[str, Any] = {"sent": False, "skipped": True, "reason": ""}
+    from_addr, recipients = _smtp_ready(smtp_row)
+    if not from_addr:
+        result["reason"] = "smtp_not_ready"
+        return result
+    flags = parse_notify_flags(smtp_row.get("notify_json"))
+    if not _inventory_notify_enabled(flags):
+        result["reason"] = "inventory_notify_disabled"
+        return result
+
+    interval_h = int(smtp_row.get("digest_interval_hours") or 3)
+    interval_h = max(1, min(interval_h, 48))
+    if not force:
+        last_raw = db.get_site_secret(INVENTORY_MAIL_LAST_DIGEST_KEY)
+        last_dt = _parse_utc_iso(last_raw or "")
+        if last_dt is not None:
+            if datetime.now(timezone.utc) < last_dt + timedelta(hours=interval_h):
+                result["reason"] = "digest_interval"
+                return result
+
+    unmailed = db.list_unmailed_device_events()
+    if not unmailed:
+        result["reason"] = "no_events"
+        result["skipped"] = True
+        return result
+
+    all_ids = [int(e["id"]) for e in unmailed]
+    filtered = filter_events_for_mail(unmailed, flags)
+    mailed_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace(
+        "+00:00", "Z"
+    )
+
+    if not filtered:
+        _mark_digest_mailed(db, all_ids, mailed_at)
+        result["skipped"] = True
+        result["reason"] = "filtered_empty"
+        return result
+
+    groups_map: dict[str, dict[str, Any]] = {}
+    for ev in filtered:
+        did = str(ev.get("device_id") or "")
+        if did not in groups_map:
+            groups_map[did] = {
+                "device_id": did,
+                "hostname": ev.get("hostname"),
+                "events": [],
+            }
+        groups_map[did]["events"].append(ev)
+    devices_groups = list(groups_map.values())
+
+    msg = build_inventory_digest_email(
+        devices_groups=devices_groups,
+        from_addr=from_addr,
+        to_addrs=recipients,
+        window_label=f"за последние {interval_h} ч.",
+    )
+    ok, detail = send_email(
+        host=smtp_row.get("host") or "",
+        port=int(smtp_row.get("port") or 587),
+        username=smtp_row.get("username") or "",
+        password=password or "",
+        use_ssl=bool(smtp_row.get("use_ssl")),
+        use_starttls=bool(smtp_row.get("use_starttls")),
+        message=msg,
+    )
+    if not ok:
+        logger.warning("Inventory digest email failed: %s", detail)
+        result["reason"] = "smtp_error"
+        result["detail"] = detail
+        return result
+
+    _mark_digest_mailed(db, all_ids, mailed_at)
+    logger.info(
+        "Inventory digest emailed: devices=%s events=%s marked=%s",
+        len(devices_groups),
+        len(filtered),
+        len(all_ids),
+    )
+    result["sent"] = True
+    result["skipped"] = False
+    result["reason"] = "ok"
+    return result
 
 
 def send_email(
@@ -210,32 +532,6 @@ def _dispatch(
         logger.info("Alert emailed (%s)", log_label)
     else:
         logger.warning("Alert email failed (%s): %s", log_label, detail)
-
-
-def notify_inventory_events(
-    smtp_row: dict[str, Any],
-    *,
-    password: str,
-    device_id: str,
-    hostname: Optional[str],
-    events: list[dict[str, Any]],
-) -> None:
-    """Best-effort уведомление по диффам inventory. Никогда не бросает."""
-    from_addr, recipients = _smtp_ready(smtp_row)
-    if not from_addr:
-        return
-    flags = parse_notify_flags(smtp_row.get("notify_json"))
-    selected = filter_events_for_mail(events, flags)
-    if not selected:
-        return
-    msg = build_inventory_events_email(
-        device_id=device_id,
-        hostname=hostname,
-        events=selected,
-        from_addr=from_addr,
-        to_addrs=recipients,
-    )
-    _dispatch(smtp_row, password=password, message=msg, log_label=device_id)
 
 
 def notify_enroll(

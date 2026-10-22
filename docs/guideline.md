@@ -101,7 +101,7 @@ BAD_BACKUP_DIR=/var/lib/bad/backups
 - **События** `/events`: лента изменений + пагинация.
 - **Параметры** `/settings/*` — оболочка в духе «Параметры Windows 11» (левый список с иконками):
   - Доступ / LDAP (`allowed_group` = sAMAccountName группы AD)
-  - Почта и уведомления (SMTP + чекбоксы событий; без webhooks)
+  - Почта и уведомления (SMTP + чекбоксы; **интервал сводки** по inventory/железу, 1–48 ч, default 3; enroll и stale — сразу; без webhooks)
   - Хранение и очистка (сроки хранения событий/снимков, порог **«устарел»** в минутах, фоновый prune)
   - Резервные копии (daily `pg_dump -Fc` + **Скачать site bundle**; restore `restore-site-bundle.sh`)
   - Политики агента (`update_target`: latest / pin)

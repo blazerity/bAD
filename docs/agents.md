@@ -41,7 +41,7 @@ uvicorn bad_server.app:app --host 127.0.0.1 --port 8000
 
 - Health: `GET /v1/health` → `{"status":"ok","version":"<server VERSION>"}`
 - Web: `/login` (`admin`/`admin` first boot) → `/` обзор; устройства `/devices` (поиск/CSV/архив); карточка — revoke/rotate/delete
-- Параметры `/settings/*` (Win11 left-nav): LDAP (+ AD group), mail/SMTP toggles, retention, backups, policies, agent updates
+- Параметры `/settings/*` (Win11 left-nav): LDAP (+ AD group), mail/SMTP (notify toggles, `digest_interval_hours`; inventory — periodic digest, enroll/stale — сразу), retention, backups, policies, agent updates
 - UI look: Win11/Fluent light + русский UI — `bad_server/static/style.css`, favicon; CLI HTML report — те же токены/иконки; `agent/assets/bad.ico`
 
 ## Обзор, поиск, события

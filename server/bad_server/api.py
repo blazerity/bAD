@@ -43,7 +43,7 @@ from .schemas import (
 from .http_bootstrap import ENROLL_CLEARTEXT_MSG, enroll_cleartext_blocked
 from .security import api_key_lookup, generate_token, hash_secret, verify_secret
 from .inventory_events import sanitize_inventory_payload
-from .smtp_mail import notify_enroll, notify_inventory_events
+from .smtp_mail import notify_enroll
 
 logger = logging.getLogger(__name__)
 
@@ -274,24 +274,6 @@ def inventory(
         meta=meta,
         retention=settings.snapshot_retention,
     )
-    # Soft-fail SMTP: никогда не ломать приём inventory.
-    try:
-        smtp_row = db.get_smtp_settings()
-        password = ""
-        enc = smtp_row.get("password_enc") or ""
-        if enc:
-            data_key = getattr(request.app.state, "data_key", None)
-            if data_key:
-                password = decrypt_secret(data_key, enc) or ""
-        notify_inventory_events(
-            smtp_row,
-            password=password,
-            device_id=body.device_id,
-            hostname=hostname or device["hostname"],
-            events=stored.get("events") or [],
-        )
-    except Exception:  # noqa: BLE001
-        logger.exception("SMTP hardware alert failed (ignored)")
     return {"status": "ok", "snapshot_id": stored["snapshot_id"]}
 
 

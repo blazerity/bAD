@@ -32,6 +32,38 @@ class Database:
     def _init_schema(self) -> None:
         with self._connect() as conn:
             conn.executescript(SCHEMA_SQL)
+            conn.execute(
+                "ALTER TABLE device_events ADD COLUMN IF NOT EXISTS mailed_at TEXT"
+            )
+            conn.execute(
+                """
+                ALTER TABLE smtp_settings
+                ADD COLUMN IF NOT EXISTS digest_interval_hours INTEGER NOT NULL DEFAULT 3
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_device_events_unmailed
+                ON device_events(mailed_at) WHERE mailed_at IS NULL
+                """
+            )
+            boot = conn.execute(
+                "SELECT value FROM site_secrets WHERE key = ?",
+                ("mail_digest_schema_v1",),
+            ).fetchone()
+            if not boot:
+                conn.execute(
+                    """
+                    UPDATE device_events
+                    SET mailed_at = created_at
+                    WHERE mailed_at IS NULL
+                    """
+                )
+                conn.execute(
+                    "INSERT INTO site_secrets(key, value) VALUES(?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    ("mail_digest_schema_v1", "1"),
+                )
             for table in ("ldap_settings", "retention_settings", "smtp_settings"):
                 conn.execute(
                     f"INSERT INTO {table}(id) VALUES (1) ON CONFLICT DO NOTHING"
@@ -551,6 +583,25 @@ class Database:
         params.extend([limit, offset])
         with self.connection() as conn:
             rows = conn.execute(sql, params).fetchall()
+        return self._device_event_rows(rows)
+
+    def list_unmailed_device_events(self, limit: int = 5000) -> list[dict[str, Any]]:
+        limit = max(1, min(int(limit), 5000))
+        sql = """
+            SELECT e.id, e.device_id, e.type, e.summary, e.detail_json,
+                   e.created_at, d.hostname
+            FROM device_events e
+            LEFT JOIN devices d ON d.device_id = e.device_id
+            WHERE e.mailed_at IS NULL
+            ORDER BY e.created_at ASC, e.id ASC
+            LIMIT ?
+        """
+        with self.connection() as conn:
+            rows = conn.execute(sql, (limit,)).fetchall()
+        return self._device_event_rows(rows)
+
+    @staticmethod
+    def _device_event_rows(rows: list[Any]) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
         for row in rows:
             detail: Any = None
@@ -571,6 +622,19 @@ class Database:
                 }
             )
         return result
+
+    def mark_device_events_mailed(
+        self, event_ids: list[int], mailed_at: str
+    ) -> None:
+        if not event_ids:
+            return
+        ids = [int(i) for i in event_ids]
+        placeholders = ", ".join("?" for _ in ids)
+        with self.connection() as conn:
+            conn.execute(
+                f"UPDATE device_events SET mailed_at = ? WHERE id IN ({placeholders})",
+                [mailed_at, *ids],
+            )
 
     def count_device_events(
         self,
@@ -2214,6 +2278,14 @@ class Database:
 
     # --- SMTP settings ---
 
+    @staticmethod
+    def _clamp_digest_interval_hours(raw: Any) -> int:
+        try:
+            val = int(raw)
+        except (TypeError, ValueError):
+            val = 3
+        return max(1, min(val, 48))
+
     def get_smtp_settings(self) -> dict[str, Any]:
         from .smtp_mail import dump_notify_flags, parse_notify_flags
 
@@ -2232,9 +2304,13 @@ class Database:
                 "to_addrs": "",
                 "notify_json": dump_notify_flags({}),
                 "notify": parse_notify_flags({}),
+                "digest_interval_hours": 3,
                 "updated_at": None,
             }
         data = dict(row)
+        data["digest_interval_hours"] = self._clamp_digest_interval_hours(
+            data.get("digest_interval_hours")
+        )
         data["notify"] = parse_notify_flags(data.get("notify_json"))
         if not (data.get("notify_json") or "").strip():
             data["notify_json"] = dump_notify_flags(data["notify"])
@@ -2251,98 +2327,43 @@ class Database:
         username: str,
         from_addr: str,
         to_addrs: str,
+        digest_interval_hours: int = 3,
         notify_json: Optional[str] = None,
         password_enc: Optional[str] = None,
     ) -> None:
         now = utc_now()
+        digest_h = self._clamp_digest_interval_hours(digest_interval_hours)
+        sets = [
+            "enabled = ?",
+            "host = ?",
+            "port = ?",
+            "use_ssl = ?",
+            "use_starttls = ?",
+            "username = ?",
+        ]
+        params: list[Any] = [
+            1 if enabled else 0,
+            host,
+            port,
+            1 if use_ssl else 0,
+            1 if use_starttls else 0,
+            username,
+        ]
+        if password_enc is not None:
+            sets.append("password_enc = ?")
+            params.append(password_enc)
+        sets.extend(["from_addr = ?", "to_addrs = ?"])
+        params.extend([from_addr, to_addrs])
+        if notify_json is not None:
+            sets.append("notify_json = ?")
+            params.append(notify_json)
+        sets.extend(["digest_interval_hours = ?", "updated_at = ?"])
+        params.extend([digest_h, now])
         with self.connection() as conn:
-            if password_enc is not None and notify_json is not None:
-                conn.execute(
-                    """
-                    UPDATE smtp_settings SET
-                      enabled = ?, host = ?, port = ?, use_ssl = ?, use_starttls = ?,
-                      username = ?, password_enc = ?, from_addr = ?, to_addrs = ?,
-                      notify_json = ?, updated_at = ?
-                    WHERE id = 1
-                    """,
-                    (
-                        1 if enabled else 0,
-                        host,
-                        port,
-                        1 if use_ssl else 0,
-                        1 if use_starttls else 0,
-                        username,
-                        password_enc,
-                        from_addr,
-                        to_addrs,
-                        notify_json,
-                        now,
-                    ),
-                )
-            elif password_enc is not None:
-                conn.execute(
-                    """
-                    UPDATE smtp_settings SET
-                      enabled = ?, host = ?, port = ?, use_ssl = ?, use_starttls = ?,
-                      username = ?, password_enc = ?, from_addr = ?, to_addrs = ?,
-                      updated_at = ?
-                    WHERE id = 1
-                    """,
-                    (
-                        1 if enabled else 0,
-                        host,
-                        port,
-                        1 if use_ssl else 0,
-                        1 if use_starttls else 0,
-                        username,
-                        password_enc,
-                        from_addr,
-                        to_addrs,
-                        now,
-                    ),
-                )
-            elif notify_json is not None:
-                conn.execute(
-                    """
-                    UPDATE smtp_settings SET
-                      enabled = ?, host = ?, port = ?, use_ssl = ?, use_starttls = ?,
-                      username = ?, from_addr = ?, to_addrs = ?,
-                      notify_json = ?, updated_at = ?
-                    WHERE id = 1
-                    """,
-                    (
-                        1 if enabled else 0,
-                        host,
-                        port,
-                        1 if use_ssl else 0,
-                        1 if use_starttls else 0,
-                        username,
-                        from_addr,
-                        to_addrs,
-                        notify_json,
-                        now,
-                    ),
-                )
-            else:
-                conn.execute(
-                    """
-                    UPDATE smtp_settings SET
-                      enabled = ?, host = ?, port = ?, use_ssl = ?, use_starttls = ?,
-                      username = ?, from_addr = ?, to_addrs = ?, updated_at = ?
-                    WHERE id = 1
-                    """,
-                    (
-                        1 if enabled else 0,
-                        host,
-                        port,
-                        1 if use_ssl else 0,
-                        1 if use_starttls else 0,
-                        username,
-                        from_addr,
-                        to_addrs,
-                        now,
-                    ),
-                )
+            conn.execute(
+                f"UPDATE smtp_settings SET {', '.join(sets)} WHERE id = 1",
+                params,
+            )
 
     def patch_device_meta(self, device_id: str, updates: dict[str, Any]) -> None:
         with self.connection() as conn:
