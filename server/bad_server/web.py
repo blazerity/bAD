@@ -832,11 +832,11 @@ def logout():
     return resp
 
 
-def _enrich_device_row(device: dict, settings: Settings) -> dict:
+def _enrich_device_row(device: dict, *, stale_after_seconds: int) -> dict:
     device = dict(device)
     device["silence"] = device_silence_status(
         device.get("last_seen_at"),
-        stale_after_seconds=effective_stale_after_seconds(db, settings),
+        stale_after_seconds=stale_after_seconds,
     )
     return device
 
@@ -942,13 +942,14 @@ def _devices_wave_context(
                     continue
         raw.append(d)
 
-    enriched = [_enrich_device_row(d, settings) for d in raw]
+    stale_sec = effective_stale_after_seconds(db, settings)
+    enriched = [_enrich_device_row(d, stale_after_seconds=stale_sec) for d in raw]
     _attach_duplicate_signals(enriched, device_signals)
     filtered = filter_devices_by_wave(
         enriched,
         wave,
         drift_ids=drift_ids,
-        stale_after_seconds=effective_stale_after_seconds(db, settings),
+        stale_after_seconds=stale_sec,
     )
     total = len(filtered)
     page_size = DEVICES_PAGE_SIZE
