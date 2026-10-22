@@ -96,6 +96,25 @@
 {%- elif name == 'signout' %}
   <path d="M8.5 3.5H5.25A1.75 1.75 0 0 0 3.5 5.25v9.5c0 .97.78 1.75 1.75 1.75H8.5"/>
   <path d="M12 10h5M14.75 7.25 17.5 10l-2.75 2.75"/>
+{%- elif name == 'laptop' %}
+  <rect x="3.5" y="4.5" width="13" height="9" rx="1.25"/>
+  <path d="M2 14.5h16"/>
+{%- elif name == 'desktop' %}
+  <rect x="3" y="3.5" width="14" height="9.5" rx="1.25"/>
+  <path d="M8 16.5h4M10 13v3.5"/>
+{%- elif name == 'server' %}
+  <rect x="4" y="3" width="12" height="4.5" rx="1"/>
+  <rect x="4" y="9" width="12" height="4.5" rx="1"/>
+  <rect x="4" y="15" width="12" height="2.5" rx="0.75"/>
+  <circle cx="6.25" cy="5.25" r="0.6" fill="currentColor" stroke="none"/>
+  <circle cx="6.25" cy="11.25" r="0.6" fill="currentColor" stroke="none"/>
+{%- elif name == 'vm' %}
+  <rect x="3.5" y="4" width="13" height="9" rx="1.25"/>
+  <path d="M6.5 7.5h7M6.5 10h4"/>
+  <rect x="12.5" y="12.5" width="4.5" height="3.5" rx="0.75"/>
+{%- elif name == 'other' %}
+  <circle cx="10" cy="10" r="6.5"/>
+  <path d="M10 6.75v6.5M6.75 10h6.5"/>
 {%- elif name == 'copy' %}
   <rect x="6.75" y="2.75" width="8.5" height="10.5" rx="1.25"/>
   <path d="M4.75 5.75h8.5a1.25 1.25 0 0 1 1.25 1.25v8.5a1.25 1.25 0 0 1-1.25 1.25h-8.5a1.25 1.25 0 0 1-1.25-1.25v-8.5a1.25 1.25 0 0 1 1.25-1.25z"/>
@@ -110,6 +129,23 @@
 {%- if status == 'ok' -%}ОК
 {%- elif status == 'stale' -%}устарел
 {%- else -%}{{ status }}
+{%- endif -%}
+{%- endmacro %}
+
+
+{% macro chassis_icon_name(chassis_type) -%}
+{%- set k = (chassis_type or '')|string|trim|lower -%}
+{{- k if k in ['laptop', 'desktop', 'server', 'vm'] else 'other' -}}
+{%- endmacro %}
+
+
+{% macro freshness_label(tier) -%}
+{%- if tier == 'online' -%}Онлайн
+{%- elif tier == 'recent' -%}Недавно
+{%- elif tier == 'stale' -%}Устарел
+{%- elif tier == 'unknown' -%}Нет данных
+{%- elif tier == 'ok' -%}Онлайн
+{%- else -%}{{ tier }}
 {%- endif -%}
 {%- endmacro %}
 

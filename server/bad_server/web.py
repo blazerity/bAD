@@ -198,7 +198,7 @@ def _format_chassis(value: object, empty: str = "") -> str:
     return _CHASSIS_LABELS_RU.get(key, str(value))
 
 
-_CHASSIS_ICON_KEYS = frozenset({"laptop", "desktop", "server", "vm"})
+_CHASSIS_ICON_KEYS = frozenset({"laptop", "desktop", "server", "vm", "other"})
 
 
 def _normalize_chassis_type(value: object) -> str:
@@ -227,10 +227,7 @@ def _device_freshness_tier(
     seen = parse_utc(last_seen_at)
     if seen is None:
         return "unknown"
-    age = max(
-        0,
-        int((datetime.now(timezone.utc) - seen).total_seconds()),
-    )
+    age = max(0, int((datetime.now(timezone.utc) - seen).total_seconds()))
     threshold = max(1, int(stale_after_seconds))
     online_cap = min(600, max(120, threshold // 3))
     return "online" if age <= online_cap else "recent"
@@ -256,6 +253,10 @@ def _search_match_reason(device: dict, query: str) -> str:
         if val and q in val:
             return label
     return "совпадение"
+
+
+def _chassis_map_for_devices(devices: list[dict]) -> dict[str, str]:
+    return {str(d["device_id"]): _chassis_type_from_device(d) for d in devices if d.get("device_id")}
 
 
 def _format_event_type(value: object, empty: str = "") -> str:
@@ -811,6 +812,13 @@ def _overview_page_context(
         active_devices=int(stats.get("total_active") or 0),
         security=security,
     )
+    chassis_by_id = _chassis_map_for_devices(active)
+    for d in ops.get("version_drift") or []:
+        if isinstance(d, dict):
+            d["chassis_type"] = chassis_by_id.get(str(d.get("device_id") or ""), "other")
+    for e in stats.get("recent_hardware_events") or []:
+        if isinstance(e, dict):
+            e["chassis_type"] = chassis_by_id.get(str(e.get("device_id") or ""), "other")
     attention = build_attention_queue(
         user=user,
         ops=ops,
@@ -1457,15 +1465,13 @@ def events_page(
         importance=imp,
         include_detail=False,
     )
-    chassis_by_id: dict[str, str] = {}
-    if events:
-        want_ids = {e["device_id"] for e in events}
-        for d in db.list_devices(archived=None):
-            if d["device_id"] in want_ids:
-                chassis_by_id[d["device_id"]] = _chassis_type_from_device(d)
+    chassis_by_id = _chassis_map_for_devices(db.list_devices(archived=None))
     for e in events:
-        e["chassis_type"] = chassis_by_id.get(e["device_id"], "other")
-    today_utc = datetime.now(timezone.utc).date()
+        e["chassis_type"] = chassis_by_id.get(str(e.get("device_id") or ""), "other")
+    today_utc = datetime.now(timezone.utc).date().isoformat()
+    yesterday_utc = (
+        datetime.now(timezone.utc).date() - timedelta(days=1)
+    ).isoformat()
     return _html(
         request,
         "events.html",
@@ -1481,6 +1487,8 @@ def events_page(
             "pages": pages,
             "total": total,
             "page_size": page_size,
+            "today_utc": today_utc,
+            "yesterday_utc": yesterday_utc,
         },
     )
 
@@ -1586,6 +1594,11 @@ def _device_config_context(
         device_id=device_id, limit=20, include_detail=False
     )
     duplicates = db.find_duplicate_devices(device_id)
+    dup_groups = _duplicate_groups(duplicates)
+    for g in dup_groups:
+        for d in g.get("devices") or []:
+            if isinstance(d, dict):
+                d["chassis_type"] = _chassis_type_from_device(d)
     inventory_nav = _device_inventory_nav(
         host_info=host_info,
         hardware_summary=hardware_summary,
@@ -1649,7 +1662,7 @@ def _device_config_context(
         "recent_events": recent_events,
         "tags_text": ", ".join(detail.get("tags") or []),
         "duplicates": duplicates,
-        "duplicate_groups": _duplicate_groups(duplicates),
+        "duplicate_groups": dup_groups,
         "new_api_key": None,
         "msi_versions": db.list_agent_msi_versions(),
     }

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% from "macros/icons.html" import icon, silence_label %}
-{% from "macros/ui.html" import local_time %}
+{% from "macros/icons.html" import icon, freshness_label %}
+{% from "macros/ui.html" import local_time, device_link %}
 {% from "macros/pager.html" import table_pager %}
 {% block title %}Устройства — bAD{% endblock %}
 {% block content %}
@@ -56,14 +56,22 @@
       Архив
     </label>
     <button type="submit">Найти</button>
-    {% if tag_filter or q or show_archive or wave %}
-    <a class="muted" href="/devices">Сбросить</a>
+    {% if filters_active %}
+    <a class="btn secondary" href="/devices">Сбросить фильтры</a>
     {% endif %}
     <a class="btn secondary" href="/devices/export.csv{% if export_qs %}?{{ export_qs }}{% endif %}">CSV</a>
   </form>
 
   {% if not devices %}
+  {% if park_empty %}
+  <div class="empty-park-cta" role="status">
+    <p><strong>Парк пуст.</strong> Установите агент на первый компьютер — токен и установщики в
+      <a href="/settings/updates">Параметры → Обновления агента</a>.</p>
+    <p class="muted">После установки устройство появится в списке в течение нескольких минут.</p>
+  </div>
+  {% else %}
   <p>Нет устройств{% if q %} по запросу <span class="mono">{{ q }}</span>{% endif %}{% if tag_filter %} с тегом <span class="mono">{{ tag_filter }}</span>{% endif %}{% if wave %} по фильтру <span class="mono">{{ wave }}</span>{% endif %}.</p>
+  {% endif %}
   {% else %}
   <div class="table-scroll">
   <table class="devices devices-list">
@@ -81,7 +89,7 @@
       {% for d in devices %}
       <tr>
         <td>
-          <a href="/devices/{{ d.device_id }}">{{ d.hostname or "(неизвестно)" }}</a>
+          {{ device_link(d.device_id, d.hostname or '(неизвестно)', d.chassis_type) }}
           {% if d.is_duplicate %}
             {% set kinds = d.dup_kinds or [] %}
             <span class="badge badge-stale" title="Возможный дубль: {{ (kinds|join(', ')) if kinds else 'hostname/serial/smbios_uuid/disk' }} (автослияния нет)">дубль</span>
@@ -95,7 +103,7 @@
         </td>
         <td class="mono">{{ d.device_id }}</td>
         <td>
-          <span class="badge badge-{{ d.silence.status }}">{{ silence_label(d.silence.status) }}</span>
+          <span class="badge badge-fresh-{{ d.freshness or d.silence.status }}">{{ freshness_label(d.freshness or d.silence.status) }}</span>
         </td>
         <td>
           {% if d.tags %}
