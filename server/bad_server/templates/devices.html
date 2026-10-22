@@ -11,6 +11,7 @@
     показано {{ devices|length }} из {{ total }}.
     {% if wave %}· фильтр волны: <span class="mono">{{ wave }}</span>{% endif %}
   </p>
+  {% if flash %}<p class="ok">{{ flash }}</p>{% endif %}
   <p class="muted">
     Основная версия в каталоге установщиков:
     {% if agent_update %}

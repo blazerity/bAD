@@ -54,6 +54,72 @@ def source_label_ru(source: Optional[str]) -> str:
     return _SOURCE_LABEL_RU.get(str(source), str(source))
 
 
+def build_bootstrap_progress(
+    *,
+    user: Any,
+    ops: dict[str, Any],
+    active_devices: int,
+    security: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    """Мастер первого запуска: явные шаги 1/2/3 без дублирования эвристик в UI.
+
+    1 — пароль сменён; 2 — HTTPS; 3 — есть устройство или каталог установщиков не пуст.
+    """
+    security = security or {}
+    https = security.get("https_first") or {}
+    tls_mode = str(
+        ops.get("tls_mode") or https.get("tls_mode") or tls_panel_mode() or "http"
+    ).lower()
+    password_done = not bool(user.must_change_password)
+    https_done = tls_mode == "https"
+    mirror_done = not bool(ops.get("mirror_empty"))
+    fleet_done = int(active_devices or 0) > 0
+    step3_done = fleet_done or mirror_done
+
+    steps = [
+        {
+            "n": 1,
+            "id": "password",
+            "label": "Сменить пароль admin",
+            "done": password_done,
+            "href": "/account/password",
+        },
+        {
+            "n": 2,
+            "id": "https",
+            "label": "Включить защищённое соединение",
+            "done": https_done,
+            "href": "/settings/tls",
+        },
+        {
+            "n": 3,
+            "id": "fleet_or_installer",
+            "label": "Устройство в парке или установщик готов",
+            "done": step3_done,
+            "href": "/devices" if not fleet_done else "/settings/updates",
+            "fleet_done": fleet_done,
+            "installer_ready": mirror_done,
+        },
+    ]
+    total = len(steps)
+    done_n = sum(1 for s in steps if s["done"])
+    current = total + 1
+    for s in steps:
+        if not s["done"]:
+            current = int(s["n"])
+            break
+    complete = done_n >= total
+    return {
+        "total": total,
+        "done": done_n,
+        "current": current,
+        "complete": complete,
+        "label": "готово" if complete else f"шаг {current}/{total}",
+        "steps": steps,
+        "tls_mode": tls_mode,
+    }
+
+
 def build_bootstrap_checklist(
     *,
     user: Any,
@@ -121,12 +187,19 @@ def build_bootstrap_checklist(
     done_n = sum(1 for s in steps if s["done"])
     # По brainstorm: чеклист исчезает после HTTPS + не-default admin.
     visible = not (password_done and https_done)
+    progress = build_bootstrap_progress(
+        user=user,
+        ops=ops,
+        active_devices=active_devices,
+        security=security,
+    )
     return {
         "visible": visible,
         "steps": steps,
         "done": done_n,
         "total": len(steps),
         "tls_mode": tls_mode,
+        "progress": progress,
     }
 
 

@@ -45,6 +45,7 @@ from .device_health import (
     device_silence_status,
     effective_stale_after_seconds,
     health_snippet,
+    normalize_tags,
     parse_site_stale_seconds,
 )
 from .ldap_client import settings_from_row, test_connection
@@ -68,6 +69,7 @@ from .http_bootstrap import HTTP_SENSITIVE_MSG, sensitive_over_http_blocked
 from .ops_panel import (
     build_attention_queue,
     build_bootstrap_checklist,
+    build_bootstrap_progress,
     build_config_winner,
     build_dashboard_stats,
     build_wave_counts,
@@ -1020,6 +1022,57 @@ def _devices_wave_context(
     return filtered[offset : offset + page_size], total, pages, page_i
 
 
+# Массовые действия на /devices (U2): лимит batch, CSRF на router.
+BULK_DEVICES_MAX = 100
+_BULK_ACTIONS = frozenset({"archive", "add_tag", "assign_tag"})
+
+
+def _maybe_admin_audit(
+    db: Database,
+    *,
+    actor: str,
+    action: str,
+    target_type: str,
+    target_id: Optional[str] = None,
+    detail: Optional[dict[str, Any]] = None,
+) -> None:
+    """Пишет audit только если DB Lead уже добавил insert_admin_audit."""
+    insert = getattr(db, "insert_admin_audit", None)
+    if not callable(insert):
+        return
+    try:
+        insert(
+            actor=actor,
+            action=action,
+            target_type=target_type,
+            target_id=target_id,
+            detail_json=detail,
+        )
+    except Exception:
+        # Массовое действие не откатываем из‑за журнала.
+        pass
+
+
+def _devices_redirect_with_flash(
+    *,
+    flash: str,
+    tag: Optional[str] = None,
+    q: Optional[str] = None,
+    archive: bool = False,
+    wave: Optional[str] = None,
+) -> RedirectResponse:
+    params: dict[str, str] = {"flash": flash}
+    if tag:
+        params["tag"] = tag
+    if q:
+        params["q"] = q
+    if archive:
+        params["archive"] = "1"
+    if wave:
+        params["wave"] = wave
+    return RedirectResponse(url=f"/devices?{urlencode(params)}", status_code=303)
+
+
 @router.get("/devices", response_class=HTMLResponse)
 def devices_page(
     request: Request,
@@ -1028,6 +1081,7 @@ def devices_page(
     archive: Optional[str] = None,
     wave: Optional[str] = None,
     page: int = 1,
+    flash: Optional[str] = None,
     user: WebUser = Depends(require_web_user),
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
@@ -1055,6 +1109,9 @@ def devices_page(
         page=page_i,
         wave=wave_filter,
     )
+    flash_msg = (flash or "").strip() or None
+    if flash_msg and len(flash_msg) > 200:
+        flash_msg = flash_msg[:200]
     return _html(
         request,
         "devices.html",
@@ -1074,6 +1131,7 @@ def devices_page(
             "total": total,
             "page_size": DEVICES_PAGE_SIZE,
             "export_qs": qs,
+            "flash": flash_msg,
         },
     )
 
@@ -1186,6 +1244,114 @@ def devices_search_json(
             ]
         }
     )
+
+
+@router.post("/devices/bulk")
+async def devices_bulk(
+    request: Request,
+    action: str = Form(""),
+    tag: str = Form(""),
+    return_tag: str = Form(""),
+    return_q: str = Form(""),
+    return_archive: str = Form(""),
+    return_wave: str = Form(""),
+    user: WebUser = Depends(require_web_user),
+    db: Database = Depends(get_db),
+):
+    """Массовые действия: archive / add_tag (CSRF на router). Confirm — на стороне UI."""
+    form = await request.form()
+    raw_ids = form.getlist("device_id")
+    ids: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_ids:
+        did = str(raw or "").strip()
+        if not did or did in seen:
+            continue
+        seen.add(did)
+        ids.append(did)
+
+    ret_tag = (return_tag or "").strip() or None
+    ret_q = (return_q or "").strip() or None
+    ret_archive = (return_archive or "").strip() in {"1", "true", "yes"}
+    ret_wave = normalize_wave_filter(return_wave)
+
+    def _back(flash: str) -> RedirectResponse:
+        return _devices_redirect_with_flash(
+            flash=flash,
+            tag=ret_tag,
+            q=ret_q,
+            archive=ret_archive,
+            wave=ret_wave,
+        )
+
+    act = (action or "").strip().casefold()
+    if act not in _BULK_ACTIONS:
+        return _back("неизвестное действие")
+    if not ids:
+        return _back("ничего не выбрано")
+    if len(ids) > BULK_DEVICES_MAX:
+        return _back(f"слишком много устройств (макс. {BULK_DEVICES_MAX})")
+
+    processed = 0
+    tag_clean = ""
+    if act in {"add_tag", "assign_tag"}:
+        tags = normalize_tags(tag)
+        if not tags:
+            return _back("укажите тег")
+        tag_clean = tags[0]
+
+    for device_id in ids:
+        detail = db.get_device_detail(device_id)
+        if not detail:
+            continue
+        if act == "archive":
+            # Идемпотентно: уже в архиве тоже считается обработанным.
+            if not detail.get("archived"):
+                db.set_device_archived(device_id, True)
+            processed += 1
+        else:
+            current = list(detail.get("tags") or [])
+            have = {t.casefold() for t in current}
+            if tag_clean.casefold() not in have:
+                current.append(tag_clean)
+                db.set_device_tags(device_id, current)
+            processed += 1
+
+    audit_action = (
+        "devices.bulk_archive" if act == "archive" else "devices.bulk_add_tag"
+    )
+    _maybe_admin_audit(
+        db,
+        actor=user.username,
+        action=audit_action,
+        target_type="device",
+        target_id=None,
+        detail={
+            "count": processed,
+            "requested": len(ids),
+            "tag": tag_clean or None,
+        },
+    )
+    return _back(f"обработано {processed}")
+
+
+@router.get("/setup/progress.json")
+def setup_progress_json(
+    user: WebUser = Depends(require_web_user),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    """U5: явный прогресс мастера (шаг 1/2/3) для UI без своих эвристик."""
+    _active, _archived, stats, ops = _fleet_snapshot(db, settings)
+    security = security_status(db, settings)
+    ops = merge_security_into_ops(ops, security)
+    progress = build_bootstrap_progress(
+        user=user,
+        ops=ops,
+        active_devices=int(stats.get("total_active") or 0),
+        security=security,
+    )
+    return JSONResponse({"progress": progress})
 
 
 @router.get("/events", response_class=HTMLResponse)
