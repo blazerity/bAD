@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "macros/icons.html" import icon, silence_label, config_source_mark %}
+{% from "macros/ui.html" import copyable, local_time %}
 {% block title %}{{ device.hostname or device.device_id }} — bAD{% endblock %}
 {% block content %}
 {% set hw = hardware_summary %}
@@ -10,7 +11,7 @@
   {% if message %}<p class="ok">{{ message }}</p>{% endif %}
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
   {% if new_api_key %}
-  <p class="ok warn-box">Новый API-ключ (покажите один раз): <code class="mono">{{ new_api_key }}</code></p>
+  <p class="ok warn-box">Новый API-ключ (покажите один раз): <span class="mono">{{ copyable(new_api_key) }}</span></p>
   {% endif %}
 
   <dl class="meta identity-meta">
@@ -19,7 +20,7 @@
     <div>
       <dt>Последний контакт</dt>
       <dd>
-        {{ device.last_seen_at or "—" }}
+        {{ local_time(device.last_seen_at) }}
         <span class="badge badge-{{ silence.status }}">{{ silence_label(silence.status) }}</span>
         {% if host_info and host_info.pending_reboot is true %}
         <span class="badge badge-pending-reboot" title="Агент сообщает о pending reboot">ожидает перезагрузку</span>
@@ -34,9 +35,9 @@
       <dt>SMBIOS UUID</dt>
       <dd class="mono identity-uuid" title="{{ device.smbios_uuid }}">
         {%- if device.smbios_uuid|length > 18 -%}
-        {{ device.smbios_uuid[:8] }}…{{ device.smbios_uuid[-4:] }}
+        {{ copyable(device.smbios_uuid, display=device.smbios_uuid[:8] ~ '…' ~ device.smbios_uuid[-4:]) }}
         {%- else -%}
-        {{ device.smbios_uuid }}
+        {{ copyable(device.smbios_uuid) }}
         {%- endif -%}
       </dd>
     </div>
@@ -150,7 +151,7 @@
         <h2 class="with-icon">{{ icon('overview') }}Обзор</h2>
         {% if inventory_pretty %}
         <p class="muted inventory-meta">
-          Inventory {{ device.latest_inventory.received_at }}
+          Inventory {{ local_time(device.latest_inventory.received_at) }}
           · schema {{ device.latest_inventory.schema_version }}
         </p>
         {% if inventory_nav %}
@@ -198,7 +199,7 @@
           <div><dt>Установлена</dt><dd>{{ host_info.os.install_date }}</dd></div>
           {% endif %}
           {% if host_info.last_boot_at %}
-          <div><dt>Последняя загрузка</dt><dd>{{ host_info.last_boot_at }}</dd></div>
+          <div><dt>Последняя загрузка</dt><dd>{{ local_time(host_info.last_boot_at) }}</dd></div>
           {% endif %}
           {% if host_info.timezone %}
           <div><dt>Часовой пояс</dt><dd>{{ host_info.timezone }}</dd></div>
@@ -246,13 +247,13 @@
         <dl class="speccy-kv">
           {% if hw.manufacturer %}<div><dt>Производитель</dt><dd>{{ hw.manufacturer }}</dd></div>{% endif %}
           {% if hw.model %}<div><dt>Модель</dt><dd>{{ hw.model }}</dd></div>{% endif %}
-          {% if hw.serial_number %}<div><dt>Серийный номер</dt><dd>{{ hw.serial_number }}</dd></div>{% endif %}
+          {% if hw.serial_number %}<div><dt>Серийный номер</dt><dd>{{ copyable(hw.serial_number) }}</dd></div>{% endif %}
           {% set bios_sn = hw.bios_serial or device.bios_serial %}
-          {% if bios_sn %}<div><dt>BIOS serial</dt><dd>{{ bios_sn }}</dd></div>{% endif %}
+          {% if bios_sn %}<div><dt>BIOS serial</dt><dd>{{ copyable(bios_sn) }}</dd></div>{% endif %}
           {% set id_num = hw.identifying_number or device.identifying_number %}
-          {% if id_num %}<div><dt>IdentifyingNumber</dt><dd>{{ id_num }}</dd></div>{% endif %}
+          {% if id_num %}<div><dt>IdentifyingNumber</dt><dd>{{ copyable(id_num) }}</dd></div>{% endif %}
           {% set board_sn = hw.baseboard_serial or device.baseboard_serial %}
-          {% if board_sn %}<div><dt>Serial платы</dt><dd>{{ board_sn }}</dd></div>{% endif %}
+          {% if board_sn %}<div><dt>Serial платы</dt><dd>{{ copyable(board_sn) }}</dd></div>{% endif %}
           {% if hw.bios_version %}<div><dt>Версия BIOS</dt><dd>{{ hw.bios_version }}</dd></div>{% endif %}
           {% if hw.bios_manufacturer %}<div><dt>Производитель BIOS</dt><dd>{{ hw.bios_manufacturer }}</dd></div>{% endif %}
           {% if hw.bios_release_date %}<div><dt>Дата BIOS</dt><dd>{{ hw.bios_release_date }}</dd></div>{% endif %}
@@ -281,6 +282,7 @@
           <div><dt>Частота</dt><dd>{% if m.speed_mhz %}{{ m.speed_mhz }} MHz{% else %}—{% endif %}</dd></div>
           {% if m.channel %}<div><dt>Канал</dt><dd>{{ m.channel }}</dd></div>{% endif %}
           <div><dt>Locator</dt><dd>{{ m.device_locator or m.bank_label or "—" }}</dd></div>
+          {% if m.serial_number %}<div><dt>Серийный №</dt><dd>{{ copyable(m.serial_number) }}</dd></div>{% endif %}
         </dl>
         {% endfor %}
         {% endif %}
@@ -322,7 +324,7 @@
           {% endif %}
           {% if d.media_type %}<div><dt>Носитель</dt><dd>{{ d.media_type }}</dd></div>{% endif %}
           {% if d.interface_type %}<div><dt>Интерфейс</dt><dd>{{ d.interface_type }}</dd></div>{% endif %}
-          {% if d.serial_number %}<div><dt>Серийный №</dt><dd>{{ d.serial_number }}</dd></div>{% endif %}
+          {% if d.serial_number %}<div><dt>Серийный №</dt><dd>{{ copyable(d.serial_number) }}</dd></div>{% endif %}
         </dl>
         {% endfor %}
         {% endif %}
@@ -347,7 +349,7 @@
         <dl class="speccy-kv">
           <div><dt>Имя</dt><dd>{{ m.name or "—" }}</dd></div>
           <div><dt>Производитель</dt><dd>{{ m.manufacturer or "—" }}</dd></div>
-          <div><dt>Серийный №</dt><dd>{{ m.serial_number or "—" }}</dd></div>
+          <div><dt>Серийный №</dt><dd>{{ copyable(m.serial_number) }}</dd></div>
           <div><dt>Разрешение</dt><dd>{% if m.width and m.height %}{{ m.width }}×{{ m.height }}{% else %}—{% endif %}</dd></div>
         </dl>
         {% endfor %}
@@ -374,9 +376,9 @@
         {% for n in network_info.nics %}
         <p class="speccy-group">{{ n.name or ("NIC " ~ loop.index) }}</p>
         <dl class="speccy-kv">
-          <div><dt>MAC</dt><dd>{{ n.mac or "—" }}</dd></div>
-          <div><dt>IPv4</dt><dd>{% if n.ipv4 %}{{ n.ipv4|join(", ") }}{% else %}—{% endif %}</dd></div>
-          {% if n.ipv6 %}<div><dt>IPv6</dt><dd>{{ n.ipv6|join(", ") }}</dd></div>{% endif %}
+          <div><dt>MAC</dt><dd>{{ copyable(n.mac) }}</dd></div>
+          <div><dt>IPv4</dt><dd>{% if n.ipv4 %}{{ copyable(n.ipv4|join(", ")) }}{% else %}—{% endif %}</dd></div>
+          {% if n.ipv6 %}<div><dt>IPv6</dt><dd>{{ copyable(n.ipv6|join(", ")) }}</dd></div>{% endif %}
           <div><dt>DHCP</dt><dd>{% if n.dhcp is none %}—{% elif n.dhcp %}да{% else %}нет{% endif %}</dd></div>
         </dl>
         {% endfor %}
@@ -488,7 +490,7 @@
           <div><dt>Размер</dt><dd>{{ f.size_bytes|format_bytes }}</dd></div>
           {% endif %}
           {% if f.modified_at %}
-          <div><dt>Изменён</dt><dd>{{ f.modified_at }}</dd></div>
+          <div><dt>Изменён</dt><dd>{{ local_time(f.modified_at) }}</dd></div>
           {% endif %}
           {% if f.bugcheck_code %}
           <div><dt>Bugcheck</dt><dd class="mono">{{ f.bugcheck_code }}</dd></div>
@@ -528,7 +530,7 @@
           <tbody>
             {% for e in recent_events %}
             <tr>
-              <td class="mono">{{ e.created_at }}</td>
+              <td class="mono">{{ local_time(e.created_at) }}</td>
               <td title="{{ e.type }}">{{ e.type|format_event_type }}</td>
               <td>{{ e.summary }}</td>
             </tr>
@@ -630,7 +632,7 @@
           <span class="badge badge-agent-local">задано на агенте</span>
           Есть knobs, заданные руками в агенте.
           {% if config_local and config_local.reported_at %}
-          <span class="muted">· отчёт {{ config_local.reported_at }}</span>
+          <span class="muted">· отчёт {{ local_time(config_local.reported_at) }}</span>
           {% endif %}
         </p>
         {% endif %}

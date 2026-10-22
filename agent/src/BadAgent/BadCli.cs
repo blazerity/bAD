@@ -114,7 +114,7 @@ public static class BadCli
 
     private static (InventorySnapshot Snap, AgentConfig Config) Collect(IInventoryCollector? collector)
     {
-        var config = ConfigStore.LoadOrCreate();
+        var config = ConfigStore.LoadForReport();
         var deviceId = string.IsNullOrWhiteSpace(config.DeviceId)
             ? DeviceIdentity.ResolveDeviceId()
             : config.DeviceId;

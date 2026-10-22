@@ -81,26 +81,28 @@ Lab/cleartext (uvicorn без TLS): `BAD_SERVER_URL=http://127.0.0.1:8000` **и*
 3. Запуск SCM — Windows Service host (без изменений).
 
 ```powershell
-bad                     # ASCII-отчёт (то же: bad report | bad info)
+bad                     # ASCII-отчёт (то же: bad report | bad info) — любой пользователь
 bad -r [path]           # HTML-отчёт (--report; устар. --html)
-bad -c                  # интерактивная настройка (рекомендуется)
 bad -h                  # справка (--help | -?)
-bad config              # показать настройки (без api_key / enrollment_token)
-bad config set <k> <v>  # power-user: один knob
+bad -c                  # интерактивная настройка — только elevated (администратор)
+bad config set <k> <v>  # один knob — только elevated
+bad config unset <k>    # сброс knob — только elevated
 BadAgent.exe service status|start|stop|restart
 ```
 
-> Основной путь настройки: **`bad -c`** (пустой ввод = оставить текущее). `-h` — только справка; HTML: `-r`.
+> Обычный пользователь: **`bad`**, **`bad -r`**, **`-h`**. Настройка: **`bad -c`** / **`config set|unset`** — запуск от администратора.
 
-Учитываются `collect_*` из `%ProgramData%\blazerity\bAD\config.json`. Код: `BadCli`, `ConfigCli`, `AsciiReportWriter`, `HtmlReportWriter`, `ReportPathResolver`.
+Учитываются `collect_*` из `%ProgramData%\blazerity\bAD\config.json` (если файл доступен на чтение; иначе — значения по умолчанию). Локальные отчёты **не** создают каталог `logs` в ProgramData. Код: `BadCli`, `ConfigStore.LoadForReport`, `ConfigCli`, `AsciiReportWriter`, `HtmlReportWriter`, `ReportPathResolver`.
 
-`bad -c` / `config set` пишут allowlisted knobs и ставят `agent_local_keys` / `server_url_local` → heartbeat `config_local` (панель: **«задано на агенте»**). Значения `api_key` / `enrollment_token` CLI **не** печатает и не задаёт.
+`bad -c` / `bad config set|unset` пишут allowlisted knobs и ставят `agent_local_keys` / `server_url_local` → heartbeat `config_local` (панель: **«задано на агенте»**). Значения `api_key` / `enrollment_token` CLI **не** печатает и не задаёт.
+
+В ASCII/HTML-отчётах и в web UI время — **локальное**, формат **ЧЧ:ММ:СС ДД.ММ.ГГГГ**; в JSON/API и БД — UTC ISO.
 
 Локальные отчёты **не** ходят на сервер и **не** предлагают `http://` как `server_url`. Служба при cleartext без opt-in падает с русской подсказкой (`BadApiClient.CleartextHttpRejectedMessage`: нужен `https://`, `BAD_ALLOW_HTTP=1` только lab).
 
 Порядок разделов отчёта (Speccy / карточка устройства): **ОС → Процессор → Материнская плата → Память → Видео → Накопители → Мониторы → Батарея → Сеть → Пользователи → ПО → …**.
 
-Опционально MSI `ADDPATH=1` добавляет каталог установки в Machine PATH (по умолчанию PATH не трогаем).
+MSI по умолчанию добавляет каталог установки в Machine PATH (`ADDPATH=1`); отключить: `ADDPATH=0`.
 
 Реализация service: `System.ServiceProcess.ServiceController`. На Linux команды управления возвращают ошибку (unit-тесты покрывают help/unknown/non-Windows).
 
@@ -160,7 +162,7 @@ Heartbeat health (опционально → meta устройства): `last_i
 
 - Каталог `agent_msi_versions` + UI заливка MSI; GitHub sync сохраняется.
 - Remote-config: `update_target` = `latest` | semver из зеркала (резолв на сервере в update/check).
-- Enrollment rotate в Параметры → Обновления агента (hash в SQLite, без обязательного restart).
+- Enrollment rotate в Параметры → Обновления агента (hash в SQLite, без обязательного restart); после смены UI — готовая команда msiexec (`ADDPATH=1` по умолчанию) для копирования.
 - Site bundle download + `deploy/debian/restore-site-bundle.sh`.
 - Обзор: drift vs target, пустое зеркало, revoked active.
 
@@ -213,7 +215,7 @@ Tag: **`server-vX.Y.Z`**. Не триггерит MSI. Panel **Обновлен�
 
 - Источники: `installer/msi/Product.wxs`, `write-config.ps1`, `cleanup-uninstall.ps1`.
 - Сборка **только на Windows** (локально или GHA `release-msi`): см. `installer/msi/README.md`.
-- Public properties: `SERVERURL`, `ENROLLMENTTOKEN` → ProgramData; optional `ADDPATH=1` → Machine PATH + `bad.cmd`.
+- Public properties: `SERVERURL`, `ENROLLMENTTOKEN` → ProgramData; `ADDPATH` default `1` → Machine PATH + `bad.cmd` (`ADDPATH=0` — не менять PATH).
 - UpgradeCode фиксирован; major upgrade, ProgramData не сносить (`Permanent`); полный uninstall — Stop/Remove службы + `cleanup-uninstall.ps1` (config/queue/logs).
 - Authenticode: secrets `CODE_SIGN_PFX_BASE64` + `CODE_SIGN_PFX_PASSWORD` (optional timestamp URL); без них — unsigned MSI.
 - Артефакт: `bad-agent-<agent-semver>.msi` + `agent-release.json`. Server (`VERSION`) — другая линия; не синхронизировать с MSI без правок агента.

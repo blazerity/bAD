@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "macros/icons.html" import icon %}
+{% from "macros/ui.html" import local_time %}
 {% block title %}События — bAD{% endblock %}
 {% block content %}
 <section>
@@ -49,7 +50,7 @@
       {% for e in events %}
       {% set imp = event_importance(e.type) %}
       <tr>
-        <td class="mono">{{ e.created_at }}</td>
+        <td class="mono">{{ local_time(e.created_at) }}</td>
         <td><span class="badge badge-importance badge-importance-{{ imp }}">{{ imp|importance_label_ru }}</span></td>
         <td>
           <a href="/devices/{{ e.device_id }}">{{ e.hostname or e.device_id }}</a>

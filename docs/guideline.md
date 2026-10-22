@@ -96,7 +96,8 @@ BAD_BACKUP_DIR=/var/lib/bad/backups
 
 - **Язык / look**: Windows 11 / Fluent light, русский UI; `static/style.css`, favicon; stroke-иконки секций; HTML-отчёт CLI в той же семье токенов.
 - **Обзор** `/` (`/overview`): totals (активные / онлайн / устарели / архив), breakdown версий агента, последние события железа.
-- **Устройства** `/devices`: поиск (hostname / device_id / serial), теги, архив, пагинация (50), CSV export; на карточке — revoke/rotate key, архив, hard delete, подсказки дублей, inventory summary.
+- **Устройства** `/devices`: поиск (hostname / device_id / serial), теги, архив, пагинация (50), CSV export; на карточке — revoke/rotate key, архив, hard delete, подсказки дублей, inventory summary, копирование серийников / IP / MAC.
+- **Время в UI:** локальный формат **ЧЧ:ММ:СС ДД.ММ.ГГГГ**; хранение в API/БД — UTC.
 - **События** `/events`: лента изменений + пагинация.
 - **Параметры** `/settings/*` — оболочка в духе «Параметры Windows 11» (левый список с иконками):
   - Доступ / LDAP (`allowed_group` = sAMAccountName группы AD)

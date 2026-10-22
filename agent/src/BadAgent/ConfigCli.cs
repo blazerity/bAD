@@ -81,6 +81,12 @@ public static class ConfigCli
     /// <summary>Интерактивный мастер <c>bad -c</c>. Пустой ввод — оставить текущее значение.</summary>
     public static int RunInteractive(TextReader? input = null, TextWriter? output = null)
     {
+        var elev = WindowsElevation.RequireElevatedOrExit("интерактивной настройки (bad -c)");
+        if (elev != 0)
+        {
+            return elev;
+        }
+
         input ??= Console.In;
         output ??= Console.Out;
 
@@ -199,8 +205,19 @@ public static class ConfigCli
 
     private static int RunShow()
     {
-        var cfg = ConfigStore.LoadOrCreate();
+        var readable = ConfigStore.TryLoadForRead(out var cfg, out var readError);
         Console.WriteLine($"Файл: {ConfigStore.ConfigPath}");
+        if (!readable)
+        {
+            Console.Error.WriteLine(
+                "Предупреждение: config.json недоступен для чтения — показаны значения по умолчанию и device_id машины.");
+            if (!string.IsNullOrWhiteSpace(readError))
+            {
+                Console.Error.WriteLine($"Причина: {readError}");
+            }
+
+            cfg.DeviceId = DeviceIdentity.ResolveDeviceId();
+        }
         Console.WriteLine();
         Console.WriteLine("Параметры (для изменения: bad -c):");
         foreach (var key in InteractiveKeys)
@@ -245,7 +262,18 @@ public static class ConfigCli
             return 2;
         }
 
-        var cfg = ConfigStore.LoadOrCreate();
+        if (!ConfigStore.TryLoadForRead(out var cfg, out var readError))
+        {
+            Console.Error.WriteLine(
+                "error: не удалось прочитать config.json (нужны права на чтение файла или администратор).");
+            if (!string.IsNullOrWhiteSpace(readError))
+            {
+                Console.Error.WriteLine($"Причина: {readError}");
+            }
+
+            return 1;
+        }
+
         var manual = IsManual(cfg, key) ? " [вручную на агенте]" : "";
         Console.WriteLine($"{key}={FormatValue(GetEditable(cfg, key))}{manual}");
         return 0;
@@ -253,6 +281,12 @@ public static class ConfigCli
 
     private static int RunUnset(string[] args)
     {
+        var elev = WindowsElevation.RequireElevatedOrExit("изменения настроек (bad config unset)");
+        if (elev != 0)
+        {
+            return elev;
+        }
+
         if (args.Length != 1)
         {
             Console.Error.WriteLine("error: использование: bad config unset <ключ>");
@@ -295,6 +329,12 @@ public static class ConfigCli
 
     private static int RunSet(string[] args)
     {
+        var elev = WindowsElevation.RequireElevatedOrExit("изменения настроек (bad config set)");
+        if (elev != 0)
+        {
+            return elev;
+        }
+
         if (args.Length < 2)
         {
             Console.Error.WriteLine("error: использование: bad config set <ключ> <значение>");

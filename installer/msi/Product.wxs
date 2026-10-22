@@ -15,8 +15,8 @@
   Публичные свойства (msiexec):
     SERVERURL=https://bad.example.com
     ENROLLMENTTOKEN=<site enrollment token>
-    ADDPATH=1   (опционально; по умолчанию 0 / отсутствует = не менять PATH)
-                При 1: добавить INSTALLFOLDER в Machine PATH, чтобы `bad` (shim bad.cmd) работал из cmd.exe / Win+R.
+    ADDPATH=1   (по умолчанию; Machine PATH + shim `bad`)
+                ADDPATH=0 — не менять PATH (тихая установка без CLI в cmd).
 
   SEC-011: ENROLLMENTTOKEN / SERVERURL пишутся в HKLM\SOFTWARE\blazerity\bAD\Setup через RegistryValue
   (не в argv deferred PowerShell). write-config.ps1 читает Setup и сразу удаляет ключ.
@@ -55,8 +55,8 @@
 
     <Property Id="SERVERURL" Secure="yes" />
     <Property Id="ENROLLMENTTOKEN" Secure="yes" Hidden="yes" />
-    <!-- Опциональный PATH: по умолчанию отсутствует/0 = не менять Machine PATH. Передать ADDPATH=1 для включения. -->
-    <Property Id="ADDPATH" Secure="yes" Value="0" />
+    <!-- Machine PATH: по умолчанию 1 (bad.cmd в cmd). Передать ADDPATH=0 чтобы не трогать PATH. -->
+    <Property Id="ADDPATH" Secure="yes" Value="1" />
 
     <!-- Автолог msiexec в %TEMP%\MSI*.log (voicewarmupx), даже без /l*v. -->
     <Property Id="MsiLogging" Value="voicewarmupx" />
@@ -164,7 +164,7 @@
     </Component>
 
     <!--
-      Опциональный Machine PATH: только при msiexec … ADDPATH=1.
+      Machine PATH по умолчанию (ADDPATH=1). Отключить: msiexec … ADDPATH=0.
       Добавляет INSTALLFOLDER, чтобы bad.cmd (shim → BadAgent.exe) находился как `bad`.
       Permanent="no" убирает запись PATH при uninstall.
     -->

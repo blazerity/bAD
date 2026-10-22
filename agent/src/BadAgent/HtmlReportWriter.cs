@@ -32,7 +32,7 @@ public static class HtmlReportWriter
         sb.AppendLine("<section class=\"hero\">");
         sb.AppendLine($"<h1 class=\"with-icon\">{Icon("host")}{hostname}</h1>");
         sb.AppendLine($"<p class=\"muted\">device_id: <code>{Enc(snap.DeviceId)}</code> · agent {Enc(snap.AgentVersion)} · schema {snap.SchemaVersion}</p>");
-        sb.AppendLine($"<p class=\"muted\">собрано: {Enc(snap.CollectedAt)}</p>");
+        sb.AppendLine($"<p class=\"muted\">собрано: {Enc(TimeFormat.FormatForReport(snap.CollectedAt))}</p>");
 
         if (config is not null && !string.IsNullOrWhiteSpace(config.ServerUrl))
         {
@@ -59,7 +59,7 @@ public static class HtmlReportWriter
         Kv(sb, "AD OU", snap.Host?.AdOu);
         Kv(sb, "AD DN", snap.Host?.AdDistinguishedName);
         Kv(sb, "ОС", ReportFormat.FormatOs(snap.Host?.Os, "—"));
-        Kv(sb, "Последняя загрузка", snap.Host?.LastBootAt);
+        Kv(sb, "Последняя загрузка", TimeFormat.FormatForReport(snap.Host?.LastBootAt));
         Kv(sb, "Часовой пояс", snap.Host?.Timezone);
         if (snap.Host?.PendingReboot is bool pendingReboot)
         {
@@ -97,7 +97,7 @@ public static class HtmlReportWriter
             Kv(sb, "Тип корпуса", hw.ChassisType, "model");
             Kv(sb, "Версия BIOS", hw.BiosVersion, "serial");
             Kv(sb, "Производитель BIOS", hw.BiosManufacturer, "serial");
-            Kv(sb, "Дата BIOS", hw.BiosReleaseDate, "serial");
+            Kv(sb, "Дата BIOS", TimeFormat.FormatForReport(hw.BiosReleaseDate), "serial");
             sb.AppendLine("</dl>");
 
             Section(sb, "ram", "Память");
@@ -310,18 +310,18 @@ public static class HtmlReportWriter
             Kv(sb, "Файлов в Minidump", snap.Minidumps.Count.ToString());
             Kv(sb, "Memory.dmp", snap.Minidumps.MemoryDmpPresent ? "есть" : "нет");
             Kv(sb, "Путь Memory.dmp", snap.Minidumps.MemoryDmpPath);
-            Kv(sb, "Изменён", snap.Minidumps.MemoryDmpModifiedAt);
+            Kv(sb, "Изменён", TimeFormat.FormatForReport(snap.Minidumps.MemoryDmpModifiedAt));
             sb.AppendLine("</dl>");
             if (snap.Minidumps.Files is { Count: > 0 })
             {
                 sb.AppendLine(
-                    "<table><thead><tr><th>Имя</th><th>Размер</th><th>Изменён (UTC)</th>" +
+                    "<table><thead><tr><th>Имя</th><th>Размер</th><th>Изменён</th>" +
                     "<th>Bugcheck</th><th>Причина</th></tr></thead><tbody>");
                 foreach (var f in snap.Minidumps.Files)
                 {
                     sb.AppendLine(
                         $"<tr><td>{Enc(f.Name)}</td><td>{Enc(ReportFormat.FormatBytes(f.SizeBytes, "—"))}</td>" +
-                        $"<td>{Enc(f.ModifiedAt)}</td><td>{Enc(f.BugcheckCode)}</td>" +
+                        $"<td>{Enc(TimeFormat.FormatForReport(f.ModifiedAt))}</td><td>{Enc(f.BugcheckCode)}</td>" +
                         $"<td>{Enc(f.BugcheckMessage)}</td></tr>");
                 }
 

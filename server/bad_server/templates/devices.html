@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "macros/icons.html" import icon, silence_label %}
+{% from "macros/ui.html" import local_time %}
 {% block title %}Устройства — bAD{% endblock %}
 {% block content %}
 <section>
@@ -13,7 +14,7 @@
     Версия агента в зеркале MSI:
     {% if agent_update %}
       <strong>{{ agent_update.version }}</strong>
-      ({{ agent_update.msi_name }}, синхр. {{ agent_update.synced_at }})
+      ({{ agent_update.msi_name }}, синхр. {{ local_time(agent_update.synced_at) }})
     {% else %}
       <em>пока нет</em> —
       <a href="/settings/updates">Параметры → Обновления агента</a>
@@ -104,7 +105,7 @@
           {% endif %}
         </td>
         <td class="mono">{{ d.agent_version or "—" }}</td>
-        <td>{{ d.last_seen_at or "—" }}</td>
+        <td>{{ local_time(d.last_seen_at) }}</td>
       </tr>
       {% endfor %}
     </tbody>

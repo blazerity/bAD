@@ -6,7 +6,7 @@
   <PropertyGroup>
     <_AgentVersionFile>$(MSBuildThisFileDirectory)VERSION</_AgentVersionFile>
     <Version Condition="Exists('$(_AgentVersionFile)') and '$(Version)' == ''">$([System.IO.File]::ReadAllText('$(_AgentVersionFile)').Trim())</Version>
-    <Version Condition="'$(Version)' == ''">1.0.3</Version>
+    <Version Condition="'$(Version)' == ''">1.1.0</Version>
     <AssemblyVersion Condition="'$(AssemblyVersion)' == ''">$(Version).0</AssemblyVersion>
     <FileVersion Condition="'$(FileVersion)' == ''">$(Version).0</FileVersion>
     <InformationalVersion Condition="'$(InformationalVersion)' == ''">$(Version)</InformationalVersion>

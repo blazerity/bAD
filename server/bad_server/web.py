@@ -2832,6 +2832,33 @@ def backups_key_escrow_download(
     )
 
 
+def _enrollment_msi_name(db: Database) -> str:
+    agent_update = db.get_agent_update()
+    if agent_update and agent_update.get("msi_name"):
+        return str(agent_update["msi_name"])
+    versions = db.list_agent_msi_versions()
+    if versions:
+        top = versions[0]
+        if top.get("msi_name"):
+            return str(top["msi_name"])
+        ver = (top.get("version") or "").strip()
+        if ver:
+            return f"bad-agent-{ver}.msi"
+    return "bad-agent-X.Y.Z.msi"
+
+
+def _build_enrollment_msiexec_script(
+    token: str, server_url: str, msi_name: str
+) -> str:
+    return (
+        f"msiexec /i {msi_name} `\n"
+        f"  SERVERURL={server_url} `\n"
+        f"  ENROLLMENTTOKEN={token} `\n"
+        f"  ADDPATH=1 `\n"
+        f"  /qn"
+    )
+
+
 def _updates_context(
     db: Database,
     settings: Settings,
@@ -2842,6 +2869,20 @@ def _updates_context(
     new_enrollment_token: Optional[str] = None,
 ) -> dict:
     enrollment_rotation = enrollment_rotation_signals(db, settings)
+    enrollment_server_url: Optional[str] = None
+    enrollment_msi_name: Optional[str] = None
+    enrollment_msiexec_script: Optional[str] = None
+    if new_enrollment_token:
+        enrollment_server_url = (
+            https_panel_url(read_domain_from_env()).rstrip("/")
+            or "https://bad.example.com"
+        )
+        enrollment_msi_name = _enrollment_msi_name(db)
+        enrollment_msiexec_script = _build_enrollment_msiexec_script(
+            new_enrollment_token,
+            enrollment_server_url,
+            enrollment_msi_name,
+        )
     return {
         "user": user,
         "settings_section": "updates",
@@ -2855,6 +2896,9 @@ def _updates_context(
         "message": message,
         "error": error,
         "new_enrollment_token": new_enrollment_token,
+        "enrollment_server_url": enrollment_server_url,
+        "enrollment_msi_name": enrollment_msi_name,
+        "enrollment_msiexec_script": enrollment_msiexec_script,
     }
 
 

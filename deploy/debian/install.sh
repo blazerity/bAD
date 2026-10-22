@@ -313,9 +313,11 @@ else
   echo " Tokens:           already present in /etc/bad/site.env (not re-printed)"
 fi
 if [[ "${HAS_TLS}" -eq 1 ]]; then
-  echo " MSI properties:   SERVERURL=https://${BAD_DOMAIN} ENROLLMENTTOKEN=<enrollment token>"
+  echo " MSI (msiexec):    SERVERURL=https://${BAD_DOMAIN} ENROLLMENTTOKEN=<token>"
+  echo "                   PATH в Machine по умолчанию (ADDPATH=1); без PATH: ADDPATH=0"
 else
   echo " MSI properties:   install agents AFTER TLS upload (SERVERURL=https://${BAD_DOMAIN})"
+  echo "                   ADDPATH=1 по умолчанию; ADDPATH=0 — не добавлять bad в PATH"
 fi
 echo "========================================"
 echo

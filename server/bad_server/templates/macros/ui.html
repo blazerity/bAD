@@ -1,0 +1,25 @@
+{% from "macros/icons.html" import icon %}
+
+{# Копирование в буфер (пустое и «—» без кнопки). display — если показываем укороченный текст. #}
+{% macro copyable(value, display=none, class='') -%}
+{%- set raw = (value | string).strip() if value is not none else '' -%}
+{%- if raw and raw != '—' and raw != '-' -%}
+<span class="copyable-value{% if class %} {{ class }}{% endif %}">
+  <span class="copyable-text">{% if display is not none %}{{ display }}{% else %}{{ value }}{% endif %}</span>
+  <button type="button" class="copy-btn" data-copy="{{ raw }}" aria-label="Копировать" title="Копировать">{{ icon('copy') }}</button>
+</span>
+{%- elif value is not none and (value | string).strip() -%}
+{{ value }}
+{%- else -%}
+—
+{%- endif -%}
+{%- endmacro %}
+
+
+{% macro local_time(value, fallback='—', extra_class='') -%}
+{%- if value -%}
+<time class="local-time{% if extra_class %} {{ extra_class }}{% endif %}" datetime="{{ value }}">{{ value }}</time>
+{%- else -%}
+{{ fallback }}
+{%- endif -%}
+{%- endmacro %}

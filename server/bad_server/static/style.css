@@ -1588,3 +1588,104 @@ html.dash-reduced-motion {
   background: #f0f0f0;
   color: #605e5c;
 }
+
+/* Copy-to-clipboard controls */
+.copyable-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  max-width: 100%;
+  vertical-align: baseline;
+}
+.copyable-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+button.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0.12rem 0.2rem;
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  line-height: 0;
+  box-shadow: none;
+  font-weight: inherit;
+}
+button.copy-btn .icon {
+  width: 1rem;
+  height: 1rem;
+}
+button.copy-btn .copy-btn-label {
+  margin-left: 0.35rem;
+  font-size: 0.88rem;
+  line-height: 1.2;
+}
+button.copy-btn:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+button.copy-btn:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 1px;
+}
+.copy-toast {
+  position: fixed;
+  z-index: 10000;
+  left: 50%;
+  bottom: 1.25rem;
+  transform: translateX(-50%) translateY(0.5rem);
+  padding: 0.45rem 0.85rem;
+  border-radius: var(--radius-control);
+  background: var(--bg-solid);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-md);
+  color: var(--fg);
+  font-size: 0.88rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.copy-toast.is-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.enrollment-msiexec-block {
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-surface);
+  background: var(--bg-subtle);
+}
+.enrollment-msiexec-block h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.enrollment-msiexec-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  margin: 0.35rem 0;
+}
+.enrollment-msiexec-script {
+  margin: 0.5rem 0 0;
+  padding: 0.65rem 0.75rem;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border);
+  background: var(--bg-solid);
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 12rem;
+  overflow: auto;
+}

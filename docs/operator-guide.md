@@ -162,13 +162,13 @@ msiexec /i bad-agent-<версия из agent/VERSION>.msi `
   /qn
 ```
 
-Опциональный PATH для локального CLI `bad` (по умолчанию выкл.):
+В Machine PATH каталог с `bad` попадает **по умолчанию** (`ADDPATH=1`; в команде можно не писать). Отключить PATH при установке:
 
 ```powershell
 msiexec /i bad-agent-<версия из agent/VERSION>.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=<enrollment-token-from-install> `
-  ADDPATH=1 `
+  ADDPATH=0 `
   /qn
 ```
 
@@ -176,7 +176,9 @@ msiexec /i bad-agent-<версия из agent/VERSION>.msi `
 
 **Если установка падает до появления логов агента** (пустой `%ProgramData%\blazerity\bAD\logs`, диалог MSI 1722): смотрите `%ProgramData%\blazerity\bAD\logs\msi-install.log` / `msi-ca-error.txt` (коды `BAD_MSI_###`) и `%TEMP%\MSI*.log`. Подробности: `installer/msi/README.md` → «Логи установки».
 
-Служба `BlazerityAssetDiscovery` стартует автоматически, один раз enroll'ится, сохраняет API key в `%ProgramData%\blazerity\bAD\config.json` и шлёт inventory при старте (далее каждые 6 часов), heartbeat каждые 15 минут. Также спрашивает сервер про MSI-обновления (никогда не GitHub напрямую). Локальный CLI (сервер не нужен): `bad` / `bad -r` (HTML) / `bad -c` (настройка) / `bad -h` (справка). На карточке устройства метка **«задано на агенте»** = knobs с машины (`agent_local`), не политика и не server override. Service CLI: `BadAgent.exe service status|start|stop|restart` (elevated). См. [agents.md](./agents.md).
+Служба `BlazerityAssetDiscovery` стартует автоматически, один раз enroll'ится, сохраняет API key в `%ProgramData%\blazerity\bAD\config.json` и шлёт inventory при старте (далее каждые 6 часов), heartbeat каждые 15 минут. Также спрашивает сервер про MSI-обновления (никогда не GitHub напрямую).
+
+**Локальный CLI** (сервер не нужен): обычный пользователь — только отчёт `bad` (ASCII) и `bad -r` (HTML); `bad -h` — справка. Настройка — **от имени администратора**: `bad -c`, `bad config set` / `unset`. На карточке устройства метка **«задано на агенте»** = knobs с машины (`agent_local`), не политика и не server override. Service CLI: `BadAgent.exe service status|start|stop|restart` (elevated). См. [agents.md](./agents.md).
 
 ### Переустановка ОС (reimage)
 
@@ -202,8 +204,8 @@ msiexec /i bad-agent-<версия из agent/VERSION>.msi `
 2. Откройте **Параметры → Обновления агента** (`/settings/updates`) — секция **Enrollment token** (текущий plaintext не показывается).
 3. При желании — «Свой токен» (пусто = сервер сгенерирует).
 4. **Сменить enrollment token**, подтвердите («Старый перестанет работать»).
-5. Скопируйте **новый** token (показать один раз) в сейф. Restart `bad-api` не нужен.
-6. Обновите Intune / GPO / следующие `msiexec` на новый `ENROLLMENTTOKEN=…`. Не шарьте `/l*v` и transcript’ы деплоя.
+5. Скопируйте **новый** token (показать один раз) в сейф. На той же странице — готовая команда **msiexec** (`SERVERURL`, `ENROLLMENTTOKEN`, по умолчанию `ADDPATH=1`); кнопка **«Копировать команду»**. Restart `bad-api` не нужен.
+6. Обновите Intune / GPO этой командой (или вручную с новым `ENROLLMENTTOKEN=…`). Не шарьте `/l*v` и transcript’ы деплоя.
 
 Автоматизация: `POST /v1/admin/enrollment/rotate` (admin Bearer) — plaintext один раз. Форма: `POST /settings/enrollment/rotate` (CSRF).
 
@@ -213,10 +215,12 @@ msiexec /i bad-agent-<версия из agent/VERSION>.msi `
 
 1. Откройте `https://bad.example.com/devices` (после входа)
 2. Найдите hostname (badge здоровья: **OK**, если last seen в пределах stale-порога, иначе **stale**)
-3. Откройте карточку устройства: теги, события, inventory; при reimage — список **дублей** (hostname/диск — только подсказка; merge — при корпусе/SMBIOS или паре BIOS/IdentifyingNumber/плата) → явный admin merge → survivor + `device_merged`
+3. Откройте карточку устройства: теги, события, inventory; у серийников, IPv4 и MAC — кнопки **копировать**; при reimage — список **дублей** (hostname/диск — только подсказка; merge — при корпусе/SMBIOS или паре BIOS/IdentifyingNumber/плата) → явный admin merge → survivor + `device_merged`
 4. Опционально: **События** (`/events`) — лог изменений по всем устройствам (новее сверху)
 
 Теги: правка на странице устройства (через запятую). Фильтр списка устройств по тегу. Политики тоже могут матчить `tag equals/contains`. Reimage / merge: [§](#переустановка-ос-reimage).
+
+В панели и в локальных отчётах агента (`bad`, `bad -r`) даты/время — **местные**, вид **ЧЧ:ММ:СС ДД.ММ.ГГГГ**. В API и БД по-прежнему UTC (ISO).
 
 Daily DB backup **не** содержит master-ключи — см. [§ backup](#6-site-backup--restore). Порог stale по умолчанию 1 час (`BAD_DEVICE_STALE_AFTER_SECONDS`); ≈2× heartbeat при необходимости. Semver: **сервер** (`VERSION` / health) и **агент** (MSI / `agent_version`) — разные линии; см. [guideline](guideline.md#версионирование-две-линии).
 

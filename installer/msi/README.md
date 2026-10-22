@@ -79,17 +79,17 @@ msiexec /i bad-agent-<версия из agent/VERSION>.msi `
   /qn
 ```
 
-Опционально: добавить каталог установки в **Machine PATH**, чтобы команда `bad` работала из cmd.exe / Win+R (`bad.cmd` → `BadAgent.exe`). По умолчанию **выключено** (`ADDPATH=0` / не указано).
+Каталог установки по умолчанию попадает в **Machine PATH** (`ADDPATH=1`), чтобы `bad` работал из cmd.exe / Win+R (`bad.cmd` → `BadAgent.exe`). Свойство можно не указывать. Чтобы **не** менять PATH: `ADDPATH=0`.
 
 ```powershell
 msiexec /i bad-agent-<версия из agent/VERSION>.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=your-enrollment-token `
-  ADDPATH=1 `
+  ADDPATH=0 `
   /qn
 ```
 
-Public properties: `SERVERURL`, `ENROLLMENTTOKEN`, `ADDPATH` (опционально).
+Public properties: `SERVERURL`, `ENROLLMENTTOKEN`, `ADDPATH` (по умолчанию `1`; `0` = не трогать PATH).
 
 ### Не ставить против HTTP bootstrap
 

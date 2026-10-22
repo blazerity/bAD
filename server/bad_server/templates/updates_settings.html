@@ -1,4 +1,6 @@
 {% extends "settings_base.html" %}
+{% from "macros/icons.html" import icon %}
+{% from "macros/ui.html" import copyable, local_time %}
 {% set settings_section = 'updates' %}
 {% block title %}Обновления агента — bAD{% endblock %}
 {% block settings_content %}
@@ -14,7 +16,19 @@
   {% if new_enrollment_token %}
   <div class="warn-box">
     <strong>Новый токен подключения</strong> (показать один раз):
-    <p class="mono">{{ new_enrollment_token }}</p>
+    <p class="mono">{{ copyable(new_enrollment_token) }}</p>
+    {% if enrollment_msiexec_script %}
+    <div class="enrollment-msiexec-block">
+      <h3>Установка MSI (msiexec)</h3>
+      <div class="enrollment-msiexec-row">
+        <button type="button" class="copy-btn" data-copy-target="#enrollment-msiexec-pre" aria-label="Копировать" title="Копировать команду">{{ icon('copy') }}<span class="copy-btn-label">Копировать команду</span></button>
+      </div>
+      <pre id="enrollment-msiexec-pre" class="enrollment-msiexec-script">{{ enrollment_msiexec_script }}</pre>
+      {% if enrollment_msi_name and enrollment_server_url %}
+      <p class="muted enrollment-msiexec-row">Файл: <span class="mono">{{ enrollment_msi_name }}</span> · <span class="mono">{{ enrollment_server_url }}</span></p>
+      {% endif %}
+    </div>
+    {% endif %}
     <p class="muted">Старый больше не действует. Перезапуск не нужен — обновите установщики / GPO / Intune.</p>
     {% if tls_mode == 'http' %}
     <p class="warn">Лучше скопировать токен уже по HTTPS — сначала
@@ -51,7 +65,7 @@
         <td class="mono">{{ v.msi_name }}</td>
         <td class="mono">{{ v.source or "—" }}</td>
         <td class="mono" title="{{ v.sha256 }}">{{ v.sha256[:16] }}…</td>
-        <td class="mono">{{ v.mirrored_at or v.synced_at or "—" }}</td>
+        <td class="mono">{{ local_time(v.mirrored_at or v.synced_at) }}</td>
         <td>
           <form method="post" action="/settings/updates/set-latest" style="display:inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -119,7 +133,7 @@
   {% else %}
   <p class="muted">
     После волны установки смените токен: новый действует сразу, перезапуск не нужен.
-    {% if enrollment.rotated_at %}Последняя смена: <span class="mono">{{ enrollment.rotated_at }}</span>.{% endif %}
+    {% if enrollment.rotated_at %}Последняя смена: {{ local_time(enrollment.rotated_at, extra_class='mono') }}.{% endif %}
   </p>
   {% endif %}
   <dl class="meta">
@@ -147,6 +161,26 @@
       <button type="submit" class="secondary">Волна MSI завершена → предложить ротацию</button>
     </div>
   </form>
+  {% endif %}
+
+  {% if enrollment_msiexec_script is defined and enrollment_msiexec_script and not new_enrollment_token %}
+  {% set msi_token = enrollment_msiexec_token if enrollment_msiexec_token is defined else none %}
+  <div class="enrollment-msiexec-block" id="enrollment-msiexec">
+    <h3>Команда msiexec для установки</h3>
+    <p class="muted" style="margin:0 0 0.5rem">
+      Подставьте в GPO / Intune. Не сохраняйте verbose-логи с токеном.
+    </p>
+    {% if msi_token %}
+    <div class="enrollment-msiexec-row">
+      <span class="muted">Токен:</span>
+      <span class="mono">{{ copyable(msi_token) }}</span>
+    </div>
+    {% endif %}
+    <div class="enrollment-msiexec-row">
+      <button type="button" class="copy-btn" data-copy-target="#enrollment-msiexec-pre-persist" aria-label="Копировать" title="Копировать команду">{{ icon('copy') }}<span class="copy-btn-label">Копировать команду</span></button>
+    </div>
+    <pre id="enrollment-msiexec-pre-persist" class="enrollment-msiexec-script">{{ enrollment_msiexec_script }}</pre>
+  </div>
   {% endif %}
 </section>
 {% endblock %}

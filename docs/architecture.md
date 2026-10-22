@@ -52,7 +52,7 @@ flowchart LR
 - HTTPS only; cleartext `http://` отклоняется (кроме явного `BAD_ALLOW_HTTP=1` для локальной разработки).
 - `User-Agent: bad-agent/<semver>`; в payload поле `agent_version`.
 - Heartbeat несёт лёгкий health: `last_inventory_ok` / `last_inventory_error`, `agent_uptime_seconds`, `system_drive_free_bytes` (DriveInfo, без тяжёлого WMI) → device `meta`; опционально `config_local` (manual keys / agent_local) — см. API notes.
-- Local CLI reports (`bad` / `--html`): ASCII/HTML показывают serial/BIOS/battery/monitors/AD OU/minidumps при наличии; HTML визуально согласован с web panel (Win11/Fluent light).
+- Local CLI: `bad` / `-r` — отчёты без сервера (любой пользователь); `bad -c` / `config set|unset` — только elevated. ASCII/HTML показывают serial/BIOS/battery/monitors/AD OU/minidumps при наличии; HTML визуально согласован с web panel (Win11/Fluent light).
 - Крупные сбои enroll/update/revoke → Windows Application Event Log (source `bAD Agent`).
 - Service CLI: `BadAgent.exe service status|start|stop|restart` (elevated); без подкоманды — host службы. См. [agents.md](agents.md).
 
@@ -263,13 +263,15 @@ flowchart LR
 
 Визуальный язык: светлая оболочка в духе Windows 11 / Fluent — Segoe UI Variable, слоистые полупрозрачные поверхности, радиусы 4px (controls) / 8px (surfaces), акцент Fluent blue (`#0067C0`), UI copy на русском, stroke-иконки секций (без emoji). Стили: `server/bad_server/static/style.css` + `favicon.svg`/`favicon.ico`; локальный HTML-отчёт (`HtmlReportWriter`) — та же семья токенов/иконок. Иконка агента: `agent/assets/bad.ico` (`ApplicationIcon` + WiX `ARPPRODUCTICON`).
 
+**Время в UI:** в HTML панели и локальных отчётах агента — часовой пояс браузера/ОС, отображение **ЧЧ:ММ:СС ДД.ММ.ГГГГ** (`local-time.js`, `TimeFormat.LocalDisplayPattern`). В API, БД и JSON inventory — UTC (ISO).
+
 | Path | Назначение |
 |------|------------|
 | `/`, `/overview` | обзор: totals, версии агента, hardware events; ops: empty mirror, version drift, broken pin, revoked active. Один fleet snapshot с `/dashboard` |
 | `/dashboard` | агрегаты парка (те же active/stats/ops, что Обзор) |
 | `/login` | username/password (local, затем LDAP если включён) |
 | `/logout` | сброс cookie сессии |
-| `/devices`, `/devices/{id}` | список (поиск/архив/страницы/CSV); карточка — revoke/rotate, архив, delete, дубли, tags, override, hardware summary |
+| `/devices`, `/devices/{id}` | список (поиск/архив/страницы/CSV); карточка — revoke/rotate, архив, delete, дубли, tags, override, hardware summary; копирование серийников / IPv4 / MAC |
 | `/devices/search.json` | live-поиск (сессия): `?q=` → `{devices:[{device_id,hostname,href}]}`; `panel-search.js` |
 | `/devices/export.csv` | CSV устройств с учётом фильтров |
 | `/events` | события inventory + пагинация; `?q=&importance=` (пусто = medium+, `all` = все) |
@@ -344,7 +346,7 @@ flowchart LR
 2. MSI/config передаёт `SERVERURL` + `ENROLLMENTTOKEN` (**SEC-011:** deferred CA читает token из HKLM Setup, не из argv PowerShell; residual — родительский `msiexec … ENROLLMENTTOKEN=` / verbose logs — не шарить).
 3. Агент `POST /v1/enroll` → получает `api_key`, сохраняет в ProgramData, затирает enrollment token.
 4. Повторные запуски используют API key; upsert по стабильному `device_id`.
-5. **Ротация enrollment:** UI на `/settings/updates` → **Сменить enrollment token** (`POST /settings/enrollment/rotate` + admin API `POST /v1/admin/enrollment/rotate`); hash в БД сразу, restart не нужен. Plaintext нового token — только по защищённому каналу (не HTTP bootstrap). Runbook: [operator-guide.md](operator-guide.md#ротация-enrollment-token-после-волны-msi).
+5. **Ротация enrollment:** UI на `/settings/updates` → **Сменить enrollment token** (`POST /settings/enrollment/rotate` + admin API `POST /v1/admin/enrollment/rotate`); hash в БД сразу, restart не нужен. После смены — одноразовый plaintext token и готовая команда **msiexec** (`SERVERURL`, `ENROLLMENTTOKEN`, `ADDPATH=1`) для копирования в GPO/Intune. Plaintext — только по защищённому каналу (не HTTP bootstrap). Runbook: [operator-guide.md](operator-guide.md#ротация-enrollment-token-после-волны-msi).
 6. **Multi-version MSI:** `agent_msi_versions` + latest; upload/sync/set-latest/delete; `update_target`; check → target в т.ч. downgrade. Оператор: [operator-guide.md](operator-guide.md#4-обновления-агента-upload-msi-и-выбор-версии).
 7. **Site bundle:** `GET /settings/backups/site-bundle`; restore: `deploy/debian/restore-site-bundle.sh`. Daily dump без keys.
 

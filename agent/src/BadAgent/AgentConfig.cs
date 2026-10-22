@@ -208,8 +208,7 @@ public static class ConfigStore
 
     public static AgentConfig LoadOrCreate()
     {
-        Directory.CreateDirectory(ProgramDataDir);
-        Directory.CreateDirectory(LogsDir);
+        EnsureServiceDataDirs();
 
         var fromEnv = ApplyEnvironment(new AgentConfig());
         if (!File.Exists(ConfigPath))
@@ -218,10 +217,71 @@ public static class ConfigStore
             return fromEnv;
         }
 
-        var json = File.ReadAllText(ConfigPath);
+        return ApplyEnvironment(ReadConfigJsonFromFile());
+    }
+
+    /// <summary>
+    /// Только чтение для отчётов и <c>bad config</c> (show/get): без создания каталогов и без Save.
+    /// </summary>
+    public static bool TryLoadForRead(out AgentConfig config, out string? readError)
+    {
+        config = ApplyEnvironment(new AgentConfig());
+        readError = null;
+
+        if (!File.Exists(ConfigPath))
+        {
+            return true;
+        }
+
+        try
+        {
+            config = ApplyEnvironment(ReadConfigJsonFromFile());
+            return true;
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or JsonException)
+        {
+            readError = ex.Message;
+            config = ApplyEnvironment(new AgentConfig());
+            return false;
+        }
+    }
+
+    /// <summary>Конфиг для локального inventory: не создаёт ProgramData/logs, не пишет файл.</summary>
+    public static AgentConfig LoadForReport()
+    {
+        if (TryLoadForRead(out var cfg, out _))
+        {
+            if (string.IsNullOrWhiteSpace(cfg.DeviceId))
+            {
+                cfg.DeviceId = DeviceIdentity.ResolveDeviceId();
+            }
+
+            return cfg;
+        }
+
+        var fallback = ApplyEnvironment(new AgentConfig());
+        fallback.DeviceId = DeviceIdentity.ResolveDeviceId();
+        return fallback;
+    }
+
+    private static void EnsureServiceDataDirs()
+    {
+        Directory.CreateDirectory(ProgramDataDir);
+        Directory.CreateDirectory(LogsDir);
+    }
+
+    private static AgentConfig ReadConfigJsonFromFile()
+    {
+        string json;
+        using (var fs = new FileStream(ConfigPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        using (var reader = new StreamReader(fs))
+        {
+            json = reader.ReadToEnd();
+        }
+
         var cfg = JsonSerializer.Deserialize<AgentConfig>(json) ?? new AgentConfig();
         cfg.AgentLocalKeys = NormalizeAgentLocalKeys(cfg.AgentLocalKeys);
-        return ApplyEnvironment(cfg);
+        return cfg;
     }
 
     public static void Save(AgentConfig config)

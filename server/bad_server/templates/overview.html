@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "macros/icons.html" import icon %}
+{% from "macros/ui.html" import local_time %}
 {% block title %}Обзор — bAD{% endblock %}
 {% block content %}
 <section class="overview-admin">
@@ -148,7 +149,7 @@
   <dl class="meta">
     <div><dt>Версия агента (latest)</dt><dd class="mono">{{ ops.latest_version or "—" }}</dd></div>
     <div><dt>Версий в каталоге</dt><dd class="mono">{{ ops.mirror_count }}</dd></div>
-    <div><dt>Последний sync</dt><dd class="mono">{{ ops.latest_synced_at or "—" }}</dd></div>
+    <div><dt>Последний sync</dt><dd class="mono">{{ local_time(ops.latest_synced_at) }}</dd></div>
   </dl>
   <p class="hint"><a href="/settings/updates">Управление зеркалом</a></p>
   {% endif %}
@@ -182,7 +183,7 @@
   <ul class="overview-hw-list">
     {% for e in stats.recent_hardware_events[:8] %}
     <li>
-      <span class="mono muted">{{ e.created_at }}</span>
+      {{ local_time(e.created_at, extra_class='mono muted') }}
       · <a href="/devices/{{ e.device_id }}">{{ e.hostname or e.device_id }}</a>
       · <span title="{{ e.type }}">{{ e.type|format_event_type }}</span>
       {% if e.summary %}<span class="muted">— {{ e.summary }}</span>{% endif %}

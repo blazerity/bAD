@@ -20,7 +20,7 @@ public static class AsciiReportWriter
 
         sb.AppendLine(BoxTop(title));
         Row(sb, "device_id", snap.DeviceId);
-        Row(sb, "Собрано", snap.CollectedAt);
+        Row(sb, "Собрано", TimeFormat.FormatForReport(snap.CollectedAt));
         Row(sb, "Агент", snap.AgentVersion);
         Row(sb, "Schema", snap.SchemaVersion.ToString(CultureInfo.InvariantCulture));
         if (config is not null && !string.IsNullOrWhiteSpace(config.ServerUrl))
@@ -45,7 +45,7 @@ public static class AsciiReportWriter
         Row(sb, "AD OU", snap.Host?.AdOu);
         Row(sb, "AD DN", snap.Host?.AdDistinguishedName);
         Row(sb, "ОС", ReportFormat.FormatOs(snap.Host?.Os));
-        Row(sb, "Последняя загрузка", snap.Host?.LastBootAt);
+        Row(sb, "Последняя загрузка", TimeFormat.FormatForReport(snap.Host?.LastBootAt));
         Row(sb, "Часовой пояс", snap.Host?.Timezone);
         if (snap.Host?.PendingReboot is bool pending)
         {
@@ -78,7 +78,7 @@ public static class AsciiReportWriter
             Row(sb, "Корпус", hw.ChassisType);
             Row(sb, "BIOS", hw.BiosVersion);
             Row(sb, "Произв. BIOS", hw.BiosManufacturer);
-            Row(sb, "Дата BIOS", hw.BiosReleaseDate);
+            Row(sb, "Дата BIOS", TimeFormat.FormatForReport(hw.BiosReleaseDate));
 
             // --- Memory ---
             sb.AppendLine(BoxMid("Память"));
@@ -258,13 +258,13 @@ public static class AsciiReportWriter
             Row(sb, "Файлов", snap.Minidumps.Count.ToString(CultureInfo.InvariantCulture));
             Row(sb, "Memory.dmp", snap.Minidumps.MemoryDmpPresent ? "есть" : "нет");
             Row(sb, "Путь Memory.dmp", snap.Minidumps.MemoryDmpPath);
-            Row(sb, "Изменён", snap.Minidumps.MemoryDmpModifiedAt);
+            Row(sb, "Изменён", TimeFormat.FormatForReport(snap.Minidumps.MemoryDmpModifiedAt));
             if (snap.Minidumps.Files is { Count: > 0 })
             {
                 foreach (var f in snap.Minidumps.Files.Take(5))
                 {
                     var bug = f.BugcheckCode is null
-                        ? (f.ModifiedAt ?? "-")
+                        ? TimeFormat.FormatForReport(f.ModifiedAt)
                         : $"{f.BugcheckCode} {f.BugcheckMessage}".Trim();
                     Row(sb, Trunc(f.Name ?? "?", 28), Trunc(bug, 40));
                 }
