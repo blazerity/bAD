@@ -198,9 +198,6 @@ def _format_chassis(value: object, empty: str = "") -> str:
     return _CHASSIS_LABELS_RU.get(key, str(value))
 
 
-_CHASSIS_ICON_KEYS = frozenset({"laptop", "desktop", "server", "vm", "other"})
-
-
 def _normalize_chassis_type(value: object) -> str:
     from .device_meta import normalize_chassis_type
 
@@ -1468,17 +1465,13 @@ def events_page(
     chassis_by_id = _chassis_map_for_devices(db.list_devices(archived=None))
     for e in events:
         e["chassis_type"] = chassis_by_id.get(str(e.get("device_id") or ""), "other")
-    today_utc = datetime.now(timezone.utc).date().isoformat()
-    yesterday_utc = (
-        datetime.now(timezone.utc).date() - timedelta(days=1)
-    ).isoformat()
+    today_d = datetime.now(timezone.utc).date()
+    yesterday_d = today_d - timedelta(days=1)
     return _html(
         request,
         "events.html",
         {
             "events": events,
-            "today_utc": today_utc.isoformat(),
-            "yesterday_utc": (today_utc - timedelta(days=1)).isoformat(),
             "user": user,
             "device_filter": device_filter or "",
             "q": q_filter or "",
@@ -1487,8 +1480,8 @@ def events_page(
             "pages": pages,
             "total": total,
             "page_size": page_size,
-            "today_utc": today_utc,
-            "yesterday_utc": yesterday_utc,
+            "today_utc": today_d.isoformat(),
+            "yesterday_utc": yesterday_d.isoformat(),
         },
     )
 
