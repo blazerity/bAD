@@ -1,6 +1,6 @@
 # Архитектура bAD
 
-**blazerity Asset Discovery** — Windows-агент инвентаризации и on-prem сервер накопления снимков. Документ описывает фактическую архитектуру репозитория. **Две независимые версии:** сервер (`VERSION`, сейчас 1.7.0) и агент (`agent/VERSION`, сейчас 1.1.0). Обновление панели с GitHub ≠ зеркало MSI агента.
+**blazerity Asset Discovery** — Windows-агент инвентаризации и on-prem сервер накопления снимков. Документ описывает фактическую архитектуру репозитория. **Две независимые версии:** сервер (`VERSION`, сейчас 1.8.0) и агент (`agent/VERSION`, сейчас 1.2.1). Обновление панели с GitHub ≠ зеркало MSI агента.
 
 - **Инвариант:** HTTP bootstrap = **только временный UI-режим** (доверенная сеть → смена пароля → upload cert → HTTPS). Агенты всегда HTTPS (кроме lab `BAD_ALLOW_HTTP=1`). Risk rating bootstrap: **Medium** при runbook; **High** на публичном `:80` до cert — не Critical defect.
 - **ACME / Let’s Encrypt:** вне scope 1.0; не обещать без решения владельца.
@@ -48,11 +48,11 @@ flowchart LR
 - `device_id`: MachineGuid (registry), fallback SMBIOS UUID.
 - Collectors: WMI/CIM + .NET (+ Uninstall registry для software); сбор на `BelowNormal` + yields между WMI; сбой подсекции → `collector_errors[]` с `section` вроде `hardware.gpus` (остальной snapshot сохраняется).
 - Секции `hardware` / `users` / `software` управляются knobs `collect_*` (disabled → поле `null`/omitted, без error spam).
-- Hardware (когда `collect_hardware`): CPU, `ram_bytes`, disks/volumes **плюс** `serial_number`, `model`, `manufacturer`, `bios_version` (+ manufacturer/release), `battery` (charge/status/runtime), `monitors[]` (EDID/WMI, cap 8), `gpus[]` (cap 16), `ram_modules[]` (cap 32), `ram_memory_type`. Host: `ad_distinguished_name` / `ad_ou` (domain-joined, soft-fail workgroup). `minidumps` — метаданные `%SystemRoot%\Minidump\*.dmp` / `Memory.dmp` (имена/время/count, **без** тел файлов, cap 20). Поля additive внутри `schema_version=2`.
+- Hardware (когда `collect_hardware`): CPU, `ram_bytes`, disks/volumes **плюс** `serial_number`, `model`, `manufacturer`, `chassis_type` (нормализованный тип корпуса), `bios_version` (+ manufacturer/release), `battery` (charge/status/runtime), `monitors[]` (EDID/WMI, cap 8), `gpus[]` (cap 16), `ram_modules[]` (cap 32), `ram_memory_type`. Секция корпуса (`hardware.chassis`) собирается **всегда**, даже если остальной hardware выключен knob’ом. Host: `ad_distinguished_name` / `ad_ou` (domain-joined, soft-fail workgroup). `minidumps` — метаданные `%SystemRoot%\Minidump\*.dmp` / `Memory.dmp` (имена/время/count, **без** тел файлов, cap 20). Тяжёлые подсекции (ПО, minidumps, модули RAM) могут браться из in-process кэша при неизменном «отпечатке» машины. Поля additive внутри `schema_version=2`.
 - HTTPS only; cleartext `http://` отклоняется (кроме явного `BAD_ALLOW_HTTP=1` для локальной разработки).
 - `User-Agent: bad-agent/<semver>`; в payload поле `agent_version`.
 - Heartbeat несёт лёгкий health: `last_inventory_ok` / `last_inventory_error`, `agent_uptime_seconds`, `system_drive_free_bytes` (DriveInfo, без тяжёлого WMI) → device `meta`; опционально `config_local` (manual keys / agent_local) — см. API notes.
-- Local CLI: `bad` / `-r` — отчёты без сервера (любой пользователь); `bad -c` / `config set|unset` — только elevated. ASCII/HTML показывают serial/BIOS/battery/monitors/AD OU/minidumps при наличии; HTML визуально согласован с web panel (Win11/Fluent light).
+- Local CLI: `bad` / `-r` — отчёты без сервера (любой пользователь); `bad -c` / `config set|unset` — только elevated. ASCII/HTML показывают serial/BIOS/battery/monitors/AD OU/minidumps при наличии; в HTML свежесть меток времени — **относительно** («N мин. назад») плюс точное локальное время (`TimeFormat.FormatFreshnessHtml`); HTML визуально согласован с web panel (Win11/Fluent light).
 - Крупные сбои enroll/update/revoke → Windows Application Event Log (source `bAD Agent`).
 - Service CLI: `BadAgent.exe service status|start|stop|restart` (elevated); без подкоманды — host службы. См. [agents.md](agents.md).
 
@@ -129,7 +129,7 @@ flowchart LR
 | `POST` | `/v1/devices/{id}/archive` / `restore` | admin | скрыть/вернуть в списке |
 | `DELETE` | `/v1/devices/{id}` | admin | hard-delete + связанные строки |
 | `PUT` | `/v1/devices/{device_id}/tags` | admin Bearer | заменить теги устройства |
-| `GET` | `/v1/events` | admin Bearer | события (`?device_id=&q=&importance=&limit=&offset=`; пустой `importance` = medium+) |
+| `GET` | `/v1/events` | admin Bearer | события (`?device_id=&q=&importance=&limit=&offset=`; пустой `importance` = medium+); в ответе **нет** поля `detail` (лёгкий список + `importance`) |
 | `GET` | `/v1/agent/update/check?current=` | API key | `{current, target_version, update_available, sha256, url, msi_name, reason}` |
 | `GET` | `/v1/agent/update/msi` | API key | байты зеркалированного MSI |
 | `GET` | `/v1/admin/agent-update` | admin | статус зеркала |
@@ -144,6 +144,7 @@ flowchart LR
 - Rate limit на `/v1/enroll` (sliding window).
 - Count-retention: последние N снимков на устройство (`BAD_SNAPSHOT_RETENTION`, default 30).
 - Day-retention (web): `retention_settings` — events (default 90d) и old snapshots (default 180d); фоновый prune раз в час; новейший снимок устройства не удаляется.
+- После `POST /v1/inventory` в `devices.meta` кэшируются поля для списков и поиска (`device_meta.inventory_meta_cache`): `domain`, `os`, `hardware_manufacturer`, `hardware_model`, `serial_number`, **`chassis_type`** (`laptop` \| `desktop` \| `server` \| `vm` \| `other`). Панель читает `chassis_type` из meta для иконок ссылок; это не меняет JSON API устройств.
 
 #### API notes: config source (provenance)
 
@@ -249,18 +250,16 @@ flowchart LR
 
 **Prod expectation.** `POST /v1/enroll` и agent endpoints (`/v1/heartbeat`, `/v1/inventory`, `/v1/agent/config`, `/v1/agent/update/*`) **ожидают HTTPS** за nginx. Cleartext `http://` — только lab: агент режет URL без `BAD_ALLOW_HTTP=1` (`BadApiClient`); HTTP bootstrap панели (UI до cert) **не** означает поддержку HTTP для агентов.
 
-**Клиент vs сервер сегодня.** Агент уже отклоняет cleartext до сети. Сервер **пока принимает** `POST /v1/enroll` по HTTP (если запрос дошёл до uvicorn, в т.ч. при HTTP bootstrap) — это согласовано с временным UI bootstrap, но усиливает риск утечки enrollment token.
-
-**TODO (контракт, когда Server Lead включит отказ):** при активном managed HTTPS (`tls_configured` / `tls_status.mode == https`) отказывать cleartext enroll по `X-Forwarded-Proto: http` (defense in depth). Планируемый ответ:
+**Клиент и сервер.** Агент отклоняет cleartext до сети (`BadApiClient`; lab: `BAD_ALLOW_HTTP=1`). На сервере при **managed TLS** (файлы cert в `/etc/bad/tls/`, `tls_configured`) запрос `POST /v1/enroll`, пришедший как cleartext за nginx (`X-Forwarded-Proto: http` или схема не https), получает **403** — `enroll_cleartext_blocked` в `http_bootstrap.py`, вызов в `api.py`:
 
 | Поле | Значение |
 |------|----------|
 | HTTP status | **403 Forbidden** |
-| `detail` | стабильная строка вроде `HTTPS required for enrollment` (уточнить в коде при внедрении) |
-| Условие | mode=https **и** запрос выглядит как cleartext (`X-Forwarded-Proto: http` / эквивалент за nginx) |
+| `detail` | `HTTPS required for enrollment (managed TLS active; cleartext refused). Lab: BAD_ALLOW_ENROLL_OVER_HTTP=1.` (`ENROLL_CLEARTEXT_MSG`) |
+| Условие | managed TLS на диске **и** cleartext hop **и** не задан `BAD_ALLOW_ENROLL_OVER_HTTP=1` |
 | Не путать с | **401** — неверный/отсутствующий enrollment Bearer; **429** — rate limit |
 
-Пока код не введён — клиенты не должны полагаться на серверный 403; полагаться на HTTPS URL + клиентский reject. После merge Server Lead — убрать пометку TODO и сверить `detail` с реализацией.
+Пока cert ещё не загружен (чистый HTTP bootstrap), enroll по HTTP технически возможен — поэтому MSI на агентов не ставят до HTTPS. После apply cert enroll по HTTP блокируется на сервере даже при временном доступе к :80.
 
 **`POST /v1/admin/enrollment/rotate`.** Ответ содержит plaintext нового token один раз. Вызывать **только по HTTPS** (или localhost/trusted tunnel в lab); **не** по cleartext HTTP bootstrap и не через незащищённые каналы. Не логировать тело ответа (`token`) в access/app logs, shell history, CI. Runbook: [operator-guide.md](operator-guide.md#ротация-enrollment-token-после-массовой-установки-msi).
 
@@ -279,7 +278,7 @@ flowchart LR
 
 Визуальный язык: светлая оболочка в духе Windows 11 / Fluent — Segoe UI Variable, слоистые полупрозрачные поверхности, радиусы 4px (controls) / 8px (surfaces), акцент Fluent blue (`#0067C0`), UI copy на русском, stroke-иконки секций (без emoji). Стили: `server/bad_server/static/style.css` + `favicon.svg`/`favicon.ico`; локальный HTML-отчёт (`HtmlReportWriter`) — та же семья токенов/иконок. Иконка агента: `agent/assets/bad.ico` (`ApplicationIcon` + WiX `ARPPRODUCTICON`).
 
-**Время в UI:** в HTML панели и локальных отчётах агента — часовой пояс браузера/ОС, отображение **ЧЧ:ММ:СС ДД.ММ.ГГГГ** (`local-time.js`, `TimeFormat.LocalDisplayPattern`). В API, БД и JSON inventory — UTC (ISO).
+**Время в UI:** в HTML панели (`local-time.js`, элементы `time.local-time`) и в HTML-отчёте агента (`bad -r`) метки **относительные** («только что», «N мин. назад», «вчера»…); точное локальное время — в подсказке и атрибуте `title` / `aria-label` (**ЧЧ:ММ:СС ДД.ММ.ГГГГ**, `TimeFormat.LocalDisplayPattern`). В API, БД и JSON inventory — только UTC (ISO); относительный формат **не** является контрактом API.
 
 | Path | Назначение |
 |------|------------|
@@ -287,10 +286,11 @@ flowchart LR
 | `/dashboard` | дашборд: те же агрегаты и ops-сигналы, что на Обзоре |
 | `/login` | username/password (local, затем LDAP если включён) |
 | `/logout` | сброс cookie сессии |
-| `/devices`, `/devices/{id}` | список (поиск/архив/страницы/CSV); карточка — **«Обновить политику и версию»** (request-refresh), revoke/rotate, архив, delete, дубли, tags, override, hardware summary; копирование серийников / IPv4 / MAC |
-| `/devices/search.json` | live-поиск (сессия): `?q=` → `{devices:[{device_id,hostname,href}]}`; `panel-search.js` |
+| `/devices`, `/devices/{id}` | список (поиск/тег/волна/архив, **пагинация**, **сброс фильтров**, CSV); пустой парк — подсказка с ссылкой на установку агента; **массовые действия** `POST /devices/bulk` (архив / добавить тег); ссылки на устройство с **иконкой типа корпуса** (`meta.chassis_type`); карточка — **«Обновить политику и версию»**, revoke/rotate, архив, delete, дубли, tags, override, hardware summary; копирование серийников / IPv4 / MAC |
+| `/devices/search.json` | live-поиск (сессия): `?q=` → устройства с `chassis_type`; `panel-search.js` |
 | `/devices/export.csv` | CSV устройств с учётом фильтров |
-| `/events` | события inventory + пагинация; `?q=&importance=` (пусто = medium+, `all` = все) |
+| `/setup/progress.json` | JSON прогресса мастера первых шагов (сессия web) для Обзора |
+| `/events` | события inventory + пагинация; группировка **«Сегодня» / «Ранее»**; `?q=&importance=` (пусто = medium+, `all` = все) |
 | `/settings` | редирект в оболочку «Параметры» (левый nav) |
 | `/settings/ldap` | LDAP + группа доступа AD |
 | `/settings/tls` | nav **Сертификат**; статус HTTP/HTTPS; upload PEM cert+key[+chain] → nginx reload (key не в HTML) |

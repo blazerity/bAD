@@ -1,6 +1,6 @@
 # bAD API `/v1` — интеграционный гайд (1C Itilium и др.)
 
-Стабильный HTTP JSON API on-prem сервера bAD. Живая версия сервера — в корневом [`VERSION`](../VERSION) (сейчас **1.5.3**; `GET /v1/health` → `version`). Версия агента в полях `agent_version` — из [`agent/VERSION`](../agent/VERSION) (сейчас **1.1.0**). Примеры JSON с `"1.0.1"` — **образец формата**, не обязательно актуальный номер.
+Стабильный HTTP JSON API on-prem сервера bAD. Живая версия сервера — в корневом [`VERSION`](../VERSION) (сейчас **1.8.0**; `GET /v1/health` → `version`). Версия агента в полях `agent_version` — из [`agent/VERSION`](../agent/VERSION) (сейчас **1.2.1**). Примеры JSON с `"1.0.1"` — **образец формата**, не обязательно актуальный номер.
 
 **Политика совместимости (additive freeze):** путь `/v1` заморожен как **additive**. Можно добавлять необязательные поля, query-параметры с default и новые эндпоинты. **Breaking** (удаление/переименование полей, смена смысла, обязательность новых полей, смена кодов ошибок для существующих сценариев) — только по явному решению владельца продукта. Клиенты (в т.ч. **1C Itilium**) должны игнорировать неизвестные JSON-поля.
 
@@ -142,6 +142,16 @@ Web UI (local/LDAP session) — **не** контракт для 1C.
 
 Ответ: `{ "events": [...], "total", "limit", "offset" }`.
 
+Элемент `events[]` (лёгкий список для интеграций):
+
+| Поле | Описание |
+|------|----------|
+| `id`, `device_id`, `hostname`, `type`, `summary`, `created_at` | как в web-ленте |
+| `importance` | `low` \| `medium` \| `high` \| `critical` (по типу события, не колонка БД) |
+| `detail` | **отсутствует** в `GET /v1/events` (`include_detail=false`); полный JSON детали хранится в БД для панели/почты |
+
+Для разбора изменений по полям смотрите `summary` и тип; при необходимости полного diff — карточка устройства / latest inventory, не лента API.
+
 ---
 
 ## 6. Устройства (admin)
@@ -159,6 +169,7 @@ Web UI (local/LDAP session) — **не** контракт для 1C.
     "last_inventory_at": "…",
     "os": "Microsoft Windows 11 …",
     "serial_number": "…",
+    "chassis_type": "laptop",
     "last_inventory_ok": true
   },
   "tags": ["wave-1"],
@@ -167,7 +178,7 @@ Web UI (local/LDAP session) — **не** контракт для 1C.
 }
 ```
 
-`meta` — произвольный JSON объекта (health, `config_local`, …). Новые ключи additive.
+`meta` — произвольный JSON объекта (health, `config_local`, …). Новые ключи additive. Часто встречается **`chassis_type`**: `laptop` \| `desktop` \| `server` \| `vm` \| `other` (кэш из последнего inventory, `device_meta.normalize_chassis_type`).
 
 ### Карточка (`GET /v1/devices/{device_id}`)
 
@@ -315,7 +326,11 @@ Allowlist knobs и условия политик — в Project `internal/polici
 | `GET /v1/agent/config` | effective settings своего устройства |
 | `/v1/agent/update/*` | self-update MSI |
 
-Cleartext enroll при активном managed TLS → `403` с `detail` про HTTPS (`BAD_ALLOW_ENROLL_OVER_HTTP=1` только lab).
+Cleartext enroll при managed TLS (файлы cert на диске) → **403**, тело:
+
+`HTTPS required for enrollment (managed TLS active; cleartext refused). Lab: BAD_ALLOW_ENROLL_OVER_HTTP=1.`
+
+Lab: env `BAD_ALLOW_ENROLL_OVER_HTTP=1` (см. `Settings.allow_enroll_over_http`). Агент в lab по-прежнему требует `BAD_ALLOW_HTTP=1` для cleartext URL.
 
 ---
 

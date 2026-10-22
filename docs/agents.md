@@ -46,7 +46,7 @@ uvicorn bad_server.app:app --host 127.0.0.1 --port 8000
 
 ## Обзор, поиск, события
 
-Обзор `/` и Дашборд `/dashboard` используют одну сводку по парку (`web._fleet_snapshot` → `db.list_fleet_active_archived`): active/archived, stats и ops-блок без повторного полного обхода устройств. Сигналы «отстают от целевой версии» считаются по `meta` и batch override, без `get_device_detail` на каждую строку. `POST /v1/inventory` кэширует в `devices.meta` поля `domain`, `hardware_manufacturer`, `hardware_model` — фильтры дашборда читают meta, не полный snapshot.
+Обзор `/` и Дашборд `/dashboard` используют одну сводку по парку (`web._fleet_snapshot` → `db.list_fleet_active_archived`): active/archived, stats и ops-блок без повторного полного обхода устройств. Сигналы «отстают от целевой версии» считаются по `meta` и batch override, без `get_device_detail` на каждую строку. `POST /v1/inventory` кэширует в `devices.meta` поля `domain`, `os`, `hardware_manufacturer`, `hardware_model`, `serial_number`, `chassis_type` (`device_meta.py`) — списки и дашборд читают meta, не полный snapshot.
 
 Live-поиск: `static/panel-search.js` (debounce) → `GET /devices/search.json?q=` (сессия web, не admin Bearer; до 50). Важность события — по типу в `event_importance.py` (не колонка БД). UI `/events` и `GET /v1/events` принимают `q` (summary / type / hostname / device_id) и `importance`: `medium`|`high`|`critical` = не ниже порога, `all` = все, пусто = medium и выше (low скрыт).
 
@@ -98,7 +98,7 @@ BadAgent.exe service status|start|stop|restart
 
 `bad -c` / `bad config set|unset` пишут allowlisted knobs и ставят `agent_local_keys` / `server_url_local` → heartbeat `config_local` (панель: **«задано на агенте»**). Значения `api_key` / `enrollment_token` CLI **не** печатает и не задаёт.
 
-В ASCII/HTML-отчётах и в web UI время — **локальное**, формат **ЧЧ:ММ:СС ДД.ММ.ГГГГ**; в JSON/API и БД — UTC ISO.
+В web UI и HTML-отчёте (`bad -r`) время показывается **относительно** («N мин. назад» и т.п., `local-time.js` / `TimeFormat.FormatFreshness*`); точное локальное — в подсказке (**ЧЧ:ММ:СС ДД.ММ.ГГГГ**). В JSON/API и БД — только UTC ISO.
 
 Локальные отчёты **не** ходят на сервер и **не** предлагают `http://` как `server_url`. Служба при cleartext без opt-in падает с русской подсказкой (`BadApiClient.CleartextHttpRejectedMessage`: нужен `https://`, `BAD_ALLOW_HTTP=1` только lab).
 
@@ -140,7 +140,7 @@ Safe knobs: интервалы + `update_enabled` + **`update_target`** (`latest
 
 **`config_local` (контракт):** агент в heartbeat шлёт `keys` (manual / agent_local safe knobs) + опционально `settings` и display-only `server_url`. Server кладёт в `meta.config_local`, отдаёт `sources` на admin/web. Не путать с server `device_override`. Полный schema: [architecture.md — config source](architecture.md#api-notes-config-source-provenance).
 
-Hardware (при `collect_hardware`): помимо CPU/RAM/disks/volumes — `serial_number`, `model`, `manufacturer`, `bios_version`, `battery`, `monitors[]`, `gpus[]`, `ram_modules[]` (+ `memory_type` на модуль), `ram_memory_type` (системный consensus). Host: `ad_ou` / `ad_distinguished_name` (domain-joined). Top-level `minidumps` — только метаданные BSOD (без upload тел). Low-impact: `ThreadPriority.BelowNormal` + yields между WMI. Soft-fail по подсекциям `hardware.*` / `host.ad_ou` / `minidumps`. Cap: 16 GPU / 32 DIMM / 8 monitors / 20 minidump files. Код: `InventoryCollector`, `HardwareMaps`, `OfflineQueue`, `WindowsEventLog`, модели в `InventoryModels.cs`.
+Hardware (при `collect_hardware`): помимо CPU/RAM/disks/volumes — `serial_number`, `model`, `manufacturer`, `chassis_type`, `bios_version`, `battery`, `monitors[]`, `gpus[]`, `ram_modules[]` (+ `memory_type` на модуль), `ram_memory_type` (системный consensus). Секция корпуса (`hardware.chassis`) — **всегда**, независимо от `collect_hardware`. Host: `ad_ou` / `ad_distinguished_name` (domain-joined). Top-level `minidumps` — только метаданные BSOD (без upload тел). In-process кэш тяжёлых секций (`HeavySectionCache` в `InventoryCollector`: software, minidumps, ram_modules при неизменном fingerprint). Low-impact: `ThreadPriority.BelowNormal` + yields между WMI. Soft-fail по подсекциям `hardware.*` / `host.ad_ou` / `minidumps`. Cap: 16 GPU / 32 DIMM / 8 monitors / 20 minidump files. Код: `InventoryCollector`, `HardwareMaps`, `OfflineQueue`, `WindowsEventLog`, модели в `InventoryModels.cs`.
 
 Heartbeat health (опционально → meta устройства): `last_inventory_ok`, `last_inventory_error`, `agent_uptime_seconds`, `system_drive_free_bytes`. Рядом (отдельно): optional `config_local` → provenance.
 
@@ -240,9 +240,13 @@ Tag: **`server-vX.Y.Z`**. Не триггерит MSI. Panel **Обновлен�
 | Маршруты API / гайд 1C | `server/bad_server/api.py`, [api-v1.md](api-v1.md) |
 | Remote config / policies | `server/bad_server/agent_config.py` |
 | Agent update mirror | `server/bad_server/agent_update.py`, `github_release.py` |
-| Web routes | `server/bad_server/web.py` |
+| Web routes / bulk / мастер | `server/bad_server/web.py` (`POST /devices/bulk`, `GET /setup/progress.json`) |
+| Кэш meta + тип корпуса | `server/bad_server/device_meta.py` |
+| Cleartext enroll guard | `server/bad_server/http_bootstrap.py`, вызов в `api.py` |
+| Иконки корпуса / ссылки | `templates/macros/ui.html`, `macros/icons.html` |
+| Относительное время UI | `static/local-time.js` |
 | Схема/settings | `server/bad_server/schemas.py`, `config.py` |
-| DB | `server/bad_server/db.py` |
+| DB / лента событий (slim API) | `server/bad_server/db.py` (`list_device_events`, `include_detail`) |
 | Worker loop | `agent/src/BadAgent/Worker.cs` |
 | Self-update | `agent/src/BadAgent/AgentUpdater.cs` |
 | Service CLI | `agent/src/BadAgent/ServiceCli.cs` |
