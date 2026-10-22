@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "macros/icons.html" import icon %}
-{% from "macros/ui.html" import local_time %}
+{% from "macros/ui.html" import local_time, device_link %}
 {% from "macros/pager.html" import table_pager %}
 {% block title %}События — bAD{% endblock %}
 {% block content %}
@@ -23,7 +23,7 @@
     </select>
     <button type="submit">Применить</button>
     {% if device_filter or q or importance %}
-    <a class="muted" href="/events">Сбросить</a>
+    <a class="btn secondary" href="/events">Сбросить фильтры</a>
     {% endif %}
   </form>
   {% if device_filter %}
@@ -48,13 +48,25 @@
       </tr>
     </thead>
     <tbody>
+      {% set ns = namespace(prev_day='') %}
       {% for e in events %}
       {% set imp = event_importance(e.type) %}
+      {% set day_key = (e.created_at or '')[:10] %}
+      {% if day_key and day_key != ns.prev_day %}
+      {% set ns.prev_day = day_key %}
+      <tr class="events-day-divider">
+        <td colspan="5">
+          {% if day_key == today_utc %}Сегодня
+          {% elif day_key == yesterday_utc %}Вчера
+          {% else %}Ранее · <span class="mono">{{ day_key }}</span>{% endif %}
+        </td>
+      </tr>
+      {% endif %}
       <tr>
-        <td class="mono">{{ local_time(e.created_at) }}</td>
+        <td>{{ local_time(e.created_at) }}</td>
         <td><span class="badge badge-importance badge-importance-{{ imp }}">{{ imp|importance_label_ru }}</span></td>
         <td>
-          <a href="/devices/{{ e.device_id }}">{{ e.hostname or e.device_id }}</a>
+          {{ device_link(e.device_id, e.hostname or e.device_id, e.chassis_type) }}
         </td>
         <td title="{{ e.type }}">{{ e.type|format_event_type }}</td>
         <td>{{ e.summary }}</td>

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "macros/icons.html" import icon %}
-{% from "macros/ui.html" import local_time %}
+{% from "macros/ui.html" import local_time, device_link %}
 {% block title %}Обзор — bAD{% endblock %}
 {% block content %}
 <section class="overview-admin">
@@ -17,6 +17,24 @@
     <span class="mono">{{ server_current.branch or "—" }} @ {{ (server_current.sha or "")[:12] or "—" }}</span>
     {% endif %}
   </p>
+
+  {% if bootstrap_progress and not bootstrap_progress.complete %}
+  <div class="install-wizard" role="status" aria-label="Первый запуск">
+    <h2 class="install-wizard__title">Первый запуск · {{ bootstrap_progress.label }}</h2>
+    <ol class="install-wizard__steps">
+      {% for step in bootstrap_progress.steps %}
+      <li class="install-wizard__step{% if step.done %} is-done{% elif step.n == bootstrap_progress.current %} is-current{% endif %}">
+        <span class="install-wizard__n">{{ step.n }}</span>
+        {% if step.done %}
+        <span>{{ step.label }}</span>
+        {% else %}
+        <a href="{{ step.href }}">{{ step.label }}</a>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+  </div>
+  {% endif %}
 
   {% if bootstrap and bootstrap.visible %}
   <div class="bootstrap-checklist" role="status">
@@ -169,7 +187,7 @@
     <tbody>
     {% for d in ops.version_drift[:8] %}
       <tr>
-        <td><a href="/devices/{{ d.device_id }}">{{ d.hostname or d.device_id }}</a></td>
+        <td>{{ device_link(d.device_id, d.hostname or d.device_id, d.chassis_type) }}</td>
         <td class="mono">{{ d.agent_version }}</td>
         <td class="mono">{{ d.target }}</td>
         <td class="mono">{{ d.want_version }}</td>
@@ -186,7 +204,7 @@
     {% for e in stats.recent_hardware_events[:8] %}
     <li>
       {{ local_time(e.created_at, extra_class='mono muted') }}
-      · <a href="/devices/{{ e.device_id }}">{{ e.hostname or e.device_id }}</a>
+      · {{ device_link(e.device_id, e.hostname or e.device_id, e.chassis_type) }}
       · <span title="{{ e.type }}">{{ e.type|format_event_type }}</span>
       {% if e.summary %}<span class="muted">— {{ e.summary }}</span>{% endif %}
     </li>

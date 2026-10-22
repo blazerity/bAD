@@ -1,4 +1,4 @@
-{% from "macros/icons.html" import icon %}
+{% from "macros/icons.html" import icon, chassis_icon_name %}
 
 {# Копирование в буфер (пустое и «—» без кнопки). display — если показываем укороченный текст. #}
 {% macro copyable(value, display=none, class='') -%}
@@ -16,9 +16,19 @@
 {%- endmacro %}
 
 
-{% macro local_time(value, fallback='—', extra_class='') -%}
+{% macro device_link(device_id, label=none, chassis_type=none, extra_class='') -%}
+{%- set ct = chassis_icon_name(chassis_type) -%}
+{%- set title = (chassis_type or 'other')|format_chassis -%}
+<a href="/devices/{{ device_id }}" class="device-link{% if extra_class %} {{ extra_class }}{% endif %}" title="{{ title }}">
+  <span class="device-link__icon" aria-hidden="true">{{ icon(ct) }}</span>
+  <span class="device-link__label">{{ label if label is not none else device_id }}</span>
+</a>
+{%- endmacro %}
+
+
+{% macro local_time(value, fallback='—', extra_class='', mode='relative') -%}
 {%- if value -%}
-<time class="local-time{% if extra_class %} {{ extra_class }}{% endif %}" datetime="{{ value }}">{{ value }}</time>
+<time class="local-time{% if extra_class %} {{ extra_class }}{% endif %}" datetime="{{ value }}"{% if mode == 'absolute' %} data-time-mode="absolute"{% endif %}>{{ value }}</time>
 {%- else -%}
 {{ fallback }}
 {%- endif -%}

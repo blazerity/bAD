@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlencode
@@ -46,6 +47,7 @@ from .device_health import (
     effective_stale_after_seconds,
     health_snippet,
     parse_site_stale_seconds,
+    parse_utc,
 )
 from .ldap_client import settings_from_row, test_connection
 from .security import api_key_lookup, generate_token, hash_secret, verify_secret
@@ -68,6 +70,7 @@ from .http_bootstrap import HTTP_SENSITIVE_MSG, sensitive_over_http_blocked
 from .ops_panel import (
     build_attention_queue,
     build_bootstrap_checklist,
+    build_bootstrap_progress,
     build_config_winner,
     build_dashboard_stats,
     build_wave_counts,
@@ -190,6 +193,70 @@ def _format_chassis(value: object, empty: str = "") -> str:
     if not key:
         return empty
     return _CHASSIS_LABELS_RU.get(key, str(value))
+
+
+_CHASSIS_CANON = frozenset({"laptop", "desktop", "server", "vm", "other"})
+
+
+def _normalize_chassis_type(value: object) -> str:
+    if value is None:
+        return "other"
+    key = str(value).strip().lower()
+    if key in _CHASSIS_CANON:
+        return key
+    return "other"
+
+
+def _chassis_type_from_device(device: dict) -> str:
+    meta = device.get("meta") if isinstance(device.get("meta"), dict) else {}
+    return _normalize_chassis_type(meta.get("chassis_type"))
+
+
+def _device_freshness_tier(
+    last_seen_at: Optional[str], *, stale_after_seconds: int
+) -> str:
+    """UI: online | recent | stale | unknown (порог stale не меняется)."""
+    silence = device_silence_status(
+        last_seen_at, stale_after_seconds=stale_after_seconds
+    )
+    status = silence.get("status") or "unknown"
+    if status == "unknown":
+        return "unknown"
+    if status == "stale":
+        return "stale"
+    seen = parse_utc(last_seen_at)
+    if seen is None:
+        return "unknown"
+    age = max(0, int((datetime.now(timezone.utc) - seen).total_seconds()))
+    threshold = max(1, int(stale_after_seconds))
+    online_cap = min(600, max(120, threshold // 3))
+    return "online" if age <= online_cap else "recent"
+
+
+def _search_match_reason(device: dict, query: str) -> str:
+    q = (query or "").strip().casefold()
+    if not q:
+        return ""
+    host = (device.get("hostname") or "").casefold()
+    did = str(device.get("device_id") or "").casefold()
+    if q in host:
+        return "имя"
+    if q in did:
+        return "идентификатор"
+    meta = device.get("meta") if isinstance(device.get("meta"), dict) else {}
+    for label, key in (
+        ("серийный номер", "serial_number"),
+        ("UUID", "smbios_uuid"),
+        ("BIOS", "bios_serial"),
+    ):
+        val = str(meta.get(key) or "").casefold()
+        if val and q in val:
+            return label
+    return "совпадение"
+
+
+def _chassis_map_for_devices(devices: list[dict]) -> dict[str, str]:
+    return {str(d["device_id"]): _chassis_type_from_device(d) for d in devices if d.get("device_id")}
 
 
 def _format_event_type(value: object, empty: str = "") -> str:
@@ -738,6 +805,19 @@ def _overview_page_context(
         active_devices=int(stats.get("total_active") or 0),
         security=security,
     )
+    bootstrap_progress = build_bootstrap_progress(
+        user=user,
+        ops=ops,
+        active_devices=int(stats.get("total_active") or 0),
+        security=security,
+    )
+    chassis_by_id = _chassis_map_for_devices(active)
+    for d in ops.get("version_drift") or []:
+        if isinstance(d, dict):
+            d["chassis_type"] = chassis_by_id.get(str(d.get("device_id") or ""), "other")
+    for e in stats.get("recent_hardware_events") or []:
+        if isinstance(e, dict):
+            e["chassis_type"] = chassis_by_id.get(str(e.get("device_id") or ""), "other")
     attention = build_attention_queue(
         user=user,
         ops=ops,
@@ -753,6 +833,7 @@ def _overview_page_context(
         "ops": ops,
         "security": security,
         "bootstrap": bootstrap,
+        "bootstrap_progress": bootstrap_progress,
         "attention": attention,
         "stale_after_seconds": effective_stale_after_seconds(db, settings),
         "server_current": server_current,
@@ -907,6 +988,11 @@ def _enrich_device_row(device: dict, *, stale_after_seconds: int) -> dict:
     device["silence"] = device_silence_status(
         device.get("last_seen_at"),
         stale_after_seconds=stale_after_seconds,
+    )
+    device["chassis_type"] = _chassis_type_from_device(device)
+    device["chassis_label"] = _format_chassis(device["chassis_type"])
+    device["freshness"] = _device_freshness_tier(
+        device.get("last_seen_at"), stale_after_seconds=stale_after_seconds
     )
     return device
 
@@ -1074,6 +1160,11 @@ def devices_page(
             "total": total,
             "page_size": DEVICES_PAGE_SIZE,
             "export_qs": qs,
+            "park_empty": total == 0
+            and not (tag_filter or query or wave_filter or show_archive),
+            "filters_active": bool(
+                tag_filter or query or wave_filter or show_archive
+            ),
         },
     )
 
@@ -1181,6 +1272,9 @@ def devices_search_json(
                     "device_id": d["device_id"],
                     "hostname": d.get("hostname") or d["device_id"],
                     "href": f"/devices/{d['device_id']}",
+                    "chassis_type": _chassis_type_from_device(d),
+                    "chassis_label": _format_chassis(_chassis_type_from_device(d)),
+                    "match_reason": _search_match_reason(d, query),
                 }
                 for d in rows
             ]
@@ -1219,6 +1313,13 @@ def events_page(
         q=q_filter,
         importance=imp,
     )
+    chassis_by_id = _chassis_map_for_devices(db.list_devices(archived=None))
+    for e in events:
+        e["chassis_type"] = chassis_by_id.get(str(e.get("device_id") or ""), "other")
+    today_utc = datetime.now(timezone.utc).date().isoformat()
+    yesterday_utc = (
+        datetime.now(timezone.utc).date() - timedelta(days=1)
+    ).isoformat()
     return _html(
         request,
         "events.html",
@@ -1232,6 +1333,8 @@ def events_page(
             "pages": pages,
             "total": total,
             "page_size": page_size,
+            "today_utc": today_utc,
+            "yesterday_utc": yesterday_utc,
         },
     )
 
@@ -1317,12 +1420,29 @@ def _device_config_context(
             errs = payload.get("collector_errors")
             if isinstance(errs, list):
                 collector_errors = errs
+    stale_sec = effective_stale_after_seconds(db, settings)
     silence = device_silence_status(
         detail.get("last_seen_at"),
-        stale_after_seconds=effective_stale_after_seconds(db, settings),
+        stale_after_seconds=stale_sec,
+    )
+    hw_chassis = (
+        hardware_summary.get("chassis_type")
+        if isinstance(hardware_summary, dict)
+        else None
+    )
+    chassis_type = _normalize_chassis_type(
+        hw_chassis or _chassis_type_from_device(detail)
+    )
+    freshness = _device_freshness_tier(
+        detail.get("last_seen_at"), stale_after_seconds=stale_sec
     )
     recent_events = db.list_device_events(device_id=device_id, limit=20)
     duplicates = db.find_duplicate_devices(device_id)
+    dup_groups = _duplicate_groups(duplicates)
+    for g in dup_groups:
+        for d in g.get("devices") or []:
+            if isinstance(d, dict):
+                d["chassis_type"] = _chassis_type_from_device(d)
     inventory_nav = _device_inventory_nav(
         host_info=host_info,
         hardware_summary=hardware_summary,
@@ -1379,11 +1499,16 @@ def _device_config_context(
             allowed_setting_keys=allowed_keys,
         ),
         "silence": silence,
+        "freshness": freshness,
+        "chassis_type": chassis_type,
+        "chassis_label": _format_chassis(
+            chassis_type if chassis_type != "other" else ""
+        ),
         "health_snippet": health_snippet(detail.get("meta")),
         "recent_events": recent_events,
         "tags_text": ", ".join(detail.get("tags") or []),
         "duplicates": duplicates,
-        "duplicate_groups": _duplicate_groups(duplicates),
+        "duplicate_groups": dup_groups,
         "new_api_key": None,
         "msi_versions": db.list_agent_msi_versions(),
     }

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% from "macros/icons.html" import icon, silence_label, config_source_mark %}
-{% from "macros/ui.html" import copyable, local_time %}
+{% from "macros/icons.html" import icon, chassis_icon_name, freshness_label, config_source_mark %}
+{% from "macros/ui.html" import copyable, local_time, device_link %}
 {% block title %}{{ device.hostname or device.device_id }} — bAD{% endblock %}
 {% block content %}
 {% set hw = hardware_summary %}
@@ -8,7 +8,7 @@
 <section class="device-card">
   <p class="crumb"><a href="/devices">Устройства</a> / {{ device.hostname or device.device_id }}</p>
   <div class="device-title-row">
-    <h1 class="with-icon">{{ icon('host') }}{{ device.hostname or "(неизвестный узел)" }}</h1>
+    <h1 class="with-icon">{{ icon(chassis_icon_name(chassis_type)) }}{{ device.hostname or "(неизвестный узел)" }}</h1>
     {% if user.is_admin %}
     <form method="post" action="/devices/{{ device.device_id }}/request-refresh" class="device-refresh-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -16,6 +16,26 @@
     </form>
     {% endif %}
   </div>
+  {% if hw or chassis_label %}
+  <div class="device-hardware-strip" role="group" aria-label="Кратко о железе">
+    {% if chassis_label %}<span class="device-hardware-chip">{{ chassis_label }}</span>{% endif %}
+    {% if hw and hw.serial_number %}
+    <span class="device-hardware-chip"><span class="muted">Серия</span> <span class="mono">{{ hw.serial_number }}</span></span>
+    {% endif %}
+    {% if hw and (hw.manufacturer or hw.model) %}
+    <span class="device-hardware-chip"><span class="muted">Модель</span> {{ hw.manufacturer }} {{ hw.model }}</span>
+    {% endif %}
+    {% if hw and hw.ram_bytes is not none %}
+    <span class="device-hardware-chip"><span class="muted">ОЗУ</span> {{ hw.ram_bytes|format_bytes }}</span>
+    {% endif %}
+    {% if hw and hw.disks and hw.disks[0] %}
+    {% set d0 = hw.disks[0] %}
+    <span class="device-hardware-chip"><span class="muted">Диск</span> {{ d0.model or 'накопитель' }} · {{ d0.size_bytes|format_bytes }}</span>
+    {% elif hw and hw.volumes %}
+    <span class="device-hardware-chip"><span class="muted">Тома</span> {{ hw.volumes|length }}</span>
+    {% endif %}
+  </div>
+  {% endif %}
   {% if device.meta and device.meta.refresh_requested_at %}
   <p class="muted">ожидает агента…</p>
   {% endif %}
@@ -32,7 +52,7 @@
       <dt>Последний контакт</dt>
       <dd>
         {{ local_time(device.last_seen_at) }}
-        <span class="badge badge-{{ silence.status }}">{{ silence_label(silence.status) }}</span>
+        <span class="badge badge-fresh-{{ freshness or silence.status }}">{{ freshness_label(freshness or silence.status) }}</span>
         {% if host_info and host_info.pending_reboot is true %}
         <span class="badge badge-pending-reboot" title="Агент сообщает о pending reboot">ожидает перезагрузку</span>
         {% endif %}
@@ -67,7 +87,7 @@
     {% for g in duplicate_groups %}
     <p>{{ g.label }}:
       {% for d in g.devices %}
-        <a href="/devices/{{ d.device_id }}">{{ d.hostname or d.device_id }}</a>{% if not loop.last %}, {% endif %}
+        {{ device_link(d.device_id, d.hostname or d.device_id, d.chassis_type) }}{% if not loop.last %}, {% endif %}
       {% endfor %}
     </p>
     {% endfor %}
@@ -102,7 +122,7 @@
           {% set _ = match_labels.append(merge_label.get(k, k)) %}
         {% endfor %}
         <li class="dup-merge-row">
-          <a href="/devices/{{ d.device_id }}">{{ d.hostname or d.device_id }}</a>
+          {{ device_link(d.device_id, d.hostname or d.device_id, d.chassis_type) }}
           <span class="mono muted">{{ d.device_id }}</span>
           <span class="muted dup-merge-matched">совпало: {{ match_labels|join(', ') }}</span>
           <form method="post" action="/devices/{{ device.device_id }}/merge" class="dup-merge-form"
@@ -600,7 +620,7 @@
           и одновременно в политике или в панели — смотрите колонку «Панель».
         </p>
         {% endif %}
-        <div class="table-scroll">
+        <div class="table-scroll config-provenance-table">
         <table class="devices config-winner">
           <thead>
             <tr><th>Параметр</th><th>Итоговое значение</th><th>С сервера</th><th>Панель</th></tr>
