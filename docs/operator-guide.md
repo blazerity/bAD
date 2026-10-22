@@ -1,6 +1,15 @@
 # Операторский гайд — bAD
 
-Путь end-to-end: установить сервер → поставить Windows MSI агента → увидеть устройство в web UI.
+**blazerity Asset Discovery** — учёт Windows-компьютеров: агент на ПК, сервер и панель у вас в сети.
+
+| Что | Где смотреть версию |
+|-----|---------------------|
+| **Сервер** (панель, API) | `1.5.3` — файл `VERSION`, `GET /v1/health`, подвал панели |
+| **Агент** (MSI на ПК) | `1.1.0` — `agent/VERSION`, поле `agent_version` в карточке |
+
+Номера **не связаны**: обновление панели и обновление агента — разные процедуры (см. §4 и §5).
+
+Путь целиком: установить сервер → включить HTTPS → выдать enrollment-токен → поставить MSI на ПК → увидеть устройство в панели.
 
 ### Стабильность боя (обязательно)
 
@@ -8,13 +17,13 @@
 |---|---------|--------|
 | 1 | **Cert из панели — канон** | Install **без** `BAD_TLS_CERT`/`BAD_TLS_KEY` → HTTP bootstrap → загрузка PEM в **Параметры → Сертификат**. Cert при install — только shortcut, не обязанность. |
 | 2 | **Дамп / daily backup БД ≠ ключи** | `pg_dump` **не** содержит `/etc/bad/data_key` и `session_secret`. Для DR — site bundle или отдельный escrow ключей. |
-| 3 | **После волны MSI — ротация enrollment** | Сменить site token **обязательно** ([runbook](#ротация-enrollment-token-после-волны-msi)); обновить Intune/GPO; не шарить msiexec-логи. |
+| 3 | **После массовой установки агентов** | Сменить enrollment-токен **обязательно** ([инструкция](#ротация-enrollment-token-после-массовой-установки-msi)); обновить Intune/GPO; не пересылать логи `msiexec`. |
 
 БД: **только Postgres** (`BAD_DATABASE_URL` в `site.env`). HA / ACME — вне scope. Ключи всегда в `/etc/bad/*`, вне БД.
 
 ## 1. Сервер (Debian 12)
 
-**Канон (panel-first):** install без TLS-файлов → cert в UI. `BAD_TLS_*` при install — shortcut, не обязанность.
+**Рекомендуемый путь:** установка без готовых TLS-файлов → сначала HTTP в доверенной сети → загрузка сертификата в панели → HTTPS. Передать `BAD_TLS_*` при install можно, если сертификат уже на диске.
 
 ### БД: Postgres
 
@@ -34,9 +43,9 @@
 5. nginx  
 6. Готово → **памятка** «что дальше»
 
-Полный текст памятки — в хвосте install (не дублируем здесь). Дальше — чеклист bootstrap и [ротация](#ротация-enrollment-token-после-волны-msi).
+Полный текст памятки — в хвосте install (не дублируем здесь). Дальше — чеклист bootstrap и [ротация](#ротация-enrollment-token-после-массовой-установки-msi).
 
-### Install без cert → загрузка в панели (канон)
+### Install без cert → загрузка в панели (основной путь)
 
 `BAD_TLS_CERT` / `BAD_TLS_KEY` **не обязательны**. Без них nginx — HTTP-only (:80), без HSTS и без 301 на HTTPS, пока не появится managed cert. Enter на prompt install = «позже из UI».
 
@@ -52,8 +61,8 @@ BAD_DOMAIN=bad.example.com \
 2. Войдите `admin` / `admin`, **сразу смените пароль**.
 3. Загрузите cert+key: [§ Сертификат из панели](#сертификат-tls-из-панели) → «Установить и перезагрузить nginx».
 4. Откройте **`https://…`**, **войдите заново**.
-5. Только потом — enrollment / волна MSI (`https://…` в `SERVERURL`).
-6. После волны — [ротация enrollment](#ротация-enrollment-token-после-волны-msi) (**обязательно**).
+5. Только потом — установка агентов (MSI), в `SERVERURL` только `https://…`.
+6. После массовой установки — [смена enrollment-токена](#ротация-enrollment-token-после-массовой-установки-msi) (**обязательно**).
 
 ### Install сразу с TLS (shortcut)
 
@@ -80,7 +89,7 @@ BAD_TLS_KEY=/etc/ssl/private/bad.privkey.pem \
 | 4 | Открыть **`https://…`**, **войти заново**. | ☐ |
 | 5 | **Не** ставить MSI / агентов, пока режим «HTTP bootstrap». | ☐ |
 | 6 | **Не** по HTTP: site-bundle, LDAP/SMTP с боевыми паролями, ротация enrollment «впрок», массовый enroll. | ☐ |
-| 7 | После волны MSI — [ротация enrollment](#ротация-enrollment-token-после-волны-msi). | ☐ |
+| 7 | После массовой установки MSI — [смена enrollment-токена](#ротация-enrollment-token-после-массовой-установки-msi). | ☐ |
 
 Проверка health:
 
@@ -172,13 +181,13 @@ msiexec /i bad-agent-<версия из agent/VERSION>.msi `
   /qn
 ```
 
-**Enrollment token (SEC-011):** deferred custom action читает token из HKLM `SOFTWARE\blazerity\bAD\Setup` и сразу удаляет ключ — **не** из argv PowerShell. Residual risk: родительский `msiexec … ENROLLMENTTOKEN=` (process command line) и verbose/`msiexec` логи / transcript’ы деплоя. Не пересылайте их. После волны установки **ротируйте** enrollment token (runbook ниже). Property `Hidden=yes` снижает утечку в UI MSI, но не убирает exposure в командной строке родителя. Подробнее: `installer/msi/README.md`.
+**Enrollment-токен и логи:** установщик старается не светить токен в скриптах MSI, но он всё равно может попасть в **командную строку** `msiexec … ENROLLMENTTOKEN=…` и в **verbose-логи** установки. Не пересылайте такие логи в чаты и тикеты. После массовой установки **обязательно смените** enrollment-токен в панели (ниже). Подробности: `installer/msi/README.md`.
 
 **Если установка падает до появления логов агента** (пустой `%ProgramData%\blazerity\bAD\logs`, диалог MSI 1722): смотрите `%ProgramData%\blazerity\bAD\logs\msi-install.log` / `msi-ca-error.txt` (коды `BAD_MSI_###`) и `%TEMP%\MSI*.log`. Подробности: `installer/msi/README.md` → «Логи установки».
 
-Служба `BlazerityAssetDiscovery` стартует автоматически, один раз enroll'ится, сохраняет API key в `%ProgramData%\blazerity\bAD\config.json` и шлёт inventory при старте (далее каждые 6 часов), heartbeat каждые 15 минут. Также спрашивает сервер про MSI-обновления (никогда не GitHub напрямую).
+Служба `BlazerityAssetDiscovery` стартует автоматически, один раз регистрируется на сервере, сохраняет API-ключ в `%ProgramData%\blazerity\bAD\config.json`, шлёт полный снимок при старте (далее по расписанию, по умолчанию каждые 6 ч), heartbeat каждые 15 мин. **Обновления MSI:** проверка при старте службы и далее по расписанию (по умолчанию раз в 24 ч); скачивание только с **вашего** сервера, не с GitHub. Целевую версию задают политики (`update_target`: «последняя» или закреплённая).
 
-**Локальный CLI** (сервер не нужен): обычный пользователь — только отчёт `bad` (ASCII) и `bad -r` (HTML); `bad -h` — справка. Настройка — **от имени администратора**: `bad -c`, `bad config set` / `unset`. На карточке устройства метка **«задано на агенте»** = knobs с машины (`agent_local`), не политика и не server override. Service CLI: `BadAgent.exe service status|start|stop|restart` (elevated). См. [agents.md](./agents.md).
+**Локальный CLI** (сервер не нужен): обычный пользователь — только отчёт `bad` (ASCII) и `bad -r` (HTML); `bad -h` — справка. Настройка — **от имени администратора**: `bad -c`, `bad config set` / `unset`. На карточке устройства метка **«задано на агенте»** — параметр задан локально на ПК (через `bad -c`), а не политикой сервера. Service CLI: `BadAgent.exe service status|start|stop|restart` (elevated). См. [agents.md](./agents.md).
 
 ### Переустановка ОС (reimage)
 
@@ -192,9 +201,9 @@ msiexec /i bad-agent-<версия из agent/VERSION>.msi `
 
 **Не** дают кнопку merge: совпадение только по **hostname** или только по **диску**. Пустые / OEM-заглушки не считаются. Ошибка без identity-match: нужен серийник корпуса, SMBIOS UUID или два из BIOS / IdentifyingNumber / платы. Не склеивайте два свежих online. Апгрейд MSI **без** reimage ProgramData сохраняет — повторный enroll не нужен (см. [Заметки](#заметки)).
 
-### Ротация enrollment token (после волны MSI)
+### Ротация enrollment token (после массовой установки MSI)
 
-**Обязательно** после массовой установки MSI (и если token мог утечь: логи в тикет, скрипт деплоя в общем репо). Пока site token жив, им можно enroll’ить новых агентов; residual `msiexec … ENROLLMENTTOKEN=` / verbose-логи ротацией **прошлого** не стираются — она закрывает **дальнейший** enroll старым token.
+**Обязательно** после того, как MSI поставили на много ПК (и если токен мог утечь — лог установки, общий скрипт в репозитории). Пока старый токен действует, с его помощью можно зарегистрировать **новые** машины. Смена токена не «отзывает» уже выданные ключи агентов — она закрывает только **дальнейшую** регистрацию по старому токену.
 
 Уже зарегистрированные устройства **не** переустанавливать: у них API key в ProgramData. Ротацию и показ нового token делайте **по HTTPS** (после cert из панели).
 
@@ -207,11 +216,13 @@ msiexec /i bad-agent-<версия из agent/VERSION>.msi `
 5. Скопируйте **новый** token (показать один раз) в сейф. На той же странице — готовая команда **msiexec** (`SERVERURL`, `ENROLLMENTTOKEN`, по умолчанию `ADDPATH=1`); кнопка **«Копировать команду»**. Restart `bad-api` не нужен.
 6. Обновите Intune / GPO этой командой (или вручную с новым `ENROLLMENTTOKEN=…`). Не шарьте `/l*v` и transcript’ы деплоя.
 
-Автоматизация: `POST /v1/admin/enrollment/rotate` (admin Bearer) — plaintext один раз. Форма: `POST /settings/enrollment/rotate` (CSRF).
+Автоматизация: `POST /v1/admin/enrollment/rotate` с admin-токеном (см. [api-v1.md](api-v1.md)) — новый токен в ответе **один раз**. Из панели: кнопка на той же странице (с защитой от подделки формы).
 
-**После ротации:** старый Bearer → 401 на `/v1/enroll`; агенты с api_key продолжают работу. Revoke/rotate **API key** устройства — отдельная операция. Машина, не успевшая enroll со старым token, — MSI заново с новым `ENROLLMENTTOKEN`.
+**После смены:** регистрация со старым токеном перестаёт работать (`401` на `/v1/enroll`); уже работающие агенты **не** трогаются. Отзыв или смена **API-ключа одного устройства** — отдельные действия на карточке. ПК, который не успел зарегистрироваться, — переустановите MSI с новым `ENROLLMENTTOKEN`.
 
 ## 3. Проверка в web UI
+
+Страницы **Обзор**, **Дашборд** и **Устройства** открываются быстрее, чем в ранних версиях: сервер один раз собирает сводку по парку вместо многократных запросов к БД (детали — для разработчиков в [architecture.md](architecture.md)).
 
 1. Откройте `https://bad.example.com/devices` (после входа)
 2. Найдите hostname (badge здоровья: **OK**, если last seen в пределах stale-порога, иначе **stale**)
@@ -222,7 +233,7 @@ msiexec /i bad-agent-<версия из agent/VERSION>.msi `
 
 В панели и в локальных отчётах агента (`bad`, `bad -r`) даты/время — **местные**, вид **ЧЧ:ММ:СС ДД.ММ.ГГГГ**. В API и БД по-прежнему UTC (ISO).
 
-Daily DB backup **не** содержит master-ключи — см. [§ backup](#6-site-backup--restore). Порог **«устарел»** настраивается в панели: **Параметры → Хранение и очистка** (минуты без связи); если не задано — запасной вариант env `BAD_DEVICE_STALE_AFTER_SECONDS` (по умолчанию 1 ч). ≈2× heartbeat при необходимости. Semver: **сервер** (`VERSION` / health) и **агент** (MSI / `agent_version`) — разные линии; см. [guideline](guideline.md#версионирование-две-линии).
+Ежедневный дамп БД **не** содержит ключи шифрования — см. [§ backup](#6-site-backup--restore). Порог **«устарел»** (нет связи дольше N минут): **Параметры → Хранение и очистка**; если в панели не задано — запасной вариант переменная `BAD_DEVICE_STALE_AFTER_SECONDS` на сервере (по умолчанию 3600 с ≈ 1 ч). Имеет смысл ставить примерно в 2 раза больше интервала heartbeat агента (15 мин по умолчанию). Две линии версий — см. [guideline](guideline.md#версионирование-две-линии).
 
 Альтернатива (автоматизация — admin API token):
 
@@ -267,7 +278,7 @@ Apply идёт через systemd helper (`bad-server-update-apply.path` → `ba
 
 ## 5. Обновления агента: upload MSI и выбор версии
 
-Страница: **Параметры → Обновления агента** (`/settings/updates`). Каталог на диске: `BAD_AGENT_UPDATES_DIR/{version}/bad-agent-{version}.msi` (+ `agent-release.json`) — semver **агента** (`agent/VERSION` / tags `agent-v*`), не server `VERSION`. Агенты качают только с этого сервера; цель — knob `update_target` в политиках.
+Страница: **Параметры → Обновления агента** (`/settings/updates`). На диске сервера лежат файлы вида `…/agent-updates/{версия}/bad-agent-{версия}.msi` (версия **агента**, не сервера). Компьютеры **никогда** не качают MSI с GitHub — только с вашего сервера. Какую версию ставить, задаёт политика: параметр **`update_target`** («последняя в зеркале» или закреплённая `X.Y.Z`).
 
 ### Загрузить MSI (air-gap)
 
@@ -330,7 +341,7 @@ sudo bash deploy/debian/restore-site-bundle.sh /path/to/bad-site-bundle-….tar.
 
 ## API / интеграция
 
-Внешние системы (в т.ч. **1C Itilium**) читают данные bAD по HTTP JSON API `/v1` с **admin Bearer** — не через cookie web UI и не через agent API key.
+Внешние системы (в т.ч. **1C Itilium**) читают данные bAD по HTTP JSON API `/v1` с **admin-токеном** в заголовке `Authorization` — не через cookie входа в браузер и не через ключ агента.
 
 Полный интеграционный гайд (base URL, auth, какие эндпоинты для 1C / какие только для агента, пагинация, ошибки, примеры curl, политика additive freeze): **[api-v1.md](api-v1.md)**.
 
@@ -360,10 +371,11 @@ Panel-first: до cert UI на HTTP (`BAD_COOKIE_SECURE=auto`). После apply
 
 ### Enrollment token (SEC-011)
 
-После волны MSI ротация **обязательна**. Не шарьте msiexec-логи / transcript’ы. Residual cmdline родителя ротацией не исчезает — см. [runbook](#ротация-enrollment-token-после-волны-msi).
+После массовой установки MSI смена enrollment-токена **обязательна**. Не пересылайте логи `msiexec`. Командная строка установки от этого не очищается — см. [инструкцию](#ротация-enrollment-token-после-массовой-установки-msi).
 
 ## Заметки
 
+- Кратко о возможностях **1.5.3 / агент 1.1.0**: [release-notes-1.5.3.md](release-notes-1.5.3.md).
 - Апгрейд MSI сохраняет ProgramData (API key); повторный enroll не нужен.
 - Не кладите enrollment или admin tokens в world-readable файлы.
 - Локальные демо без TLS: uvicorn на Linux (`server/README.md`) и тестовый агент с `BAD_ALLOW_HTTP=1` на `http://127.0.0.1:8000` — только lab.

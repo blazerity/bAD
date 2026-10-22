@@ -28,7 +28,7 @@
 - На сервере: hash секретов (argon2); site.env `640` root:bad; каталог бэкапов — как секреты (`700` / файлы `600`).
 - **SEC-005:** keys в `/etc/bad/data_key` + `session_secret`; **dump/daily DB ≠ ключи** (`pg_dump -Fc`). Site bundle = `bad.dump`+keys; key escrow отдельно. Legacy keys в `site_secrets` → dump = компромисс. [operator-guide.md](operator-guide.md#безопасность-для-операторов).
 - **БД:** только Postgres через `BAD_DATABASE_URL` (без URL API не стартует). Local PG при install — localhost. HA/ACME — не обещать.
-- **SEC-011:** MSI write-config не кладёт token в argv PowerShell (HKLM Setup); residual — `msiexec … ENROLLMENTTOKEN=` / verbose logs — не пересылать; **после волны MSI ротация enrollment обязательна** (runbook: [operator-guide.md](operator-guide.md#ротация-enrollment-token-после-волны-msi)).
+- **SEC-011:** MSI write-config не кладёт token в argv PowerShell (HKLM Setup); residual — `msiexec … ENROLLMENTTOKEN=` / verbose logs — не пересылать; **после массовой установки MSI смена enrollment-токена обязательна** ([operator-guide.md](operator-guide.md#ротация-enrollment-token-после-массовой-установки-msi)).
 - **SEC-003:** LDAP TLS — по умолчанию `CERT_REQUIRED`; lab opt-in `tls_insecure` только для лаборатории, не для боя.
 - После install **сразу** сменить `admin`/`admin` (`/account/password`); до смены UI пускает только `/account/password` и `/logout` (навигация скрыта).
 - Cookie `bad_session`: `BAD_COOKIE_SECURE=auto`; **инвариант panel-first:** cert из UI (`/settings/tls`) — канон; `BAD_TLS_*` при install опциональны; агенты только HTTPS (кроме lab). Risk HTTP-окна **Medium** при runbook ([чеклист](operator-guide.md#чеклист-окна-http-bootstrap)). ACME не обещать.
@@ -67,8 +67,8 @@
    (переходно ещё принимают голый `v*` = agent, пока CI на `v*`.)
 3. Workflow **`release-msi`** (`windows-latest`): publish agent → WiX v5 → GitHub Release assets `bad-agent-<версия из agent/VERSION>.msi` + `agent-release.json`. Semver: input `version` > tag > `agent/VERSION`; **не** читать server `VERSION`.
 4. Права: `contents: write`. Для public repo достаточно `GITHUB_TOKEN`. Private / panel — `BAD_GITHUB_TOKEN` на сервере.
-5. На сервере: background sync, `POST /v1/admin/agent-update/sync`, или кнопка MSI в панели (agent semver).
-6. Агенты подтянут на check (старт / раз в сутки) или после `BadAgent.exe service restart`.
+5. На сервере: фоновая синхронизация, `POST /v1/admin/agent-update/sync`, загрузка MSI в панели или кнопка сборки на GitHub — файл попадает в **зеркало на сервере**.
+6. Агенты на ПК проверяют зеркало при старте службы и по расписанию (по умолчанию раз в 24 ч), либо после `BadAgent.exe service restart`.
 
 **Не обещать**: что MSI уже собирается в Linux CI — нет. Server-tag **`server-v*`** MSI не публикует.
 
@@ -102,7 +102,7 @@ BAD_BACKUP_DIR=/var/lib/bad/backups
 - **Параметры** `/settings/*` — оболочка в духе «Параметры Windows 11» (левый список с иконками):
   - Доступ / LDAP (`allowed_group` = sAMAccountName группы AD)
   - Почта и уведомления (SMTP + чекбоксы событий; без webhooks)
-  - Хранение и очистка (retention days + фоновый prune)
+  - Хранение и очистка (сроки хранения событий/снимков, порог **«устарел»** в минутах, фоновый prune)
   - Резервные копии (daily `pg_dump -Fc` + **Скачать site bundle**; restore `restore-site-bundle.sh`)
   - Политики агента (`update_target`: latest / pin)
   - **Обновление сервера** (`/settings/server-update`): ветка default `main`, check/apply/rollback ≤3 (branch+sha), token без plaintext; apply через systemd helper (не sudo-password); MSI `workflow_dispatch` отдельно от зеркала агента — [operator-guide](operator-guide.md#4-обновление-сервера-из-github)

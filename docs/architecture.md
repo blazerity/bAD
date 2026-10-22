@@ -1,6 +1,6 @@
 # Архитектура bAD
 
-**blazerity Asset Discovery** — Windows-агент инвентаризации и on-prem сервер накопления снимков. Документ описывает фактическую архитектуру репозитория. Semver: **две линии** — сервер (`VERSION`) и агент (`agent/VERSION`); panel server-update ≠ MSI.
+**blazerity Asset Discovery** — Windows-агент инвентаризации и on-prem сервер накопления снимков. Документ описывает фактическую архитектуру репозитория. **Две независимые версии:** сервер (`VERSION`, сейчас 1.5.3) и агент (`agent/VERSION`, сейчас 1.1.0). Обновление панели с GitHub ≠ зеркало MSI агента.
 
 - **Инвариант:** HTTP bootstrap = **только временный UI-режим** (доверенная сеть → смена пароля → upload cert → HTTPS). Агенты всегда HTTPS (кроме lab `BAD_ALLOW_HTTP=1`). Risk rating bootstrap: **Medium** при runbook; **High** на публичном `:80` до cert — не Critical defect.
 - **ACME / Let’s Encrypt:** вне scope 1.0; не обещать без решения владельца.
@@ -246,7 +246,7 @@ flowchart LR
 
 Пока код не введён — клиенты не должны полагаться на серверный 403; полагаться на HTTPS URL + клиентский reject. После merge Server Lead — убрать пометку TODO и сверить `detail` с реализацией.
 
-**`POST /v1/admin/enrollment/rotate`.** Ответ содержит plaintext нового token один раз. Вызывать **только по HTTPS** (или localhost/trusted tunnel в lab); **не** по cleartext HTTP bootstrap и не через незащищённые каналы. Не логировать тело ответа (`token`) в access/app logs, shell history, CI. Runbook: [operator-guide.md](operator-guide.md#ротация-enrollment-token-после-волны-msi).
+**`POST /v1/admin/enrollment/rotate`.** Ответ содержит plaintext нового token один раз. Вызывать **только по HTTPS** (или localhost/trusted tunnel в lab); **не** по cleartext HTTP bootstrap и не через незащищённые каналы. Не логировать тело ответа (`token`) в access/app logs, shell history, CI. Runbook: [operator-guide.md](operator-guide.md#ротация-enrollment-token-после-массовой-установки-msi).
 
 ### TLS и nginx
 
@@ -267,8 +267,8 @@ flowchart LR
 
 | Path | Назначение |
 |------|------------|
-| `/`, `/overview` | обзор: totals, версии агента, hardware events; ops: empty mirror, version drift, broken pin, revoked active. Один fleet snapshot с `/dashboard` |
-| `/dashboard` | агрегаты парка (те же active/stats/ops, что Обзор) |
+| `/`, `/overview` | обзор: счётчики, версии агента, события железа; сигналы для оператора (пустое зеркало, отставание версий, битый pin, отозванные). Сводка по парку **общая** с `/dashboard` (один запрос к БД) |
+| `/dashboard` | дашборд: те же агрегаты и ops-сигналы, что на Обзоре |
 | `/login` | username/password (local, затем LDAP если включён) |
 | `/logout` | сброс cookie сессии |
 | `/devices`, `/devices/{id}` | список (поиск/архив/страницы/CSV); карточка — revoke/rotate, архив, delete, дубли, tags, override, hardware summary; копирование серийников / IPv4 / MAC |
@@ -279,7 +279,7 @@ flowchart LR
 | `/settings/ldap` | LDAP + группа доступа AD |
 | `/settings/tls` | nav **Сертификат**; статус HTTP/HTTPS; upload PEM cert+key[+chain] → nginx reload (key не в HTML) |
 | `/settings/mail` | SMTP + получатели + toggles уведомлений |
-| `/settings/retention` | сроки хранения events/inventory |
+| `/settings/retention` | сроки хранения events/inventory; порог **«устарел»** (минуты); запасной вариант — env `BAD_DEVICE_STALE_AFTER_SECONDS` |
 | `/settings/backups` | daily `pg_dump -Fc` + **Скачать site bundle** (`GET …/site-bundle`) |
 | `/settings/policies` | CRUD; knob `update_target` = `latest` \| pin semver |
 | `/settings/updates` | каталог MSI, upload air-gap, sync, Latest/Удалить; секция **Enrollment token** + `POST /settings/enrollment/rotate` |
@@ -328,7 +328,7 @@ flowchart LR
 - В проде — только за TLS (nginx); cookie должен быть `Secure` за HTTPS. Не публиковать uvicorn на внешний интерфейс.
 
 - На `/devices` дополнительно показывается mirrored agent MSI version (из `agent_update`).
-- Silence/health: badge **OK** / **stale** если `last_seen_at` старше `BAD_DEVICE_STALE_AFTER_SECONDS` (default 3600 ≈ 1h; можно выставить ~2× heartbeat). На карточке устройства — last seen + опциональный health snippet из `meta` (`health` / `last_health`, если агент их пришлёт).
+- Статус связи: badge **OK** / **устарел (stale)** если `last_seen_at` старше порога из **Параметры → Хранение и очистка** (или env, default 3600 с). На карточке — last seen + опциональный health из `meta`.
 
 ### События inventory
 
@@ -346,7 +346,7 @@ flowchart LR
 2. MSI/config передаёт `SERVERURL` + `ENROLLMENTTOKEN` (**SEC-011:** deferred CA читает token из HKLM Setup, не из argv PowerShell; residual — родительский `msiexec … ENROLLMENTTOKEN=` / verbose logs — не шарить).
 3. Агент `POST /v1/enroll` → получает `api_key`, сохраняет в ProgramData, затирает enrollment token.
 4. Повторные запуски используют API key; upsert по стабильному `device_id`.
-5. **Ротация enrollment:** UI на `/settings/updates` → **Сменить enrollment token** (`POST /settings/enrollment/rotate` + admin API `POST /v1/admin/enrollment/rotate`); hash в БД сразу, restart не нужен. После смены — одноразовый plaintext token и готовая команда **msiexec** (`SERVERURL`, `ENROLLMENTTOKEN`, `ADDPATH=1`) для копирования в GPO/Intune. Plaintext — только по защищённому каналу (не HTTP bootstrap). Runbook: [operator-guide.md](operator-guide.md#ротация-enrollment-token-после-волны-msi).
+5. **Ротация enrollment:** UI на `/settings/updates` → **Сменить enrollment token** (`POST /settings/enrollment/rotate` + admin API `POST /v1/admin/enrollment/rotate`); hash в БД сразу, restart не нужен. После смены — одноразовый plaintext token и готовая команда **msiexec** (`SERVERURL`, `ENROLLMENTTOKEN`, `ADDPATH=1`) для копирования в GPO/Intune. Plaintext — только по защищённому каналу (не HTTP bootstrap). Runbook: [operator-guide.md](operator-guide.md#ротация-enrollment-token-после-массовой-установки-msi).
 6. **Multi-version MSI:** `agent_msi_versions` + latest; upload/sync/set-latest/delete; `update_target`; check → target в т.ч. downgrade. Оператор: [operator-guide.md](operator-guide.md#4-обновления-агента-upload-msi-и-выбор-версии).
 7. **Site bundle:** `GET /settings/backups/site-bundle`; restore: `deploy/debian/restore-site-bundle.sh`. Daily dump без keys.
 

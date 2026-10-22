@@ -1,26 +1,34 @@
 # bAD — blazerity Asset Discovery
 
-Лёгкий Windows-агент инвентаризации + on-prem сервер накопления снимков.
+Лёгкий Windows-агент инвентаризации и сервер с веб-панелью у вас в сети (on-prem).
+
+| Компонент | Версия (сейчас) | Стек |
+|-----------|-----------------|------|
+| Сервер | **1.5.3** (`VERSION`) | Python 3.11+ FastAPI, Postgres, nginx |
+| Агент | **1.1.0** (`agent/VERSION`) | .NET 8, служба Windows, WiX MSI |
 
 | Компонент | Стек |
 |-----------|------|
-| Агент | .NET 8 Worker Service (служба Windows), WiX MSI |
-| Сервер | Python 3.11+ FastAPI + Postgres, uvicorn за nginx TLS |
-| Deploy | `deploy/debian/install.sh` — установка одной командой на Debian 12 |
+| Deploy | `deploy/debian/install.sh` — установка на Debian 12 |
+
+## С чего начать
+
+**Оператору** (установка сервера, HTTPS, агенты, обновления): **[docs/operator-guide.md](docs/operator-guide.md)**.
+
+**Разработчику** (локальный запуск, тесты): разделы ниже и [docs/agents.md](docs/agents.md).
 
 ## Структура репозитория
 
 ```
-agent/            # C# Worker Service + service CLI
-server/           # FastAPI app, web UI, зеркало обновлений агента
-installer/msi/    # исходники WiX (MSI собирается на Windows / GHA release-msi)
-deploy/debian/    # install.sh, systemd, шаблон nginx
-docs/             # архитектура, гайдлайны, заметки по агенту, операторский гайд
-VERSION           # semver сервера — см. файл VERSION (не путать с agent/VERSION)
-.github/workflows # ci.yml (Linux build/import) + release-msi.yml (Windows, теги)
+agent/            # служба Windows + CLI bad
+server/           # API, панель, зеркало MSI агента
+installer/msi/    # WiX (сборка MSI на Windows / GitHub Actions)
+deploy/debian/    # install.sh, systemd, nginx
+docs/             # гайды и архитектура
+VERSION           # версия сервера (не путать с agent/VERSION)
 ```
 
-## Быстрый старт (сервер на Linux)
+## Быстрый старт (сервер, разработка)
 
 ```bash
 cd server
@@ -34,59 +42,42 @@ export BAD_ADMIN_TOKEN=dev-admin-token-change-me-please-32bytes
 uvicorn bad_server.app:app --host 127.0.0.1 --port 8000
 ```
 
-- API health: http://127.0.0.1:8000/v1/health  
-- Web UI: http://127.0.0.1:8000/login (по умолчанию `admin` / `admin` при первом запуске — смените)  
+- Health: http://127.0.0.1:8000/v1/health  
+- Панель: http://127.0.0.1:8000/login (`admin` / `admin` при первом запуске — **смените**)  
 - Устройства: http://127.0.0.1:8000/devices  
-- LDAP (admin): http://127.0.0.1:8000/settings/ldap  
 
-Локальные тесты (если есть untracked дерево `server/tests/`):
+Локальные тесты (если есть untracked `server/tests/`): `pytest -q`
 
-```bash
-pytest -q
-```
-
-## Агент (dev)
+## Агент (разработка)
 
 ```bash
 cd agent
 dotnet build BadAgent.sln -c Release
-# Локальные тесты (untracked agent/tests/): dotnet test tests/BadAgent.Tests -c Release
 
-# server_url — https:// (prod). Cleartext http:// только lab + BAD_ALLOW_HTTP=1.
 export BAD_CONFIG_DIR=/tmp/bad-agent-config
 export BAD_SERVER_URL=https://bad.example.com
 export BAD_ENROLLMENT_TOKEN=dev-enrollment-token-change-me-please-32b
 dotnet run --project src/BadAgent -c Release
 ```
 
-На Windows установка службы через MSI (`installer/msi/`) с public properties `SERVERURL` (`https://…`) и `ENROLLMENTTOKEN`.
+В проде на Windows — только **MSI** с `SERVERURL=https://…` и `ENROLLMENTTOKEN=…`. Каталог с `bad` по умолчанию попадает в PATH (`ADDPATH=1`; отключить: `ADDPATH=0`). См. [installer/msi/README.md](installer/msi/README.md).
 
-Локальный CLI (консоль): `bad` — ASCII; `bad -r` — HTML; `bad -c` — интерактивная настройка; `bad -h` — справка; `bad config` — просмотр (без секретов).
-
-Управление службой (elevated):
+**CLI на ПК:** любой пользователь — `bad` (текст) и `bad -r` (HTML); настройка — **от администратора**: `bad -c`, `bad config set` / `unset`.
 
 ```powershell
-BadAgent.exe service status|start|stop|restart
+BadAgent.exe service status|start|stop|restart   # от администратора
 ```
 
-Self-update: агенты опрашивают **сервер** (не GitHub) на наличие более нового зеркалированного MSI; см. [docs/architecture.md](docs/architecture.md).
-
-## Релизы (агент MSI)
-
-Тег `agent-v<версия из [agent/VERSION](agent/VERSION)>` (или ручной `release-msi`) → Windows GHA собирает MSI + `agent-release.json` → GitHub Release → sync на сервере → апгрейд агентов. Linux CI MSI **не** собирает. Подробности: [docs/guideline.md](docs/guideline.md).
+Обновления агента: новый MSI публикуется в релизе на GitHub → сервер **сам** скачивает его в зеркало → ПК обновляются **с вашего сервера**, не с GitHub. Подробно: [operator-guide §5](docs/operator-guide.md#5-обновления-агента-upload-msi-и-выбор-версии).
 
 ## Документация
 
-| Документ | Описание |
+| Документ | Для кого |
 |----------|----------|
-| [docs/api-v1.md](docs/api-v1.md) | Интеграционный гайд `/v1` (1C Itilium, admin Bearer, inventory) |
-| [docs/release-notes-1.0.0.md](docs/release-notes-1.0.0.md) | Релизные заметки **1.0.0** |
-| [docs/release-notes-1.0.1.md](docs/release-notes-1.0.1.md) | Релизные заметки **1.0.1** |
-| [docs/architecture.md](docs/architecture.md) | Архитектура + web LDAP auth + pipeline обновления агента |
-| [docs/guideline.md](docs/guideline.md) | Инженерные правила + как релизить MSI |
-| [docs/agents.md](docs/agents.md) | Агент, service CLI, version bump, LDAP/web auth map, инварианты |
-| [docs/operator-guide.md](docs/operator-guide.md) | Операторский путь: Debian install → MSI → web UI |
-
-## Путь оператора
-
-См. [docs/operator-guide.md](docs/operator-guide.md): установка на Debian одной командой → MSI → устройство появляется в HTTPS web UI.
+| [docs/operator-guide.md](docs/operator-guide.md) | установка и сопровождение |
+| [docs/guideline.md](docs/guideline.md) | правила разработки и релиз MSI |
+| [docs/architecture.md](docs/architecture.md) | устройство системы |
+| [docs/api-v1.md](docs/api-v1.md) | интеграция (1C Itilium и др.) |
+| [docs/agents.md](docs/agents.md) | карта репозитория для разработки |
+| [docs/release-notes-1.5.3.md](docs/release-notes-1.5.3.md) | кратко о сервере 1.5.3 |
+| [docs/release-notes-1.0.0.md](docs/release-notes-1.0.0.md) · [1.0.1](docs/release-notes-1.0.1.md) | ранние релизы |

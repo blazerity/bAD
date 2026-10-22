@@ -28,7 +28,7 @@ cd server
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-export BAD_DB_PATH=./data/bad.db
+export BAD_DATABASE_URL=postgresql://bad:bad@127.0.0.1:5432/bad
 export BAD_ENROLLMENT_TOKEN=dev-enrollment-token-change-me-please-32b
 export BAD_ADMIN_TOKEN=dev-admin-token-change-me-please-32bytes
 # optional: disable GitHub sync noise in local/dev
@@ -46,7 +46,7 @@ uvicorn bad_server.app:app --host 127.0.0.1 --port 8000
 
 ## Обзор, поиск, события
 
-Обзор `/` и Дашборд `/dashboard` берут один fleet snapshot (`web._fleet_snapshot` → `db.list_fleet_active_archived`): active/archived, stats и ops без второго обхода. Drift (`ops_update_signals`) считает target по `meta` устройства и batch override (`list_device_config_overrides_map`), без `get_device_detail` на каждое устройство. `POST /v1/inventory` пишет в `devices.meta` кэш `domain`, `hardware_manufacturer`, `hardware_model` — фасеты Дашборда читают meta, не последний snapshot.
+Обзор `/` и Дашборд `/dashboard` используют одну сводку по парку (`web._fleet_snapshot` → `db.list_fleet_active_archived`): active/archived, stats и ops-блок без повторного полного обхода устройств. Сигналы «отстают от целевой версии» считаются по `meta` и batch override, без `get_device_detail` на каждую строку. `POST /v1/inventory` кэширует в `devices.meta` поля `domain`, `hardware_manufacturer`, `hardware_model` — фильтры дашборда читают meta, не полный snapshot.
 
 Live-поиск: `static/panel-search.js` (debounce) → `GET /devices/search.json?q=` (сессия web, не admin Bearer; до 50). Важность события — по типу в `event_importance.py` (не колонка БД). UI `/events` и `GET /v1/events` принимают `q` (summary / type / hostname / device_id) и `importance`: `medium`|`high`|`critical` = не ниже порога, `all` = все, пусто = medium и выше (low скрыт).
 
@@ -162,7 +162,7 @@ Heartbeat health (опционально → meta устройства): `last_i
 
 - Каталог `agent_msi_versions` + UI заливка MSI; GitHub sync сохраняется.
 - Remote-config: `update_target` = `latest` | semver из зеркала (резолв на сервере в update/check).
-- Enrollment rotate в Параметры → Обновления агента (hash в SQLite, без обязательного restart); после смены UI — готовая команда msiexec (`ADDPATH=1` по умолчанию) для копирования.
+- Смена enrollment-токена: Параметры → Обновления агента (хэш в Postgres, restart API не нужен); после смены UI показывает токен и готовую команду `msiexec` (`ADDPATH=1` по умолчанию) с кнопкой копирования.
 - Site bundle download + `deploy/debian/restore-site-bundle.sh`.
 - Обзор: drift vs target, пустое зеркало, revoked active.
 
@@ -225,7 +225,7 @@ Tag: **`server-vX.Y.Z`**. Не триггерит MSI. Panel **Обновлен�
 
 - Скрипт: `deploy/debian/install.sh`.
 - Требует root; рассчитан на Debian 12.
-- Кладёт app в `/opt/bad`, БД `/var/lib/bad/bad.db`, updates `/var/lib/bad/agent-updates/`, env `/etc/bad/site.env`.
+- Кладёт app в `/opt/bad`, Postgres (URL в `site.env`), зеркало MSI `/var/lib/bad/agent-updates/`, env `/etc/bad/site.env`.
 - Unit: `deploy/debian/systemd/bad-api.service` → `bad-api.service`.
 - nginx template: `deploy/debian/nginx/bad.conf.template`.
 - Печатает enrollment + admin tokens **один раз** при первом создании `site.env`.

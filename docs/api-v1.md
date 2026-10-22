@@ -1,6 +1,6 @@
 # bAD API `/v1` — интеграционный гайд (1C Itilium и др.)
 
-Стабильный HTTP JSON API on-prem сервера bAD. Живая версия сервера — в корневом [`VERSION`](../VERSION) (`GET /v1/health` → `version`). Примеры JSON ниже с `"1.0.1"` — **образец поля**, не актуальный номер.
+Стабильный HTTP JSON API on-prem сервера bAD. Живая версия сервера — в корневом [`VERSION`](../VERSION) (сейчас **1.5.3**; `GET /v1/health` → `version`). Версия агента в полях `agent_version` — из [`agent/VERSION`](../agent/VERSION) (сейчас **1.1.0**). Примеры JSON с `"1.0.1"` — **образец формата**, не обязательно актуальный номер.
 
 **Политика совместимости (additive freeze):** путь `/v1` заморожен как **additive**. Можно добавлять необязательные поля, query-параметры с default и новые эндпоинты. **Breaking** (удаление/переименование полей, смена смысла, обязательность новых полей, смена кодов ошибок для существующих сценариев) — только по явному решению владельца продукта. Клиенты (в т.ч. **1C Itilium**) должны игнорировать неизвестные JSON-поля.
 
@@ -18,21 +18,21 @@
 Все пути ниже — относительно base, с префиксом `/v1/...`.
 
 - **JSON:** `Content-Type: application/json` (тела POST/PUT).
-- **Auth:** заголовок `Authorization: Bearer <token>` (кроме `GET /v1/health`).
-- **TLS:** в бою — только HTTPS. OpenAPI UI в production отключён (`docs_url=None`).
-- **Не путать** web-сессию (`bad_session` cookie) с admin Bearer: UI login **не** даёт admin API token.
+- **Доступ по токену:** заголовок `Authorization: Bearer <ваш_токен>` — стандартный способ передать секрет в HTTP (слово *Bearer* = «носитель токена»; для 1C достаточно подставить токен в этот заголовок). Исключение: `GET /v1/health` без токена.
+- **TLS:** в бою — только HTTPS. Интерактивная документация OpenAPI в production отключена.
+- **Не путать** вход в браузер (cookie `bad_session`) с admin-токеном: после логина в панель API-токен **не** появляется — он только в `site.env` при установке.
 
 Токен admin печатается при `deploy/debian/install.sh` (файл `/etc/bad/site.env`, переменная `BAD_ADMIN_TOKEN`) или задаётся env `BAD_ADMIN_TOKEN` в lab.
 
 ---
 
-## 2. Три механизма auth (не смешивать)
+## 2. Три вида токенов (не смешивать)
 
-| Механизм | Header | Для кого | Типичное использование |
-|----------|--------|----------|------------------------|
-| **Admin Bearer** | `Authorization: Bearer <admin_token>` | внешние системы (**1C Itilium**), автоматизация | чтение устройств/inventory/events; policies; revoke/archive |
-| **Agent API key** | `Authorization: Bearer <bad_ak_…>` | Windows-агент | enroll→key; heartbeat; inventory; agent config/update |
-| **Enrollment Bearer** | `Authorization: Bearer <site_enrollment>` | только первый обмен агента | `POST /v1/enroll` |
+| Вид | Заголовок | Кто использует | Зачем |
+|-----|-----------|----------------|-------|
+| **Admin-токен** | `Authorization: Bearer <BAD_ADMIN_TOKEN>` | 1C Itilium, скрипты | список устройств, inventory, события, политики |
+| **API-ключ агента** | `Authorization: Bearer <bad_ak_…>` | служба на Windows | heartbeat, снимки, проверка обновлений |
+| **Enrollment-токен** | `Authorization: Bearer <site_enrollment>` | только при первой регистрации ПК | `POST /v1/enroll` → выдача API-ключа |
 
 Web UI (local/LDAP session) — **не** контракт для 1C.
 
@@ -40,7 +40,7 @@ Web UI (local/LDAP session) — **не** контракт для 1C.
 
 ## 3. Что для 1C / внешней системы, что только для агента
 
-### Рекомендуется для 1C Itilium (admin Bearer)
+### Рекомендуется для 1C Itilium (admin-токен)
 
 | Method | Path | Назначение |
 |--------|------|------------|

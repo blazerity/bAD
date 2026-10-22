@@ -111,7 +111,7 @@ Deferred CA `write-config.ps1` **не** получает `ENROLLMENTTOKEN` / `SE
 **Обязательно для операторов:**
 
 1. **Не шарить** `/l*v` / `%TEMP%\MSI*.log` с `ENROLLMENTTOKEN` (чаты, wiki, тикеты, долгоживущие шары).
-2. **После волны** массового деплоя MSI — **ротировать** site enrollment token (Параметры → Обновления агента / runbook в [operator-guide.md](../../docs/operator-guide.md)).
+2. **После массовой установки** MSI на много ПК — **сменить** enrollment-токен (Параметры → Обновления агента / [operator-guide.md](../../docs/operator-guide.md)).
 3. Доставлять команду install через защищённый канал (Intune/GPO secret), не chat/wiki.
 
 Тихий self-update / pin-downgrade агента идёт через MajorUpgrade (`AllowDowngrades=yes` с 0.10). WiX `ServiceControl` останавливает `BlazerityAssetDiscovery` перед заменой файлов и запускает после install. `%ProgramData%\blazerity\bAD\config.json` (API key + device_id) сохраняется при **upgrade/downgrade** (компонент ProgramData с `Permanent`).
@@ -138,7 +138,7 @@ msiexec /i bad-agent-<версия из agent/VERSION>.msi `
   /qn /l*v "$env:TEMP\bad-agent-install.log"
 ```
 
-**Не шарить** этот лог (и `%TEMP%\MSI*.log`): в нём может быть `ENROLLMENTTOKEN`. После волны установки — ротация enrollment token (см. SEC-011 выше).
+**Не шарить** этот лог (и `%TEMP%\MSI*.log`): в нём может быть `ENROLLMENTTOKEN`. После массовой установки — смена enrollment-токена (см. SEC-011 выше).
 
 ### Uninstall
 
