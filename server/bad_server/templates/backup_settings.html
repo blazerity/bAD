@@ -13,7 +13,7 @@
 
   {% if tls_mode == 'http' %}
   <div class="warn-box" role="status">
-    Полный архив и ключи содержат секреты — не скачивайте, пока сайт без HTTPS.
+    Полный архив и ключи содержат секреты — не скачивайте, пока сайт без защищённого соединения.
     Сначала <a href="/settings/tls">Параметры → Сертификат</a>.
   </div>
   {% endif %}
@@ -32,7 +32,7 @@
   </p>
   <dl class="meta">
     <div><dt>Каталог</dt><dd class="mono">{{ backup.backup_dir }}</dd></div>
-    <div><dt>Последний бэкап</dt><dd class="mono">{{ last_backup_at or "—" }}</dd></div>
+    <div><dt>Последняя копия</dt><dd class="mono">{{ last_backup_at or "—" }}</dd></div>
     <div><dt>Сегодняшний файл</dt><dd>{% if backup.today_exists %}есть{% else %}ещё нет{% endif %}</dd></div>
   </dl>
 
@@ -40,7 +40,7 @@
   <div class="table-scroll">
   <table class="devices">
     <thead>
-      <tr><th>Имя</th><th>Размер</th><th>mtime (UTC)</th></tr>
+      <tr><th>Имя</th><th>Размер</th><th>Изменён (UTC)</th></tr>
     </thead>
     <tbody>
       {% for f in backup.files %}
@@ -59,7 +59,7 @@
 
   <form method="post" action="/settings/backups/run" class="form-actions">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <button type="submit" {% if tls_mode == 'http' %}disabled title="Доступно после HTTPS"{% endif %}>Сделать бэкап базы сейчас</button>
+    <button type="submit" {% if tls_mode == 'http' %}disabled title="Доступно после защищённого соединения"{% endif %}>Сделать копию базы сейчас</button>
     {% if tls_mode == 'http' %}
     <a class="btn secondary" href="/settings/tls">Параметры → Сертификат</a>
     {% endif %}
@@ -79,16 +79,16 @@
   {% endif %}
   {% if secrets %}
   <dl class="meta">
-    <div><dt>data_key</dt><dd class="mono">{{ secrets.data_key_source }}{% if secrets.data_key_path %} · {{ secrets.data_key_path }}{% endif %}</dd></div>
-    <div><dt>session_secret</dt><dd class="mono">{{ secrets.session_secret_source }}{% if secrets.session_secret_path %} · {{ secrets.session_secret_path }}{% endif %}</dd></div>
+    <div><dt>Ключ данных</dt><dd class="mono">{{ secrets.data_key_source }}{% if secrets.data_key_path %} · {{ secrets.data_key_path }}{% endif %}</dd></div>
+    <div><dt>Ключ сессий</dt><dd class="mono">{{ secrets.session_secret_source }}{% if secrets.session_secret_path %} · {{ secrets.session_secret_path }}{% endif %}</dd></div>
     {% if keys and keys.last_key_escrow_at %}
-    <div><dt>Последний escrow</dt><dd class="mono">{{ keys.last_key_escrow_at }}</dd></div>
+    <div><dt>Последняя выгрузка ключей</dt><dd class="mono">{{ keys.last_key_escrow_at }}</dd></div>
     {% endif %}
   </dl>
   {% endif %}
   <p class="form-actions">
     {% if tls_mode == 'http' %}
-    <span class="btn disabled" aria-disabled="true" title="Доступно после HTTPS">Скачать только ключи (.tar.gz)</span>
+    <span class="btn disabled" aria-disabled="true" title="Доступно после защищённого соединения">Скачать только ключи (.tar.gz)</span>
     {% else %}
     <a href="/settings/backups/key-escrow">Скачать только ключи (.tar.gz)</a>
     {% endif %}
@@ -96,13 +96,12 @@
 
   <h2>Полный архив сайта</h2>
   <p class="muted">
-    База + ключи + каталог обновлений агента — полный disaster recovery.
-    Файл секретный. Восстановление — скриптом
-    <span class="mono">restore-site-bundle.sh</span> (сервис будет остановлен).
+    База, ключи и каталог установщиков агента — для полного восстановления сайта.
+    Файл секретный; храните отдельно от ежедневных копий базы.
   </p>
   <p class="form-actions">
     {% if tls_mode == 'http' %}
-    <span class="btn disabled" aria-disabled="true" title="Доступно после HTTPS">Скачать полный архив (.tar.gz)</span>
+    <span class="btn disabled" aria-disabled="true" title="Доступно после защищённого соединения">Скачать полный архив (.tar.gz)</span>
     {% else %}
     <a href="/settings/backups/site-bundle">Скачать полный архив (.tar.gz)</a>
     {% endif %}

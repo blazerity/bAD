@@ -11,7 +11,7 @@
     {% if wave %}· фильтр волны: <span class="mono">{{ wave }}</span>{% endif %}
   </p>
   <p class="muted">
-    Версия агента в зеркале MSI:
+    Основная версия в каталоге установщиков:
     {% if agent_update %}
       <strong>{{ agent_update.version }}</strong>
       ({{ agent_update.msi_name }}, синхр. {{ local_time(agent_update.synced_at) }})
@@ -43,10 +43,10 @@
     <label for="wave">Волна</label>
     <select id="wave" name="wave">
       <option value="" {% if not wave %}selected{% endif %}>все</option>
-      <option value="drift" {% if wave == 'drift' %}selected{% endif %}>drift (отстают)</option>
-      <option value="revoked" {% if wave == 'revoked' %}selected{% endif %}>revoked</option>
-      <option value="agent_local" {% if wave == 'agent_local' %}selected{% endif %}>agent_local</option>
-      <option value="stale" {% if wave == 'stale' %}selected{% endif %}>stale</option>
+      <option value="drift" {% if wave == 'drift' %}selected{% endif %}>отстают по версии</option>
+      <option value="revoked" {% if wave == 'revoked' %}selected{% endif %}>доступ отозван</option>
+      <option value="agent_local" {% if wave == 'agent_local' %}selected{% endif %}>настройка на компьютере</option>
+      <option value="stale" {% if wave == 'stale' %}selected{% endif %}>давно без связи</option>
       <option value="dup" {% if wave == 'dup' %}selected{% endif %}>дубли (hostname/serial/UUID/disk)</option>
     </select>
     <label class="check">
@@ -68,7 +68,7 @@
     <thead>
       <tr>
         <th>Имя узла</th>
-        <th>device_id</th>
+        <th>Идентификатор</th>
         <th>Состояние</th>
         <th>Теги</th>
         <th>Версия агента</th>
@@ -88,7 +88,7 @@
             <span class="badge badge-stale">отозван</span>
           {% endif %}
           {% if d.has_agent_local %}
-            <span class="badge badge-agent-local">на агенте</span>
+            <span class="badge badge-agent-local">на компьютере</span>
           {% endif %}
         </td>
         <td class="mono">{{ d.device_id }}</td>

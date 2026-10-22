@@ -25,8 +25,8 @@ INVENTORY_SCAN_CAP = 500
 _SOURCE_LABEL_RU = {
     "default": "по умолчанию",
     "policy": "политика",
-    "device_override": "override сервера",
-    "agent_local": "задано на агенте",
+    "device_override": "ручная настройка в панели",
+    "agent_local": "задано на компьютере",
 }
 
 _FOCUS_KEYS = (
@@ -39,8 +39,8 @@ _FOCUS_KEYS = (
 )
 
 _FOCUS_LABELS_RU = {
-    "inventory_interval_hours": "Inventory",
-    "heartbeat_interval_minutes": "Heartbeat",
+    "inventory_interval_hours": "Инвентаризация",
+    "heartbeat_interval_minutes": "Связь с сервером",
     "update_check_interval_hours": "Проверка обновлений",
     "collect_hardware": "Сбор железа",
     "collect_users": "Сбор пользователей",
@@ -89,7 +89,7 @@ def build_bootstrap_checklist(
         },
         {
             "id": "tls",
-            "label": "Параметры → Сертификат → HTTPS",
+            "label": "Включить защищённое соединение (Сертификат)",
             "done": https_done,
             "href": "/settings/tls",
         },
@@ -172,7 +172,7 @@ def build_attention_queue(
             {
                 "id": "tls",
                 "severity": "high",
-                "title": "Нужен HTTPS",
+                "title": "Нужно защищённое соединение",
                 "detail": ops.get("https_first_hint")
                 or https.get("hint_ru")
                 or "Параметры → Сертификат: загрузите сертификат с боевого ресурса.",
@@ -185,10 +185,10 @@ def build_attention_queue(
             {
                 "id": "secrets",
                 "severity": "high",
-                "title": "Ключи ещё в БД (SEC-005)",
+                "title": "Ключи ещё в базе данных",
                 "detail": ops.get("secrets_hint")
                 or secrets.get("hint_ru")
-                or "Вынесите data_key / session_secret в /etc/bad.",
+                or "Перенесите ключи шифрования в файлы на сервере.",
                 "href": "/settings/backups",
                 "cta": "Резервные копии",
             }
@@ -216,7 +216,7 @@ def build_attention_queue(
             {
                 "id": "mirror",
                 "severity": "high",
-                "title": "Зеркало MSI пусто",
+                "title": "Каталог установщиков пуст",
                 "detail": "Агенты не получат обновления.",
                 "href": "/settings/updates",
                 "cta": "Обновления агента",
@@ -229,9 +229,9 @@ def build_attention_queue(
                 "id": "pin",
                 "severity": "high",
                 "title": f"Закреплённая версия отсутствует ({pin_n})",
-                "detail": "Pin политики не резолвится в зеркале.",
+                "detail": "Закреплённая в политике версия отсутствует в каталоге установщиков.",
                 "href": "/settings/updates",
-                "cta": "Зеркало MSI",
+                "cta": "Обновления агента",
             }
         )
     drift_n = int(ops.get("version_drift_count") or 0)
@@ -243,7 +243,7 @@ def build_attention_queue(
                 "title": f"Отстают от целевой версии ({drift_n})",
                 "detail": "Волна обновлений не закрыта.",
                 "href": "/devices?wave=drift",
-                "cta": "Фильтр drift",
+                "cta": "Отстающие по версии",
             }
         )
     revoked_n = int(ops.get("revoked_active") or 0)
@@ -253,9 +253,9 @@ def build_attention_queue(
                 "id": "revoked",
                 "severity": "medium",
                 "title": f"Отозванные активные ({revoked_n})",
-                "detail": "Нужен rotate-key или архив.",
+                "detail": "Выпустите новый ключ доступа или отправьте в архив.",
                 "href": "/devices?wave=revoked",
-                "cta": "Фильтр revoked",
+                "cta": "Отозванные",
             }
         )
     stale_n = int(stats.get("stale") or 0)
@@ -265,9 +265,9 @@ def build_attention_queue(
                 "id": "stale",
                 "severity": "low",
                 "title": f"Давно не виделись ({stale_n})",
-                "detail": "Нет контакта дольше порога silence.",
+                "detail": "Давно не было связи с сервером.",
                 "href": "/devices?wave=stale",
-                "cta": "Фильтр stale",
+                "cta": "Без связи",
             }
         )
     return items
@@ -341,7 +341,7 @@ def build_wave_counts(
         },
         {
             "id": "agent_local",
-            "label": "agent_local",
+            "label": "Настройка на компьютере",
             "count": agent_local_n,
             "href": "/devices?wave=agent_local",
         },

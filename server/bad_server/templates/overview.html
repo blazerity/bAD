@@ -35,23 +35,25 @@
       </li>
       {% endfor %}
     </ol>
-    <p class="hint">Чеклист скроется после смены пароля и перехода на HTTPS.</p>
+    <p class="hint">Чеклист скроется после смены пароля и включения защищённого соединения.</p>
   </div>
   {% endif %}
 
   {% if security and security.https_first %}
   <p class="muted security-strip">
     {% if security.https_first.tls_mode == 'https' %}
-    HTTPS активен
+    Защищённое соединение включено
     {% else %}
-    Без HTTPS —
+    Без защищённого соединения —
     <a href="/settings/tls">Параметры → Сертификат</a>
     {% endif %}
-    {% if security.secrets %}
-    · ключи: <span class="mono">{{ security.secrets.data_key_source }}/{{ security.secrets.session_secret_source }}</span>
+    {% if security.secrets and (security.secrets.legacy_keys_in_db or security.secrets.legacy_keys_in_sqlite) %}
+    · <a href="/settings/backups">ключи ещё в базе</a>
+    {% elif security.secrets and security.secrets.ok %}
+    · ключи вне базы
     {% endif %}
     {% if ops.enrollment_rotation_due %}
-    · <a href="/settings/updates#enrollment">смена enrollment token</a>
+    · <a href="/settings/updates#enrollment">смена токена подключения</a>
     {% endif %}
   </p>
   {% endif %}
@@ -136,10 +138,10 @@
   <p class="muted">Пока нет активных устройств.</p>
   {% endif %}
 
-  <h2>Зеркало MSI</h2>
+  <h2>Каталог установщиков</h2>
   {% if ops.mirror_empty %}
   <div class="warn-box" role="status">
-    <strong>Зеркало пусто</strong>
+    <strong>Каталог установщиков пуст</strong>
     <p class="muted" style="margin:0.35rem 0 0">
       Агенты не получат обновления —
       <a href="/settings/updates">Параметры → Обновления агента</a>.
@@ -147,23 +149,23 @@
   </div>
   {% else %}
   <dl class="meta">
-    <div><dt>Версия агента (latest)</dt><dd class="mono">{{ ops.latest_version or "—" }}</dd></div>
+    <div><dt>Основная версия</dt><dd class="mono">{{ ops.latest_version or "—" }}</dd></div>
     <div><dt>Версий в каталоге</dt><dd class="mono">{{ ops.mirror_count }}</dd></div>
-    <div><dt>Последний sync</dt><dd class="mono">{{ local_time(ops.latest_synced_at) }}</dd></div>
+    <div><dt>Последняя синхронизация</dt><dd class="mono">{{ local_time(ops.latest_synced_at) }}</dd></div>
   </dl>
-  <p class="hint"><a href="/settings/updates">Управление зеркалом</a></p>
+  <p class="hint"><a href="/settings/updates">Управление каталогом</a></p>
   {% endif %}
 
   {% if ops.version_drift_count %}
   <h2>Отстающие по версии агента</h2>
   <p class="muted">
-    Агент vs цель MSI в зеркале (не версия сервера).
+    Версия агента на устройстве и целевая из каталога (не версия сервера).
     {{ ops.version_drift_count }} —
     <a href="/devices?wave=drift">открыть фильтр волны</a>.
   </p>
   <div class="table-scroll">
   <table class="devices">
-    <thead><tr><th>Устройство</th><th>Версия агента</th><th>Цель MSI</th><th>Want</th></tr></thead>
+    <thead><tr><th>Устройство</th><th>Версия агента</th><th>Целевая версия</th><th>Запрошена</th></tr></thead>
     <tbody>
     {% for d in ops.version_drift[:8] %}
       <tr>

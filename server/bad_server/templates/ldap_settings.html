@@ -11,7 +11,7 @@
 
   {% if tls_mode == 'http' %}
   <div class="warn-box" role="status">
-    Пока сайт без HTTPS — не сохраняйте боевой пароль каталога.
+    Пока сайт без защищённого соединения — не сохраняйте боевой пароль каталога.
     Сначала <a href="/settings/tls">загрузите сертификат</a>.
   </div>
   {% endif %}
@@ -83,8 +83,8 @@
     </p>
 
     <div class="form-actions">
-      <button type="submit" {% if tls_mode == 'http' %}disabled title="Доступно после HTTPS"{% endif %}>Сохранить</button>
-      <button type="submit" formaction="/settings/ldap/test" formmethod="post" class="secondary" {% if tls_mode == 'http' %}disabled title="Доступно после HTTPS"{% endif %}>Проверить соединение</button>
+      <button type="submit" {% if tls_mode == 'http' %}disabled title="Доступно после защищённого соединения"{% endif %}>Сохранить</button>
+      <button type="submit" formaction="/settings/ldap/test" formmethod="post" class="secondary" {% if tls_mode == 'http' %}disabled title="Доступно после защищённого соединения"{% endif %}>Проверить соединение</button>
       {% if tls_mode == 'http' %}
       <a class="btn secondary" href="/settings/tls">Перейти к сертификату</a>
       {% endif %}

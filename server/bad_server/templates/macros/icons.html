@@ -119,9 +119,9 @@
 {% macro config_source_mark(key, sources=None, agent_local_keys=None, mode='full') -%}
 {%- set src = (sources or {}).get(key) -%}
 {%- if src == 'agent_local' or (agent_local_keys and key in agent_local_keys) -%}
-<span class="badge badge-agent-local" title="Ручная настройка в агенте (config.json / CLI)">задано на агенте</span>
+<span class="badge badge-agent-local" title="Задано на компьютере, не из панели">задано на компьютере</span>
 {%- elif mode == 'full' and src == 'device_override' -%}
-<span class="badge badge-override" title="Ручной override на сервере">override сервера</span>
+<span class="badge badge-override" title="Ручная настройка для этого устройства в панели">в панели</span>
 {%- elif mode == 'full' and src == 'policy' -%}
 <span class="badge badge-policy" title="Из совпавшей политики">политика</span>
 {%- elif mode == 'full' and src == 'default' -%}

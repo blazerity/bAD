@@ -13,7 +13,7 @@
 
   {% if tls_mode == 'http' %}
   <div class="warn-box" role="status">
-    Пока сайт без HTTPS — не сохраняйте пароль почты.
+    Пока сайт без защищённого соединения — не сохраняйте пароль почты.
     Сначала <a href="/settings/tls">загрузите сертификат</a>.
   </div>
   {% endif %}
@@ -86,8 +86,8 @@
     {% endfor %}
 
     <div class="form-actions">
-      <button type="submit" {% if tls_mode == 'http' %}disabled title="Доступно после HTTPS"{% endif %}>Сохранить</button>
-      <button type="submit" formaction="/settings/mail/test" formmethod="post" class="secondary" {% if tls_mode == 'http' %}disabled title="Доступно после HTTPS"{% endif %}>Отправить тест</button>
+      <button type="submit" {% if tls_mode == 'http' %}disabled title="Доступно после защищённого соединения"{% endif %}>Сохранить</button>
+      <button type="submit" formaction="/settings/mail/test" formmethod="post" class="secondary" {% if tls_mode == 'http' %}disabled title="Доступно после защищённого соединения"{% endif %}>Отправить тест</button>
       {% if tls_mode == 'http' %}
       <a class="btn secondary" href="/settings/tls">Перейти к сертификату</a>
       {% endif %}

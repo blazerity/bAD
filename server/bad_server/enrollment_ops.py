@@ -14,8 +14,8 @@ from .security import generate_token, hash_secret
 logger = logging.getLogger(__name__)
 
 ENROLLMENT_ROTATE_HINT_RU = (
-    "После волны MSI смените enrollment token (SEC-011): уже записанные агенты "
-    "продолжат работу по API key; новый token нужен только для следующих установок."
+    "После волны установок смените токен подключения агентов: уже работающие агенты "
+    "продолжат по своему ключу доступа; новый токен нужен только для следующих установок."
 )
 
 _ENROLL_LINE_RE = re.compile(

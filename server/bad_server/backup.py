@@ -53,8 +53,8 @@ def backup_status(backup_dir: Path) -> dict[str, Any]:
         "today_exists": (backup_dir / backup_filename(utc_today())).is_file(),
         "daily_is_full_dr": False,
         "daily_hint_ru": (
-            "Ежедневный pg_dump — данные БД, не полный DR. "
-            "Ключи escrow и site-bundle — отдельно."
+            "Ежедневная копия — только данные базы, не полное восстановление сайта. "
+            "Ключи и полный архив скачивайте отдельно."
         ),
     }
 
@@ -88,14 +88,14 @@ def backup_keys_status(
         "last_key_escrow_at": last_key_escrow_at,
         "hint_ru": secrets.get("hint_ru"),
         "escrow_hint_ru": (
-            "Скачайте escrow ключей отдельно от daily dump; храните как секрет. "
-            "Site bundle = полный DR (dump+keys) — тоже только в сейфе."
+            "Скачайте файл ключей отдельно от ежедневной копии базы и храните как секрет. "
+            "Полный архив сайта — для полного восстановления; тоже только в надёжном хранилище."
             if keys_external
             else (
-                "Legacy: keys в БД — любой dump = полный компромисс. "
-                "Вынесите keys в /etc/bad/* (440)."
+                "Ключи всё ещё в базе — любая копия базы раскрывает секреты. "
+                "Перенесите ключи в файлы на сервере."
                 if legacy
-                else "Файлы ключей не найдены — проверьте /etc/bad/data_key и session_secret."
+                else "Файлы ключей на сервере не найдены — проверьте настройку установки."
             )
         ),
     }
