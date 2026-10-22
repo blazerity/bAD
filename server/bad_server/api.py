@@ -47,6 +47,7 @@ from .schemas import (
 )
 from .http_bootstrap import ENROLL_CLEARTEXT_MSG, enroll_cleartext_blocked
 from .security import api_key_lookup, generate_token, hash_secret, verify_secret
+from .device_meta import inventory_meta_cache
 from .inventory_events import sanitize_inventory_payload
 from .smtp_mail import notify_enroll
 
@@ -251,29 +252,19 @@ def inventory(
     host = payload.get("host") if isinstance(payload.get("host"), dict) else None
     if host:
         hostname = host.get("hostname")
-    os_meta: dict[str, Any] = {}
-    if host and isinstance(host.get("os"), dict):
-        os_meta["os"] = host["os"].get("caption")
-    if host:
-        dom = host.get("domain")
-        if dom is not None and str(dom).strip():
-            os_meta["domain"] = str(dom).strip()
     hardware = (
         payload.get("hardware")
         if isinstance(payload.get("hardware"), dict)
         else None
     )
-    if hardware:
-        mfr = hardware.get("manufacturer")
-        mdl = hardware.get("model")
-        if mfr and str(mfr).strip():
-            os_meta["hardware_manufacturer"] = str(mfr).strip()
-        if mdl and str(mdl).strip():
-            os_meta["hardware_model"] = str(mdl).strip()
+    cached = inventory_meta_cache(
+        host=host if isinstance(host, dict) else None,
+        hardware=hardware,
+    )
     identity = db.extract_identity_signals(hardware=hardware or {})
     meta = {
         "last_inventory_at": body.collected_at,
-        **os_meta,
+        **cached,
     }
     # Кэш сигналов дубля (не PK): serial/uuid/bios/board/disk — без auto-merge
     meta.update(db.identity_signals_for_meta(identity))
@@ -429,6 +420,7 @@ def list_events(
             offset=offset,
             q=q_filter,
             importance=imp,
+            include_detail=False,
         ),
         "total": db.count_device_events(
             device_id=device_filter, q=q_filter, importance=imp

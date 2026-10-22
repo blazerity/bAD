@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlencode
@@ -45,7 +46,9 @@ from .device_health import (
     device_silence_status,
     effective_stale_after_seconds,
     health_snippet,
+    normalize_tags,
     parse_site_stale_seconds,
+    parse_utc,
 )
 from .ldap_client import settings_from_row, test_connection
 from .security import api_key_lookup, generate_token, hash_secret, verify_secret
@@ -65,13 +68,16 @@ from .enrollment_ops import (
     rotate_enrollment_token,
 )
 from .http_bootstrap import HTTP_SENSITIVE_MSG, sensitive_over_http_blocked
+from .device_meta import meta_search_haystack
 from .ops_panel import (
     build_attention_queue,
     build_bootstrap_checklist,
+    build_bootstrap_progress,
     build_config_winner,
     build_dashboard_stats,
     build_wave_counts,
     device_has_agent_local,
+    enrich_overview_ops_signals,
     filter_devices_by_wave,
     normalize_wave_filter,
 )
@@ -190,6 +196,66 @@ def _format_chassis(value: object, empty: str = "") -> str:
     if not key:
         return empty
     return _CHASSIS_LABELS_RU.get(key, str(value))
+
+
+_CHASSIS_ICON_KEYS = frozenset({"laptop", "desktop", "server", "vm"})
+
+
+def _normalize_chassis_type(value: object) -> str:
+    from .device_meta import normalize_chassis_type
+
+    return normalize_chassis_type(value) or "other"
+
+
+def _chassis_type_from_device(device: dict) -> str:
+    meta = device.get("meta") if isinstance(device.get("meta"), dict) else {}
+    return _normalize_chassis_type(meta.get("chassis_type"))
+
+
+def _device_freshness_tier(
+    last_seen_at: Optional[str], *, stale_after_seconds: int
+) -> str:
+    """UI: online | recent | stale | unknown (порог stale не меняется)."""
+    silence = device_silence_status(
+        last_seen_at, stale_after_seconds=stale_after_seconds
+    )
+    status = silence.get("status") or "unknown"
+    if status == "unknown":
+        return "unknown"
+    if status == "stale":
+        return "stale"
+    seen = parse_utc(last_seen_at)
+    if seen is None:
+        return "unknown"
+    age = max(
+        0,
+        int((datetime.now(timezone.utc) - seen).total_seconds()),
+    )
+    threshold = max(1, int(stale_after_seconds))
+    online_cap = min(600, max(120, threshold // 3))
+    return "online" if age <= online_cap else "recent"
+
+
+def _search_match_reason(device: dict, query: str) -> str:
+    q = (query or "").strip().casefold()
+    if not q:
+        return ""
+    host = (device.get("hostname") or "").casefold()
+    did = str(device.get("device_id") or "").casefold()
+    if q in host:
+        return "имя"
+    if q in did:
+        return "идентификатор"
+    meta = device.get("meta") if isinstance(device.get("meta"), dict) else {}
+    for label, key in (
+        ("серийный номер", "serial_number"),
+        ("UUID", "smbios_uuid"),
+        ("BIOS", "bios_serial"),
+    ):
+        val = str(meta.get(key) or "").casefold()
+        if val and q in val:
+            return label
+    return "совпадение"
 
 
 def _format_event_type(value: object, empty: str = "") -> str:
@@ -701,6 +767,7 @@ def _fleet_snapshot(
         stale_after_seconds=stale_sec,
         active=active,
     )
+    ops = enrich_overview_ops_signals(db, ops)
     result = (active, archived, stats, ops)
     cached["data"] = result
     cached["ts"] = now
@@ -738,6 +805,12 @@ def _overview_page_context(
         active_devices=int(stats.get("total_active") or 0),
         security=security,
     )
+    bootstrap_progress = build_bootstrap_progress(
+        user=user,
+        ops=ops,
+        active_devices=int(stats.get("total_active") or 0),
+        security=security,
+    )
     attention = build_attention_queue(
         user=user,
         ops=ops,
@@ -753,6 +826,7 @@ def _overview_page_context(
         "ops": ops,
         "security": security,
         "bootstrap": bootstrap,
+        "bootstrap_progress": bootstrap_progress,
         "attention": attention,
         "stale_after_seconds": effective_stale_after_seconds(db, settings),
         "server_current": server_current,
@@ -908,6 +982,11 @@ def _enrich_device_row(device: dict, *, stale_after_seconds: int) -> dict:
         device.get("last_seen_at"),
         stale_after_seconds=stale_after_seconds,
     )
+    device["chassis_type"] = _chassis_type_from_device(device)
+    device["chassis_label"] = _format_chassis(device["chassis_type"])
+    device["freshness"] = _device_freshness_tier(
+        device.get("last_seen_at"), stale_after_seconds=stale_after_seconds
+    )
     return device
 
 
@@ -963,13 +1042,8 @@ def _devices_wave_context(
     drift_ids: set[str] = set()
     stale_sec = effective_stale_after_seconds(db, settings)
     if wave == "drift":
-        active = [d for d in fleet if not d.get("archived")]
-        ops = ops_update_signals(
-            db,
-            stale_after_seconds=stale_sec,
-            active=active,
-        )
-        drift_ids = {d["device_id"] for d in (ops.get("version_drift") or [])}
+        _active, _archived, _stats, ops = _fleet_snapshot(db, settings)
+        drift_ids = set(ops.get("version_drift_ids") or [])
 
     # Фильтр списка без второго SELECT: тот же fleet.
     wanted_tag = (tag_filter or "").strip().casefold() or None
@@ -990,16 +1064,7 @@ def _devices_wave_context(
             hay = f"{d.get('device_id') or ''} {d.get('hostname') or ''}".casefold()
             if query_cf not in hay:
                 meta = d.get("meta") if isinstance(d.get("meta"), dict) else {}
-                id_bits = [
-                    str(meta.get("serial_number") or ""),
-                    str(meta.get("smbios_uuid") or ""),
-                    str(meta.get("bios_serial") or ""),
-                    str(meta.get("identifying_number") or ""),
-                    str(meta.get("baseboard_serial") or ""),
-                ]
-                for disk in meta.get("disk_serials") or []:
-                    id_bits.append(str(disk or ""))
-                if query_cf not in " ".join(id_bits).casefold():
+                if query_cf not in meta_search_haystack(meta):
                     continue
         raw.append(d)
 
@@ -1020,6 +1085,57 @@ def _devices_wave_context(
     return filtered[offset : offset + page_size], total, pages, page_i
 
 
+# Массовые действия на /devices (U2): лимит batch, CSRF на router.
+BULK_DEVICES_MAX = 100
+_BULK_ACTIONS = frozenset({"archive", "add_tag", "assign_tag"})
+
+
+def _maybe_admin_audit(
+    db: Database,
+    *,
+    actor: str,
+    action: str,
+    target_type: str,
+    target_id: Optional[str] = None,
+    detail: Optional[dict[str, Any]] = None,
+) -> None:
+    """Пишет audit только если DB Lead уже добавил insert_admin_audit."""
+    insert = getattr(db, "insert_admin_audit", None)
+    if not callable(insert):
+        return
+    try:
+        insert(
+            actor=actor,
+            action=action,
+            target_type=target_type,
+            target_id=target_id,
+            detail_json=detail,
+        )
+    except Exception:
+        # Массовое действие не откатываем из‑за журнала.
+        pass
+
+
+def _devices_redirect_with_flash(
+    *,
+    flash: str,
+    tag: Optional[str] = None,
+    q: Optional[str] = None,
+    archive: bool = False,
+    wave: Optional[str] = None,
+) -> RedirectResponse:
+    params: dict[str, str] = {"flash": flash}
+    if tag:
+        params["tag"] = tag
+    if q:
+        params["q"] = q
+    if archive:
+        params["archive"] = "1"
+    if wave:
+        params["wave"] = wave
+    return RedirectResponse(url=f"/devices?{urlencode(params)}", status_code=303)
+
+
 @router.get("/devices", response_class=HTMLResponse)
 def devices_page(
     request: Request,
@@ -1028,6 +1144,7 @@ def devices_page(
     archive: Optional[str] = None,
     wave: Optional[str] = None,
     page: int = 1,
+    flash: Optional[str] = None,
     user: WebUser = Depends(require_web_user),
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
@@ -1055,6 +1172,9 @@ def devices_page(
         page=page_i,
         wave=wave_filter,
     )
+    flash_msg = (flash or "").strip() or None
+    if flash_msg and len(flash_msg) > 200:
+        flash_msg = flash_msg[:200]
     return _html(
         request,
         "devices.html",
@@ -1074,6 +1194,12 @@ def devices_page(
             "total": total,
             "page_size": DEVICES_PAGE_SIZE,
             "export_qs": qs,
+            "flash": flash_msg,
+            "park_empty": total == 0
+            and not (tag_filter or query or wave_filter or show_archive),
+            "filters_active": bool(
+                tag_filter or query or wave_filter or show_archive
+            ),
         },
     )
 
@@ -1181,11 +1307,122 @@ def devices_search_json(
                     "device_id": d["device_id"],
                     "hostname": d.get("hostname") or d["device_id"],
                     "href": f"/devices/{d['device_id']}",
+                    "chassis_type": _chassis_type_from_device(d),
+                    "chassis_label": _format_chassis(_chassis_type_from_device(d)),
+                    "match_reason": _search_match_reason(d, query),
                 }
                 for d in rows
             ]
         }
     )
+
+
+@router.post("/devices/bulk")
+async def devices_bulk(
+    request: Request,
+    action: str = Form(""),
+    tag: str = Form(""),
+    return_tag: str = Form(""),
+    return_q: str = Form(""),
+    return_archive: str = Form(""),
+    return_wave: str = Form(""),
+    user: WebUser = Depends(require_web_user),
+    db: Database = Depends(get_db),
+):
+    """Массовые действия: archive / add_tag (CSRF на router). Confirm — на стороне UI."""
+    form = await request.form()
+    raw_ids = form.getlist("device_id")
+    ids: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_ids:
+        did = str(raw or "").strip()
+        if not did or did in seen:
+            continue
+        seen.add(did)
+        ids.append(did)
+
+    ret_tag = (return_tag or "").strip() or None
+    ret_q = (return_q or "").strip() or None
+    ret_archive = (return_archive or "").strip() in {"1", "true", "yes"}
+    ret_wave = normalize_wave_filter(return_wave)
+
+    def _back(flash: str) -> RedirectResponse:
+        return _devices_redirect_with_flash(
+            flash=flash,
+            tag=ret_tag,
+            q=ret_q,
+            archive=ret_archive,
+            wave=ret_wave,
+        )
+
+    act = (action or "").strip().casefold()
+    if act not in _BULK_ACTIONS:
+        return _back("неизвестное действие")
+    if not ids:
+        return _back("ничего не выбрано")
+    if len(ids) > BULK_DEVICES_MAX:
+        return _back(f"слишком много устройств (макс. {BULK_DEVICES_MAX})")
+
+    processed = 0
+    tag_clean = ""
+    if act in {"add_tag", "assign_tag"}:
+        tags = normalize_tags(tag)
+        if not tags:
+            return _back("укажите тег")
+        tag_clean = tags[0]
+
+    for device_id in ids:
+        detail = db.get_device_detail(device_id)
+        if not detail:
+            continue
+        if act == "archive":
+            # Идемпотентно: уже в архиве тоже считается обработанным.
+            if not detail.get("archived"):
+                db.set_device_archived(device_id, True)
+            processed += 1
+        else:
+            current = list(detail.get("tags") or [])
+            have = {t.casefold() for t in current}
+            if tag_clean.casefold() not in have:
+                current.append(tag_clean)
+                db.set_device_tags(device_id, current)
+            processed += 1
+
+    audit_action = (
+        "devices.bulk_archive" if act == "archive" else "devices.bulk_add_tag"
+    )
+    _maybe_admin_audit(
+        db,
+        actor=user.username,
+        action=audit_action,
+        target_type="device",
+        target_id=None,
+        detail={
+            "count": processed,
+            "requested": len(ids),
+            "tag": tag_clean or None,
+        },
+    )
+    return _back(f"обработано {processed}")
+
+
+@router.get("/setup/progress.json")
+def setup_progress_json(
+    user: WebUser = Depends(require_web_user),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    """U5: явный прогресс мастера (шаг 1/2/3) для UI без своих эвристик."""
+    _active, _archived, stats, ops = _fleet_snapshot(db, settings)
+    security = security_status(db, settings)
+    ops = merge_security_into_ops(ops, security)
+    progress = build_bootstrap_progress(
+        user=user,
+        ops=ops,
+        active_devices=int(stats.get("total_active") or 0),
+        security=security,
+    )
+    return JSONResponse({"progress": progress})
 
 
 @router.get("/events", response_class=HTMLResponse)
@@ -1218,12 +1455,24 @@ def events_page(
         offset=offset,
         q=q_filter,
         importance=imp,
+        include_detail=False,
     )
+    chassis_by_id: dict[str, str] = {}
+    if events:
+        want_ids = {e["device_id"] for e in events}
+        for d in db.list_devices(archived=None):
+            if d["device_id"] in want_ids:
+                chassis_by_id[d["device_id"]] = _chassis_type_from_device(d)
+    for e in events:
+        e["chassis_type"] = chassis_by_id.get(e["device_id"], "other")
+    today_utc = datetime.now(timezone.utc).date()
     return _html(
         request,
         "events.html",
         {
             "events": events,
+            "today_utc": today_utc.isoformat(),
+            "yesterday_utc": (today_utc - timedelta(days=1)).isoformat(),
             "user": user,
             "device_filter": device_filter or "",
             "q": q_filter or "",
@@ -1317,11 +1566,25 @@ def _device_config_context(
             errs = payload.get("collector_errors")
             if isinstance(errs, list):
                 collector_errors = errs
+    stale_sec = effective_stale_after_seconds(db, settings)
     silence = device_silence_status(
         detail.get("last_seen_at"),
-        stale_after_seconds=effective_stale_after_seconds(db, settings),
+        stale_after_seconds=stale_sec,
     )
-    recent_events = db.list_device_events(device_id=device_id, limit=20)
+    hw_chassis = (
+        hardware_summary.get("chassis_type")
+        if isinstance(hardware_summary, dict)
+        else None
+    )
+    chassis_type = _normalize_chassis_type(
+        hw_chassis or _chassis_type_from_device(detail)
+    )
+    freshness = _device_freshness_tier(
+        detail.get("last_seen_at"), stale_after_seconds=stale_sec
+    )
+    recent_events = db.list_device_events(
+        device_id=device_id, limit=20, include_detail=False
+    )
     duplicates = db.find_duplicate_devices(device_id)
     inventory_nav = _device_inventory_nav(
         host_info=host_info,
@@ -1379,7 +1642,10 @@ def _device_config_context(
             allowed_setting_keys=allowed_keys,
         ),
         "silence": silence,
+        "freshness": freshness,
         "health_snippet": health_snippet(detail.get("meta")),
+        "chassis_type": chassis_type,
+        "chassis_label": _format_chassis(chassis_type if chassis_type != "other" else ""),
         "recent_events": recent_events,
         "tags_text": ", ".join(detail.get("tags") or []),
         "duplicates": duplicates,

@@ -450,20 +450,11 @@ class Database:
                         hostname.casefold(),
                     ]
                 )
-                # hardware ids из meta-кэша (после inventory)
                 if query not in hay:
+                    from .device_meta import meta_search_haystack
+
                     meta = self._parse_meta(row["meta_json"])
-                    id_bits = [
-                        str(meta.get("serial_number") or ""),
-                        str(meta.get("smbios_uuid") or ""),
-                        str(meta.get("bios_serial") or ""),
-                        str(meta.get("identifying_number") or ""),
-                        str(meta.get("baseboard_serial") or ""),
-                    ]
-                    for disk in meta.get("disk_serials") or []:
-                        id_bits.append(str(disk or ""))
-                    id_hay = " ".join(id_bits).casefold()
-                    if query not in id_hay:
+                    if query not in meta_search_haystack(meta):
                         continue
             result.append(
                 {
@@ -566,6 +557,7 @@ class Database:
         offset: int = 0,
         q: Optional[str] = None,
         importance: Optional[str] = None,
+        include_detail: bool = False,
     ) -> list[dict[str, Any]]:
         limit = max(1, min(int(limit), 500))
         offset = max(0, int(offset))
@@ -583,7 +575,7 @@ class Database:
         params.extend([limit, offset])
         with self.connection() as conn:
             rows = conn.execute(sql, params).fetchall()
-        return self._device_event_rows(rows)
+        return self._device_event_rows(rows, include_detail=include_detail)
 
     def list_unmailed_device_events(self, limit: int = 5000) -> list[dict[str, Any]]:
         limit = max(1, min(int(limit), 5000))
@@ -598,7 +590,7 @@ class Database:
         """
         with self.connection() as conn:
             rows = conn.execute(sql, (limit,)).fetchall()
-        return self._device_event_rows(rows)
+        return self._device_event_rows(rows, include_detail=True)
 
     def insert_device_event(
         self,
@@ -624,26 +616,31 @@ class Database:
             )
 
     @staticmethod
-    def _device_event_rows(rows: list[Any]) -> list[dict[str, Any]]:
+    def _device_event_rows(
+        rows: list[Any], *, include_detail: bool = False
+    ) -> list[dict[str, Any]]:
+        from .event_importance import event_importance
+
         result: list[dict[str, Any]] = []
         for row in rows:
-            detail: Any = None
-            if row["detail_json"]:
-                try:
-                    detail = json.loads(row["detail_json"])
-                except json.JSONDecodeError:
-                    detail = {"_raw": row["detail_json"]}
-            result.append(
-                {
-                    "id": row["id"],
-                    "device_id": row["device_id"],
-                    "hostname": row["hostname"],
-                    "type": row["type"],
-                    "summary": row["summary"],
-                    "detail": detail,
-                    "created_at": row["created_at"],
-                }
-            )
+            entry: dict[str, Any] = {
+                "id": row["id"],
+                "device_id": row["device_id"],
+                "hostname": row["hostname"],
+                "type": row["type"],
+                "summary": row["summary"],
+                "created_at": row["created_at"],
+                "importance": event_importance(row["type"]),
+            }
+            if include_detail:
+                detail: Any = None
+                if row["detail_json"]:
+                    try:
+                        detail = json.loads(row["detail_json"])
+                    except json.JSONDecodeError:
+                        detail = {"_raw": row["detail_json"]}
+                entry["detail"] = detail
+            result.append(entry)
         return result
 
     def mark_device_events_mailed(
@@ -753,6 +750,7 @@ class Database:
             "baseboard_serial": baseboard_serial,
             "disk_serials": disk_serials,
             "model": model,
+            "chassis_type": meta.get("chassis_type"),
             "latest_inventory": inventory,
         }
 
@@ -2139,25 +2137,7 @@ class Database:
                 """,
                 tuple(hw_types),
             ).fetchall()
-        recent_hw: list[dict[str, Any]] = []
-        for row in rows:
-            detail: Any = None
-            if row["detail_json"]:
-                try:
-                    detail = json.loads(row["detail_json"])
-                except json.JSONDecodeError:
-                    detail = {"_raw": row["detail_json"]}
-            recent_hw.append(
-                {
-                    "id": row["id"],
-                    "device_id": row["device_id"],
-                    "hostname": row["hostname"],
-                    "type": row["type"],
-                    "summary": row["summary"],
-                    "detail": detail,
-                    "created_at": row["created_at"],
-                }
-            )
+        recent_hw = self._device_event_rows(rows, include_detail=False)
         total_active = len(active)
         archived_n = len(archived)
         return {

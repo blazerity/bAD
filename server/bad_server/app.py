@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -24,6 +26,22 @@ from .web import router as web_router
 
 logger = logging.getLogger(__name__)
 
+_BG_JITTER_RATIO = 0.12
+
+
+async def _sleep_interval(seconds: float) -> None:
+    base = max(1.0, float(seconds))
+    spread = base * _BG_JITTER_RATIO
+    await asyncio.sleep(base + random.uniform(-spread, spread))
+
+
+async def _run_bg_cycle(name: str, fn, *args, **kwargs):
+    started = time.perf_counter()
+    try:
+        return await asyncio.to_thread(fn, *args, **kwargs)
+    finally:
+        logger.info("Фоновый цикл %s: %.2f с", name, time.perf_counter() - started)
+
 
 async def _agent_update_sync_loop(app: FastAPI) -> None:
     settings = get_settings()
@@ -31,13 +49,14 @@ async def _agent_update_sync_loop(app: FastAPI) -> None:
     if interval <= 0:
         return
     db: Database = app.state.db
+    await _sleep_interval(min(interval, 90.0))
     while True:
         try:
-            await asyncio.to_thread(sync_from_github, db, settings)
+            await _run_bg_cycle("msi_sync", sync_from_github, db, settings)
         except Exception:  # noqa: BLE001
             logger.exception("Background agent-update sync failed")
         try:
-            await asyncio.sleep(interval)
+            await _sleep_interval(interval)
         except asyncio.CancelledError:
             raise
 
@@ -46,10 +65,12 @@ async def _retention_prune_loop(app: FastAPI) -> None:
     """Периодически удалять просроченные events / старые inventory-снимки."""
     interval = 3600
     db: Database = app.state.db
+    await _sleep_interval(45.0)
     while True:
         try:
             cfg = db.get_retention_settings()
-            stats = await asyncio.to_thread(
+            stats = await _run_bg_cycle(
+                "retention_prune",
                 db.prune_expired_data,
                 events_days=cfg["events_days"],
                 inventory_days=cfg["inventory_days"],
@@ -63,7 +84,7 @@ async def _retention_prune_loop(app: FastAPI) -> None:
         except Exception:  # noqa: BLE001
             logger.exception("Background retention prune failed")
         try:
-            await asyncio.sleep(interval)
+            await _sleep_interval(interval)
         except asyncio.CancelledError:
             raise
 
@@ -104,11 +125,13 @@ async def _inventory_mail_digest_loop(app: FastAPI) -> None:
     """Периодическая сводка всех mail-уведомлений (inventory / enroll / stale)."""
     interval = 300  # 5 минут — проверка интервала digest внутри flush
     db: Database = app.state.db
+    await _sleep_interval(20.0)
     while True:
         try:
             smtp_row = db.get_smtp_settings()
             if smtp_row.get("enabled"):
-                await asyncio.to_thread(
+                await _run_bg_cycle(
+                    "mail_digest",
                     flush_inventory_mail_digest,
                     db,
                     smtp_row,
@@ -117,7 +140,7 @@ async def _inventory_mail_digest_loop(app: FastAPI) -> None:
         except Exception:  # noqa: BLE001
             logger.exception("Background mail digest failed")
         try:
-            await asyncio.sleep(interval)
+            await _sleep_interval(interval)
         except asyncio.CancelledError:
             raise
 
@@ -126,28 +149,37 @@ async def _stale_alert_loop(app: FastAPI) -> None:
     settings = get_settings()
     interval = 300  # 5 минут
     db: Database = app.state.db
+    await _sleep_interval(25.0)
     while True:
         try:
             smtp_row = db.get_smtp_settings()
             if smtp_row.get("enabled"):
-                needing = db.devices_needing_stale_alert(
-                    stale_after_seconds=effective_stale_after_seconds(db, settings)
-                )
-                for device in needing:
-                    notify_stale_device(
-                        db,
-                        smtp_row,
-                        device_id=device["device_id"],
-                        hostname=device.get("hostname"),
-                        last_seen_at=device.get("last_seen_at"),
+                stale_sec = effective_stale_after_seconds(db, settings)
+
+                def _stale_pass() -> int:
+                    needing = db.devices_needing_stale_alert(
+                        stale_after_seconds=stale_sec
                     )
-                    db.patch_device_meta(
-                        device["device_id"], {"stale_notified_at": utc_now()}
-                    )
+                    for device in needing:
+                        notify_stale_device(
+                            db,
+                            smtp_row,
+                            device_id=device["device_id"],
+                            hostname=device.get("hostname"),
+                            last_seen_at=device.get("last_seen_at"),
+                        )
+                        db.patch_device_meta(
+                            device["device_id"], {"stale_notified_at": utc_now()}
+                        )
+                    return len(needing)
+
+                n = await _run_bg_cycle("stale_alert", _stale_pass)
+                if n:
+                    logger.info("Stale alert: уведомлений=%s", n)
         except Exception:  # noqa: BLE001
             logger.exception("Background stale alert failed")
         try:
-            await asyncio.sleep(interval)
+            await _sleep_interval(interval)
         except asyncio.CancelledError:
             raise
 
