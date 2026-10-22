@@ -361,12 +361,30 @@ def build_wave_counts(
     }
 
 
+def _facet_from_device_meta(device: dict[str, Any]) -> tuple[str, str, str] | None:
+    """OS / domain / model из meta_json (без inventory), если поля есть."""
+    meta = device.get("meta") if isinstance(device.get("meta"), dict) else {}
+    os_caption = str(meta.get("os") or meta.get("os_caption") or "").strip()
+    domain = str(meta.get("domain") or "").strip()
+    mfr = str(meta.get("hardware_manufacturer") or meta.get("manufacturer") or "").strip()
+    model = str(meta.get("hardware_model") or meta.get("model") or "").strip()
+    if not os_caption and not domain and not (mfr or model):
+        return None
+    model_label = " · ".join(x for x in (mfr, model) if x) or "—"
+    return (
+        os_caption or "—",
+        domain or "—",
+        model_label,
+    )
+
+
 def build_dashboard_stats(
     db: Any,
     *,
     stale_after_seconds: int,
     stats: dict[str, Any],
     ops: dict[str, Any],
+    active: Optional[list[dict[str, Any]]] = None,
 ) -> dict[str, Any]:
     """Агрегаты SSR для /dashboard (D1–D5). Не публичный /v1.
 
@@ -374,7 +392,8 @@ def build_dashboard_stats(
     model_bars, hardware_feed, mirror. См. server-lead-overview-dashboard.md.
     """
     del stale_after_seconds  # silence уже в stats; параметр для симметрии home()
-    active = db.list_devices(archived=False)
+    if active is None:
+        active = db.list_devices(archived=False)
     total_active = int(stats.get("total_active") or len(active))
     online = int(stats.get("online") or 0)
     stale_n = int(stats.get("stale") or 0)
@@ -435,10 +454,25 @@ def build_dashboard_stats(
     os_counts: dict[str, int] = {}
     domain_counts: dict[str, int] = {}
     model_counts: dict[str, int] = {}
-    scan_ids = [d["device_id"] for d in active[:INVENTORY_SCAN_CAP]]
-    payloads = db.latest_inventory_payloads(scan_ids, cap=INVENTORY_SCAN_CAP)
+    scan_cap = min(len(active), INVENTORY_SCAN_CAP)
+    need_payload: list[str] = []
     scanned = 0
-    for _device_id, payload in payloads.items():
+    for d in active[:scan_cap]:
+        facets = _facet_from_device_meta(d)
+        if facets:
+            caption, domain, model_label = facets
+            scanned += 1
+            os_counts[caption] = os_counts.get(caption, 0) + 1
+            domain_counts[domain] = domain_counts.get(domain, 0) + 1
+            model_counts[model_label] = model_counts.get(model_label, 0) + 1
+        else:
+            need_payload.append(d["device_id"])
+    payloads = (
+        db.latest_inventory_payloads(need_payload, cap=INVENTORY_SCAN_CAP)
+        if need_payload
+        else {}
+    )
+    for device_id, payload in payloads.items():
         scanned += 1
         host = payload.get("host") if isinstance(payload, dict) else None
         if not isinstance(host, dict):
@@ -462,6 +496,7 @@ def build_dashboard_stats(
         os_counts[caption] = os_counts.get(caption, 0) + 1
         domain_counts[domain] = domain_counts.get(domain, 0) + 1
         model_counts[model_label] = model_counts.get(model_label, 0) + 1
+    scan_ids = [d["device_id"] for d in active[:INVENTORY_SCAN_CAP]]
     missing = max(0, len(scan_ids) - scanned)
     if missing:
         os_counts["—"] = os_counts.get("—", 0) + missing

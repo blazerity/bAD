@@ -44,6 +44,12 @@ uvicorn bad_server.app:app --host 127.0.0.1 --port 8000
 - Параметры `/settings/*` (Win11 left-nav): LDAP (+ AD group), mail/SMTP toggles, retention, backups, policies, agent updates
 - UI look: Win11/Fluent light + русский UI — `bad_server/static/style.css`, favicon; CLI HTML report — те же токены/иконки; `agent/assets/bad.ico`
 
+## Обзор, поиск, события
+
+Обзор `/` и Дашборд `/dashboard` берут один fleet snapshot (`web._fleet_snapshot` → `db.list_fleet_active_archived`): active/archived, stats и ops без второго обхода. Drift (`ops_update_signals`) считает target по `meta` устройства и batch override (`list_device_config_overrides_map`), без `get_device_detail` на каждое устройство. `POST /v1/inventory` пишет в `devices.meta` кэш `domain`, `hardware_manufacturer`, `hardware_model` — фасеты Дашборда читают meta, не последний snapshot.
+
+Live-поиск: `static/panel-search.js` (debounce) → `GET /devices/search.json?q=` (сессия web, не admin Bearer; до 50). Важность события — по типу в `event_importance.py` (не колонка БД). UI `/events` и `GET /v1/events` принимают `q` (summary / type / hostname / device_id) и `importance`: `medium`|`high`|`critical` = не ниже порога, `all` = все, пусто = medium и выше (low скрыт).
+
 ## Как собрать / тестировать агент
 
 ```bash

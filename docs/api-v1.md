@@ -133,8 +133,12 @@ Web UI (local/LDAP session) — **не** контракт для 1C.
 | Query | Default | Описание |
 |-------|---------|----------|
 | `device_id` | — | фильтр |
+| `q` | — | поиск по summary / type / hostname / device_id (ILIKE) |
+| `importance` | — (medium+) | `medium`\|`high`\|`critical` = не ниже порога; `all` = все; пусто = medium и выше (low скрыт) |
 | `limit` | `100` | 1…500 |
 | `offset` | `0` | смещение |
+
+Без `q`/`importance` поведение прежнее (additive). Семантика как у web `/events` и `db.list_device_events`.
 
 Ответ: `{ "events": [...], "total", "limit", "offset" }`.
 

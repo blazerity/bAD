@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 from . import __version__
@@ -88,6 +88,7 @@ from .server_update import (
     trigger_msi_workflow,
     wait_for_apply as server_wait_for_apply,
 )
+from .event_importance import FILTER_PRESET_LABELS_RU, IMPORTANCE_LABELS_RU, event_importance
 from .smtp_mail import (
     DEFAULT_NOTIFY,
     NOTIFY_LABELS_RU,
@@ -192,6 +193,17 @@ templates.env.filters["format_bytes"] = _format_bytes
 templates.env.filters["format_os"] = _format_os
 templates.env.filters["format_chassis"] = _format_chassis
 templates.env.filters["format_event_type"] = _format_event_type
+
+
+def _importance_label_ru(level: object, empty: str = "") -> str:
+    if level is None:
+        return empty
+    return IMPORTANCE_LABELS_RU.get(str(level), str(level))
+
+
+templates.env.filters["importance_label_ru"] = _importance_label_ru
+templates.env.globals["event_importance"] = event_importance
+templates.env.globals["importance_filter_labels"] = FILTER_PRESET_LABELS_RU
 
 router = APIRouter(tags=["web"], dependencies=[Depends(ensure_csrf)])
 
@@ -588,6 +600,24 @@ class SmtpFormData:
         self.notify_pending_reboot = notify_pending_reboot
 
 
+def _fleet_snapshot(
+    db: Database, settings: Settings
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+    """Один проход fleet + stats + ops для Обзора и Дашборда."""
+    active, archived = db.list_fleet_active_archived()
+    stats = db.overview_stats(
+        stale_after_seconds=settings.device_stale_after_seconds,
+        active=active,
+        archived=archived,
+    )
+    ops = ops_update_signals(
+        db,
+        stale_after_seconds=settings.device_stale_after_seconds,
+        active=active,
+    )
+    return active, archived, stats, ops
+
+
 def _overview_page_context(
     *,
     user: WebUser,
@@ -595,14 +625,10 @@ def _overview_page_context(
     settings: Settings,
 ) -> dict[str, Any]:
     """SSR context Обзора (O*): admin/ops, без склада графиков Дашборда."""
-    stats = db.overview_stats(stale_after_seconds=settings.device_stale_after_seconds)
-    ops = ops_update_signals(
-        db, stale_after_seconds=settings.device_stale_after_seconds
-    )
+    active, _archived, stats, ops = _fleet_snapshot(db, settings)
     security = security_status(db, settings)
     ops = merge_security_into_ops(ops, security)
     # O8: числа волны (не bar-chart)
-    active = db.list_devices(archived=False)
     wave = build_wave_counts(
         active, ops=ops, stale_n=int(stats.get("stale") or 0)
     )
@@ -678,10 +704,7 @@ def dashboard_page(
     settings: Settings = Depends(get_settings),
 ):
     """Отдельная вкладка Дашборд: визуальные агрегаты D1–D5 (не /v1)."""
-    stats = db.overview_stats(stale_after_seconds=settings.device_stale_after_seconds)
-    ops = ops_update_signals(
-        db, stale_after_seconds=settings.device_stale_after_seconds
-    )
+    active, _archived, stats, ops = _fleet_snapshot(db, settings)
     security = security_status(db, settings)
     ops = merge_security_into_ops(ops, security)
     dashboard = build_dashboard_stats(
@@ -689,6 +712,7 @@ def dashboard_page(
         stale_after_seconds=settings.device_stale_after_seconds,
         stats=stats,
         ops=ops,
+        active=active,
     )
     return _html(
         request,
@@ -1018,24 +1042,64 @@ def devices_csv_export(
     )
 
 
+@router.get("/devices/search.json")
+def devices_search_json(
+    q: str = Query(default="", max_length=128),
+    limit: int = Query(default=25, ge=1, le=50),
+    user: WebUser = Depends(require_web_user),
+    db: Database = Depends(get_db),
+):
+    """Быстрый поиск устройств для live UI (сессия, не admin Bearer)."""
+    del user
+    query = (q or "").strip()
+    if len(query) < 1:
+        return JSONResponse({"devices": []})
+    cap = max(1, min(int(limit or 25), 50))
+    rows = db.list_devices(archived=False, q=query, limit=cap)
+    return JSONResponse(
+        {
+            "devices": [
+                {
+                    "device_id": d["device_id"],
+                    "hostname": d.get("hostname") or d["device_id"],
+                    "href": f"/devices/{d['device_id']}",
+                }
+                for d in rows
+            ]
+        }
+    )
+
+
 @router.get("/events", response_class=HTMLResponse)
 def events_page(
     request: Request,
     device_id: Optional[str] = None,
+    q: Optional[str] = None,
+    importance: Optional[str] = None,
     page: int = 1,
     user: WebUser = Depends(require_web_user),
     db: Database = Depends(get_db),
 ):
     device_filter = (device_id or "").strip() or None
+    q_filter = (q or "").strip() or None
+    imp = (importance or "").strip().casefold() or None
+    if imp == "default":
+        imp = None
     page_i = max(1, int(page or 1))
     page_size = EVENTS_PAGE_SIZE
-    total = db.count_device_events(device_id=device_filter)
+    total = db.count_device_events(
+        device_id=device_filter, q=q_filter, importance=imp
+    )
     pages = max(1, (total + page_size - 1) // page_size)
     if page_i > pages:
         page_i = pages
     offset = (page_i - 1) * page_size
     events = db.list_device_events(
-        device_id=device_filter, limit=page_size, offset=offset
+        device_id=device_filter,
+        limit=page_size,
+        offset=offset,
+        q=q_filter,
+        importance=imp,
     )
     return _html(
         request,
@@ -1044,7 +1108,8 @@ def events_page(
             "events": events,
             "user": user,
             "device_filter": device_filter or "",
-            "devices": db.list_devices(archived=None),
+            "q": q_filter or "",
+            "importance": imp if imp else "",
             "page": page_i,
             "pages": pages,
             "total": total,

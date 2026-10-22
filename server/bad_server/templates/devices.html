@@ -20,10 +20,18 @@
     {% endif %}
   </p>
 
-  <form method="get" action="/devices" class="filter-bar">
+  <div class="filter-bar">
+    <div class="live-search-wrap">
+      <label for="device-live-q">Быстрый переход</label>
+      <input id="device-live-q" type="search" placeholder="начните вводить имя…" maxlength="128" autocomplete="off">
+      <div id="device-live-results" class="live-search-results" hidden></div>
+    </div>
+  </div>
+
+  <form method="get" action="/devices" class="filter-bar" data-live-submit data-live-delay="300">
     <label for="q">Поиск</label>
     <input id="q" name="q" type="search" value="{{ q }}"
-      placeholder="hostname / device_id / serial / UUID" maxlength="128">
+      placeholder="hostname / device_id / serial / UUID" maxlength="128" autocomplete="off">
     <label for="tag">Тег</label>
     <select id="tag" name="tag">
       <option value="">Все теги</option>

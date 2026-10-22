@@ -128,7 +128,7 @@ flowchart LR
 | `POST` | `/v1/devices/{id}/archive` / `restore` | admin | скрыть/вернуть в списке |
 | `DELETE` | `/v1/devices/{id}` | admin | hard-delete + связанные строки |
 | `PUT` | `/v1/devices/{device_id}/tags` | admin Bearer | заменить теги устройства |
-| `GET` | `/v1/events` | admin Bearer | события (`?device_id=&limit=&offset=`) |
+| `GET` | `/v1/events` | admin Bearer | события (`?device_id=&q=&importance=&limit=&offset=`; пустой `importance` = medium+) |
 | `GET` | `/v1/agent/update/check?current=` | API key | `{current, target_version, update_available, sha256, url, msi_name, reason}` |
 | `GET` | `/v1/agent/update/msi` | API key | байты зеркалированного MSI |
 | `GET` | `/v1/admin/agent-update` | admin | статус зеркала |
@@ -265,12 +265,14 @@ flowchart LR
 
 | Path | Назначение |
 |------|------------|
-| `/`, `/overview` | обзор: totals, версии агента, hardware events; ops: empty mirror, version drift, broken pin, revoked active |
+| `/`, `/overview` | обзор: totals, версии агента, hardware events; ops: empty mirror, version drift, broken pin, revoked active. Один fleet snapshot с `/dashboard` |
+| `/dashboard` | агрегаты парка (те же active/stats/ops, что Обзор) |
 | `/login` | username/password (local, затем LDAP если включён) |
 | `/logout` | сброс cookie сессии |
 | `/devices`, `/devices/{id}` | список (поиск/архив/страницы/CSV); карточка — revoke/rotate, архив, delete, дубли, tags, override, hardware summary |
+| `/devices/search.json` | live-поиск (сессия): `?q=` → `{devices:[{device_id,hostname,href}]}`; `panel-search.js` |
 | `/devices/export.csv` | CSV устройств с учётом фильтров |
-| `/events` | события inventory + пагинация |
+| `/events` | события inventory + пагинация; `?q=&importance=` (пусто = medium+, `all` = все) |
 | `/settings` | редирект в оболочку «Параметры» (левый nav) |
 | `/settings/ldap` | LDAP + группа доступа AD |
 | `/settings/tls` | nav **Сертификат**; статус HTTP/HTTPS; upload PEM cert+key[+chain] → nginx reload (key не в HTML) |

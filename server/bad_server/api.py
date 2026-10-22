@@ -242,11 +242,22 @@ def inventory(
     os_meta: dict[str, Any] = {}
     if host and isinstance(host.get("os"), dict):
         os_meta["os"] = host["os"].get("caption")
+    if host:
+        dom = host.get("domain")
+        if dom is not None and str(dom).strip():
+            os_meta["domain"] = str(dom).strip()
     hardware = (
         payload.get("hardware")
         if isinstance(payload.get("hardware"), dict)
         else None
     )
+    if hardware:
+        mfr = hardware.get("manufacturer")
+        mdl = hardware.get("model")
+        if mfr and str(mfr).strip():
+            os_meta["hardware_manufacturer"] = str(mfr).strip()
+        if mdl and str(mdl).strip():
+            os_meta["hardware_model"] = str(mdl).strip()
     identity = db.extract_identity_signals(hardware=hardware or {})
     meta = {
         "last_inventory_at": body.collected_at,
@@ -396,17 +407,27 @@ def delete_device(
 @router.get("/events")
 def list_events(
     device_id: str | None = Query(default=None, max_length=128),
+    q: str | None = Query(default=None, max_length=128),
+    importance: str | None = Query(default=None, max_length=16),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     _admin: str = Depends(require_admin_token),
     db: Database = Depends(get_db),
 ) -> dict[str, Any]:
     device_filter = (device_id or "").strip() or None
+    q_filter = (q or "").strip() or None
+    imp = (importance or "").strip().casefold() or None
     return {
         "events": db.list_device_events(
-            device_id=device_filter, limit=limit, offset=offset
+            device_id=device_filter,
+            limit=limit,
+            offset=offset,
+            q=q_filter,
+            importance=imp,
         ),
-        "total": db.count_device_events(device_id=device_filter),
+        "total": db.count_device_events(
+            device_id=device_filter, q=q_filter, importance=imp
+        ),
         "limit": limit,
         "offset": offset,
     }

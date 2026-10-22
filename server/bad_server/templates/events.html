@@ -4,35 +4,42 @@
 {% block content %}
 <section>
   <h1 class="with-icon">{{ icon('events') }}События</h1>
-  <p class="muted">События изменений inventory (сначала новые). Только чтение.</p>
+  <p class="muted">Изменения inventory (сначала новые). По умолчанию скрыт «шум» (низкая важность).</p>
 
-  <form method="get" action="/events" class="filter-bar">
-    <label for="device_id">Устройство</label>
-    <select id="device_id" name="device_id">
-      <option value="">Все устройства</option>
-      {% for d in devices %}
-      <option value="{{ d.device_id }}"
-        {% if device_filter == d.device_id %}selected{% endif %}>
-        {{ d.hostname or d.device_id }}
-      </option>
+  <form method="get" action="/events" class="filter-bar" data-live-submit data-live-delay="350">
+    {% if device_filter %}
+    <input type="hidden" name="device_id" value="{{ device_filter }}">
+    {% endif %}
+    <label for="q">Поиск</label>
+    <input id="q" name="q" type="search" value="{{ q }}"
+      placeholder="текст, hostname, тип" maxlength="128" autocomplete="off">
+    <label for="importance">Важность</label>
+    <select id="importance" name="importance">
+      {% for key, label in importance_filter_labels.items() %}
+      <option value="{{ key }}" {% if importance == key %}selected{% endif %}>{{ label }}</option>
       {% endfor %}
     </select>
-    <button type="submit">Фильтр</button>
-    {% if device_filter %}
+    <button type="submit">Применить</button>
+    {% if device_filter or q or importance %}
     <a class="muted" href="/events">Сбросить</a>
     {% endif %}
   </form>
+  {% if device_filter %}
+  <p class="muted">Фильтр устройства: <span class="mono">{{ device_filter }}</span>
+    <a href="/events?q={{ q|urlencode }}&importance={{ importance }}">убрать</a></p>
+  {% endif %}
 
-  <p class="muted">Всего: {{ total }}.</p>
+  <p class="muted">Показано: {{ events|length }} из {{ total }}.</p>
 
   {% if not events %}
-  <p class="muted">Пока нет событий. Они появляются, когда следующий inventory заметно отличается от предыдущего.</p>
+  <p class="muted">Нет событий по выбранным фильтрам.</p>
   {% else %}
   <div class="table-scroll">
   <table class="devices">
     <thead>
       <tr>
         <th>Когда</th>
+        <th>Важность</th>
         <th>Устройство</th>
         <th>Тип</th>
         <th>Кратко</th>
@@ -40,8 +47,10 @@
     </thead>
     <tbody>
       {% for e in events %}
+      {% set imp = event_importance(e.type) %}
       <tr>
         <td class="mono">{{ e.created_at }}</td>
+        <td><span class="badge badge-importance badge-importance-{{ imp }}">{{ imp|importance_label_ru }}</span></td>
         <td>
           <a href="/devices/{{ e.device_id }}">{{ e.hostname or e.device_id }}</a>
         </td>
@@ -55,11 +64,11 @@
   {% if pages > 1 %}
   <nav class="pager" aria-label="Страницы">
     {% if page > 1 %}
-    <a href="/events?{% if device_filter %}device_id={{ device_filter }}&amp;{% endif %}page={{ page - 1 }}">← Назад</a>
+    <a href="/events?{% if device_filter %}device_id={{ device_filter }}&amp;{% endif %}{% if q %}q={{ q|urlencode }}&amp;{% endif %}{% if importance %}importance={{ importance }}&amp;{% endif %}page={{ page - 1 }}">← Назад</a>
     {% endif %}
     <span class="muted">Стр. {{ page }} / {{ pages }}</span>
     {% if page < pages %}
-    <a href="/events?{% if device_filter %}device_id={{ device_filter }}&amp;{% endif %}page={{ page + 1 }}">Вперёд →</a>
+    <a href="/events?{% if device_filter %}device_id={{ device_filter }}&amp;{% endif %}{% if q %}q={{ q|urlencode }}&amp;{% endif %}{% if importance %}importance={{ importance }}&amp;{% endif %}page={{ page + 1 }}">Вперёд →</a>
     {% endif %}
   </nav>
   {% endif %}

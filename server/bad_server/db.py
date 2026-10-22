@@ -384,15 +384,19 @@ class Database:
         offset: int = 0,
         limit: Optional[int] = None,
     ) -> list[dict[str, Any]]:
+        sql = """
+            SELECT device_id, hostname, enrolled_at, last_seen_at,
+                   agent_version, meta_json, tags_json, revoked, archived
+            FROM devices
+        """
+        params: list[Any] = []
+        if archived is True:
+            sql += " WHERE COALESCE(archived, 0) != 0"
+        elif archived is False:
+            sql += " WHERE COALESCE(archived, 0) = 0"
+        sql += " ORDER BY COALESCE(last_seen_at, enrolled_at) DESC"
         with self.connection() as conn:
-            rows = conn.execute(
-                """
-                SELECT device_id, hostname, enrolled_at, last_seen_at,
-                       agent_version, meta_json, tags_json, revoked, archived
-                FROM devices
-                ORDER BY COALESCE(last_seen_at, enrolled_at) DESC
-                """
-            ).fetchall()
+            rows = conn.execute(sql, params).fetchall()
         wanted = (tag or "").strip().casefold()
         query = (q or "").strip().casefold()
         result: list[dict[str, Any]] = []
@@ -483,12 +487,53 @@ class Database:
                 raise KeyError(device_id)
         return clean
 
+    def _event_list_filters(
+        self,
+        *,
+        device_id: Optional[str],
+        q: Optional[str],
+        importance: Optional[str],
+    ) -> tuple[str, list[Any]]:
+        from .event_importance import types_at_least
+
+        clauses: list[str] = []
+        params: list[Any] = []
+        if device_id:
+            clauses.append("e.device_id = ?")
+            params.append(device_id)
+        imp = (importance or "").strip().casefold()
+        if imp and imp != "all":
+            types = sorted(types_at_least(imp))
+            if types:
+                placeholders = ",".join("?" for _ in types)
+                clauses.append(f"e.type IN ({placeholders})")
+                params.extend(types)
+        elif imp != "all":
+            # default UI: medium+
+            types = sorted(types_at_least("medium"))
+            if types:
+                placeholders = ",".join("?" for _ in types)
+                clauses.append(f"e.type IN ({placeholders})")
+                params.extend(types)
+        query = (q or "").strip()
+        if query:
+            like = f"%{query}%"
+            clauses.append(
+                "(e.summary ILIKE ? OR e.type ILIKE ? OR d.hostname ILIKE ? "
+                "OR e.device_id ILIKE ?)"
+            )
+            params.extend([like, like, like, like])
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        return where, params
+
     def list_device_events(
         self,
         *,
         device_id: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
+        q: Optional[str] = None,
+        importance: Optional[str] = None,
     ) -> list[dict[str, Any]]:
         limit = max(1, min(int(limit), 500))
         offset = max(0, int(offset))
@@ -498,13 +543,12 @@ class Database:
             FROM device_events e
             LEFT JOIN devices d ON d.device_id = e.device_id
         """
-        params: list[Any]
-        if device_id:
-            sql += " WHERE e.device_id = ?"
-            params = [device_id, limit, offset]
-        else:
-            params = [limit, offset]
+        where, params = self._event_list_filters(
+            device_id=device_id, q=q, importance=importance
+        )
+        sql += where
         sql += " ORDER BY e.created_at DESC, e.id DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
         with self.connection() as conn:
             rows = conn.execute(sql, params).fetchall()
         result: list[dict[str, Any]] = []
@@ -528,15 +572,24 @@ class Database:
             )
         return result
 
-    def count_device_events(self, *, device_id: Optional[str] = None) -> int:
+    def count_device_events(
+        self,
+        *,
+        device_id: Optional[str] = None,
+        q: Optional[str] = None,
+        importance: Optional[str] = None,
+    ) -> int:
+        sql = """
+            SELECT COUNT(*) AS c
+            FROM device_events e
+            LEFT JOIN devices d ON d.device_id = e.device_id
+        """
+        where, params = self._event_list_filters(
+            device_id=device_id, q=q, importance=importance
+        )
+        sql += where
         with self.connection() as conn:
-            if device_id:
-                row = conn.execute(
-                    "SELECT COUNT(*) AS c FROM device_events WHERE device_id = ?",
-                    (device_id,),
-                ).fetchone()
-            else:
-                row = conn.execute("SELECT COUNT(*) AS c FROM device_events").fetchone()
+            row = conn.execute(sql, params).fetchone()
         return int(row["c"] if row else 0)
 
     def get_device_detail(self, device_id: str) -> Optional[dict[str, Any]]:
@@ -1144,6 +1197,22 @@ class Database:
                 "DELETE FROM agent_policies WHERE id = ?", (policy_id,)
             )
             return cur.rowcount > 0
+
+    def list_device_config_overrides_map(self) -> dict[str, dict[str, Any]]:
+        """device_id → settings dict (для batch drift без N запросов)."""
+        out: dict[str, dict[str, Any]] = {}
+        with self.connection() as conn:
+            rows = conn.execute(
+                "SELECT device_id, settings_json FROM device_config_overrides"
+            ).fetchall()
+        for row in rows:
+            try:
+                settings = json.loads(row["settings_json"] or "{}")
+            except json.JSONDecodeError:
+                settings = {}
+            if isinstance(settings, dict):
+                out[str(row["device_id"])] = settings
+        return out
 
     def get_device_config_override(self, device_id: str) -> Optional[dict[str, Any]]:
         with self.connection() as conn:
@@ -1918,11 +1987,26 @@ class Database:
                 ).fetchone()
         return int(row["c"] if row else 0)
 
-    def overview_stats(self, *, stale_after_seconds: int) -> dict[str, Any]:
+    def list_fleet_active_archived(
+        self,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Один проход по таблице devices для Обзора/Дашборда."""
+        all_rows = self.list_devices(archived=None)
+        active = [d for d in all_rows if not d.get("archived")]
+        archived = [d for d in all_rows if d.get("archived")]
+        return active, archived
+
+    def overview_stats(
+        self,
+        *,
+        stale_after_seconds: int,
+        active: Optional[list[dict[str, Any]]] = None,
+        archived: Optional[list[dict[str, Any]]] = None,
+    ) -> dict[str, Any]:
         from .device_health import device_silence_status
 
-        active = self.list_devices(archived=False)
-        archived = self.list_devices(archived=True)
+        if active is None or archived is None:
+            active, archived = self.list_fleet_active_archived()
         online = 0
         stale = 0
         versions: dict[str, int] = {}
@@ -1942,12 +2026,40 @@ class Database:
         ]
         from .smtp_mail import HARDWARE_ALERT_TYPES
 
-        # O7 / D feed: лента 5–8 событий железа (не график)
-        recent_hw = [
-            e
-            for e in self.list_device_events(limit=40)
-            if e.get("type") in HARDWARE_ALERT_TYPES
-        ][:8]
+        hw_types = sorted(HARDWARE_ALERT_TYPES)
+        placeholders = ",".join("?" for _ in hw_types)
+        with self.connection() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT e.id, e.device_id, e.type, e.summary, e.detail_json,
+                       e.created_at, d.hostname
+                FROM device_events e
+                LEFT JOIN devices d ON d.device_id = e.device_id
+                WHERE e.type IN ({placeholders})
+                ORDER BY e.created_at DESC, e.id DESC
+                LIMIT 8
+                """,
+                tuple(hw_types),
+            ).fetchall()
+        recent_hw: list[dict[str, Any]] = []
+        for row in rows:
+            detail: Any = None
+            if row["detail_json"]:
+                try:
+                    detail = json.loads(row["detail_json"])
+                except json.JSONDecodeError:
+                    detail = {"_raw": row["detail_json"]}
+            recent_hw.append(
+                {
+                    "id": row["id"],
+                    "device_id": row["device_id"],
+                    "hostname": row["hostname"],
+                    "type": row["type"],
+                    "summary": row["summary"],
+                    "detail": detail,
+                    "created_at": row["created_at"],
+                }
+            )
         total_active = len(active)
         archived_n = len(archived)
         return {

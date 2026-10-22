@@ -311,18 +311,24 @@ def effective_settings_for_device(
     device: dict[str, Any],
     *,
     policies: Optional[list[dict[str, Any]]] = None,
+    override_settings: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
-    """Эффективные agent settings (defaults < policies < override)."""
-    detail = db.get_device_detail(device.get("device_id") or "") or device
-    inv = (detail.get("latest_inventory") or {}).get("payload")
-    override = db.get_device_config_override(device["device_id"])
+    """Эффективные agent settings (defaults < policies < override).
+
+    Без get_device_detail: meta на устройстве + опционально override из batch-map.
+    """
+    meta = device.get("meta") if isinstance(device.get("meta"), dict) else {}
+    override = override_settings
+    if override is None:
+        row = db.get_device_config_override(device.get("device_id") or "")
+        override = row.get("settings") if row else None
     computed = compute_effective_config(
-        hostname=detail.get("hostname"),
-        meta=detail.get("meta") if isinstance(detail.get("meta"), dict) else {},
-        inventory_payload=inv if isinstance(inv, dict) else None,
-        tags=detail.get("tags"),
+        hostname=device.get("hostname"),
+        meta=meta,
+        inventory_payload=None,
+        tags=device.get("tags"),
         policies=policies if policies is not None else db.list_agent_policies(),
-        override=override.get("settings") if override else None,
+        override=override if isinstance(override, dict) else None,
     )
     return computed.get("settings") or {}
 
@@ -405,14 +411,17 @@ def ops_update_signals(
     db: Database,
     *,
     stale_after_seconds: int,
+    active: Optional[list[dict[str, Any]]] = None,
 ) -> dict[str, Any]:
     """Сводка для Обзора: зеркало, drift vs policy target, revoke/recovery."""
     from .device_health import device_silence_status
 
     versions = db.list_agent_msi_versions()
     latest = db.get_agent_update()
-    active = db.list_devices(archived=False)
+    if active is None:
+        active = db.list_devices(archived=False)
     policies = db.list_agent_policies()
+    overrides = db.list_device_config_overrides_map()
     drift: list[dict[str, Any]] = []
     pinned_missing: list[dict[str, Any]] = []
     revoked_active = 0
@@ -420,7 +429,14 @@ def ops_update_signals(
         if d.get("revoked"):
             revoked_active += 1
             continue
-        settings = effective_settings_for_device(db, d, policies=policies)
+        # {} = нет override; None нельзя — effective_* уйдёт в get_device_config_override (N+1)
+        ov = overrides.get(d.get("device_id") or "", {})
+        settings = effective_settings_for_device(
+            db,
+            d,
+            policies=policies,
+            override_settings=ov,
+        )
         target = (
             sanitize_update_target(settings.get("update_target"))
             or UPDATE_TARGET_LATEST
