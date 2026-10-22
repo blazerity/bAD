@@ -323,11 +323,44 @@ public sealed class Worker : BackgroundService
 
         try
         {
-            var remote = await client.SendHeartbeatAsync(config.ApiKey!, payload, ct);
+            var response = await client.SendHeartbeatAsync(config.ApiKey!, payload, ct);
             _logger.LogDebug("Heartbeat sent");
-            if (remote?.Settings != null)
+            if (response?.Config?.Settings != null)
             {
-                ApplyRemoteConfig(config, remote);
+                ApplyRemoteConfig(config, response.Config);
+            }
+
+            config = ConfigStore.LoadOrCreate();
+
+            if (response?.Actions?.Inventory == true)
+            {
+                await RunInventoryAsync(client, config, ct);
+                config = ConfigStore.LoadOrCreate();
+            }
+
+            if (response?.Actions?.UpdateCheck == true)
+            {
+                _nextUpdateCheck = DateTime.UtcNow;
+                var updater = new AgentUpdater(_logger, _agentVersion);
+                bool applying;
+                try
+                {
+                    applying = await updater.CheckAndApplyAsync(client, config, ct);
+                }
+                catch (AgentApiException ex) when (ex.IsAuthFailure)
+                {
+                    HandleAuthFailure(config, "update", ex);
+                    return;
+                }
+
+                var updateEvery = TimeSpan.FromHours(Math.Max(1, config.UpdateCheckIntervalHours));
+                _nextUpdateCheck = DateTime.UtcNow + updateEvery;
+                if (applying)
+                {
+                    _logger.LogInformation("Exiting so MSI upgrade can replace agent files");
+                    _lifetime.StopApplication();
+                    return;
+                }
             }
         }
         catch (AgentApiException ex) when (ex.IsAuthFailure)

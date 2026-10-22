@@ -87,6 +87,8 @@ bad -h                  # справка (--help | -?)
 bad -c                  # интерактивная настройка — только elevated (администратор)
 bad config set <k> <v>  # один knob — только elevated
 bad config unset <k>    # сброс knob — только elevated
+bad push                # очередь → inventory → heartbeat (подтянуть config с сервера)
+bad push --update       # то же + проверка/установка MSI с сервера
 BadAgent.exe service status|start|stop|restart
 ```
 
@@ -128,7 +130,8 @@ UI provenance на ключ: **`default` \| `policy` \| `device_override` \| `ag
 | Endpoint | Auth |
 |----------|------|
 | `GET /v1/agent/config` | agent API key (только своё устройство) |
-| `POST /v1/heartbeat` (+ optional `config_version`, optional `config_local`) | agent API key; ответ может содержать `config` |
+| `POST /v1/heartbeat` (+ optional `config_version`, optional `config_local`) | agent API key; ответ может содержать `config`; при панельном refresh — всегда `config` + optional `actions` (`inventory`, `update_check`) |
+| `POST /v1/devices/{id}/request-refresh` | admin Bearer → meta `refresh_*` для следующего heartbeat |
 | `GET/POST/PUT/DELETE /v1/admin/policies*` | admin Bearer |
 | `GET /v1/admin/devices/{id}/config` | admin Bearer → + `sources` / `agent_local_keys` |
 | `PUT/DELETE /v1/admin/devices/{id}/config-override` | admin Bearer |

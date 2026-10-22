@@ -142,6 +142,22 @@ public sealed class RemoteAgentConfigResponse
     }
 }
 
+/// <summary>Флаги в ответе <c>/v1/heartbeat</c> (панель: принудительный inventory / update check).</summary>
+public sealed class HeartbeatActions
+{
+    [JsonPropertyName("inventory")]
+    public bool Inventory { get; set; }
+
+    [JsonPropertyName("update_check")]
+    public bool UpdateCheck { get; set; }
+}
+
+public sealed class HeartbeatServerResponse
+{
+    public RemoteAgentConfigResponse? Config { get; set; }
+    public HeartbeatActions? Actions { get; set; }
+}
+
 public static class ConfigStore
 {
     /// <summary>

@@ -118,7 +118,8 @@ flowchart LR
 |--------|------|------|------------|
 | `GET` | `/v1/health` | нет | liveness + `version` |
 | `POST` | `/v1/enroll` | enrollment Bearer | обмен на per-agent API key |
-| `POST` | `/v1/heartbeat` | API key | `last_seen` + optional health + optional `config_local` → meta; piggyback `config` если `config_version` устарел |
+| `POST` | `/v1/heartbeat` | API key | `last_seen` + optional health + optional `config_local` → meta; piggyback `config` если `config_version` устарел; при панельном refresh — всегда `config` + optional `actions` |
+| `POST` | `/v1/devices/{id}/request-refresh` | admin Bearer | meta `refresh_*` → одноразово на следующем heartbeat агента |
 | `POST` | `/v1/inventory` | API key | upsert снимка по `device_id` (host/network + optional hardware/users/software); diff → `device_events` |
 | `GET` | `/v1/agent/config` | API key | effective settings только для своего устройства |
 | `GET` | `/v1/devices` | admin Bearer | список (`?tag=&q=&archived=&page=&page_size=`) |
@@ -201,6 +202,21 @@ flowchart LR
 
 Приём: sanitize → replace целиком блока `meta.config_local` (как health merge по ключам meta, но блок `config_local` атомарный). Не писать в `device_config_overrides`. Не менять piggyback `config` / `config_version` из-за `config_local`.
 
+**Schema notes — outbound heartbeat** (additive, pull-only «push» с панели):
+
+```json
+{
+  "status": "ok",
+  "config_version": "…",
+  "config": { "version": "…", "settings": { "…": "…" } },
+  "actions": { "inventory": true, "update_check": true }
+}
+```
+
+- `config` — как обычно при смене `config_version`; **дополнительно** сервер всегда кладёт полный `config`, если в `devices.meta` есть свежий (`≤24 ч`) `refresh_requested_at` (см. request-refresh).
+- `actions` — только при том же refresh-запросе; флаги из `meta.refresh_inventory` / `meta.refresh_update_check` (по умолчанию оба `true`). После ответа сервер **сбрасывает** все `refresh_*` ключи meta (одноразово).
+- Web: `POST /devices/{device_id}/request-refresh` (admin session, CSRF) → `patch_device_meta`; API: `POST /v1/devices/{id}/request-refresh` (admin Bearer).
+
 **Schema notes — outbound admin/web** (`GET /v1/admin/devices/{id}/config` и контекст карточки устройства):
 
 ```json
@@ -271,7 +287,7 @@ flowchart LR
 | `/dashboard` | дашборд: те же агрегаты и ops-сигналы, что на Обзоре |
 | `/login` | username/password (local, затем LDAP если включён) |
 | `/logout` | сброс cookie сессии |
-| `/devices`, `/devices/{id}` | список (поиск/архив/страницы/CSV); карточка — revoke/rotate, архив, delete, дубли, tags, override, hardware summary; копирование серийников / IPv4 / MAC |
+| `/devices`, `/devices/{id}` | список (поиск/архив/страницы/CSV); карточка — **«Обновить политику и версию»** (request-refresh), revoke/rotate, архив, delete, дубли, tags, override, hardware summary; копирование серийников / IPv4 / MAC |
 | `/devices/search.json` | live-поиск (сессия): `?q=` → `{devices:[{device_id,hostname,href}]}`; `panel-search.js` |
 | `/devices/export.csv` | CSV устройств с учётом фильтров |
 | `/events` | события inventory + пагинация; `?q=&importance=` (пусто = medium+, `all` = все) |

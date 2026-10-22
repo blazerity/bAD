@@ -7,7 +7,18 @@
 {% set view = active_view or 'overview' %}
 <section class="device-card">
   <p class="crumb"><a href="/devices">Устройства</a> / {{ device.hostname or device.device_id }}</p>
-  <h1 class="with-icon">{{ icon('host') }}{{ device.hostname or "(неизвестный узел)" }}</h1>
+  <div class="device-title-row">
+    <h1 class="with-icon">{{ icon('host') }}{{ device.hostname or "(неизвестный узел)" }}</h1>
+    {% if user.is_admin %}
+    <form method="post" action="/devices/{{ device.device_id }}/request-refresh" class="device-refresh-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="secondary">Обновить политику и версию</button>
+    </form>
+    {% endif %}
+  </div>
+  {% if device.meta and device.meta.refresh_requested_at %}
+  <p class="muted">ожидает агента…</p>
+  {% endif %}
   {% if message %}<p class="ok">{{ message }}</p>{% endif %}
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
   {% if new_api_key %}

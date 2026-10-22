@@ -28,6 +28,12 @@ from .agent_config import (
 )
 from .agent_update import check_update, sync_from_github
 from .auth import get_db, require_admin_token, require_api_key, require_enrollment_token
+from .device_refresh import (
+    clear_refresh_meta_patch,
+    heartbeat_actions_for_refresh,
+    refresh_request_pending,
+    set_device_refresh_request,
+)
 from .config import Settings, get_settings
 from .db import Database
 from .schemas import (
@@ -192,6 +198,19 @@ def heartbeat(
             "version": effective["version"],
             "settings": effective["settings"],
         }
+    detail = db.get_device_detail(body.device_id)
+    meta = (detail or {}).get("meta") or {}
+    had_refresh_flag = bool(meta.get("refresh_requested_at"))
+    if refresh_request_pending(meta):
+        resp["config"] = {
+            "version": effective["version"],
+            "settings": effective["settings"],
+        }
+        actions = heartbeat_actions_for_refresh(meta)
+        if actions:
+            resp["actions"] = actions
+    if had_refresh_flag:
+        db.patch_device_meta(body.device_id, clear_refresh_meta_patch())
     return resp
 
 
@@ -321,6 +340,17 @@ def revoke_device(
     if not db.set_device_revoked(device_id, True):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
     return {"status": "ok", "device_id": device_id, "revoked": True}
+
+
+@router.post("/devices/{device_id}/request-refresh")
+def request_device_refresh_api(
+    device_id: str,
+    _admin: str = Depends(require_admin_token),
+    db: Database = Depends(get_db),
+) -> dict[str, Any]:
+    if not set_device_refresh_request(db, device_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+    return {"status": "ok", "device_id": device_id, "refresh_requested": True}
 
 
 @router.post("/devices/{device_id}/rotate-key")

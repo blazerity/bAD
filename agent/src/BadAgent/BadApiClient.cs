@@ -67,7 +67,7 @@ public sealed class BadApiClient : IDisposable
         return (apiKey, returnedId);
     }
 
-    public async Task<RemoteAgentConfigResponse?> SendHeartbeatAsync(
+    public async Task<HeartbeatServerResponse?> SendHeartbeatAsync(
         string apiKey,
         HeartbeatQueuePayload payload,
         CancellationToken ct)
@@ -95,21 +95,41 @@ public sealed class BadApiClient : IDisposable
             throw new AgentApiException(resp.StatusCode, $"Heartbeat failed: {(int)resp.StatusCode} {body}");
         }
 
+        return ParseHeartbeatResponse(body);
+    }
+
+    internal static HeartbeatServerResponse? ParseHeartbeatResponse(string body)
+    {
         try
         {
             using var doc = JsonDocument.Parse(body);
-            if (doc.RootElement.TryGetProperty("config", out var configEl)
+            var root = doc.RootElement;
+            RemoteAgentConfigResponse? config = null;
+            if (root.TryGetProperty("config", out var configEl)
                 && configEl.ValueKind == JsonValueKind.Object)
             {
-                return JsonSerializer.Deserialize<RemoteAgentConfigResponse>(configEl.GetRawText());
+                config = JsonSerializer.Deserialize<RemoteAgentConfigResponse>(configEl.GetRawText());
             }
+
+            HeartbeatActions? actions = null;
+            if (root.TryGetProperty("actions", out var actionsEl)
+                && actionsEl.ValueKind == JsonValueKind.Object)
+            {
+                actions = JsonSerializer.Deserialize<HeartbeatActions>(actionsEl.GetRawText());
+            }
+
+            if (config is null && actions is null)
+            {
+                return null;
+            }
+
+            return new HeartbeatServerResponse { Config = config, Actions = actions };
         }
         catch (JsonException)
         {
-            // Heartbeat успешен; разбор config — best-effort.
+            // Heartbeat успешен; разбор тела — best-effort.
+            return null;
         }
-
-        return null;
     }
 
     public async Task SendInventoryAsync(string apiKey, InventorySnapshot snapshot, CancellationToken ct)

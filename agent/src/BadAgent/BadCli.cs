@@ -31,6 +31,11 @@ public static class BadCli
                 return RunHtml(htmlPathArg, collector);
             }
 
+            if (IsPushCommand(args, out var pushRest))
+            {
+                return PushCli.Run(pushRest);
+            }
+
             if (args.Length == 0 || IsAsciiCommand(args[0]))
             {
                 return RunAscii(collector);
@@ -53,7 +58,8 @@ public static class BadCli
             or "-c" or "--configure"
             or "-r" or "--report" or "--html" or "html"
             or "report" or "info" or "ascii"
-            or "config" or "settings";
+            or "config" or "settings"
+            or "push";
 
     private static bool IsHelp(string[] args) =>
         args.Length > 0 && args[0] is "-?" or "--help" or "help" or "/?" or "-h";
@@ -67,6 +73,18 @@ public static class BadCli
     private static bool IsConfigCommand(string[] args, out string[] rest)
     {
         if (args.Length > 0 && args[0] is "config" or "settings")
+        {
+            rest = args.AsSpan(1).ToArray();
+            return true;
+        }
+
+        rest = [];
+        return false;
+    }
+
+    private static bool IsPushCommand(string[] args, out string[] rest)
+    {
+        if (args.Length > 0 && string.Equals(args[0], "push", StringComparison.OrdinalIgnoreCase))
         {
             rest = args.AsSpan(1).ToArray();
             return true;
@@ -137,6 +155,8 @@ public static class BadCli
   bad -h                   Эта справка (то же: bad --help | bad -?)
   bad config               Показать настройки (значения api_key / enrollment_token не печатаются)
   bad config set <k> <v>   Power-user: один параметр (server_url в бою — https://)
+  bad push                 Синхронизация с сервером: очередь → inventory → heartbeat
+  bad push --update        То же + проверка обновления агента
 
 Путь для HTML (-r):
   без path                 Рабочий стол: bad_report_yyyyMMdd_HHmmss.html

@@ -36,6 +36,7 @@ from .auth import (
 from .config import Settings, get_settings
 from .crypto_util import decrypt_secret, encrypt_secret
 from .csrf import cookie_secure_for_request, ensure_csrf, get_csrf_token, set_csrf_cookie
+from .device_refresh import set_device_refresh_request
 from .db import Database
 from .device_health import (
     DEVICE_STALE_MAX_SECONDS,
@@ -1330,6 +1331,12 @@ def _device_config_context(
     }
 
 
+_REFRESH_SENT_MESSAGE = (
+    "Запрос отправлен — применится при следующем heartbeat агента "
+    "(обычно в пределах интервала heartbeat)"
+)
+
+
 @router.get("/devices/{device_id}", response_class=HTMLResponse)
 def device_detail_page(
     device_id: str,
@@ -1338,9 +1345,16 @@ def device_detail_page(
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
     view: Optional[str] = None,
+    refresh_sent: Optional[str] = None,
 ):
+    flash_message = _REFRESH_SENT_MESSAGE if refresh_sent == "1" else None
     ctx = _device_config_context(
-        db, device_id, user=user, settings=settings, active_view=view
+        db,
+        device_id,
+        user=user,
+        settings=settings,
+        message=flash_message,
+        active_view=view,
     )
     if not ctx:
         return _html(
@@ -1350,6 +1364,20 @@ def device_detail_page(
             status_code=404,
         )
     return _html(request, "device_detail.html", ctx)
+
+
+@router.post("/devices/{device_id}/request-refresh")
+def device_request_refresh(
+    device_id: str,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+):
+    if not set_device_refresh_request(db, device_id):
+        return RedirectResponse(url="/devices", status_code=303)
+    return RedirectResponse(
+        url=f"/devices/{device_id}?refresh_sent=1",
+        status_code=303,
+    )
 
 
 @router.post("/devices/{device_id}/revoke")

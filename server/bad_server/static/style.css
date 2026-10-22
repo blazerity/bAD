@@ -312,6 +312,15 @@ h3 {
   gap: 0;
 }
 .with-icon .icon { margin-right: 0.45rem; }
+.device-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 1rem;
+  margin-bottom: 0.15rem;
+}
+.device-title-row h1 { margin: 0; }
+.device-refresh-form { margin: 0; }
 .lbl-icon {
   display: inline-flex;
   align-items: center;
