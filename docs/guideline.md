@@ -96,9 +96,11 @@ BAD_BACKUP_DIR=/var/lib/bad/backups
 
 - **Язык / look**: Windows 11 / Fluent light, русский UI; `static/style.css`, favicon; stroke-иконки секций; HTML-отчёт CLI в той же семье токенов.
 - **Обзор** `/` (`/overview`): totals (активные / онлайн / устарели / архив), breakdown версий агента, последние события железа.
-- **Устройства** `/devices`: поиск (hostname / device_id / serial), теги, архив, пагинация (50), CSV export; на карточке — revoke/rotate key, архив, hard delete, подсказки дублей, inventory summary, копирование серийников / IP / MAC.
-- **Время в UI:** локальный формат **ЧЧ:ММ:СС ДД.ММ.ГГГГ**; хранение в API/БД — UTC.
-- **События** `/events`: лента изменений + пагинация.
+- **Устройства** `/devices`: поиск (hostname / device_id / serial), теги, архив, пагинация (50), сброс фильтров, CSV; пустой парк — CTA на установку агента; массовый архив/тег (`POST /devices/bulk`); иконки типа корпуса у ссылок; на карточке — revoke/rotate key, архив, hard delete, подсказки дублей, inventory summary, копирование серийников / IP / MAC.
+- **Обзор:** мастер первых шагов + `GET /setup/progress.json` (web session).
+- **Время в UI:** относительные подписи + точное локальное в подсказке; API/БД — UTC ISO.
+- **События** `/events`: лента + пагинация; группы «Сегодня» / «Ранее». `GET /v1/events` — без поля `detail`, с `importance`.
+- **Enroll:** при managed TLS cleartext `POST /v1/enroll` → 403 (`ENROLL_CLEARTEXT_MSG`); lab `BAD_ALLOW_ENROLL_OVER_HTTP=1`.
 - **Параметры** `/settings/*` — оболочка в духе «Параметры Windows 11» (левый список с иконками):
   - Доступ / LDAP (`allowed_group` = sAMAccountName группы AD)
   - Почта и уведомления (SMTP + чекбоксы; **интервал сводки** 1–48 ч, default 3; все включённые типы — одна HTML-сводка; без webhooks)
