@@ -262,6 +262,6 @@ CREATE INDEX IF NOT EXISTS idx_device_events_created
 CREATE INDEX IF NOT EXISTS idx_device_events_device_created
   ON device_events(device_id, created_at DESC, id DESC);
 
-CREATE INDEX IF NOT EXISTS idx_device_events_unmailed
-  ON device_events(mailed_at) WHERE mailed_at IS NULL;
+-- idx_device_events_unmailed создаётся в Database._init_schema
+-- ПОСЛЕ ALTER ADD mailed_at (иначе апгрейд со старой схемы падает на старте).
 """
