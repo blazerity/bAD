@@ -12,13 +12,18 @@ public static class HtmlReportWriter
     public static string Write(InventorySnapshot snap, AgentConfig? config = null)
     {
         var hostname = WebUtility.HtmlEncode(snap.Host?.Hostname ?? "(неизвестно)");
+        var titleWhen = TimeFormat.TryParseUtcInstant(snap.CollectedAt, out var collectedUtc)
+            ? TimeFormat.LocalDisplay(collectedUtc.ToLocalTime())
+            : null;
         var sb = new StringBuilder();
         sb.AppendLine("<!DOCTYPE html>");
         sb.AppendLine("<html lang=\"ru\">");
         sb.AppendLine("<head>");
         sb.AppendLine("<meta charset=\"utf-8\" />");
         sb.AppendLine("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />");
-        sb.AppendLine($"<title>bAD — {hostname}</title>");
+        sb.AppendLine(titleWhen is null
+            ? $"<title>bAD — {hostname}</title>"
+            : $"<title>bAD — {hostname} · {WebUtility.HtmlEncode(titleWhen)}</title>");
         sb.AppendLine("<style>");
         sb.AppendLine(EmbeddedCss());
         sb.AppendLine("</style>");
@@ -32,7 +37,7 @@ public static class HtmlReportWriter
         sb.AppendLine("<section class=\"hero\">");
         sb.AppendLine($"<h1 class=\"with-icon\">{Icon("host")}{hostname}</h1>");
         sb.AppendLine($"<p class=\"muted\">device_id: <code>{Enc(snap.DeviceId)}</code> · agent {Enc(snap.AgentVersion)} · schema {snap.SchemaVersion}</p>");
-        sb.AppendLine($"<p class=\"muted\">собрано: {Enc(TimeFormat.FormatForReport(snap.CollectedAt))}</p>");
+        sb.AppendLine($"<p class=\"muted\">собрано: {TimeFormat.FormatFreshnessHtml(snap.CollectedAt)}</p>");
 
         if (config is not null && !string.IsNullOrWhiteSpace(config.ServerUrl))
         {
@@ -59,7 +64,7 @@ public static class HtmlReportWriter
         Kv(sb, "AD OU", snap.Host?.AdOu);
         Kv(sb, "AD DN", snap.Host?.AdDistinguishedName);
         Kv(sb, "ОС", ReportFormat.FormatOs(snap.Host?.Os, "—"));
-        Kv(sb, "Последняя загрузка", TimeFormat.FormatForReport(snap.Host?.LastBootAt));
+        KvFreshness(sb, "Последняя загрузка", snap.Host?.LastBootAt);
         Kv(sb, "Часовой пояс", snap.Host?.Timezone);
         if (snap.Host?.PendingReboot is bool pendingReboot)
         {
@@ -310,7 +315,7 @@ public static class HtmlReportWriter
             Kv(sb, "Файлов в Minidump", snap.Minidumps.Count.ToString());
             Kv(sb, "Memory.dmp", snap.Minidumps.MemoryDmpPresent ? "есть" : "нет");
             Kv(sb, "Путь Memory.dmp", snap.Minidumps.MemoryDmpPath);
-            Kv(sb, "Изменён", TimeFormat.FormatForReport(snap.Minidumps.MemoryDmpModifiedAt));
+            KvFreshness(sb, "Изменён", snap.Minidumps.MemoryDmpModifiedAt);
             sb.AppendLine("</dl>");
             if (snap.Minidumps.Files is { Count: > 0 })
             {
@@ -321,7 +326,7 @@ public static class HtmlReportWriter
                 {
                     sb.AppendLine(
                         $"<tr><td>{Enc(f.Name)}</td><td>{Enc(ReportFormat.FormatBytes(f.SizeBytes, "—"))}</td>" +
-                        $"<td>{Enc(TimeFormat.FormatForReport(f.ModifiedAt))}</td><td>{Enc(f.BugcheckCode)}</td>" +
+                        $"<td>{TimeFormat.FormatFreshnessHtml(f.ModifiedAt)}</td><td>{Enc(f.BugcheckCode)}</td>" +
                         $"<td>{Enc(f.BugcheckMessage)}</td></tr>");
                 }
 
@@ -360,6 +365,17 @@ public static class HtmlReportWriter
             ? Enc(key)
             : $"<span class=\"lbl-icon\">{Icon(icon)}{Enc(key)}</span>";
         sb.AppendLine($"<div><dt>{label}</dt><dd>{Enc(string.IsNullOrWhiteSpace(value) ? "—" : value)}</dd></div>");
+    }
+
+    private static void KvFreshness(StringBuilder sb, string key, string? rawUtcIso, string? icon = null)
+    {
+        var label = icon is null
+            ? Enc(key)
+            : $"<span class=\"lbl-icon\">{Icon(icon)}{Enc(key)}</span>";
+        var value = string.IsNullOrWhiteSpace(rawUtcIso)
+            ? "—"
+            : TimeFormat.FormatFreshnessHtml(rawUtcIso);
+        sb.AppendLine($"<div><dt>{label}</dt><dd>{value}</dd></div>");
     }
 
     private static string Enc(string? s) => WebUtility.HtmlEncode(s ?? "");
@@ -447,6 +463,8 @@ h3 { margin: 1.25rem 0 0.5rem; font-size: 1rem; color: var(--muted); font-weight
 .lbl-icon { display: inline-flex; align-items: center; gap: 0.3rem; }
 .lbl-icon .icon { margin-right: 0; width: 1em; height: 1em; }
 .muted { color: var(--muted); margin-top: 0; }
+.freshness-abs { font-size: 0.88em; white-space: nowrap; }
+time.local-time { font-variant-numeric: tabular-nums; }
 .note {
   background: var(--bg-solid); border: 1px solid var(--border-strong);
   padding: 0.7rem 0.9rem; border-radius: var(--radius-control);

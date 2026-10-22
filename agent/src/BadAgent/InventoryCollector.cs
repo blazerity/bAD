@@ -9,6 +9,8 @@ namespace BadAgent;
 
 public sealed class InventoryCollector : IInventoryCollector
 {
+    private readonly HeavySectionCache _heavyCache = new();
+
     /// <summary>Макс. число установленных программ (Uninstall registry бывает огромным).</summary>
     public const int MaxSoftwarePrograms = 500;
 
@@ -27,9 +29,12 @@ public sealed class InventoryCollector : IInventoryCollector
     /// <summary>Макс. продуктов AV из SecurityCenter2.</summary>
     public const int MaxAntivirusProducts = 8;
 
+    public void ResetHeavySectionCache() => _heavyCache.Clear();
+
     public InventorySnapshot Collect(string deviceId, string agentVersion, CollectorOptions? options = null)
     {
         options ??= new CollectorOptions();
+        _heavyCache.SyncCollectOptions(options);
         var snap = new InventorySnapshot
         {
             SchemaVersion = 2,
@@ -64,14 +69,14 @@ public sealed class InventoryCollector : IInventoryCollector
             WmiHelper.YieldBriefly();
             if (options.CollectSoftware)
             {
-                snap.Software = CollectSoftware(snap.CollectorErrors);
+                snap.Software = CollectSoftwareWithCache(snap.CollectorErrors);
             }
 
             WmiHelper.YieldBriefly();
             snap.Security = CollectSecurity(snap.CollectorErrors);
 
             WmiHelper.YieldBriefly();
-            snap.Minidumps = CollectMinidumps(snap.CollectorErrors);
+            snap.Minidumps = CollectMinidumpsWithCache(snap.CollectorErrors);
         }
         finally
         {
@@ -123,6 +128,7 @@ public sealed class InventoryCollector : IInventoryCollector
                     }
                 }
 
+                WmiHelper.YieldBriefly();
                 try
                 {
                     var tz = TimeZoneInfo.Local;
@@ -134,6 +140,7 @@ public sealed class InventoryCollector : IInventoryCollector
                 }
 
                 host.PendingReboot = TryDetectPendingReboot(errors);
+                WmiHelper.YieldBriefly();
 
                 string? dnsDomain = null;
                 string? partOfDomain = null;
@@ -156,6 +163,7 @@ public sealed class InventoryCollector : IInventoryCollector
                     host.Domain = dnsDomain;
                 }
 
+                WmiHelper.YieldBriefly();
                 CollectAdComputerOu(host, errors, partOfDomain);
             }
             else
@@ -262,7 +270,7 @@ public sealed class InventoryCollector : IInventoryCollector
         return dn[(idx + 1)..];
     }
 
-    private static HardwareInfo CollectHardware(List<CollectorError> errors)
+    private HardwareInfo CollectHardware(List<CollectorError> errors)
     {
         var hw = new HardwareInfo();
 
@@ -313,7 +321,18 @@ public sealed class InventoryCollector : IInventoryCollector
         WmiHelper.YieldBriefly();
         CollectHardwareGpus(hw, errors);
         WmiHelper.YieldBriefly();
-        CollectHardwareRamModules(hw, errors);
+        var ramFp = BuildRamModulesFingerprint(hw);
+        if (_heavyCache.TryGetRamModules(ramFp, out var ramCached))
+        {
+            hw.RamModules = ramCached.Modules;
+            hw.RamMemoryType = ramCached.MemoryType;
+        }
+        else
+        {
+            CollectHardwareRamModules(hw, errors);
+            _heavyCache.StoreRamModules(ramFp, hw.RamModules, hw.RamMemoryType);
+        }
+
         return hw;
     }
 
@@ -1005,10 +1024,17 @@ public sealed class InventoryCollector : IInventoryCollector
             {
                 using var nics = new ManagementObjectSearcher(
                     "SELECT Description, MACAddress, IPAddress, DHCPEnabled FROM Win32_NetworkAdapterConfiguration WHERE IPEnabled=True");
+                var nicIndex = 0;
                 foreach (ManagementObject obj in nics.Get())
                 {
                     using (obj)
                     {
+                        if (nicIndex > 0 && nicIndex % 4 == 0)
+                        {
+                            WmiHelper.YieldBriefly();
+                        }
+
+                        nicIndex++;
                         var ipv4 = new List<string>();
                         var ipv6 = new List<string>();
                         if (obj["IPAddress"] is string[] addrs)
@@ -1491,5 +1517,283 @@ public sealed class InventoryCollector : IInventoryCollector
         }
 
         return text[..max];
+    }
+
+    private SoftwareInfo CollectSoftwareWithCache(List<CollectorError> errors)
+    {
+        var fp = TrySoftwareRegistryFingerprint();
+        if (fp is not null && _heavyCache.TryGetSoftware(fp, out var cached))
+        {
+            return cached;
+        }
+
+        var software = CollectSoftware(errors);
+        if (fp is not null)
+        {
+            _heavyCache.StoreSoftware(fp, software);
+        }
+
+        return software;
+    }
+
+    private MinidumpInfo? CollectMinidumpsWithCache(List<CollectorError> errors)
+    {
+        var fp = TryBuildMinidumpFingerprint();
+        if (fp is not null && _heavyCache.TryGetMinidumps(fp, out var cached))
+        {
+            return cached;
+        }
+
+        var info = CollectMinidumps(errors);
+        if (fp is not null && info is not null)
+        {
+            _heavyCache.StoreMinidumps(fp, info);
+        }
+
+        return info;
+    }
+
+    private static string BuildRamModulesFingerprint(HardwareInfo hw) =>
+        $"{hw.SmbiosUuid}|{hw.Model}|{hw.BaseboardSerial}|ram:{hw.RamBytes}";
+
+    private static string? TrySoftwareRegistryFingerprint()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return null;
+        }
+
+        try
+        {
+            var n64 = CountUninstallSubkeys(RegistryView.Registry64);
+            var n32 = CountUninstallSubkeys(RegistryView.Registry32);
+            return $"sw:{n64}:{n32}";
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static int CountUninstallSubkeys(RegistryView view)
+    {
+        using var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view);
+        using var uninstall = baseKey.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall");
+        return uninstall?.SubKeyCount ?? 0;
+    }
+
+    private static string? TryBuildMinidumpFingerprint()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return null;
+        }
+
+        try
+        {
+            var windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+            if (string.IsNullOrWhiteSpace(windowsDir))
+            {
+                windowsDir = Environment.GetEnvironmentVariable("SystemRoot") ?? @"C:\Windows";
+            }
+
+            long memoryTicks = 0;
+            var memoryDmp = Path.Combine(windowsDir, "Memory.dmp");
+            if (File.Exists(memoryDmp))
+            {
+                memoryTicks = File.GetLastWriteTimeUtc(memoryDmp).Ticks;
+            }
+
+            var minidumpDir = Path.Combine(windowsDir, "Minidump");
+            var count = 0;
+            long newestTicks = 0;
+            if (Directory.Exists(minidumpDir))
+            {
+                foreach (var path in Directory.EnumerateFiles(minidumpDir, "*.dmp"))
+                {
+                    count++;
+                    try
+                    {
+                        var t = File.GetLastWriteTimeUtc(path).Ticks;
+                        if (t > newestTicks)
+                        {
+                            newestTicks = t;
+                        }
+                    }
+                    catch
+                    {
+                        // ignore
+                    }
+                }
+            }
+
+            return $"md:{memoryTicks}:{count}:{newestTicks}";
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static SoftwareInfo CloneSoftware(SoftwareInfo src)
+    {
+        List<InstalledProgram>? programs = null;
+        if (src.Programs is not null)
+        {
+            programs = src.Programs
+                .Select(p => new InstalledProgram
+                {
+                    Name = p.Name,
+                    Version = p.Version,
+                    Publisher = p.Publisher
+                })
+                .ToList();
+        }
+
+        return new SoftwareInfo { Programs = programs };
+    }
+
+    private static MinidumpInfo CloneMinidump(MinidumpInfo src)
+    {
+        List<MinidumpFileInfo>? files = null;
+        if (src.Files is not null)
+        {
+            files = src.Files
+                .Select(f => new MinidumpFileInfo
+                {
+                    Name = f.Name,
+                    SizeBytes = f.SizeBytes,
+                    ModifiedAt = f.ModifiedAt,
+                    BugcheckCode = f.BugcheckCode,
+                    BugcheckMessage = f.BugcheckMessage
+                })
+                .ToList();
+        }
+
+        return new MinidumpInfo
+        {
+            Count = src.Count,
+            MemoryDmpPresent = src.MemoryDmpPresent,
+            MemoryDmpPath = src.MemoryDmpPath,
+            MemoryDmpModifiedAt = src.MemoryDmpModifiedAt,
+            Files = files
+        };
+    }
+
+    private static List<RamModuleInfo>? CloneRamModules(List<RamModuleInfo>? modules) =>
+        modules?.Select(m => new RamModuleInfo
+        {
+            CapacityBytes = m.CapacityBytes,
+            SpeedMhz = m.SpeedMhz,
+            Manufacturer = m.Manufacturer,
+            PartNumber = m.PartNumber,
+            SerialNumber = m.SerialNumber,
+            FormFactor = m.FormFactor,
+            MemoryType = m.MemoryType,
+            BankLabel = m.BankLabel,
+            DeviceLocator = m.DeviceLocator,
+            Channel = m.Channel
+        }).ToList();
+
+    private sealed class HeavySectionCache
+    {
+        private bool _collectHardware = true;
+        private bool _collectSoftware;
+        private bool _collectUsers = true;
+
+        private string? _softwareFp;
+        private SoftwareInfo? _software;
+
+        private string? _ramFp;
+        private List<RamModuleInfo>? _ramModules;
+        private string? _ramMemoryType;
+
+        private string? _minidumpFp;
+        private MinidumpInfo? _minidumps;
+
+        public void Clear()
+        {
+            _softwareFp = null;
+            _software = null;
+            _ramFp = null;
+            _ramModules = null;
+            _ramMemoryType = null;
+            _minidumpFp = null;
+            _minidumps = null;
+        }
+
+        public void SyncCollectOptions(CollectorOptions options)
+        {
+            if (_collectHardware == options.CollectHardware
+                && _collectSoftware == options.CollectSoftware
+                && _collectUsers == options.CollectUsers)
+            {
+                return;
+            }
+
+            _collectHardware = options.CollectHardware;
+            _collectSoftware = options.CollectSoftware;
+            _collectUsers = options.CollectUsers;
+            Clear();
+        }
+
+        public bool TryGetSoftware(string fingerprint, out SoftwareInfo value)
+        {
+            if (_software is not null
+                && string.Equals(_softwareFp, fingerprint, StringComparison.Ordinal))
+            {
+                value = CloneSoftware(_software);
+                return true;
+            }
+
+            value = null!;
+            return false;
+        }
+
+        public void StoreSoftware(string fingerprint, SoftwareInfo value)
+        {
+            _softwareFp = fingerprint;
+            _software = CloneSoftware(value);
+        }
+
+        public bool TryGetRamModules(string fingerprint, out (List<RamModuleInfo>? Modules, string? MemoryType) value)
+        {
+            if (_ramModules is not null
+                && string.Equals(_ramFp, fingerprint, StringComparison.Ordinal))
+            {
+                value = (CloneRamModules(_ramModules), _ramMemoryType);
+                return true;
+            }
+
+            value = default;
+            return false;
+        }
+
+        public void StoreRamModules(string fingerprint, List<RamModuleInfo>? modules, string? memoryType)
+        {
+            _ramFp = fingerprint;
+            _ramModules = CloneRamModules(modules);
+            _ramMemoryType = memoryType;
+        }
+
+        public bool TryGetMinidumps(string fingerprint, out MinidumpInfo value)
+        {
+            if (_minidumps is not null
+                && string.Equals(_minidumpFp, fingerprint, StringComparison.Ordinal))
+            {
+                value = CloneMinidump(_minidumps);
+                return true;
+            }
+
+            value = null!;
+            return false;
+        }
+
+        public void StoreMinidumps(string fingerprint, MinidumpInfo value)
+        {
+            _minidumpFp = fingerprint;
+            _minidumps = CloneMinidump(value);
+        }
     }
 }

@@ -466,4 +466,7 @@ public sealed class CollectorOptions
 public interface IInventoryCollector
 {
     InventorySnapshot Collect(string deviceId, string agentVersion, CollectorOptions? options = null);
+
+    /// <summary>Сброс кэша тяжёлых подсекций (смена remote collect_* / политики).</summary>
+    void ResetHeavySectionCache();
 }

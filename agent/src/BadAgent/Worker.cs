@@ -405,6 +405,7 @@ public sealed class Worker : BackgroundService
         }
 
         ConfigStore.Save(config);
+        _collector.ResetHeavySectionCache();
         _logger.LogInformation(
             "Applied remote agent config version {Version} (inventory={Inv}h heartbeat={Hb}m update={Upd}h enabled={Enabled} target={Target} hw={Hw} users={Users} sw={Sw})",
             config.RemoteConfigVersion,
