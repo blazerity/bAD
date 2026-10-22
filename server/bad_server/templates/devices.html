@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "macros/icons.html" import icon, silence_label %}
 {% from "macros/ui.html" import local_time %}
+{% from "macros/pager.html" import table_pager %}
 {% block title %}Устройства — bAD{% endblock %}
 {% block content %}
 <section>
@@ -112,17 +113,7 @@
   </table>
   </div>
 
-  {% if pages > 1 %}
-  <nav class="pager" aria-label="Страницы">
-    {% if page > 1 %}
-    <a href="/devices?{% if q %}q={{ q }}&amp;{% endif %}{% if tag_filter %}tag={{ tag_filter }}&amp;{% endif %}{% if wave %}wave={{ wave }}&amp;{% endif %}{% if show_archive %}archive=1&amp;{% endif %}page={{ page - 1 }}">← Назад</a>
-    {% endif %}
-    <span class="muted">Стр. {{ page }} / {{ pages }}</span>
-    {% if page < pages %}
-    <a href="/devices?{% if q %}q={{ q }}&amp;{% endif %}{% if tag_filter %}tag={{ tag_filter }}&amp;{% endif %}{% if wave %}wave={{ wave }}&amp;{% endif %}{% if show_archive %}archive=1&amp;{% endif %}page={{ page + 1 }}">Вперёд →</a>
-    {% endif %}
-  </nav>
-  {% endif %}
+  {{ table_pager('/devices', page, pages, total, page_size, q=q, tag=tag_filter, wave=wave, archive=show_archive) }}
   {% endif %}
 </section>
 {% endblock %}

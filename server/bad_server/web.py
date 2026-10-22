@@ -214,6 +214,64 @@ def _importance_label_ru(level: object, empty: str = "") -> str:
 
 
 templates.env.filters["importance_label_ru"] = _importance_label_ru
+
+
+def _pager_items(current: object, total_pages: object) -> list:
+    """Номера страниц и «…» для компактной пагинации списков."""
+    cur = max(1, int(current or 1))
+    pages = max(1, int(total_pages or 1))
+    if pages <= 1:
+        return []
+    if pages <= 7:
+        return list(range(1, pages + 1))
+    anchors = sorted(
+        p
+        for p in {1, pages, cur, cur - 1, cur + 1}
+        if 1 <= p <= pages
+    )
+    out: list = []
+    prev = 0
+    for p in anchors:
+        if prev and p - prev > 1:
+            out.append("…")
+        out.append(p)
+        prev = p
+    return out
+
+
+def _pager_url(
+    base_path: str,
+    page: int,
+    *,
+    q: str = "",
+    tag: str = "",
+    wave: str = "",
+    archive: bool = False,
+    device_id: str = "",
+    importance: str = "",
+) -> str:
+    """URL списка с сохранением фильтров (серверная пагинация ?page=)."""
+    params: dict[str, str] = {}
+    if device_id:
+        params["device_id"] = device_id
+    if q:
+        params["q"] = q
+    if tag:
+        params["tag"] = tag
+    if wave:
+        params["wave"] = wave
+    if archive:
+        params["archive"] = "1"
+    if importance:
+        params["importance"] = importance
+    if page > 1:
+        params["page"] = str(page)
+    qs = urlencode(params)
+    return f"{base_path}?{qs}" if qs else base_path
+
+
+templates.env.filters["pager_items"] = _pager_items
+templates.env.filters["pager_url"] = _pager_url
 templates.env.globals["event_importance"] = event_importance
 templates.env.globals["importance_filter_labels"] = FILTER_PRESET_LABELS_RU
 

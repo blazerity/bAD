@@ -760,11 +760,102 @@ table.config-winner tr.is-conflict td {
   font-size: 0.85rem;
 }
 
-.pager {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
+/* Табличная пагинация (Устройства, События) */
+.table-pager {
   margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+}
+.table-pager__summary {
+  margin: 0 0 0.65rem;
+  font-size: 0.875rem;
+}
+.table-pager__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.65rem;
+}
+.table-pager__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-solid);
+  color: var(--fg);
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+a.table-pager__btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  text-decoration: none;
+  background: var(--accent-soft);
+}
+.table-pager__btn.is-disabled {
+  color: var(--muted);
+  background: var(--bg-subtle);
+  border-color: var(--border);
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+.table-pager__pages {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.table-pager__page {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  min-height: 2rem;
+  padding: 0 0.35rem;
+  border-radius: var(--radius-control);
+  border: 1px solid transparent;
+  color: var(--muted);
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+a.table-pager__page:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+  text-decoration: none;
+}
+.table-pager__page.is-current {
+  color: var(--fg-on-accent);
+  background: var(--accent);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.table-pager__gap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  min-height: 2rem;
+  margin: 0;
+  padding: 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+  user-select: none;
 }
 
 .warn-box {
@@ -1299,15 +1390,14 @@ dl.speccy-kv dd {
     padding: 1.25rem 1.1rem;
     max-width: none;
   }
-  .pager {
-    flex-wrap: wrap;
-    gap: 0.65rem;
+  .table-pager__controls {
+    gap: 0.5rem;
   }
-  .pager a {
-    display: inline-flex;
-    align-items: center;
+  .table-pager__btn,
+  .table-pager__page {
     min-height: 2.75rem;
-    padding: 0.35rem 0.65rem;
+    padding-left: 0.65rem;
+    padding-right: 0.65rem;
   }
 
   /* Карточка устройства */

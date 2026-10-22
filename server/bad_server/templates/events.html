@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "macros/icons.html" import icon %}
 {% from "macros/ui.html" import local_time %}
+{% from "macros/pager.html" import table_pager %}
 {% block title %}События — bAD{% endblock %}
 {% block content %}
 <section>
@@ -62,17 +63,7 @@
     </tbody>
   </table>
   </div>
-  {% if pages > 1 %}
-  <nav class="pager" aria-label="Страницы">
-    {% if page > 1 %}
-    <a href="/events?{% if device_filter %}device_id={{ device_filter }}&amp;{% endif %}{% if q %}q={{ q|urlencode }}&amp;{% endif %}{% if importance %}importance={{ importance }}&amp;{% endif %}page={{ page - 1 }}">← Назад</a>
-    {% endif %}
-    <span class="muted">Стр. {{ page }} / {{ pages }}</span>
-    {% if page < pages %}
-    <a href="/events?{% if device_filter %}device_id={{ device_filter }}&amp;{% endif %}{% if q %}q={{ q|urlencode }}&amp;{% endif %}{% if importance %}importance={{ importance }}&amp;{% endif %}page={{ page + 1 }}">Вперёд →</a>
-    {% endif %}
-  </nav>
-  {% endif %}
+  {{ table_pager('/events', page, pages, total, page_size, q=q, device_id=device_filter, importance=importance) }}
   {% endif %}
 </section>
 {% endblock %}

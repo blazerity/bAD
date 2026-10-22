@@ -1,0 +1,40 @@
+{# Серверная пагинация списков: сохраняет фильтры через pager_url (web.py). #}
+{% macro table_pager(base_path, page, pages, total, page_size, q='', tag='', wave='', archive=false, device_id='', importance='') -%}
+{%- if pages > 1 -%}
+{%- set range_from = (page - 1) * page_size + 1 -%}
+{%- set range_to = [page * page_size, total] | min -%}
+<nav class="table-pager" aria-label="Страницы таблицы">
+  <p class="table-pager__summary muted">
+    Показано <span class="mono">{{ range_from }}–{{ range_to }}</span> из <span class="mono">{{ total }}</span>
+    · страница <span class="mono">{{ page }}</span> из <span class="mono">{{ pages }}</span>
+  </p>
+  <div class="table-pager__controls">
+    {%- if page > 1 -%}
+    <a class="table-pager__btn" href="{{ base_path | pager_url(page - 1, q=q, tag=tag, wave=wave, archive=archive, device_id=device_id, importance=importance) }}">Назад</a>
+    {%- else -%}
+    <span class="table-pager__btn is-disabled" aria-disabled="true">Назад</span>
+    {%- endif -%}
+    <ol class="table-pager__pages" role="list">
+      {%- for item in page | pager_items(pages) -%}
+      {%- if item == '…' -%}
+      <li class="table-pager__gap" aria-hidden="true"><span>…</span></li>
+      {%- elif item == page -%}
+      <li>
+        <span class="table-pager__page is-current" aria-current="page">{{ item }}</span>
+      </li>
+      {%- else -%}
+      <li>
+        <a class="table-pager__page" href="{{ base_path | pager_url(item, q=q, tag=tag, wave=wave, archive=archive, device_id=device_id, importance=importance) }}">{{ item }}</a>
+      </li>
+      {%- endif -%}
+      {%- endfor -%}
+    </ol>
+    {%- if page < pages -%}
+    <a class="table-pager__btn" href="{{ base_path | pager_url(page + 1, q=q, tag=tag, wave=wave, archive=archive, device_id=device_id, importance=importance) }}">Далее</a>
+    {%- else -%}
+    <span class="table-pager__btn is-disabled" aria-disabled="true">Далее</span>
+    {%- endif -%}
+  </div>
+</nav>
+{%- endif -%}
+{%- endmacro %}
