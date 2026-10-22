@@ -418,6 +418,22 @@ def ops_update_signals(
 
     versions = db.list_agent_msi_versions()
     latest = db.get_agent_update()
+    versions_by_ver = {v["version"]: v for v in versions}
+    target_msi_cache: dict[str, Optional[dict[str, Any]]] = {}
+
+    def resolve_target_cached(target_version: str) -> Optional[dict[str, Any]]:
+        target = sanitize_update_target(target_version) or UPDATE_TARGET_LATEST
+        if target in target_msi_cache:
+            return target_msi_cache[target]
+        if target == UPDATE_TARGET_LATEST:
+            mirrored = latest
+        else:
+            mirrored = versions_by_ver.get(target)
+            if mirrored is None:
+                mirrored = db.get_agent_msi_version(target)
+        target_msi_cache[target] = mirrored
+        return mirrored
+
     if active is None:
         active = db.list_devices(archived=False)
     policies = db.list_agent_policies()
@@ -441,7 +457,7 @@ def ops_update_signals(
             sanitize_update_target(settings.get("update_target"))
             or UPDATE_TARGET_LATEST
         )
-        mirrored = resolve_target_msi(db, target)
+        mirrored = resolve_target_cached(target)
         if target != UPDATE_TARGET_LATEST and not mirrored:
             pinned_missing.append(
                 {

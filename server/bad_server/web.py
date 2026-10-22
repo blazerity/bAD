@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import time
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlencode
@@ -600,10 +601,18 @@ class SmtpFormData:
         self.notify_pending_reboot = notify_pending_reboot
 
 
+_FLEET_SNAPSHOT_TTL_SEC = 8.0
+_fleet_snapshot_cache: dict[str, Any] = {"ts": 0.0, "data": None}
+
+
 def _fleet_snapshot(
     db: Database, settings: Settings
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
     """Один проход fleet + stats + ops для Обзора и Дашборда."""
+    now = time.monotonic()
+    cached = _fleet_snapshot_cache
+    if cached["data"] is not None and (now - float(cached["ts"])) < _FLEET_SNAPSHOT_TTL_SEC:
+        return cached["data"]
     active, archived = db.list_fleet_active_archived()
     stats = db.overview_stats(
         stale_after_seconds=settings.device_stale_after_seconds,
@@ -615,7 +624,10 @@ def _fleet_snapshot(
         stale_after_seconds=settings.device_stale_after_seconds,
         active=active,
     )
-    return active, archived, stats, ops
+    result = (active, archived, stats, ops)
+    cached["data"] = result
+    cached["ts"] = now
+    return result
 
 
 def _overview_page_context(
@@ -876,18 +888,54 @@ def _devices_wave_context(
     wave: Optional[str],
     page_i: int,
 ) -> tuple[list[dict], int, int, int, dict[str, Any]]:
-    ops = ops_update_signals(
-        db, stale_after_seconds=settings.device_stale_after_seconds
-    )
-    drift_ids = {d["device_id"] for d in (ops.get("version_drift") or [])}
-    dup_index = db.duplicate_signal_index()
+    # Индекс дублей всегда по всему парку (meta), иначе поиск/тег ломают бейджи.
+    fleet = db.list_devices(archived=None)
+    dup_index = db.duplicate_signal_index(devices=fleet, meta_only=True)
     device_signals = dup_index.get("device_signals") or {}
-    enriched = [
-        _enrich_device_row(d, settings)
-        for d in db.list_devices(
-            tag=tag_filter, archived=show_archive, q=query
+
+    drift_ids: set[str] = set()
+    if wave == "drift":
+        active = [d for d in fleet if not d.get("archived")]
+        ops = ops_update_signals(
+            db,
+            stale_after_seconds=settings.device_stale_after_seconds,
+            active=active,
         )
-    ]
+        drift_ids = {d["device_id"] for d in (ops.get("version_drift") or [])}
+
+    # Фильтр списка без второго SELECT: тот же fleet.
+    wanted_tag = (tag_filter or "").strip().casefold() or None
+    query_cf = (query or "").strip().casefold() or None
+    raw: list[dict] = []
+    for d in fleet:
+        is_archived = bool(d.get("archived"))
+        if show_archive:
+            if not is_archived:
+                continue
+        elif is_archived:
+            continue
+        if wanted_tag:
+            tags = {str(t).casefold() for t in (d.get("tags") or [])}
+            if wanted_tag not in tags:
+                continue
+        if query_cf:
+            hay = f"{d.get('device_id') or ''} {d.get('hostname') or ''}".casefold()
+            if query_cf not in hay:
+                meta = d.get("meta") if isinstance(d.get("meta"), dict) else {}
+                id_bits = [
+                    str(meta.get("serial_number") or ""),
+                    str(meta.get("smbios_uuid") or ""),
+                    str(meta.get("bios_serial") or ""),
+                    str(meta.get("identifying_number") or ""),
+                    str(meta.get("baseboard_serial") or ""),
+                ]
+                for disk in meta.get("disk_serials") or []:
+                    id_bits.append(str(disk or ""))
+                if query_cf not in " ".join(id_bits).casefold():
+                    continue
+        raw.append(d)
+
+    enriched = [_enrich_device_row(d, settings) for d in raw]
     _attach_duplicate_signals(enriched, device_signals)
     filtered = filter_devices_by_wave(
         enriched,
@@ -986,10 +1034,12 @@ def devices_csv_export(
         tag=tag_filter, archived=show_archive, q=query
     )
     if wave_filter:
-        ops = ops_update_signals(
-            db, stale_after_seconds=settings.device_stale_after_seconds
-        )
-        drift_ids = {d["device_id"] for d in (ops.get("version_drift") or [])}
+        drift_ids: set[str] = set()
+        if wave_filter == "drift":
+            ops = ops_update_signals(
+                db, stale_after_seconds=settings.device_stale_after_seconds
+            )
+            drift_ids = {d["device_id"] for d in (ops.get("version_drift") or [])}
         by_id = {
             d["device_id"]: d
             for d in db.list_devices(
@@ -1000,7 +1050,13 @@ def devices_csv_export(
             by_id[r["device_id"]] for r in rows if r.get("device_id") in by_id
         ]
         if wave_filter == "dup":
-            signals = (db.duplicate_signal_index().get("device_signals") or {})
+            # Индекс по всему парку — иначе wave=dup режет «сирот» без пары в выборке.
+            signals = (
+                db.duplicate_signal_index(
+                    devices=db.list_devices(archived=None), meta_only=True
+                ).get("device_signals")
+                or {}
+            )
             _attach_duplicate_signals(as_devices, signals)
         filtered = filter_devices_by_wave(
             as_devices,

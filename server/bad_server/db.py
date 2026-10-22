@@ -1656,10 +1656,17 @@ class Database:
             signals["disk_serials"] = list(from_inv.get("disk_serials") or [])
         return signals
 
-    def duplicate_signal_index(self) -> dict[str, Any]:
+    def duplicate_signal_index(
+        self,
+        *,
+        devices: Optional[list[dict[str, Any]]] = None,
+        meta_only: bool = False,
+    ) -> dict[str, Any]:
         """Индекс дублей: hostname + hardware ids (serial/uuid/bios/board/disk).
 
         Без auto-merge: только подсказки. Archived учитываются.
+        ``devices`` — уже загруженные строки (без второго list_devices).
+        ``meta_only`` — только meta (без get_device_detail на каждую строку).
         """
         by_host: dict[str, list[str]] = {}
         by_scalar: dict[str, dict[str, list[str]]] = {
@@ -1668,10 +1675,16 @@ class Database:
         by_disk: dict[str, list[str]] = {}
         rows: list[dict[str, Any]] = []
 
-        for d in self.list_devices(archived=None):
+        device_rows = (
+            devices if devices is not None else self.list_devices(archived=None)
+        )
+        for d in device_rows:
             device_id = d["device_id"]
             meta = d.get("meta") if isinstance(d.get("meta"), dict) else {}
-            signals = self._identity_signals_enriched(device_id, meta)
+            if meta_only:
+                signals = self.extract_identity_signals(meta=meta)
+            else:
+                signals = self._identity_signals_enriched(device_id, meta)
             hostname = (d.get("hostname") or "").strip()
             host_key = hostname.casefold() if hostname else ""
             scalar_keys = {
@@ -1775,9 +1788,7 @@ class Database:
             if other["device_id"] == device_id:
                 continue
             other_meta = other.get("meta") if isinstance(other.get("meta"), dict) else {}
-            other_signals = self._identity_signals_enriched(
-                other["device_id"], other_meta
-            )
+            other_signals = self.extract_identity_signals(meta=other_meta)
             # Одно правило с merge_devices: пусто = UI без кнопки склейки.
             merge_matched = self.merge_identity_matched(signals, other_signals)
 
