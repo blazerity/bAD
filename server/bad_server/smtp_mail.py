@@ -92,6 +92,10 @@ _ICON_PATHS: dict[str, str] = {
         '<path d="M10 3.5v2M10 14.5v2M3.5 10h2M14.5 10h2"/>'
         '<circle cx="10" cy="10" r="3.25"/>'
     ),
+    "devices": (
+        '<rect x="3" y="4" width="9" height="7" rx="1.25"/>'
+        '<rect x="8" y="9" width="9" height="7" rx="1.25"/>'
+    ),
     "bios": (
         '<rect x="3.5" y="4" width="13" height="12" rx="1.5"/>'
         '<path d="M6.5 7h7M6.5 10h7M6.5 13h4"/>'
@@ -153,6 +157,10 @@ def filter_events_for_mail(
         wanted.add("domain_change")
     if flags.get("pending_reboot"):
         wanted.add("pending_reboot_change")
+    if flags.get("enroll"):
+        wanted.add("device_enrolled")
+    if flags.get("stale"):
+        wanted.add("device_stale")
     # last_boot_change / timezone_change — в ленте событий, mail default off
     return [e for e in events if e.get("type") in wanted]
 
@@ -177,6 +185,11 @@ def build_alert_email(
 def event_visual(event_type: str) -> dict[str, str]:
     """Иконка и полярность события для digest-письма."""
     t = (event_type or "").strip()
+    if t == "device_enrolled":
+        return {"icon": "devices", "polarity": "added"}
+    if t == "device_stale":
+        return {"icon": "host", "polarity": "removed"}
+
     polarity: Polarity = "changed"
     if t.endswith("_added"):
         polarity = "added"
@@ -234,16 +247,16 @@ def build_inventory_digest_email(
     """Сводка inventory-событий: plain + HTML, группировка по устройствам."""
     n_devices = len(devices_groups)
     n_events = sum(len(g.get("events") or []) for g in devices_groups)
-    subject = f"bAD: сводка изменений ({n_devices} устр., {n_events} событ.)"
+    subject = f"bAD: сводка уведомлений ({n_devices} устр., {n_events} событ.)"
     plain_lines = [
-        f"Сводка изменений конфигурации устройств ({window_label}).",
+        f"Сводка уведомлений ({window_label}).",
         "",
     ]
     html_parts = [
         "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body "
         'style="font-family:Segoe UI,system-ui,sans-serif;font-size:14px;'
         'color:#1f2937;line-height:1.45;margin:0;padding:16px">',
-        f"<p style=\"margin:0 0 16px\">Сводка изменений "
+        f"<p style=\"margin:0 0 16px\">Сводка уведомлений "
         f"({html.escape(window_label)}).</p>",
     ]
     for group in devices_groups:
@@ -327,6 +340,14 @@ def build_hardware_email(
                     "type": "hostname_change",
                     "summary": "hostname: OLD → NEW (пример второго устройства)",
                 },
+                {
+                    "type": "device_enrolled",
+                    "summary": "Зарегистрировано новое устройство (пример: появилось)",
+                },
+                {
+                    "type": "device_stale",
+                    "summary": "Устройство перестало присылать heartbeat (пример: пропало)",
+                },
             ],
         },
     ]
@@ -340,13 +361,9 @@ def build_hardware_email(
     )
 
 
-def _inventory_notify_enabled(flags: dict[str, bool]) -> bool:
-    return bool(
-        flags.get("hardware")
-        or flags.get("hostname")
-        or flags.get("domain")
-        or flags.get("pending_reboot")
-    )
+def _mail_digest_enabled(flags: dict[str, bool]) -> bool:
+    merged = parse_notify_flags(flags)
+    return any(merged.values())
 
 
 def _parse_utc_iso(ts: str) -> Optional[datetime]:
@@ -383,8 +400,8 @@ def flush_inventory_mail_digest(
         result["reason"] = "smtp_not_ready"
         return result
     flags = parse_notify_flags(smtp_row.get("notify_json"))
-    if not _inventory_notify_enabled(flags):
-        result["reason"] = "inventory_notify_disabled"
+    if not _mail_digest_enabled(flags):
+        result["reason"] = "mail_digest_disabled"
         return result
 
     interval_h = int(smtp_row.get("digest_interval_hours") or 3)
@@ -443,14 +460,14 @@ def flush_inventory_mail_digest(
         message=msg,
     )
     if not ok:
-        logger.warning("Inventory digest email failed: %s", detail)
+        logger.warning("Mail digest email failed: %s", detail)
         result["reason"] = "smtp_error"
         result["detail"] = detail
         return result
 
     _mark_digest_mailed(db, all_ids, mailed_at)
     logger.info(
-        "Inventory digest emailed: devices=%s events=%s marked=%s",
+        "Mail digest emailed: devices=%s events=%s marked=%s",
         len(devices_groups),
         len(filtered),
         len(all_ids),
@@ -459,6 +476,19 @@ def flush_inventory_mail_digest(
     result["skipped"] = False
     result["reason"] = "ok"
     return result
+
+
+def flush_mail_digest(
+    db: "Database",
+    smtp_row: dict[str, Any],
+    password: str,
+    *,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Алиас периодической сводки уведомлений по почте."""
+    return flush_inventory_mail_digest(
+        db, smtp_row, password, force=force
+    )
 
 
 def send_email(
@@ -535,56 +565,41 @@ def _dispatch(
 
 
 def notify_enroll(
+    db: "Database",
     smtp_row: dict[str, Any],
     *,
-    password: str,
     device_id: str,
     hostname: Optional[str],
 ) -> None:
-    from_addr, recipients = _smtp_ready(smtp_row)
-    if not from_addr:
-        return
-    flags = parse_notify_flags(smtp_row.get("notify_json"))
-    if not flags.get("enroll"):
-        return
-    host = hostname or device_id
-    msg = build_alert_email(
-        subject=f"bAD: новое устройство — {host}",
-        body_lines=[
-            "Зарегистрировано новое устройство.",
-            f"Имя узла: {host}",
-            f"device_id: {device_id}",
-        ],
-        from_addr=from_addr,
-        to_addrs=recipients,
-    )
-    _dispatch(smtp_row, password=password, message=msg, log_label=f"enroll:{device_id}")
+    """Поставить событие enroll в очередь digest (soft-fail)."""
+    try:
+        host = hostname or device_id
+        db.insert_device_event(
+            device_id,
+            "device_enrolled",
+            f"Зарегистрировано новое устройство: {host}",
+            detail={"hostname": hostname},
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("Enqueue enroll event failed for %s", device_id)
 
 
 def notify_stale_device(
+    db: "Database",
     smtp_row: dict[str, Any],
     *,
-    password: str,
     device_id: str,
     hostname: Optional[str],
     last_seen_at: Optional[str],
 ) -> None:
-    from_addr, recipients = _smtp_ready(smtp_row)
-    if not from_addr:
-        return
-    flags = parse_notify_flags(smtp_row.get("notify_json"))
-    if not flags.get("stale"):
-        return
-    host = hostname or device_id
-    msg = build_alert_email(
-        subject=f"bAD: устройство устарело — {host}",
-        body_lines=[
-            "Устройство перестало присылать heartbeat.",
-            f"Имя узла: {host}",
-            f"device_id: {device_id}",
-            f"Последний контакт: {last_seen_at or '—'}",
-        ],
-        from_addr=from_addr,
-        to_addrs=recipients,
-    )
-    _dispatch(smtp_row, password=password, message=msg, log_label=f"stale:{device_id}")
+    """Поставить событие stale в очередь digest (soft-fail)."""
+    try:
+        host = hostname or device_id
+        db.insert_device_event(
+            device_id,
+            "device_stale",
+            f"Устройство перестало присылать heartbeat: {host}",
+            detail={"hostname": hostname, "last_seen_at": last_seen_at},
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("Enqueue stale event failed for %s", device_id)

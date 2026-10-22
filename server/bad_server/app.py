@@ -101,7 +101,7 @@ def _smtp_password(app: FastAPI, smtp_row: dict) -> str:
 
 
 async def _inventory_mail_digest_loop(app: FastAPI) -> None:
-    """Периодическая сводка inventory-событий по почте."""
+    """Периодическая сводка всех mail-уведомлений (inventory / enroll / stale)."""
     interval = 300  # 5 минут — проверка интервала digest внутри flush
     db: Database = app.state.db
     while True:
@@ -115,7 +115,7 @@ async def _inventory_mail_digest_loop(app: FastAPI) -> None:
                     _smtp_password(app, smtp_row),
                 )
         except Exception:  # noqa: BLE001
-            logger.exception("Background inventory mail digest failed")
+            logger.exception("Background mail digest failed")
         try:
             await asyncio.sleep(interval)
         except asyncio.CancelledError:
@@ -130,14 +130,13 @@ async def _stale_alert_loop(app: FastAPI) -> None:
         try:
             smtp_row = db.get_smtp_settings()
             if smtp_row.get("enabled"):
-                password = _smtp_password(app, smtp_row)
                 needing = db.devices_needing_stale_alert(
                     stale_after_seconds=effective_stale_after_seconds(db, settings)
                 )
                 for device in needing:
                     notify_stale_device(
+                        db,
                         smtp_row,
-                        password=password,
                         device_id=device["device_id"],
                         hostname=device.get("hostname"),
                         last_seen_at=device.get("last_seen_at"),

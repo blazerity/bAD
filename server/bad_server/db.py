@@ -600,6 +600,29 @@ class Database:
             rows = conn.execute(sql, (limit,)).fetchall()
         return self._device_event_rows(rows)
 
+    def insert_device_event(
+        self,
+        device_id: str,
+        event_type: str,
+        summary: str,
+        detail: Optional[dict[str, Any]] = None,
+    ) -> None:
+        now = utc_now()
+        detail_payload = json.dumps(
+            detail if detail is not None else {},
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+        with self.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO device_events(
+                  device_id, type, summary, detail_json, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (device_id, event_type, summary, detail_payload, now),
+            )
+
     @staticmethod
     def _device_event_rows(rows: list[Any]) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []

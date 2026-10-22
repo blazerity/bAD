@@ -177,6 +177,8 @@ _EVENT_TYPE_LABELS_RU = {
     "logged_on_change": "Пользователи",
     "last_interactive_change": "Интерактивный вход",
     "device_merged": "Объединение",
+    "device_enrolled": "Регистрация устройства",
+    "device_stale": "Устройство устарело",
 }
 
 

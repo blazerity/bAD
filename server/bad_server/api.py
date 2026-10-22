@@ -29,7 +29,6 @@ from .agent_config import (
 from .agent_update import check_update, sync_from_github
 from .auth import get_db, require_admin_token, require_api_key, require_enrollment_token
 from .config import Settings, get_settings
-from .crypto_util import decrypt_secret
 from .db import Database
 from .schemas import (
     AgentPolicyBody,
@@ -143,15 +142,9 @@ def enroll(
             logger.exception("last_enrollment_at stamp failed (ignored)")
         try:
             smtp_row = db.get_smtp_settings()
-            password = ""
-            enc = smtp_row.get("password_enc") or ""
-            if enc:
-                data_key = getattr(request.app.state, "data_key", None)
-                if data_key:
-                    password = decrypt_secret(data_key, enc) or ""
             notify_enroll(
+                db,
                 smtp_row,
-                password=password,
                 device_id=body.device_id,
                 hostname=body.hostname,
             )

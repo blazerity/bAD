@@ -33,6 +33,8 @@ _EVENT_IMPORTANCE: dict[str, str] = {
     "timezone_change": "low",
     "logged_on_change": "low",
     "last_interactive_change": "low",
+    "device_enrolled": "high",
+    "device_stale": "high",
 }
 
 _RANK = {"low": 1, "medium": 2, "high": 3, "critical": 4}

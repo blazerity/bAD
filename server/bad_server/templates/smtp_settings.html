@@ -66,15 +66,16 @@
     <p class="hint">
       По умолчанию включены: железо, устаревание, новая регистрация.
       Hostname/domain — выключены.
-      Изменения железа, hostname, domain и pending reboot копятся и уходят
-      одним письмом-сводкой с группировкой по устройствам.
+      Все включённые уведомления (железо, регистрация, устаревание, hostname,
+      domain, pending reboot) копятся и уходят одним письмом-сводкой
+      с группировкой по устройствам.
     </p>
 
     <label for="digest_interval_hours">Интервал сводки, часы</label>
     <input id="digest_interval_hours" name="digest_interval_hours" type="number"
       min="1" max="48" value="{{ smtp.digest_interval_hours }}"
       {% if tls_mode == 'http' %}disabled{% endif %}>
-    <p class="hint">Как часто отправлять накопленные изменения inventory (1–48, по умолчанию 3).</p>
+    <p class="hint">Как часто отправлять накопленную сводку уведомлений (1–48, по умолчанию 3).</p>
     {% for key, label in notify_labels %}
     <label class="check">
       <input type="checkbox" name="notify_{{ key }}" value="1"
