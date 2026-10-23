@@ -870,19 +870,33 @@ public sealed class InventoryCollector : IInventoryCollector
         try
         {
             hw.Disks = new List<DiskInfo>();
+            var mediaSerialByTag = TryLoadPhysicalMediaSerialsByTag();
+            var storageSerialByIndex = TryLoadMsftPhysicalDiskSerialsByIndex();
             using var disks = new ManagementObjectSearcher(
-                "SELECT Model, Size, MediaType, SerialNumber, InterfaceType FROM Win32_DiskDrive");
+                "SELECT Model, Size, MediaType, SerialNumber, InterfaceType, DeviceID, Index FROM Win32_DiskDrive");
             foreach (ManagementObject obj in disks.Get())
             {
                 using (obj)
                 {
+                    var deviceId = obj["DeviceID"]?.ToString();
+                    var diskIndex = ToInt(obj["Index"]);
+                    var serial = HardwareMaps.CleanHardwareSerial(obj["SerialNumber"]?.ToString());
+                    if (serial is null)
+                    {
+                        serial = TryResolveDiskSerialFallback(
+                            deviceId,
+                            diskIndex,
+                            mediaSerialByTag,
+                            storageSerialByIndex);
+                    }
+
                     hw.Disks.Add(new DiskInfo
                     {
                         Model = HardwareMaps.CleanWmiString(obj["Model"]?.ToString()),
                         SizeBytes = ToLong(obj["Size"]),
                         MediaType = HardwareMaps.CleanWmiString(obj["MediaType"]?.ToString()),
                         // Уже disks[].serial_number (inventory-plus); не дублировать top-level.
-                        SerialNumber = HardwareMaps.CleanHardwareSerial(obj["SerialNumber"]?.ToString()),
+                        SerialNumber = serial,
                         InterfaceType = HardwareMaps.CleanWmiString(obj["InterfaceType"]?.ToString())
                     });
                 }
@@ -1421,9 +1435,7 @@ public sealed class InventoryCollector : IInventoryCollector
                     @"SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootInProgress")
                 || RegistryKeyExists(
                     @"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired")
-                || RegistryValueExists(
-                    @"SYSTEM\CurrentControlSet\Control\Session Manager",
-                    "PendingFileRenameOperations"))
+                || HasMeaningfulPendingFileRenameOperations())
             {
                 return true;
             }
@@ -1449,15 +1461,157 @@ public sealed class InventoryCollector : IInventoryCollector
     }
 
     [SupportedOSPlatform("windows")]
-    private static bool RegistryValueExists(string relativePath, string valueName)
+    private static bool HasMeaningfulPendingFileRenameOperations()
     {
-        using var key = Registry.LocalMachine.OpenSubKey(relativePath);
+        using var key = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\Session Manager");
         if (key is null)
         {
             return false;
         }
 
-        return key.GetValue(valueName) is not null;
+        var value = key.GetValue("PendingFileRenameOperations");
+        if (value is string[] lines)
+        {
+            foreach (var line in lines)
+            {
+                if (!string.IsNullOrWhiteSpace(line))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        if (value is string single)
+        {
+            return !string.IsNullOrWhiteSpace(single);
+        }
+
+        return false;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static Dictionary<string, string?> TryLoadPhysicalMediaSerialsByTag()
+    {
+        var map = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            using var searcher = new ManagementObjectSearcher(
+                "SELECT Tag, SerialNumber FROM Win32_PhysicalMedia");
+            foreach (ManagementObject obj in searcher.Get())
+            {
+                using (obj)
+                {
+                    var tag = obj["Tag"]?.ToString();
+                    if (string.IsNullOrWhiteSpace(tag))
+                    {
+                        continue;
+                    }
+
+                    map[tag.Trim()] = obj["SerialNumber"]?.ToString();
+                }
+            }
+        }
+        catch
+        {
+            // soft-fail
+        }
+
+        return map;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static Dictionary<int, string?> TryLoadMsftPhysicalDiskSerialsByIndex()
+    {
+        var map = new Dictionary<int, string?>();
+        try
+        {
+            using var searcher = new ManagementObjectSearcher(
+                @"root\Microsoft\Windows\Storage",
+                "SELECT DeviceId, SerialNumber FROM MSFT_PhysicalDisk");
+            foreach (ManagementObject obj in searcher.Get())
+            {
+                using (obj)
+                {
+                    var deviceId = obj["DeviceId"]?.ToString();
+                    var index = TryParsePhysicalDriveIndex(deviceId);
+                    if (index is null)
+                    {
+                        continue;
+                    }
+
+                    map[index.Value] = obj["SerialNumber"]?.ToString();
+                }
+            }
+        }
+        catch
+        {
+            // Storage namespace недоступен на старых SKU — без ошибки сбора.
+        }
+
+        return map;
+    }
+
+    private static string? TryResolveDiskSerialFallback(
+        string? deviceId,
+        int? diskIndex,
+        IReadOnlyDictionary<string, string?> mediaSerialByTag,
+        IReadOnlyDictionary<int, string?> storageSerialByIndex)
+    {
+        if (!string.IsNullOrWhiteSpace(deviceId))
+        {
+            var tag = deviceId.Trim();
+            if (mediaSerialByTag.TryGetValue(tag, out var fromMedia))
+            {
+                var cleaned = HardwareMaps.CleanHardwareSerial(fromMedia);
+                if (cleaned is not null)
+                {
+                    return cleaned;
+                }
+            }
+        }
+
+        if (diskIndex is not null
+            && storageSerialByIndex.TryGetValue(diskIndex.Value, out var fromStorage))
+        {
+            var cleaned = HardwareMaps.CleanHardwareSerial(fromStorage);
+            if (cleaned is not null)
+            {
+                return cleaned;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(deviceId))
+        {
+            var parsed = TryParsePhysicalDriveIndex(deviceId);
+            if (parsed is not null
+                && storageSerialByIndex.TryGetValue(parsed.Value, out var fromDeviceId))
+            {
+                return HardwareMaps.CleanHardwareSerial(fromDeviceId);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>\\.\PHYSICALDRIVE0 → 0</summary>
+    private static int? TryParsePhysicalDriveIndex(string? deviceId)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId))
+        {
+            return null;
+        }
+
+        const string prefix = @"\\.\PHYSICALDRIVE";
+        var trimmed = deviceId.Trim();
+        if (!trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var suffix = trimmed[prefix.Length..];
+        return int.TryParse(suffix, out var n) ? n : null;
     }
 
     [SupportedOSPlatform("windows")]
