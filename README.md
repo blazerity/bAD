@@ -4,8 +4,8 @@
 
 | Компонент | Версия (сейчас) | Стек |
 |-----------|-----------------|------|
-| Сервер | **1.10.0** (`VERSION`) | Python 3.11+ FastAPI, Postgres, nginx |
-| Агент | **1.3.0** (`agent/VERSION`) | .NET 8, служба Windows, WiX MSI |
+| Сервер | **1.10.1** (`VERSION`) | Python 3.11+ FastAPI, Postgres, nginx |
+| Агент | **1.3.1** (`agent/VERSION`) | .NET 8, служба Windows, WiX MSI |
 
 | Компонент | Стек |
 |-----------|------|
