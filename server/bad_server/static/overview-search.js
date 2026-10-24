@@ -24,7 +24,7 @@
     function section(title, items, renderItem) {
       if (!items.length) return;
       var h = document.createElement("h3");
-      h.className = "overview-search-section-title";
+      h.className = "panel-search-section-title";
       h.textContent = title;
       box.appendChild(h);
       items.forEach(function (item) {
@@ -48,7 +48,7 @@
         var a = document.createElement("a");
         a.href = d.href;
         a.className =
-          "overview-search-card live-search-item device-link chassis-" +
+          "panel-search-item live-search-item device-link chassis-" +
           (d.chassis_type || "other");
         var body = document.createElement("span");
         body.className = "live-search-body";
@@ -69,7 +69,7 @@
       section("События", evts, function (e) {
         var a = document.createElement("a");
         a.href = e.href;
-        a.className = "overview-search-card overview-search-card--event live-search-item";
+        a.className = "panel-search-item live-search-item";
         var body = document.createElement("span");
         body.className = "live-search-body";
         var title = document.createElement("span");

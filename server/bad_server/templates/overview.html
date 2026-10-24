@@ -10,13 +10,13 @@
     · <a href="/dashboard">Дашборд</a>
   </p>
 
-  <div class="overview-search-wrap live-search-wrap">
-    <label for="overview-search-q">Поиск по парку</label>
-    <input id="overview-search-q" type="search"
+  <div class="panel-search">
+    <label class="panel-field-label" for="overview-search-q">Поиск по парку</label>
+    <input id="overview-search-q" class="panel-search-input" type="search"
       placeholder="имя, пользователь, CPU, serial, IP, MAC, событие…"
       maxlength="128" autocomplete="off" data-overview-search>
-    <p class="muted overview-search-hint">от 2 символов · устройства и события</p>
-    <div id="overview-search-results" class="overview-search-results" hidden></div>
+    <p class="panel-search-hint">от 2 символов · устройства и события</p>
+    <div id="overview-search-results" class="panel-search-dropdown" hidden></div>
   </div>
 
   {% if bootstrap_progress and not bootstrap_progress.complete %}
@@ -74,8 +74,8 @@
   {% endif %}
 
   {% if attention %}
-  <details class="attention-queue attention-queue--fold" {% if attention|length <= 2 %}open{% endif %}>
-    <summary class="attention-queue__summary">
+  <details class="attention-queue" {% if attention|length <= 2 %}open{% endif %}>
+    <summary>
       Требует действия <span class="mono">({{ attention|length }})</span>
     </summary>
     <ul class="attention-list">
