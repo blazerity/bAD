@@ -1514,6 +1514,9 @@ public sealed class InventoryCollector : IInventoryCollector
                && mediaType.Contains("removable", StringComparison.OrdinalIgnoreCase);
     }
 
+    private static string EscapeWqlString(string value) =>
+        value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("'", "''", StringComparison.Ordinal);
+
     [SupportedOSPlatform("windows")]
     private static HashSet<int> TryLoadDiskIndicesWithRemovableLogicalVolume()
     {
@@ -1526,13 +1529,33 @@ public sealed class InventoryCollector : IInventoryCollector
             {
                 using (logDisk)
                 {
-                    foreach (ManagementObject partition in logDisk.GetRelated(
-                                 "Win32_DiskPartition", "Win32_LogicalDiskToPartition"))
+                    var logicalId = logDisk["DeviceID"]?.ToString();
+                    if (string.IsNullOrWhiteSpace(logicalId))
+                    {
+                        continue;
+                    }
+
+                    var partitionQuery =
+                        "ASSOCIATORS OF {Win32_LogicalDisk.DeviceID='" +
+                        EscapeWqlString(logicalId) +
+                        "'} WHERE AssocClass = Win32_LogicalDiskToPartition";
+                    using var partitionSearcher = new ManagementObjectSearcher(partitionQuery);
+                    foreach (ManagementObject partition in partitionSearcher.Get())
                     {
                         using (partition)
                         {
-                            foreach (ManagementObject disk in partition.GetRelated(
-                                         "Win32_DiskDrive", "Win32_DiskDriveToDiskPartition"))
+                            var partitionId = partition["DeviceID"]?.ToString();
+                            if (string.IsNullOrWhiteSpace(partitionId))
+                            {
+                                continue;
+                            }
+
+                            var diskQuery =
+                                "ASSOCIATORS OF {Win32_DiskPartition.DeviceID='" +
+                                EscapeWqlString(partitionId) +
+                                "'} WHERE AssocClass = Win32_DiskDriveToDiskPartition";
+                            using var diskSearcher = new ManagementObjectSearcher(diskQuery);
+                            foreach (ManagementObject disk in diskSearcher.Get())
                             {
                                 using (disk)
                                 {
