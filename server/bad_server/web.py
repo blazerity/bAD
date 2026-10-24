@@ -810,9 +810,11 @@ def _overview_page_context(
     )
     server_current = server_read_current(releases_dir(settings))
     versions = list(stats.get("agent_versions") or [])
+    events_total = db.count_device_events(importance="all")
     return {
         "user": user,
         "stats": stats,
+        "events_total": events_total,
         "ops": ops,
         "security": security,
         "bootstrap": bootstrap,
@@ -930,6 +932,12 @@ def dashboard_page(
         ops=ops,
         active=active,
     )
+    critical_events = db.list_device_events(
+        importance="critical", limit=5, include_detail=False
+    )
+    chassis_by_id = _chassis_map_for_devices(active)
+    for e in critical_events:
+        e["chassis_type"] = chassis_by_id.get(str(e.get("device_id") or ""), "other")
     return _html(
         request,
         "dashboard.html",
@@ -939,6 +947,7 @@ def dashboard_page(
             "ops": ops,
             "security": security,
             "dashboard": dashboard,
+            "critical_events": critical_events,
             "stale_after_seconds": effective_stale_after_seconds(db, settings),
         },
     )
@@ -1228,12 +1237,14 @@ def devices_page(
     flash_msg = (flash or "").strip() or None
     if flash_msg and len(flash_msg) > 200:
         flash_msg = flash_msg[:200]
+    _active, _archived, fleet_stats, _ops = _fleet_snapshot(db, settings)
     return _html(
         request,
         "devices.html",
         {
             "devices": devices,
             "user": user,
+            "fleet_stats": fleet_stats,
             "agent_update": agent_update,
             "github_repo": settings.github_repo,
             "tag_filter": tag_filter or "",
@@ -1566,6 +1577,20 @@ def events_page(
         e["chassis_type"] = chassis_by_id.get(str(e.get("device_id") or ""), "other")
     today_d = datetime.now(timezone.utc).date()
     yesterday_d = today_d - timedelta(days=1)
+    event_filter_counts = {
+        "default": db.count_device_events(
+            device_id=device_filter, q=q_filter, importance=None
+        ),
+        "all": db.count_device_events(
+            device_id=device_filter, q=q_filter, importance="all"
+        ),
+        "high": db.count_device_events(
+            device_id=device_filter, q=q_filter, importance="high"
+        ),
+        "critical": db.count_device_events(
+            device_id=device_filter, q=q_filter, importance="critical"
+        ),
+    }
     return _html(
         request,
         "events.html",
@@ -1581,6 +1606,7 @@ def events_page(
             "page_size": page_size,
             "today_utc": today_d.isoformat(),
             "yesterday_utc": yesterday_d.isoformat(),
+            "event_filter_counts": event_filter_counts,
         },
     )
 

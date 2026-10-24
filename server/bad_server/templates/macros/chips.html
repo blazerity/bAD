@@ -1,0 +1,6 @@
+{% macro filter_chip(href, label, count=none, active=false) -%}
+<a class="filter-chip{% if active %} is-active{% endif %}" href="{{ href }}">
+  <span>{{ label }}</span>
+  {% if count is not none %}<span class="filter-chip-count tnum">{{ count }}</span>{% endif %}
+</a>
+{%- endmacro %}

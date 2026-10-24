@@ -2,6 +2,7 @@
 {% from "macros/icons.html" import icon, freshness_label %}
 {% from "macros/ui.html" import local_time, device_link %}
 {% from "macros/pager.html" import table_pager %}
+{% from "macros/chips.html" import filter_chip %}
 {% block title %}Устройства — bAD{% endblock %}
 {% block content %}
 <section class="page devices-page">
@@ -14,6 +15,14 @@
     </p>
   </header>
   {% if flash %}<p class="ok">{{ flash }}</p>{% endif %}
+  {% if fleet_stats %}
+  <div class="filter-chips devices-fleet-chips" role="group" aria-label="Состояние парка">
+    {{ filter_chip('/devices', 'Все', fleet_stats.total_active, not show_archive and not wave) }}
+    {{ filter_chip('/devices?wave=stale', 'Устарели', fleet_stats.stale, wave == 'stale') }}
+    {{ filter_chip('/devices?wave=drift', 'Drift', none, wave == 'drift') }}
+    {{ filter_chip('/devices?archive=1', 'Архив', fleet_stats.archived, show_archive) }}
+  </div>
+  {% endif %}
   <p class="muted">
     Основная версия в каталоге установщиков:
     {% if agent_update %}
@@ -25,7 +34,8 @@
     {% endif %}
   </p>
 
-  <div class="filter-bar">
+  <div class="card-surface filter-card">
+  <div class="filter-bar filter-bar-flat">
     <div class="live-search-wrap">
       <label for="device-live-q">Быстрый переход</label>
       <input id="device-live-q" class="panel-search-input" type="search" placeholder="начните вводить имя…" maxlength="128" autocomplete="off">
@@ -63,6 +73,7 @@
     {% endif %}
     <a class="btn secondary" href="/devices/export.csv{% if export_qs %}?{{ export_qs }}{% endif %}">CSV</a>
   </form>
+  </div>
 
   {% if not devices %}
   {% if park_empty %}
@@ -94,8 +105,9 @@
         onclick="return badDevicesBulkConfirm('archive')">В архив</button>
       <span class="muted devices-bulk-hint">до 100 за раз</span>
     </div>
+  <div class="card-surface table-card">
   <div class="table-scroll">
-  <table class="devices devices-list">
+  <table class="devices devices-list devices-table-modern">
     <thead>
       <tr>
         <th class="bulk-check-col" aria-label="Выбор"></th>
@@ -145,6 +157,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   </div>
   </form>
 

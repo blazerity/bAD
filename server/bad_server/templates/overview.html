@@ -4,27 +4,31 @@
 {% block title %}Обзор — bAD{% endblock %}
 {% block content %}
 <section class="page overview-admin">
-  <header class="page-header">
-    <h1 class="with-icon">{{ icon('overview') }}Обзор</h1>
-    <p class="page-lead muted">
-      Сервер <span class="mono">{{ (server_current.version if server_current else None) or app_version }}</span>
-      · <a href="/dashboard">Дашборд</a>
+  <div class="overview-hero">
+    <h1 class="overview-hero-title">Обзор системы</h1>
+    <p class="page-lead overview-hero-lead">
+      Поиск по устройствам, событиям, serial и разделам параметров
     </p>
-  </header>
-
-  <div class="card-surface panel-search-block">
-  <div class="panel-search">
-    <label class="panel-field-label" for="overview-search-q">Поиск по парку</label>
-    <input id="overview-search-q" class="panel-search-input" type="search"
-      placeholder="имя, пользователь, CPU, serial, IP, MAC, событие…"
-      maxlength="128" autocomplete="off" data-overview-search>
-    <p class="panel-search-hint">от 2 символов · устройства и события</p>
-    <div id="overview-search-results" class="panel-search-dropdown" hidden></div>
-  </div>
+    <div class="overview-search-hero card-surface">
+      <div class="search-input-wrap">
+        <span class="search-input-icon" aria-hidden="true">{{ icon('search') }}</span>
+        <input id="overview-search-q" class="panel-search-input overview-search-input" type="search"
+          placeholder="Поиск по всему парку…"
+          maxlength="128" autocomplete="off" data-overview-search>
+      </div>
+      <div class="filter-chips" data-overview-search-cats role="group" aria-label="Категории поиска">
+        <button type="button" class="filter-chip is-active" data-cat="devices">Устройства</button>
+        <button type="button" class="filter-chip is-active" data-cat="events">События</button>
+        <button type="button" class="filter-chip is-active" data-cat="settings">Параметры</button>
+        <button type="button" class="filter-chip is-active" data-cat="serial">Serial</button>
+      </div>
+      <div id="overview-search-results" class="panel-search-dropdown overview-search-results" hidden></div>
+      <p class="panel-search-hint">от 2 символов</p>
+    </div>
   </div>
 
   {% if bootstrap_progress and not bootstrap_progress.complete %}
-  <div class="install-wizard" role="status" aria-label="Первый запуск">
+  <div class="install-wizard card-surface" role="status" aria-label="Первый запуск">
     <h2 class="install-wizard__title">Первый запуск · {{ bootstrap_progress.label }}</h2>
     <ol class="install-wizard__steps">
       {% for step in bootstrap_progress.steps %}
@@ -42,7 +46,7 @@
   {% endif %}
 
   {% if bootstrap and bootstrap.visible %}
-  <div class="bootstrap-checklist" role="status">
+  <div class="bootstrap-checklist card-surface" role="status">
     <h2 class="bootstrap-title">Первый запуск
       <span class="muted">{{ bootstrap.done }}/{{ bootstrap.total }}</span>
     </h2>
@@ -61,26 +65,77 @@
   </div>
   {% endif %}
 
-  {% if security and security.https_first %}
-  <p class="muted security-strip">
-    {% if security.https_first.tls_mode == 'https' %}
-    HTTPS
-    {% else %}
-    <a href="/settings/tls">Нужен сертификат</a>
+  <article class="card-surface server-info-card">
+    <div class="server-info-head">
+      <div class="kpi-icon kpi-icon-accent">{{ icon('host') }}</div>
+      <div>
+        <h2 class="server-info-title">Сервер bAD</h2>
+        <p class="muted server-info-sub">
+          сборка <span class="mono">{{ (server_current.version if server_current else None) or app_version }}</span>
+        </p>
+      </div>
+      {% if security and security.https_first and security.https_first.tls_mode == 'https' %}
+      <span class="badge badge-fresh-ok">HTTPS</span>
+      {% else %}
+      <span class="badge badge-fresh-stale">HTTP</span>
+      {% endif %}
+    </div>
+    <dl class="server-info-grid meta meta-compact">
+      <div><dt>Активных</dt><dd class="tnum">{{ stats.total_active }}</dd></div>
+      <div><dt>Онлайн</dt><dd class="tnum">{{ stats.online }}</dd></div>
+      <div><dt>Каталог MSI</dt><dd class="mono">{{ ops.latest_version or "—" }}</dd></div>
+      <div><dt>Событий</dt><dd class="tnum">{{ events_total }}</dd></div>
+    </dl>
+    {% if security and security.https_first %}
+    <p class="muted security-strip">
+      {% if security.https_first.tls_mode != 'https' %}
+      <a href="/settings/tls">Нужен сертификат</a>
+      {% endif %}
+      {% if security.secrets and (security.secrets.legacy_keys_in_db or security.secrets.legacy_keys_in_sqlite) %}
+      · <a href="/settings/backups">ключи в БД</a>
+      {% endif %}
+      {% if ops.enrollment_rotation_due %}
+      · <a href="/settings/updates#enrollment">токен подключения</a>
+      {% endif %}
+    </p>
     {% endif %}
-    {% if security.secrets and (security.secrets.legacy_keys_in_db or security.secrets.legacy_keys_in_sqlite) %}
-    · <a href="/settings/backups">ключи в БД</a>
-    {% endif %}
-    {% if ops.enrollment_rotation_due %}
-    · <a href="/settings/updates#enrollment">токен подключения</a>
-    {% endif %}
-  </p>
-  {% endif %}
+  </article>
+
+  <div class="kpi-grid">
+    <div class="kpi-tile card-surface">
+      <div class="kpi-icon kpi-icon-accent">{{ icon('devices') }}</div>
+      <div>
+        <div class="kpi-label">Активных ПК</div>
+        <div class="kpi-value tnum">{{ stats.total_active }}</div>
+      </div>
+    </div>
+    <div class="kpi-tile card-surface">
+      <div class="kpi-icon kpi-icon-ok">{{ icon('dashboard') }}</div>
+      <div>
+        <div class="kpi-label">Онлайн</div>
+        <div class="kpi-value tnum">{{ stats.online }}</div>
+      </div>
+    </div>
+    <div class="kpi-tile card-surface">
+      <div class="kpi-icon kpi-icon-warn">{{ icon('events') }}</div>
+      <div>
+        <div class="kpi-label">Требует действия</div>
+        <div class="kpi-value tnum">{{ attention|length if attention else 0 }}</div>
+      </div>
+    </div>
+    <div class="kpi-tile card-surface">
+      <div class="kpi-icon kpi-icon-accent">{{ icon('updates') }}</div>
+      <div>
+        <div class="kpi-label">Отстают (drift)</div>
+        <div class="kpi-value tnum">{{ ops.version_drift_count or 0 }}</div>
+      </div>
+    </div>
+  </div>
 
   {% if attention %}
-  <details class="attention-queue" {% if attention|length <= 2 %}open{% endif %}>
+  <details class="attention-queue card-surface" {% if attention|length <= 2 %}open{% endif %}>
     <summary>
-      Требует действия <span class="mono">({{ attention|length }})</span>
+      Рекомендации и действия <span class="mono">({{ attention|length }})</span>
     </summary>
     <ul class="attention-list">
       {% for item in attention %}
@@ -98,97 +153,114 @@
   <p class="ok attention-empty">Нет срочных действий.</p>
   {% endif %}
 
-  {% if wave_chips or ops.wave_chips %}
-  <h2>Риски волны</h2>
-  <p class="wave-links">
-    {% for chip in (wave_chips or ops.wave_chips) %}
-    <a href="{{ chip.href }}">{{ chip.label }}: <span class="mono">{{ chip.count }}</span></a>{% if not loop.last %} · {% endif %}
-    {% endfor %}
-  </p>
-  {% endif %}
-
-  <h2>Версии агента</h2>
-  {% set ver_top = (agent_version_summary.top if agent_version_summary else stats.agent_versions) or [] %}
-  {% if ver_top %}
-  <div class="table-scroll">
-  <table class="devices">
-    <thead>
-      <tr><th>Версия агента</th><th>Устройств</th></tr>
-    </thead>
-    <tbody>
-      {% for row in ver_top[:6] %}
-      <tr>
-        <td class="mono">{{ row.version }}</td>
-        <td>{{ row.count }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="quick-tiles">
+    <a class="quick-tile card-surface" href="/dashboard">
+      <span class="quick-tile-icon">{{ icon('dashboard') }}</span>
+      <span class="quick-tile-body">
+        <span class="quick-tile-title">Дашборд</span>
+        <span class="muted quick-tile-desc">Аналитика парка и срезы</span>
+      </span>
+    </a>
+    <a class="quick-tile card-surface" href="/events">
+      <span class="quick-tile-icon">{{ icon('events') }}</span>
+      <span class="quick-tile-body">
+        <span class="quick-tile-title">События</span>
+        <span class="muted quick-tile-desc">{{ events_total }} в журнале</span>
+      </span>
+    </a>
+    <a class="quick-tile card-surface" href="/devices">
+      <span class="quick-tile-icon">{{ icon('devices') }}</span>
+      <span class="quick-tile-body">
+        <span class="quick-tile-title">Устройства</span>
+        <span class="muted quick-tile-desc">{{ stats.total_active }} активных</span>
+      </span>
+    </a>
   </div>
-  {% if agent_version_summary and agent_version_summary.total_versions > 6 %}
-  <p class="muted"><a href="{{ agent_version_summary.dashboard_href }}">все версии на Дашборде</a></p>
-  {% endif %}
-  {% else %}
-  <p class="muted">Пока нет активных устройств.</p>
-  {% endif %}
 
-  <h2>Каталог установщиков</h2>
-  {% if ops.mirror_empty %}
-  <div class="warn-box" role="status">
-    <strong>Каталог пуст</strong>
-    <p class="muted" style="margin:0.35rem 0 0">
-      <a href="/settings/updates">Параметры → Обновления агента</a>.
-    </p>
+  <div class="overview-grid-2">
+    {% if wave_chips or ops.wave_chips %}
+    <article class="card-surface stack-card">
+      <h2>Риски волны</h2>
+      <div class="wave-chips">
+        {% for chip in (wave_chips or ops.wave_chips) %}
+        <a class="wave-chip{% if chip.count %} has-count{% endif %}" href="{{ chip.href }}">
+          <span class="wave-chip-label">{{ chip.label }}</span>
+          <span class="wave-chip-count mono">{{ chip.count }}</span>
+        </a>
+        {% endfor %}
+      </div>
+    </article>
+    {% endif %}
+    <article class="card-surface stack-card">
+      <h2>Каталог установщиков</h2>
+      {% if ops.mirror_empty %}
+      <p class="muted"><a href="/settings/updates">Загрузить MSI</a></p>
+      {% else %}
+      <dl class="meta meta-compact">
+        <div><dt>Версия</dt><dd class="mono">{{ ops.latest_version or "—" }}</dd></div>
+        <div><dt>В каталоге</dt><dd class="mono">{{ ops.mirror_count }}</dd></div>
+        <div><dt>Синхр.</dt><dd class="mono">{{ local_time(ops.latest_synced_at) }}</dd></div>
+      </dl>
+      {% endif %}
+    </article>
   </div>
-  {% else %}
-  <dl class="meta meta-compact">
-    <div><dt>Версия</dt><dd class="mono">{{ ops.latest_version or "—" }}</dd></div>
-    <div><dt>В каталоге</dt><dd class="mono">{{ ops.mirror_count }}</dd></div>
-    <div><dt>Синхр.</dt><dd class="mono">{{ local_time(ops.latest_synced_at) }}</dd></div>
-  </dl>
-  {% endif %}
+
+  <div class="overview-grid-2">
+    <article class="card-surface stack-card">
+      <h2>Версии агента</h2>
+      {% set ver_top = (agent_version_summary.top if agent_version_summary else stats.agent_versions) or [] %}
+      {% if ver_top %}
+      <ul class="compact-stat-list">
+        {% for row in ver_top[:6] %}
+        <li><span class="mono">{{ row.version }}</span><span class="muted tnum">{{ row.count }}</span></li>
+        {% endfor %}
+      </ul>
+      {% if agent_version_summary and agent_version_summary.total_versions > 6 %}
+      <p class="muted"><a href="{{ agent_version_summary.dashboard_href }}">все на дашборде</a></p>
+      {% endif %}
+      {% else %}
+      <p class="muted">Пока нет активных устройств.</p>
+      {% endif %}
+    </article>
+    <article class="card-surface stack-card">
+      <h2 class="with-icon">{{ icon('events') }}Недавнее железо</h2>
+      {% if stats.recent_hardware_events %}
+      <ul class="overview-hw-list">
+        {% for e in stats.recent_hardware_events[:6] %}
+        <li>
+          <a href="/events/{{ e.id }}">{{ local_time(e.created_at, extra_class='mono muted') }}</a>
+          · {{ device_link(e.device_id, e.hostname or e.device_id, e.chassis_type) }}
+          · <span title="{{ e.type }}">{{ e.type|format_event_type }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="muted">Пока нет событий.</p>
+      {% endif %}
+      <p class="muted"><a href="/events">Все события</a></p>
+    </article>
+  </div>
 
   {% if ops.version_drift_count %}
-  <h2>Отстающие</h2>
-  <p class="muted">
-    {{ ops.version_drift_count }} —
-    <a href="/devices?wave=drift">волна drift</a>
-  </p>
-  <div class="table-scroll">
-  <table class="devices">
-    <thead><tr><th>Устройство</th><th>Агент</th><th>Цель</th></tr></thead>
-    <tbody>
-    {% for d in ops.version_drift[:6] %}
-      <tr>
-        <td>{{ device_link(d.device_id, d.hostname or d.device_id, d.chassis_type) }}</td>
-        <td class="mono">{{ d.agent_version }}</td>
-        <td class="mono">{{ d.target }}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  </div>
+  <article class="card-surface stack-card">
+    <h2>Отстающие по версии</h2>
+    <div class="table-scroll">
+    <table class="devices">
+      <thead><tr><th>Устройство</th><th>Агент</th><th>Цель</th></tr></thead>
+      <tbody>
+      {% for d in ops.version_drift[:6] %}
+        <tr>
+          <td>{{ device_link(d.device_id, d.hostname or d.device_id, d.chassis_type) }}</td>
+          <td class="mono">{{ d.agent_version }}</td>
+          <td class="mono">{{ d.target }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <p class="muted"><a href="/devices?wave=drift">волна drift</a></p>
+  </article>
   {% endif %}
-
-  <h2 class="with-icon">{{ icon('events') }}Недавнее железо</h2>
-  {% if stats.recent_hardware_events %}
-  <ul class="overview-hw-list">
-    {% for e in stats.recent_hardware_events[:6] %}
-    <li>
-      <a href="/events/{{ e.id }}">{{ local_time(e.created_at, extra_class='mono muted') }}</a>
-      · {{ device_link(e.device_id, e.hostname or e.device_id, e.chassis_type) }}
-      · <span title="{{ e.type }}">{{ e.type|format_event_type }}</span>
-    </li>
-    {% endfor %}
-  </ul>
-  <p class="muted"><a href="/events">Все события</a></p>
-  {% else %}
-  <p class="muted"><a href="/events">События</a></p>
-  {% endif %}
-
-  <p class="muted">
-    <a href="/devices">Устройства</a>
-  </p>
 </section>
 <script src="/static/overview-search.js" defer></script>
 {% endblock %}

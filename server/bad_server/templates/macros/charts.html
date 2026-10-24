@@ -1,0 +1,27 @@
+{# Простые графики без внешних библиотек #}
+{% macro conic_donut(items, class_name='chart-donut') -%}
+{% set total = items|map(attribute='count')|sum %}
+{% if total < 1 %}
+<p class="muted chart-empty">Нет данных</p>
+{% else %}
+{% set palette = ['#0067c0', '#2c96e8', '#5bb0f5', '#8ac9fa', '#9d5d00', '#5d5d5d'] %}
+{% set ns = namespace(grad='', pos=0.0) %}
+{% for row in items[:6] %}
+{% set slice = (row.count * 100.0 / total) %}
+{% set ns.grad = ns.grad ~ palette[loop.index0 % palette|length] ~ ' ' ~ ns.pos ~ '% ' ~ (ns.pos + slice) ~ '%' ~ (', ' if not loop.last else '') %}
+{% set ns.pos = ns.pos + slice %}
+{% endfor %}
+<div class="{{ class_name }}" role="img" aria-label="Диаграмма распределения">
+  <div class="chart-donut__ring" style="background: conic-gradient({{ ns.grad }});"></div>
+  <ul class="chart-donut__legend">
+    {% for row in items[:6] %}
+    <li>
+      <span class="chart-donut__swatch" style="background: {{ palette[loop.index0 % palette|length] }}"></span>
+      <span class="chart-donut__label">{{ row.label }}</span>
+      <span class="muted tnum">{{ row.count }} · {{ row.pct }}%</span>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+{%- endmacro %}

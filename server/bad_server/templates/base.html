@@ -40,6 +40,11 @@
       </nav>
       {% endif %}
     <div class="top-actions">
+      {% if not user.must_change_password %}
+      <button type="button" class="icon-btn" id="global-search-open" title="Поиск по парку">{{ icon('search') }}<span class="sr-only">Поиск</span></button>
+      <a class="icon-btn icon-btn-link" href="/events?importance=high" title="Важные события">{{ icon('bell') }}<span class="sr-only">События</span></a>
+      <span class="user-avatar" title="{{ user.username }}">{{ (user.username or '?')[0]|upper }}</span>
+      {% endif %}
     <form class="logout" method="post" action="/logout">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <span class="who mono">{{ user.username }}{% if user.source == 'ldap' %} <span class="who-tag">ldap</span>{% endif %}</span>
@@ -69,7 +74,20 @@
   <footer class="foot">
     Версия сервера {{ app_version }}
   </footer>
+  {% if user is defined and user and not user.must_change_password %}
+  <div id="global-search-modal" class="global-search-modal" hidden>
+    <div class="global-search-backdrop" data-global-search-close tabindex="-1"></div>
+    <div class="global-search-dialog card-surface" role="dialog" aria-label="Поиск по парку">
+      <label class="sr-only" for="global-search-input">Поиск</label>
+      <input id="global-search-input" class="panel-search-input global-search-input" type="search"
+        placeholder="имя, serial, IP, событие…" maxlength="128" autocomplete="off" data-global-search-input>
+      <div id="global-search-results" class="panel-search-dropdown global-search-results" hidden></div>
+      <p class="muted global-search-hint">от 2 символов · устройства, события, разделы параметров</p>
+    </div>
+  </div>
+  {% endif %}
   <script src="/static/panel-search.js" defer></script>
+  <script src="/static/global-search.js" defer></script>
   <script src="/static/copy-value.js" defer></script>
   <script src="/static/local-time.js" defer></script>
 </body>

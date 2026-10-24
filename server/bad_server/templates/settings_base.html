@@ -1,9 +1,15 @@
 {% extends "base.html" %}
 {% from "macros/icons.html" import icon %}
+{% block title %}Параметры — bAD{% endblock %}
 {% block content %}
-<div class="page settings-shell">
-  <aside class="settings-nav" aria-label="Разделы параметров">
-    <h1 class="settings-nav-title with-icon">{{ icon('settings') }}Параметры</h1>
+<div class="page settings-page">
+  <header class="page-header settings-page-header">
+    <h1 class="with-icon">{{ icon('settings') }}Параметры</h1>
+    <p class="page-lead muted">Сервер, агенты, доступ, почта и обслуживание</p>
+  </header>
+<div class="settings-shell">
+  <aside class="settings-nav card-surface" aria-label="Разделы параметров">
+    <p class="settings-nav-hint muted">Разделы</p>
     <nav class="settings-nav-list">
       {% if user is defined and user and user.must_change_password %}
       {# SEC-004: только смена пароля, остальные разделы скрыты #}
@@ -56,5 +62,6 @@
   <div class="settings-pane">
     {% block settings_content %}{% endblock %}
   </div>
+</div>
 </div>
 {% endblock %}

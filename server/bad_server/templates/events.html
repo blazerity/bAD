@@ -2,51 +2,70 @@
 {% from "macros/icons.html" import icon %}
 {% from "macros/ui.html" import local_time, device_link %}
 {% from "macros/pager.html" import table_pager %}
+{% from "macros/chips.html" import filter_chip %}
 {% block title %}События — bAD{% endblock %}
 {% block content %}
 <section class="page events-page">
   <header class="page-header">
     <h1 class="with-icon">{{ icon('events') }}События</h1>
-    <p class="page-lead muted">Изменения inventory (сначала новые). По умолчанию скрыт «шум» (низкая важность).</p>
+    <p class="page-lead muted">Изменения inventory · показано {{ events|length }} из {{ total }}</p>
   </header>
 
-  <form method="get" action="/events" class="filter-bar" data-live-submit data-live-delay="350">
+  <div class="card-surface filter-card">
+  <form method="get" action="/events" class="filter-bar filter-bar-flat" data-live-submit data-live-delay="350">
     {% if device_filter %}
     <input type="hidden" name="device_id" value="{{ device_filter }}">
     {% endif %}
-    <label for="q">Поиск</label>
-    <input id="q" class="panel-search-input" name="q" type="search" value="{{ q }}"
-      placeholder="текст, hostname, тип" maxlength="128" autocomplete="off">
-    <label for="importance">Важность</label>
-    <select id="importance" name="importance">
+    <div class="search-input-wrap filter-search-grow">
+      <span class="search-input-icon" aria-hidden="true">{{ icon('search') }}</span>
+      <input id="q" class="panel-search-input" name="q" type="search" value="{{ q }}"
+        placeholder="текст, hostname, тип" maxlength="128" autocomplete="off">
+    </div>
+    <label class="sr-only" for="importance">Важность</label>
+    <select id="importance" name="importance" class="filter-select-compact">
       {% for key, label in importance_filter_labels.items() %}
       <option value="{{ key }}" {% if importance == key %}selected{% endif %}>{{ label }}</option>
       {% endfor %}
     </select>
     <button type="submit">Применить</button>
     {% if device_filter or q or importance %}
-    <a class="btn secondary" href="/events">Сбросить фильтры</a>
+    <a class="btn secondary" href="/events">Сбросить</a>
     {% endif %}
   </form>
+  {% if event_filter_counts %}
+  <div class="filter-chips" role="group" aria-label="Важность">
+    {% set chip_qs = '' %}
+    {% if device_filter %}{% set chip_qs = chip_qs ~ 'device_id=' ~ device_filter|urlencode ~ '&' %}{% endif %}
+    {% if q %}{% set chip_qs = chip_qs ~ 'q=' ~ q|urlencode ~ '&' %}{% endif %}
+    {% set chip_root = '/events' ~ ('?' ~ chip_qs if chip_qs else '') %}
+    {% set chip_sep = '&' if chip_qs else '?' %}
+    {{ filter_chip(chip_root, 'Без шума', event_filter_counts.default, not importance) }}
+    {{ filter_chip(chip_root ~ chip_sep ~ 'importance=all', 'Все', event_filter_counts.all, importance == 'all') }}
+    {{ filter_chip(chip_root ~ chip_sep ~ 'importance=high', 'Высокая+', event_filter_counts.high, importance == 'high') }}
+    {{ filter_chip(chip_root ~ chip_sep ~ 'importance=critical', 'Критичные', event_filter_counts.critical, importance == 'critical') }}
+  </div>
+  {% endif %}
+  </div>
+
   {% if device_filter %}
   <p class="muted">Фильтр устройства: <span class="mono">{{ device_filter }}</span>
     <a href="/events?q={{ q|urlencode }}&importance={{ importance }}">убрать</a></p>
   {% endif %}
 
-  <p class="muted">Показано: {{ events|length }} из {{ total }}.</p>
-
   {% if not events %}
   <p class="muted">Нет событий по выбранным фильтрам.</p>
   {% else %}
+  <div class="card-surface table-card">
   <div class="table-scroll">
-  <table class="devices">
+  <table class="devices events-table-modern">
     <thead>
       <tr>
-        <th>Когда</th>
-        <th>Важность</th>
+        <th class="col-icon" aria-hidden="true"></th>
+        <th>Событие</th>
         <th>Устройство</th>
         <th>Тип</th>
-        <th>Кратко</th>
+        <th>Важность</th>
+        <th>Когда</th>
       </tr>
     </thead>
     <tbody>
@@ -57,7 +76,7 @@
       {% if day_key and day_key != ns.prev_day %}
       {% set ns.prev_day = day_key %}
       <tr class="events-day-divider">
-        <td colspan="5">
+        <td colspan="6">
           {% if day_key == today_utc %}Сегодня
           {% elif day_key == yesterday_utc %}Вчера
           {% else %}Ранее · <span class="mono">{{ day_key }}</span>{% endif %}
@@ -65,17 +84,17 @@
       </tr>
       {% endif %}
       <tr class="events-row-link">
-        <td><a href="/events/{{ e.id }}">{{ local_time(e.created_at) }}</a></td>
-        <td><span class="badge badge-importance badge-importance-{{ imp }}">{{ imp|importance_label_ru }}</span></td>
-        <td>
-          {{ device_link(e.device_id, e.hostname or e.device_id, e.chassis_type) }}
-        </td>
-        <td title="{{ e.type }}"><a href="/events/{{ e.id }}">{{ e.type|format_event_type }}</a></td>
+        <td class="col-icon"><span class="event-type-icon event-imp-{{ imp }}">{{ icon('events') }}</span></td>
         <td><a href="/events/{{ e.id }}">{{ e.summary }}</a></td>
+        <td>{{ device_link(e.device_id, e.hostname or e.device_id, e.chassis_type) }}</td>
+        <td title="{{ e.type }}"><a href="/events/{{ e.id }}">{{ e.type|format_event_type }}</a></td>
+        <td><span class="badge badge-importance badge-importance-{{ imp }}">{{ imp|importance_label_ru }}</span></td>
+        <td class="mono muted"><a href="/events/{{ e.id }}">{{ local_time(e.created_at) }}</a></td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  </div>
   </div>
   {{ table_pager('/events', page, pages, total, page_size, q=q, device_id=device_filter, importance=importance) }}
   {% endif %}

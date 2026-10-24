@@ -1,67 +1,92 @@
 {% extends "base.html" %}
 {% from "macros/icons.html" import icon %}
+{% from "macros/ui.html" import local_time, device_link %}
+{% from "macros/charts.html" import conic_donut %}
 {% block title %}Дашборд — bAD{% endblock %}
 {% block content %}
 <section class="page dashboard-page" data-dashboard>
-  <header class="page-header dash-reveal">
-    <h1 class="with-icon">{{ icon('dashboard') }}Дашборд</h1>
-    <p class="page-lead muted" style="--dash-delay:40ms">
-      Парк и графики · <a href="/">Обзор</a>
-    </p>
+  <header class="page-header page-header-row dash-reveal">
+    <div>
+      <h1 class="with-icon">{{ icon('dashboard') }}Дашборд</h1>
+      <p class="page-lead muted">
+        Аналитика парка · <a href="/">Обзор</a>
+      </p>
+    </div>
+    <span class="badge badge-fresh-recent">
+      онлайн <span class="mono tnum">{{ stats.online }}</span> / <span class="mono tnum">{{ stats.total_active }}</span>
+    </span>
   </header>
 
-  <div class="stat-row dash-park-compact dash-reveal" style="--dash-delay:60ms">
-    <div class="stat">
-      <div class="stat-value">{{ stats.total_active }}</div>
-      <div class="stat-label">Активных</div>
+  <div class="kpi-grid dash-reveal" style="--dash-delay:40ms">
+    <div class="kpi-tile card-surface">
+      <div class="kpi-icon kpi-icon-accent">{{ icon('devices') }}</div>
+      <div>
+        <div class="kpi-label">Активных</div>
+        <div class="kpi-value tnum">{{ stats.total_active }}</div>
+      </div>
     </div>
-    <div class="stat">
-      <div class="stat-value">{{ stats.online }}</div>
-      <div class="stat-label">Онлайн</div>
+    <div class="kpi-tile card-surface">
+      <div class="kpi-icon kpi-icon-ok">{{ icon('network') }}</div>
+      <div>
+        <div class="kpi-label">Онлайн / устарели</div>
+        <div class="kpi-value tnum">{{ stats.online }} / {{ stats.stale }}</div>
+      </div>
     </div>
-    <div class="stat">
-      <div class="stat-value">{{ stats.stale }}</div>
-      <div class="stat-label">Устарели</div>
+    <div class="kpi-tile card-surface">
+      <div class="kpi-icon kpi-icon-warn">{{ icon('events') }}</div>
+      <div>
+        <div class="kpi-label">Drift агента</div>
+        <div class="kpi-value tnum">{{ ops.version_drift_count or 0 }}</div>
+      </div>
     </div>
-    <div class="stat">
-      <div class="stat-value">{{ stats.archived }}</div>
-      <div class="stat-label">Архив</div>
+    <div class="kpi-tile card-surface">
+      <div class="kpi-icon kpi-icon-accent">{{ icon('backup') }}</div>
+      <div>
+        <div class="kpi-label">Архив</div>
+        <div class="kpi-value tnum">{{ stats.archived }}</div>
+      </div>
     </div>
   </div>
 
-  {# D1 — парк #}
-  <article class="dash-widget dash-card dash-reveal" style="--dash-delay:80ms" data-widget="park">
-    <h2>Парк</h2>
-    {% set park = dashboard.park_bar %}
-    {% if park.total_active %}
-    <div class="park-bar" role="img" aria-label="Онлайн {{ park.segments[0].count }}, устарели {{ park.segments[1].count }}">
-      {% for seg in park.segments %}
-      <a class="park-seg park-seg-{{ seg.id }}" href="{{ seg.href }}"
-         style="width: {{ seg.pct }}%"
-         title="{{ seg.label }}: {{ seg.count }} ({{ seg.pct }}%)">
-        <span class="park-seg-label">{{ seg.label }} {{ seg.count }}</span>
-      </a>
-      {% endfor %}
-    </div>
-    <p class="muted park-aside">
-      Активных: <span class="mono">{{ park.total_active }}</span>
-      · архив:
-      <a href="{{ park.archived.href }}">{{ park.archived.count }}</a>
-    </p>
-    {% else %}
-    <p class="muted">Пока нет активных устройств.</p>
-    {% endif %}
-  </article>
+  <div class="dash-grid-2 dash-reveal" style="--dash-delay:80ms">
+    <article class="dash-widget dash-card" data-widget="park">
+      <h2>Парк</h2>
+      {% set park = dashboard.park_bar %}
+      {% if park.total_active %}
+      <div class="park-bar" role="img" aria-label="Онлайн {{ park.segments[0].count }}, устарели {{ park.segments[1].count }}">
+        {% for seg in park.segments %}
+        <a class="park-seg park-seg-{{ seg.id }}" href="{{ seg.href }}"
+           style="width: {{ seg.pct }}%"
+           title="{{ seg.label }}: {{ seg.count }} ({{ seg.pct }}%)">
+          <span class="park-seg-label">{{ seg.label }} {{ seg.count }}</span>
+        </a>
+        {% endfor %}
+      </div>
+      <p class="muted park-aside">
+        Архив: <a href="{{ park.archived.href }}">{{ park.archived.count }}</a>
+      </p>
+      {% else %}
+      <p class="muted">Пока нет активных устройств.</p>
+      {% endif %}
+    </article>
+    <article class="dash-widget dash-card" data-widget="os-donut">
+      <h2>ОС (топ)</h2>
+      {% set osb = dashboard.os_bars %}
+      {% if osb['items'] %}
+      {{ conic_donut(osb['items']) }}
+      {% if osb.capped %}<p class="hint">Срез: {{ osb.scanned }} устройств.</p>{% endif %}
+      {% else %}
+      <p class="muted">Нет inventory для среза ОС.</p>
+      {% endif %}
+    </article>
+  </div>
 
-  {# D2 — версии агента #}
   <article class="dash-widget dash-card dash-reveal" style="--dash-delay:120ms" data-widget="agent-versions">
     <h2>Версия агента</h2>
     {% set vb = dashboard.agent_version_bars %}
     {% if vb.latest %}
-    <p class="muted">Целевая версия в каталоге: <span class="mono">{{ vb.latest }}</span>
-      {% if vb.drift_count %}
-      · <a href="{{ vb.drift_href }}">дрейф {{ vb.drift_count }}</a>
-      {% endif %}
+    <p class="muted">Целевая: <span class="mono">{{ vb.latest }}</span>
+      {% if vb.drift_count %}· <a href="{{ vb.drift_href }}">дрейф {{ vb.drift_count }}</a>{% endif %}
     </p>
     {% endif %}
     {% if vb['items'] %}
@@ -69,12 +94,8 @@
       {% for row in vb['items'] %}
       <li class="hbar-row{% if row.is_other %} is-other{% endif %}{% if vb.latest and row.version == vb.latest %} is-latest{% endif %}">
         <div class="hbar-meta">
-          {% if row.is_other %}
-          <a class="hbar-link mono" href="{{ vb.drift_href or '/devices?wave=drift' }}">{{ row.version }}</a>
-          {% else %}
-          <a class="hbar-link mono" href="/devices?q={{ row.version|urlencode }}" title="Устройства с версией {{ row.version }}">{{ row.version }}</a>
-          {% endif %}
-          <span class="muted">{{ row.count }} · {{ row.pct }}%</span>
+          <a class="hbar-link mono" href="/devices?q={{ row.version|urlencode }}">{{ row.version }}</a>
+          <span class="muted tnum">{{ row.count }} · {{ row.pct }}%</span>
         </div>
         <div class="hbar-track" aria-hidden="true">
           <span class="hbar-fill" style="width: {{ row.pct }}%; --bar-delay: {{ loop.index0 * 45 }}ms"></span>
@@ -87,14 +108,11 @@
     {% endif %}
   </article>
 
-  {# D3 — волна #}
   <article class="dash-widget dash-card dash-reveal" style="--dash-delay:160ms" data-widget="wave">
     <h2>Риски волны</h2>
-    <p class="muted">Нажмите chip — фильтр устройств.</p>
     <div class="wave-chips">
       {% for chip in dashboard.wave_chips %}
-      <a class="wave-chip{% if chip.count %} has-count{% endif %}" href="{{ chip.href }}"
-         title="{{ chip.label }}: {{ chip.count }}">
+      <a class="wave-chip{% if chip.count %} has-count{% endif %}" href="{{ chip.href }}">
         <span class="wave-chip-label">{{ chip.label }}</span>
         <span class="wave-chip-count mono">{{ chip.count }}</span>
       </a>
@@ -102,31 +120,7 @@
     </div>
   </article>
 
-  {# D4 — OS / domain #}
   <div class="dash-grid dash-reveal" style="--dash-delay:200ms">
-    <article class="dash-widget dash-card" data-widget="os">
-      <h2>ОС</h2>
-      {% set osb = dashboard.os_bars %}
-      {% if osb['items'] %}
-      <ul class="hbar-list">
-        {% for row in osb['items'] %}
-        <li class="hbar-row{% if row.is_other %} is-other{% endif %}">
-          <div class="hbar-meta">
-            <span>{{ row.label }}</span>
-            <span class="muted">{{ row.count }} · {{ row.pct }}%</span>
-          </div>
-          <div class="hbar-track" aria-hidden="true">
-            <span class="hbar-fill" style="width: {{ row.pct }}%; --bar-delay: {{ loop.index0 * 45 }}ms"></span>
-          </div>
-        </li>
-        {% endfor %}
-      </ul>
-      {% if osb.capped %}<p class="hint">Показаны первые {{ osb.scanned }} устройств.</p>{% endif %}
-      {% else %}
-      <p class="muted">Нет inventory для среза ОС.</p>
-      {% endif %}
-    </article>
-
     <article class="dash-widget dash-card" data-widget="domain">
       <h2>Домен</h2>
       {% set dbars = dashboard.domain_bars %}
@@ -136,7 +130,7 @@
         <li class="hbar-row{% if row.is_other %} is-other{% endif %}">
           <div class="hbar-meta">
             <span class="mono">{{ row.label }}</span>
-            <span class="muted">{{ row.count }} · {{ row.pct }}%</span>
+            <span class="muted tnum">{{ row.count }} · {{ row.pct }}%</span>
           </div>
           <div class="hbar-track" aria-hidden="true">
             <span class="hbar-fill" style="width: {{ row.pct }}%; --bar-delay: {{ loop.index0 * 45 }}ms"></span>
@@ -144,45 +138,72 @@
         </li>
         {% endfor %}
       </ul>
-      {% if dbars.capped %}<p class="hint">Показаны первые {{ dbars.scanned }} устройств.</p>{% endif %}
       {% else %}
-      <p class="muted">Нет inventory для среза домена.</p>
+      <p class="muted">Нет данных.</p>
+      {% endif %}
+    </article>
+    <article class="dash-widget dash-card" data-widget="models">
+      <h2>Модели</h2>
+      {% set mb = dashboard.model_bars %}
+      {% if mb['items'] %}
+      <ul class="hbar-list">
+        {% for row in mb['items'] %}
+        <li class="hbar-row{% if row.is_other %} is-other{% endif %}">
+          <div class="hbar-meta">
+            <span>{{ row.label }}</span>
+            <span class="muted tnum">{{ row.count }} · {{ row.pct }}%</span>
+          </div>
+          <div class="hbar-track" aria-hidden="true">
+            <span class="hbar-fill" style="width: {{ row.pct }}%; --bar-delay: {{ loop.index0 * 45 }}ms"></span>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="muted">Нет данных.</p>
       {% endif %}
     </article>
   </div>
 
-  {# D5 — модели #}
-  <article class="dash-widget dash-card dash-reveal" style="--dash-delay:240ms" data-widget="models">
-    <h2>Модели</h2>
-    {% set mb = dashboard.model_bars %}
-    {% if mb['items'] %}
-    <ul class="hbar-list">
-      {% for row in mb['items'] %}
-      <li class="hbar-row{% if row.is_other %} is-other{% endif %}">
-        <div class="hbar-meta">
-          <span>{{ row.label }}</span>
-          <span class="muted">{{ row.count }} · {{ row.pct }}%</span>
-        </div>
-        <div class="hbar-track" aria-hidden="true">
-          <span class="hbar-fill" style="width: {{ row.pct }}%; --bar-delay: {{ loop.index0 * 45 }}ms"></span>
-        </div>
-      </li>
-      {% endfor %}
-    </ul>
-    {% if mb.capped %}<p class="hint">Показаны первые {{ mb.scanned }} устройств.</p>{% endif %}
-    {% else %}
-    <p class="muted">Нет inventory для среза моделей.</p>
-    {% endif %}
-  </article>
-
-  <p class="muted dash-reveal" style="--dash-delay:280ms">
-    <a href="/">Обзор</a> ·
-    <a href="/devices">Устройства</a> ·
-    <a href="/events">События</a>
-    {% if dashboard.mirror %}
-    · <a href="{{ dashboard.mirror.href }}">Обновления агента</a>
-    {% endif %}
-  </p>
+  <div class="dash-grid-2 dash-reveal" style="--dash-delay:240ms">
+    <article class="card-surface stack-card">
+      <h2>Недавнее железо</h2>
+      {% set feed = dashboard.hardware_feed %}
+      {% if feed.items %}
+      <ul class="hit-list">
+        {% for e in feed.items %}
+        <li>
+          <a class="hit-row" href="/events/{{ e.id }}">
+            <span class="hit-row-title">{{ e.summary or e.type }}</span>
+            <span class="muted hit-row-sub">{{ local_time(e.created_at) }}</span>
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+      <p class="muted"><a href="{{ feed.href }}">Все события</a></p>
+      {% else %}
+      <p class="muted">Пока пусто.</p>
+      {% endif %}
+    </article>
+    <article class="card-surface stack-card">
+      <h2>Критичные события</h2>
+      {% if critical_events %}
+      <ul class="hit-list">
+        {% for e in critical_events %}
+        <li>
+          <a class="hit-row" href="/events/{{ e.id }}">
+            <span class="hit-row-title">{{ e.summary }}</span>
+            <span class="muted hit-row-sub">{{ device_link(e.device_id, e.hostname or e.device_id, e.chassis_type) }}</span>
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+      <p class="muted"><a href="/events?importance=critical">Все критичные</a></p>
+      {% else %}
+      <p class="muted">Нет критичных в выборке.</p>
+      {% endif %}
+    </article>
+  </div>
 </section>
 <script>
 (function () {
