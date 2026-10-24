@@ -12,13 +12,35 @@
 {% set ns.pos = ns.pos + slice %}
 {% endfor %}
 <div class="{{ class_name }}" role="img" aria-label="Диаграмма распределения">
-  <div class="chart-donut__ring" style="background: conic-gradient({{ ns.grad }});"></div>
+  <div class="chart-donut__ring-wrap">
+    <div class="chart-donut__ring" style="background: conic-gradient({{ ns.grad }});"></div>
+    {% set ns.pos = 0.0 %}
+    {% for row in items[:6] %}
+    {% if row.count and row.count > 0 and row.href %}
+    {% set slice = (row.count * 100.0 / total) %}
+    <a class="chart-donut__slice-hit" href="{{ row.href }}"
+       style="--slice-start: {{ ns.pos }}%; --slice-size: {{ slice }}%;"
+       title="{{ row.label }}"></a>
+    {% set ns.pos = ns.pos + slice %}
+    {% elif row.count and row.count > 0 %}
+    {% set slice = (row.count * 100.0 / total) %}
+    {% set ns.pos = ns.pos + slice %}
+    {% endif %}
+    {% endfor %}
+    <div class="chart-donut__ring-hole" aria-hidden="true"></div>
+  </div>
   <ul class="chart-donut__legend">
     {% for row in items[:6] %}
     <li>
+      {% if row.href and row.count %}
+      <a href="{{ row.href }}" class="chart-donut__legend-link">
+      {% endif %}
       <span class="chart-donut__swatch" style="background: {{ palette[loop.index0 % palette|length] }}"></span>
       <span class="chart-donut__label">{{ row.label }}</span>
       <span class="muted tnum">{{ row.count }} · {{ row.pct }}%</span>
+      {% if row.href and row.count %}
+      </a>
+      {% endif %}
     </li>
     {% endfor %}
   </ul>

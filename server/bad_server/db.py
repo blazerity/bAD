@@ -784,6 +784,30 @@ class Database:
                 [mailed_at, *ids],
             )
 
+    def count_events_by_utc_day(self, days: int = 14) -> list[dict[str, Any]]:
+        """Число событий по UTC-дате (YYYY-MM-DD) за последние days суток."""
+        from datetime import timedelta
+
+        span = max(1, min(int(days or 14), 60))
+        cutoff_dt = datetime.now(timezone.utc) - timedelta(days=span)
+        cutoff = cutoff_dt.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        with self.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT LEFT(created_at::text, 10) AS day, COUNT(*)::bigint AS count
+                FROM device_events
+                WHERE created_at >= ?
+                GROUP BY LEFT(created_at::text, 10)
+                ORDER BY day ASC
+                """,
+                (cutoff,),
+            ).fetchall()
+        return [
+            {"day": str(r["day"]), "count": int(r["count"] or 0)}
+            for r in rows
+            if r and r["day"]
+        ]
+
     def count_device_events(
         self,
         *,

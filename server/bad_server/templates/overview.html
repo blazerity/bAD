@@ -22,7 +22,7 @@
         <button type="button" class="filter-chip is-active" data-cat="settings">Параметры</button>
         <button type="button" class="filter-chip is-active" data-cat="serial">Serial</button>
       </div>
-      <div id="overview-search-results" class="panel-search-dropdown overview-search-results" hidden></div>
+      <div id="overview-search-results" class="card-surface overview-search-hits" hidden></div>
       <p class="panel-search-hint sr-only">от 2 символов</p>
     </div>
   </div>
@@ -72,6 +72,19 @@
         </div>
       </div>
     </dl>
+    {% if server_runtime %}
+    <div class="server-runtime-row muted">
+      {% if server_runtime.uptime_seconds %}
+      <span>Время работы <span class="tnum">{{ server_runtime.uptime_seconds // 3600 }}ч {{ (server_runtime.uptime_seconds % 3600) // 60 }}м</span></span>
+      {% endif %}
+      {% if server_runtime.db_ok is not none %}
+      <span>База: {% if server_runtime.db_ok %}есть связь{% if server_runtime.db_latency_ms %} · <span class="tnum">{{ server_runtime.db_latency_ms }}</span> мс{% endif %}{% else %}нет связи{% endif %}</span>
+      {% endif %}
+    </div>
+    {% if server_runtime.process_memory_bytes %}
+    <p class="muted server-process-mem">Память процесса: <span class="mono tnum">{{ server_runtime.process_memory_bytes|format_bytes }}</span></p>
+    {% endif %}
+    {% endif %}
     {% if security and security.https_first %}
     <p class="muted security-strip">
       {% if security.https_first.tls_mode != 'https' %}

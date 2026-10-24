@@ -58,7 +58,7 @@ def sensitive_over_http_blocked(
     directory: Optional[Path] = None,
 ) -> bool:
     """Block site-bundle / password saves while UI is still in HTTP bootstrap mode."""
-    if settings.allow_sensitive_over_http:
+    if settings.qa_ui or settings.allow_sensitive_over_http:
         return False
     return tls_mode_http(directory)
 

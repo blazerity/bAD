@@ -8,6 +8,22 @@ from typing import Any, Optional
 
 from .device_meta import meta_search_haystack, normalize_logged_on_list
 
+
+def device_search_meta_line(device: dict[str, Any]) -> str:
+    """Краткая meta-строка для выдачи поиска (пользователь, CPU, serial)."""
+    meta = device.get("meta") if isinstance(device.get("meta"), dict) else {}
+    parts: list[str] = []
+    logged = normalize_logged_on_list(meta.get("logged_on"))
+    if logged:
+        parts.append(logged[0])
+    cpu = str(meta.get("cpu_name") or "").strip()
+    if cpu:
+        parts.append(cpu)
+    serial = str(meta.get("serial_number") or "").strip()
+    if serial:
+        parts.append(serial)
+    return " · ".join(parts)
+
 _MATCH_FIELDS: tuple[tuple[str, str], ...] = (
     ("имя", "hostname"),
     ("идентификатор", "device_id"),

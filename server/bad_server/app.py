@@ -186,7 +186,14 @@ async def _stale_alert_loop(app: FastAPI) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from .server_runtime import reset_process_start
+
+    reset_process_start()
     settings = get_settings()
+    if settings.qa_ui:
+        logger.warning(
+            "BAD_QA_UI=1: режим QA для скриншотов панели — не включать в production"
+        )
     db = open_database(database_url=settings.database_url)
     settings.agent_updates_dir = resolve_agent_updates_dir(settings)
     try:
