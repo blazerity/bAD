@@ -242,7 +242,7 @@ Tag: **`server-vX.Y.Z`**. Не триггерит MSI. Panel **Обновлен�
 | Маршруты API / гайд 1C | `server/bad_server/api.py`, [api-v1.md](api-v1.md) |
 | Remote config / policies | `server/bad_server/agent_config.py` |
 | Agent update mirror | `server/bad_server/agent_update.py`, `github_release.py` |
-| Web routes / bulk / мастер | `server/bad_server/web.py` (`POST /devices/bulk`, `GET /setup/progress.json`) |
+| Web routes / мастер | `server/bad_server/web.py` (`GET /setup/progress.json`, каталог устройств, карточка) |
 | Кэш meta + тип корпуса | `server/bad_server/device_meta.py` |
 | Cleartext enroll guard | `server/bad_server/http_bootstrap.py`, вызов в `api.py` |
 | Иконки корпуса / ссылки | `templates/macros/ui.html`, `macros/icons.html` |
