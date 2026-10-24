@@ -420,11 +420,9 @@ def _device_inventory_nav(
         or hw.get("bios_version")
         or hw.get("bios_manufacturer")
         or hw.get("bios_release_date")
-        or hw.get("bios_serial")
-        or hw.get("identifying_number")
         or hw.get("baseboard_serial")
     ):
-        # serials BIOS/board — в разделе, не в Обзоре
+        # serial платы — в разделе, не в Обзоре
         model_line = " · ".join(
             str(x) for x in (hw.get("manufacturer"), hw.get("model")) if x
         )

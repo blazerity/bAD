@@ -272,19 +272,18 @@
       </div>
       {% endif %}
 
-      {% if hw and (hw.manufacturer or hw.model or hw.serial_number or hw.bios_version or hw.bios_manufacturer or hw.bios_release_date or hw.bios_serial or hw.identifying_number or hw.baseboard_serial or device.bios_serial or device.identifying_number or device.baseboard_serial) %}
+      {% if hw and (hw.manufacturer or hw.model or hw.serial_number or hw.bios_version or hw.bios_manufacturer or hw.bios_release_date or hw.baseboard_serial or device.baseboard_serial) %}
       <div class="device-panel {% if view == 'mb' %}is-active{% endif %}" data-device-panel="mb">
         <h2 class="with-icon">{{ icon('model') }}Материнская плата</h2>
         <dl class="speccy-kv">
           {% if hw.manufacturer %}<div><dt>Производитель</dt><dd>{{ hw.manufacturer }}</dd></div>{% endif %}
           {% if hw.model %}<div><dt>Модель</dt><dd>{{ hw.model }}</dd></div>{% endif %}
           {% if hw.serial_number %}<div><dt>Серийный номер</dt><dd>{{ copyable(hw.serial_number) }}</dd></div>{% endif %}
-          {% set bios_sn = hw.bios_serial or device.bios_serial %}
-          {% if bios_sn %}<div><dt>BIOS serial</dt><dd>{{ copyable(bios_sn) }}</dd></div>{% endif %}
-          {% set id_num = hw.identifying_number or device.identifying_number %}
-          {% if id_num %}<div><dt>IdentifyingNumber</dt><dd>{{ copyable(id_num) }}</dd></div>{% endif %}
           {% set board_sn = hw.baseboard_serial or device.baseboard_serial %}
-          {% if board_sn %}<div><dt>Serial платы</dt><dd>{{ copyable(board_sn) }}</dd></div>{% endif %}
+          {% set chassis_sn = (hw.serial_number or '')|string|trim|lower %}
+          {% if board_sn and (board_sn|string|trim|lower) != chassis_sn %}
+          <div><dt>Serial платы</dt><dd>{{ copyable(board_sn) }}</dd></div>
+          {% endif %}
           {% if hw.bios_version %}<div><dt>Версия BIOS</dt><dd>{{ hw.bios_version }}</dd></div>{% endif %}
           {% if hw.bios_manufacturer %}<div><dt>Производитель BIOS</dt><dd>{{ hw.bios_manufacturer }}</dd></div>{% endif %}
           {% if hw.bios_release_date %}<div><dt>Дата BIOS</dt><dd>{{ hw.bios_release_date }}</dd></div>{% endif %}
