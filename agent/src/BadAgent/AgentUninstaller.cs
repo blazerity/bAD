@@ -147,7 +147,7 @@ public static class AgentUninstaller
     private static string? NormalizeProductCode(string subKeyName)
     {
         var trimmed = subKeyName.Trim();
-        if (trimmed.StartsWith('{', StringComparison.Ordinal))
+        if (trimmed.StartsWith("{", StringComparison.Ordinal))
         {
             return Guid.TryParse(trimmed.Trim('{', '}'), out _) ? trimmed : null;
         }
