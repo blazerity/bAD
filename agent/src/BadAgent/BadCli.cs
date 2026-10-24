@@ -166,22 +166,20 @@ public static class BadCli
     private static void PrintHelp()
     {
         Console.WriteLine("""
-Использование / Usage:
-  bad                      Локальный ASCII-отчёт inventory (то же: bad report | bad info)
-  bad -r [path]            HTML-отчёт (то же: bad --report [path]; устар. --html)
-  bad -c                   Интерактивная настройка агента (рекомендуется)
-  bad -h                   Эта справка (то же: bad --help | bad -?)
-  bad config               Показать настройки (значения api_key / enrollment_token не печатаются)
-  bad config set <k> <v>   Power-user: один параметр (server_url в бою — https://)
+Использование:
+  bad                      Локальный ASCII-отчёт inventory
+  bad -r [path]            HTML-отчёт
+  bad -c                   Интерактивная настройка агента
+  bad -h                   Справка
+  bad config               Показать настройки (api_key / enrollment_token не печатаются)
+  bad config set <k> <v>   Один параметр (server_url в бою — https://)
   bad push                 Синхронизация с сервером: очередь → inventory → heartbeat
   bad update               Проверка версии на сервере и установка MSI при необходимости
+  bad service …            Управление службой Windows (от администратора)
 
-Путь для HTML (-r):
-  без path                 Рабочий стол: bad_report_yyyyMMdd_HHmmss.html
-  каталог                  Файл с именем по умолчанию в каталоге
-  файл                     Указанное имя (добавляется .html при необходимости)
+HTML (-r): без path — рабочий стол, bad_report_yyyyMMdd_HHmmss.html
 
-Служба Windows (elevated):
+Служба:
   bad service status|start|stop|restart
 """);
     }

@@ -48,15 +48,17 @@ wix extension add --global WixToolset.Util.wixext/5.0.2
 
 # 2. Publish агента ($ver = содержимое agent/VERSION)
 $ver = (Get-Content ..\..\agent\VERSION -Raw).Trim()
+New-Item -ItemType Directory -Force -Path .\publish\bin, .\publish\scripts | Out-Null
 dotnet publish ..\..\agent\src\BadAgent\BadAgent.csproj `
   -c Release -r win-x64 --self-contained true `
   -p:Version=$ver `
-  -o .\publish
+  -o .\publish\bin
 
-# 3. Скопировать scripts + shim bad.cmd рядом с опубликованным exe
-Copy-Item .\write-config.ps1 .\publish\
-Copy-Item .\cleanup-uninstall.ps1 .\publish\
-Copy-Item .\bad-paths.ps1 .\publish\
+# 3. scripts + bad.cmd (корень publish — PATH; exe в bin\)
+Copy-Item .\write-config.ps1 .\publish\scripts\
+Copy-Item .\cleanup-uninstall.ps1 .\publish\scripts\
+Copy-Item .\bad-paths.ps1 .\publish\scripts\
+Copy-Item .\migrate-legacy-install.ps1 .\publish\scripts\
 Copy-Item .\bad.cmd .\publish\
 
 # 4. Собрать MSI (Product.wxs harvest'ит publish\** через <Files>,
@@ -79,7 +81,9 @@ msiexec /i bad-agent-<версия из agent/VERSION>.msi `
   /qn
 ```
 
-Каталог установки по умолчанию попадает в **Machine PATH** (`ADDPATH=1`), чтобы `bad` работал из cmd.exe / Win+R (`bad.cmd` → `BadAgent.exe`). Свойство можно не указывать. Чтобы **не** менять PATH: `ADDPATH=0`.
+**2.0:** `%ProgramFiles%\blazerity\bad agent\` (`bin\`, `scripts\`, `bad.cmd`). Служба **`badagent`**. Апгрейд с 1.x: MajorUpgrade + `migrate-legacy-install.ps1` (снять `BlazerityAssetDiscovery`, каталог `...\bAD`, старый PATH).
+
+Каталог установки по умолчанию в **Machine PATH** (`ADDPATH=1`): `bad.cmd` → `bin\BadAgent.exe`. Чтобы **не** менять PATH: `ADDPATH=0`.
 
 ```powershell
 msiexec /i bad-agent-<версия из agent/VERSION>.msi `
@@ -114,7 +118,7 @@ Deferred CA `write-config.ps1` **не** получает `ENROLLMENTTOKEN` / `SE
 2. **После массовой установки** MSI на много ПК — **сменить** enrollment-токен (Параметры → Обновления агента / [operator-guide.md](../../docs/operator-guide.md)).
 3. Доставлять команду install через защищённый канал (Intune/GPO secret), не chat/wiki.
 
-Тихий self-update / pin-downgrade агента идёт через MajorUpgrade (`AllowDowngrades=yes` с 0.10). WiX `ServiceControl` останавливает `BlazerityAssetDiscovery` перед заменой файлов и запускает после install. `%ProgramData%\blazerity\bAD\config.json` (API key + device_id) сохраняется при **upgrade/downgrade** (компонент ProgramData с `Permanent`).
+Self-update / pin-downgrade: тот же **UpgradeCode**, MajorUpgrade `AllowDowngrades=yes`, `msiexec /i … /qn` из `AgentUpdater` (логи `ProgramData\…\logs\msiexec-*.log`). Служба **`badagent`**; legacy `BlazerityAssetDiscovery` снимает uninstall 1.x + migrate CA. `%ProgramData%\blazerity\bAD\` (config, queue) — **Permanent**, без смены пути.
 
 ### Логи установки (если MSI падает до старта агента)
 

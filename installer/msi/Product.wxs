@@ -1,38 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  MSI Windows-агента bAD (WiX v4/v5).
-  Сборка на Windows после publish агента:
-
-    dotnet publish ..\..\agent\src\BadAgent\BadAgent.csproj -c Release -r win-x64 -p:SelfContained=true -o .\publish
-    Copy-Item .\write-config.ps1 .\publish\
-    Copy-Item .\cleanup-uninstall.ps1 .\publish\
-    Copy-Item .\bad-paths.ps1 .\publish\
-    Copy-Item .\bad.cmd .\publish\
-    wix extension add (флаг global) WixToolset.Util.wixext/5.0.2
-    wix build Product.wxs -ext WixToolset.Util.wixext -arch x64 -d AgentPublishDir=publish -d ProductVersion=1.0.1 -o bad-agent-1.0.1.msi
-    ProductVersion = agent semver only (agent/VERSION / csproj); never root/server VERSION.
-
-  Публичные свойства (msiexec):
-    SERVERURL=https://bad.example.com
-    ENROLLMENTTOKEN=<site enrollment token>
-    ADDPATH=1   (по умолчанию; Machine PATH + shim `bad`)
-                ADDPATH=0 — не менять PATH (тихая установка без CLI в cmd).
-
-  SEC-011: ENROLLMENTTOKEN / SERVERURL пишутся в HKLM\SOFTWARE\blazerity\bAD\Setup через RegistryValue
-  (не в argv deferred PowerShell). write-config.ps1 читает Setup и сразу удаляет ключ.
-
-  Upgrade сохраняет %ProgramData%\blazerity\bAD\ (API key / device_id) — Permanent CreateFolder.
-  Полный uninstall: ServiceControl Stop+Remove; Program Files; cleanup-uninstall.ps1 чистит
-  config.json / queue / logs (enrollment leftovers). Permanent dir сам по себе не мешает очистке файлов.
-  ServiceControl останавливает BlazerityAssetDiscovery перед заменой файлов и запускает после установки.
-
-  Диагностика CA: коды BAD_MSI_### в %ProgramData%\blazerity\bAD\logs\msi-install.log
-  и в msiexec-логе (MsiLogging=voicewarmupx → %TEMP%\MSI*.log; WixQuietExec пишет stderr).
+  MSI bAD 2.x: %ProgramFiles%\blazerity\bad agent\ (bin\, scripts\, bad.cmd).
+  ProgramData: %ProgramData%\blazerity\bAD\ — Permanent, без переименования.
+  UpgradeCode BADA0001…; MajorUpgrade AllowDowngrades; migrate-legacy-install.ps1.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <!-- Fallback = agent line; CI passes -d ProductVersion=<agent semver>. Not server VERSION. -->
   <?ifndef ProductVersion?>
-    <?define ProductVersion = "1.0.1" ?>
+    <?define ProductVersion = "2.0.0" ?>
   <?endif?>
 
   <Package
@@ -42,28 +16,21 @@
       UpgradeCode="BADA0001-BADA-4B01-8BAD-00BADA000001"
       Scope="perMachine">
 
-    <!-- AllowDowngrades: политика pin может откатить агент на более старый MSI (0.10). -->
     <MajorUpgrade
         AllowDowngrades="yes"
         Schedule="afterInstallInitialize" />
 
     <MediaTemplate EmbedCab="yes" />
 
-    <!-- Метка семейства в Add/Remove Programs + меню Пуск (та же, что ApplicationIcon / favicon). -->
     <Icon Id="BadAgentIcon" SourceFile="bad.ico" />
     <Property Id="ARPPRODUCTICON" Value="BadAgentIcon" />
 
     <Property Id="SERVERURL" Secure="yes" />
     <Property Id="ENROLLMENTTOKEN" Secure="yes" Hidden="yes" />
-    <!-- Machine PATH: по умолчанию 1 (bad.cmd в cmd). Передать ADDPATH=0 чтобы не трогать PATH. -->
     <Property Id="ADDPATH" Secure="yes" Value="1" />
-
-    <!-- Автолог msiexec в %TEMP%\MSI*.log (voicewarmupx), даже без /l*v. -->
     <Property Id="MsiLogging" Value="voicewarmupx" />
 
-    <!-- WiX v4/v5: Error только внутри UI (не прямой child Package) — иначе WIX0005. -->
     <UI>
-      <!-- 1722 = «программа из состава установки завершилась неожиданно» (RU dialog). -->
       <Error Id="1722"
              Message="bAD Agent Setup failed (MSI 1722 / custom action). Look for BAD_MSI_### in %ProgramData%\blazerity\bAD\logs\msi-install.log and %TEMP%\MSI*.log. Action [2], location: [3], command: [4]" />
       <Error Id="25001"
@@ -79,7 +46,9 @@
     </UI>
 
     <Feature Id="Main" Title="bAD Agent" Level="1">
-      <ComponentGroupRef Id="AgentFiles" />
+      <ComponentGroupRef Id="AgentBinFiles" />
+      <ComponentRef Id="AgentScriptFiles" />
+      <ComponentRef Id="BadCmdShim" />
       <ComponentRef Id="AgentService" />
       <ComponentRef Id="ProgramDataDir" />
       <ComponentRef Id="WriteConfig" />
@@ -88,7 +57,10 @@
 
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="BlazerityDir" Name="blazerity">
-        <Directory Id="INSTALLFOLDER" Name="bAD" />
+        <Directory Id="INSTALLFOLDER" Name="bad agent">
+          <Directory Id="BIN" Name="bin" />
+          <Directory Id="SCRIPTS" Name="scripts" />
+        </Directory>
       </Directory>
     </StandardDirectory>
 
@@ -98,28 +70,36 @@
       </Directory>
     </StandardDirectory>
 
-    <!-- Harvest publish/** кроме BadAgent.exe (он в AgentService = KeyPath службы). -->
-    <ComponentGroup Id="AgentFiles" Directory="INSTALLFOLDER">
-      <Files Include="$(AgentPublishDir)\**">
-        <Exclude Files="$(AgentPublishDir)\BadAgent.exe" />
+    <ComponentGroup Id="AgentBinFiles" Directory="BIN">
+      <Files Include="$(AgentPublishDir)\bin\**">
+        <Exclude Files="$(AgentPublishDir)\bin\BadAgent.exe" />
       </Files>
     </ComponentGroup>
 
-    <!-- Permanent: MajorUpgrade не сносит ProgramData (device_id/api_key). Полный uninstall чистит файлы CA. -->
+    <Component Id="AgentScriptFiles" Directory="SCRIPTS" Guid="BADA0007-BADA-4B01-8BAD-00BADA000007">
+      <File Id="BadPathsPs1" Source="$(AgentPublishDir)\scripts\bad-paths.ps1" KeyPath="yes" />
+      <File Id="WriteConfigPs1" Source="$(AgentPublishDir)\scripts\write-config.ps1" />
+      <File Id="CleanupUninstallPs1" Source="$(AgentPublishDir)\scripts\cleanup-uninstall.ps1" />
+      <File Id="MigrateLegacyPs1" Source="$(AgentPublishDir)\scripts\migrate-legacy-install.ps1" />
+    </Component>
+
+    <Component Id="BadCmdShim" Directory="INSTALLFOLDER" Guid="BADA0008-BADA-4B01-8BAD-00BADA000008">
+      <File Id="BadCmd" Source="$(AgentPublishDir)\bad.cmd" KeyPath="yes" />
+    </Component>
+
     <Component Id="ProgramDataDir" Directory="BADDATA" Guid="BADA0003-BADA-4B01-8BAD-00BADA000003" Permanent="yes">
       <CreateFolder>
         <PermissionEx Sddl="D:PAI(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)" />
       </CreateFolder>
     </Component>
 
-    <!-- ServiceInstall требует KeyPath = service exe (не RegistryValue). -->
-    <Component Id="AgentService" Directory="INSTALLFOLDER" Guid="BADA0004-BADA-4B01-8BAD-00BADA000004">
-      <File Id="BadAgentExe" Source="$(AgentPublishDir)\BadAgent.exe" KeyPath="yes" />
+    <Component Id="AgentService" Directory="BIN" Guid="BADA0004-BADA-4B01-8BAD-00BADA000004">
+      <File Id="BadAgentExe" Source="$(AgentPublishDir)\bin\BadAgent.exe" KeyPath="yes" />
       <ServiceInstall
           Id="BadServiceInstall"
-          Name="BlazerityAssetDiscovery"
-          DisplayName="blazerity Asset Discovery"
-          Description="Collects hardware/OS inventory and reports to the bAD server."
+          Name="badagent"
+          DisplayName="bAD Agent"
+          Description="Собирает сведения об оборудовании и ОС и отправляет их на сервер bAD."
           Start="auto"
           Type="ownProcess"
           ErrorControl="normal"
@@ -127,7 +107,7 @@
           Vital="yes" />
       <ServiceControl
           Id="BadServiceControl"
-          Name="BlazerityAssetDiscovery"
+          Name="badagent"
           Start="install"
           Stop="both"
           Remove="uninstall"
@@ -140,7 +120,6 @@
           Value="[INSTALLFOLDER]" />
     </Component>
 
-    <!-- WriteConfig: маркер + временный HKLM Setup; write-config.ps1 читает и удаляет. -->
     <Component Id="WriteConfig" Directory="BADDATA" Guid="BADA0005-BADA-4B01-8BAD-00BADA000005">
       <RegistryValue
           Root="HKLM"
@@ -163,11 +142,6 @@
           Value="[ENROLLMENTTOKEN]" />
     </Component>
 
-    <!--
-      Machine PATH по умолчанию (ADDPATH=1). Отключить: msiexec … ADDPATH=0.
-      Добавляет INSTALLFOLDER, чтобы bad.cmd (shim → BadAgent.exe) находился как `bad`.
-      Permanent="no" убирает запись PATH при uninstall.
-    -->
     <Component Id="AddPath" Directory="INSTALLFOLDER" Guid="BADA0006-BADA-4B01-8BAD-00BADA000006" Condition="ADDPATH=&quot;1&quot;">
       <Environment
           Id="BadPath"
@@ -186,12 +160,21 @@
           KeyPath="yes" />
     </Component>
 
-    <!--
-      WixQuietExec: Id свойства = Id CA; command + stdout/stderr попадают в MSI-лог.
-      Id совпадает с CustomAction, чтобы CustomActionData передался в deferred.
-    -->
+    <SetProperty Id="MigrateLegacyAction"
+                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -InputFormat None -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]scripts\migrate-legacy-install.ps1&quot;"
+                 Sequence="execute"
+                 Before="MigrateLegacyAction" />
+
+    <CustomAction
+        Id="MigrateLegacyAction"
+        BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)"
+        DllEntry="WixQuietExec"
+        Execute="deferred"
+        Impersonate="no"
+        Return="ignore" />
+
     <SetProperty Id="WriteConfigAction"
-                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -InputFormat None -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]write-config.ps1&quot;"
+                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -InputFormat None -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]scripts\write-config.ps1&quot;"
                  Sequence="execute"
                  Before="WriteConfigAction" />
 
@@ -203,9 +186,8 @@
         Impersonate="no"
         Return="check" />
 
-    <!-- Полный uninstall: очистить config/queue/logs. Не на MajorUpgrade. -->
     <SetProperty Id="CleanupUninstallAction"
-                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -InputFormat None -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]cleanup-uninstall.ps1&quot;"
+                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -InputFormat None -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]scripts\cleanup-uninstall.ps1&quot;"
                  Sequence="execute"
                  Before="CleanupUninstallAction" />
 
@@ -218,9 +200,9 @@
         Return="ignore" />
 
     <InstallExecuteSequence>
-      <!-- После WriteRegistryValues, чтобы Setup\EnrollmentToken уже был в HKLM. -->
-      <Custom Action="WriteConfigAction" After="WriteRegistryValues" Condition="NOT REMOVE" />
-      <!-- После StopServices / до RemoveFiles, пока cleanup-uninstall.ps1 ещё на диске. -->
+      <!-- Скрипты уже на диске; migrate — до InstallServices (служба badagent). -->
+      <Custom Action="MigrateLegacyAction" After="InstallFiles" Before="InstallServices" Condition="NOT REMOVE" />
+      <Custom Action="WriteConfigAction" After="MigrateLegacyAction" Condition="NOT REMOVE" />
       <Custom Action="CleanupUninstallAction" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
     </InstallExecuteSequence>
   </Package>
