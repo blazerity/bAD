@@ -15,7 +15,7 @@ from .agent_update import sync_from_github
 from .api import router as api_router
 from .auth import ensure_bootstrap_secrets, seed_default_admin
 from .backup import run_daily_backup
-from .config import get_settings
+from .config import get_settings, resolve_agent_updates_dir
 from .crypto_util import decrypt_secret
 from .db import Database, open_database, utc_now
 from .device_health import effective_stale_after_seconds
@@ -188,7 +188,7 @@ async def _stale_alert_loop(app: FastAPI) -> None:
 async def lifespan(app: FastAPI):
     settings = get_settings()
     db = open_database(database_url=settings.database_url)
-    settings.agent_updates_dir.mkdir(parents=True, exist_ok=True)
+    settings.agent_updates_dir = resolve_agent_updates_dir(settings)
     try:
         settings.data_dir.mkdir(parents=True, exist_ok=True)
     except OSError:

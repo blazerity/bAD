@@ -186,23 +186,32 @@ def heartbeat(
         config_local=config_local_payload,
         config_local_provided=config_local_provided,
     )
-    effective = db.compute_device_effective_config(body.device_id)
+    meta = db.get_device_meta(body.device_id) or {}
+    had_refresh_flag = bool(meta.get("refresh_requested_at"))
+    refresh_pending = refresh_request_pending(meta)
+    use_inventory = refresh_pending or not body.config_version
+    effective = db.compute_device_effective_config(
+        body.device_id, use_inventory=use_inventory
+    )
     assert effective is not None
+    if (
+        body.config_version
+        and body.config_version != effective["version"]
+        and not use_inventory
+    ):
+        effective = db.compute_device_effective_config(
+            body.device_id, use_inventory=True
+        )
     resp: dict[str, Any] = {
         "status": "ok",
         "config_version": effective["version"],
     }
-    # Подложить полный settings, если у агента ещё нет version или она изменилась.
-    # config_local does not affect piggyback config / version.
     if not body.config_version or body.config_version != effective["version"]:
         resp["config"] = {
             "version": effective["version"],
             "settings": effective["settings"],
         }
-    detail = db.get_device_detail(body.device_id)
-    meta = (detail or {}).get("meta") or {}
-    had_refresh_flag = bool(meta.get("refresh_requested_at"))
-    if refresh_request_pending(meta):
+    if refresh_pending:
         resp["config"] = {
             "version": effective["version"],
             "settings": effective["settings"],

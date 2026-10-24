@@ -54,7 +54,11 @@
         body.className = "live-search-body";
         var title = document.createElement("span");
         title.className = "device-link__label";
-        title.innerHTML = d.title_html || d.hostname || d.device_id;
+        if (d.title_html) {
+          title.innerHTML = d.title_html;
+        } else {
+          title.textContent = d.hostname || d.device_id || "";
+        }
         var reason = document.createElement("span");
         reason.className = "live-search-reason muted";
         var bits = [];
@@ -74,7 +78,11 @@
         body.className = "live-search-body";
         var title = document.createElement("span");
         title.className = "device-link__label";
-        title.innerHTML = e.title_html || e.summary || "";
+        if (e.title_html) {
+          title.innerHTML = e.title_html;
+        } else {
+          title.textContent = e.summary || "";
+        }
         var reason = document.createElement("span");
         reason.className = "live-search-reason muted";
         reason.textContent = [e.match_reason, e.hostname].filter(Boolean).join(" · ");

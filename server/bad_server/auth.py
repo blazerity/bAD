@@ -134,12 +134,39 @@ def require_admin_token(
 
 def current_web_user(
     request: Request,
+    db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
     session_secret: str = Depends(get_session_secret),
 ) -> Optional[WebUser]:
     from .sessions import SESSION_COOKIE
 
-    return load_session(session_secret, request.cookies.get(SESSION_COOKIE))
+    user = load_session(session_secret, request.cookies.get(SESSION_COOKIE))
+    if not user:
+        return None
+    if user.source == "local":
+        row = db.get_local_user(user.username)
+        if not row:
+            return None
+        return WebUser(
+            username=row["username"],
+            role=row["role"] or "operator",
+            source="local",
+            must_change_password=bool(row["must_change_password"]),
+            display_name=user.display_name,
+        )
+    ldap = db.get_ldap_settings()
+    if not ldap.get("enabled"):
+        return None
+    role = str(ldap.get("default_role") or "operator")
+    if role not in {"admin", "operator"}:
+        role = "operator"
+    return WebUser(
+        username=user.username,
+        role=role,
+        source="ldap",
+        must_change_password=False,
+        display_name=user.display_name,
+    )
 
 
 def require_web_user(

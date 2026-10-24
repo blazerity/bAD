@@ -381,8 +381,14 @@ def _parse_utc_iso(ts: str) -> Optional[datetime]:
         return None
 
 
-def _mark_digest_mailed(db: "Database", event_ids: list[int], mailed_at: str) -> None:
-    db.mark_device_events_mailed(event_ids, mailed_at)
+def _mark_digest_events_mailed(
+    db: "Database", event_ids: list[int], mailed_at: str
+) -> None:
+    if event_ids:
+        db.mark_device_events_mailed(event_ids, mailed_at)
+
+
+def _touch_digest_interval(db: "Database", mailed_at: str) -> None:
     db.set_site_secret(INVENTORY_MAIL_LAST_DIGEST_KEY, mailed_at)
 
 
@@ -420,14 +426,12 @@ def flush_inventory_mail_digest(
         result["skipped"] = True
         return result
 
-    all_ids = [int(e["id"]) for e in unmailed]
     filtered = filter_events_for_mail(unmailed, flags)
     mailed_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace(
         "+00:00", "Z"
     )
 
     if not filtered:
-        _mark_digest_mailed(db, all_ids, mailed_at)
         result["skipped"] = True
         result["reason"] = "filtered_empty"
         return result
@@ -465,12 +469,14 @@ def flush_inventory_mail_digest(
         result["detail"] = detail
         return result
 
-    _mark_digest_mailed(db, all_ids, mailed_at)
+    sent_ids = [int(e["id"]) for e in filtered]
+    _mark_digest_events_mailed(db, sent_ids, mailed_at)
+    _touch_digest_interval(db, mailed_at)
     logger.info(
         "Mail digest emailed: devices=%s events=%s marked=%s",
         len(devices_groups),
         len(filtered),
-        len(all_ids),
+        len(sent_ids),
     )
     result["sent"] = True
     result["skipped"] = False

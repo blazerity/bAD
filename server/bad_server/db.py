@@ -74,6 +74,22 @@ class Database:
                 ON devices (last_seen_at DESC NULLS LAST)
                 """
             )
+            try:
+                conn.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+                conn.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_devices_meta_trgm
+                    ON devices USING gin (meta_json gin_trgm_ops)
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_devices_hostname_trgm
+                    ON devices USING gin (hostname gin_trgm_ops)
+                    """
+                )
+            except Exception:
+                pass
             conn.commit()
 
     @contextmanager
@@ -134,7 +150,10 @@ class Database:
         now = utc_now()
         with self.connection() as conn:
             existing = conn.execute(
-                "SELECT device_id, revoked FROM devices WHERE device_id = ?",
+                """
+                SELECT device_id, revoked FROM devices WHERE device_id = ?
+                FOR UPDATE
+                """,
                 (device_id,),
             ).fetchone()
             if existing:
@@ -149,8 +168,7 @@ class Database:
                         api_key_hash = ?,
                         api_key_lookup = ?,
                         last_seen_at = ?,
-                        agent_version = COALESCE(?, agent_version),
-                        revoked = 0
+                        agent_version = COALESCE(?, agent_version)
                     WHERE device_id = ?
                     """,
                     (
@@ -245,6 +263,79 @@ class Database:
             return normalize_tags(raw)
         return normalize_tags(parsed)
 
+    def _lock_device_meta(self, conn: CompatConnection, device_id: str) -> dict[str, Any]:
+        row = conn.execute(
+            "SELECT meta_json FROM devices WHERE device_id = ? FOR UPDATE",
+            (device_id,),
+        ).fetchone()
+        if not row:
+            raise KeyError(device_id)
+        return self._parse_meta(row["meta_json"])
+
+    def _save_device_meta(
+        self, conn: CompatConnection, device_id: str, meta: dict[str, Any]
+    ) -> None:
+        conn.execute(
+            "UPDATE devices SET meta_json = ? WHERE device_id = ?",
+            (
+                json.dumps(meta, separators=(",", ":"), ensure_ascii=False),
+                device_id,
+            ),
+        )
+
+    def get_device_meta(self, device_id: str) -> Optional[dict[str, Any]]:
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT meta_json FROM devices WHERE device_id = ?",
+                (device_id,),
+            ).fetchone()
+        if not row:
+            return None
+        return self._parse_meta(row["meta_json"])
+
+    def _devices_filter_sql(
+        self,
+        *,
+        tag: Optional[str],
+        archived: Optional[bool],
+        q: Optional[str],
+    ) -> tuple[str, list[Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if archived is True:
+            clauses.append("COALESCE(archived, 0) != 0")
+        elif archived is False:
+            clauses.append("COALESCE(archived, 0) = 0")
+        wanted = (tag or "").strip()
+        if wanted:
+            clauses.append("tags_json ILIKE ?")
+            params.append(f"%{wanted}%")
+        query = (q or "").strip()
+        if query:
+            like = f"%{query}%"
+            clauses.append(
+                "(hostname ILIKE ? OR device_id ILIKE ? "
+                "OR COALESCE(meta_json, '') ILIKE ? "
+                "OR COALESCE(tags_json, '') ILIKE ?)"
+            )
+            params.extend([like, like, like, like])
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        return where, params
+
+    @staticmethod
+    def _device_row_dict(row: Any) -> dict[str, Any]:
+        return {
+            "device_id": row["device_id"],
+            "hostname": row["hostname"],
+            "enrolled_at": row["enrolled_at"],
+            "last_seen_at": row["last_seen_at"],
+            "agent_version": row["agent_version"],
+            "meta": Database._parse_meta(row["meta_json"]),
+            "tags": Database._parse_tags(row["tags_json"]),
+            "revoked": bool(row["revoked"]),
+            "archived": bool(row["archived"]),
+        }
+
     def update_heartbeat(
         self,
         device_id: str,
@@ -265,11 +356,7 @@ class Database:
         touch_meta = bool(last_inventory_at or health or config_local_provided)
         with self.connection() as conn:
             if touch_meta:
-                row = conn.execute(
-                    "SELECT meta_json FROM devices WHERE device_id = ?",
-                    (device_id,),
-                ).fetchone()
-                meta = self._parse_meta(row["meta_json"] if row else None)
+                meta = self._lock_device_meta(conn, device_id)
                 if last_inventory_at:
                     meta["last_inventory_at"] = last_inventory_at
                 meta.update(health)
@@ -277,8 +364,6 @@ class Database:
                     from .agent_config import sanitize_config_local
 
                     cleaned = sanitize_config_local(config_local)
-                    # keys:[] clears agent_local knobs; keep block if display-only
-                    # server_url is still present (agent ServerUrlLocal, no safe knobs).
                     if not cleaned.get("keys") and not cleaned.get("server_url"):
                         meta.pop("config_local", None)
                     else:
@@ -293,7 +378,12 @@ class Database:
                         meta_json = ?
                     WHERE device_id = ?
                     """,
-                    (now, agent_version, json.dumps(meta, ensure_ascii=False), device_id),
+                    (
+                        now,
+                        agent_version,
+                        json.dumps(meta, separators=(",", ":"), ensure_ascii=False),
+                        device_id,
+                    ),
                 )
             else:
                 conn.execute(
@@ -320,7 +410,6 @@ class Database:
 
         now = utc_now()
         payload_json = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
-        meta_json = json.dumps(meta or {}, separators=(",", ":"), ensure_ascii=False)
         with self.connection() as conn:
             prev_row = conn.execute(
                 """
@@ -340,17 +429,11 @@ class Database:
                 except json.JSONDecodeError:
                     previous = None
 
-            # Слить inventory meta с существующим meta, чтобы ключи heartbeat/health сохранились.
-            existing = conn.execute(
-                "SELECT meta_json FROM devices WHERE device_id = ?",
-                (device_id,),
-            ).fetchone()
-            merged_meta = self._parse_meta(existing["meta_json"] if existing else None)
+            merged_meta = self._lock_device_meta(conn, device_id)
             merged_meta.update(meta or {})
             meta_json = json.dumps(
                 merged_meta, separators=(",", ":"), ensure_ascii=False
             )
-
             conn.execute(
                 """
                 UPDATE devices
@@ -422,65 +505,37 @@ class Database:
         offset: int = 0,
         limit: Optional[int] = None,
     ) -> list[dict[str, Any]]:
-        sql = """
+        where, params = self._devices_filter_sql(
+            tag=tag, archived=archived, q=q
+        )
+        sql = f"""
             SELECT device_id, hostname, enrolled_at, last_seen_at,
                    agent_version, meta_json, tags_json, revoked, archived
             FROM devices
+            {where}
+            ORDER BY COALESCE(last_seen_at, enrolled_at) DESC NULLS LAST
         """
-        params: list[Any] = []
-        if archived is True:
-            sql += " WHERE COALESCE(archived, 0) != 0"
-        elif archived is False:
-            sql += " WHERE COALESCE(archived, 0) = 0"
-        sql += " ORDER BY COALESCE(last_seen_at, enrolled_at) DESC"
+        wanted_cf = (tag or "").strip().casefold()
+        paginate_sql = not wanted_cf
+        if paginate_sql and limit is not None:
+            sql += " LIMIT ? OFFSET ?"
+            params.extend([max(1, int(limit)), max(0, int(offset))])
+        elif paginate_sql and offset:
+            sql += " OFFSET ?"
+            params.append(max(0, int(offset)))
         with self.connection() as conn:
             rows = conn.execute(sql, params).fetchall()
-        wanted = (tag or "").strip().casefold()
-        query = (q or "").strip().casefold()
-        result: list[dict[str, Any]] = []
-        for row in rows:
-            is_archived = bool(row["archived"])
-            if archived is False and is_archived:
-                continue
-            if archived is True and not is_archived:
-                continue
-            tags = self._parse_tags(row["tags_json"])
-            if wanted and wanted not in {t.casefold() for t in tags}:
-                continue
-            device_id = row["device_id"]
-            hostname = row["hostname"] or ""
-            if query:
-                hay = " ".join(
-                    [
-                        device_id.casefold(),
-                        hostname.casefold(),
-                    ]
-                )
-                if query not in hay:
-                    from .device_meta import meta_search_haystack
-
-                    meta = self._parse_meta(row["meta_json"])
-                    if query not in meta_search_haystack(meta):
-                        continue
-            result.append(
-                {
-                    "device_id": device_id,
-                    "hostname": row["hostname"],
-                    "enrolled_at": row["enrolled_at"],
-                    "last_seen_at": row["last_seen_at"],
-                    "agent_version": row["agent_version"],
-                    "meta": self._parse_meta(row["meta_json"]),
-                    "tags": tags,
-                    "revoked": bool(row["revoked"]),
-                    "archived": is_archived,
-                }
-            )
-        if offset or limit is not None:
-            start = max(0, int(offset))
-            if limit is None:
-                return result[start:]
-            end = start + max(1, int(limit))
-            return result[start:end]
+        result = [self._device_row_dict(row) for row in rows]
+        if wanted_cf:
+            result = [
+                d
+                for d in result
+                if wanted_cf in {t.casefold() for t in (d.get("tags") or [])}
+            ]
+            if limit is not None:
+                start = max(0, int(offset))
+                end = start + max(1, int(limit))
+                result = result[start:end]
         return result
 
     def count_devices(
@@ -490,6 +545,15 @@ class Database:
         archived: Optional[bool] = False,
         q: Optional[str] = None,
     ) -> int:
+        where, params = self._devices_filter_sql(
+            tag=tag, archived=archived, q=q
+        )
+        wanted_cf = (tag or "").strip().casefold()
+        if not wanted_cf:
+            sql = f"SELECT COUNT(*) AS c FROM devices{where}"
+            with self.connection() as conn:
+                row = conn.execute(sql, params).fetchone()
+            return int(row["c"] if row else 0)
         return len(self.list_devices(tag=tag, archived=archived, q=q))
 
     def search_devices_global(
@@ -620,9 +684,10 @@ class Database:
     ) -> list[dict[str, Any]]:
         limit = max(1, min(int(limit), 500))
         offset = max(0, int(offset))
-        sql = """
-            SELECT e.id, e.device_id, e.type, e.summary, e.detail_json,
-                   e.created_at, d.hostname
+        detail_col = ", e.detail_json" if include_detail else ""
+        sql = f"""
+            SELECT e.id, e.device_id, e.type, e.summary, e.created_at,
+                   d.hostname{detail_col}
             FROM device_events e
             LEFT JOIN devices d ON d.device_id = e.device_id
         """
@@ -693,11 +758,12 @@ class Database:
             }
             if include_detail:
                 detail: Any = None
-                if row["detail_json"]:
+                raw_detail = row.get("detail_json")
+                if raw_detail:
                     try:
-                        detail = json.loads(row["detail_json"])
+                        detail = json.loads(raw_detail)
                     except json.JSONDecodeError:
-                        detail = {"_raw": row["detail_json"]}
+                        detail = {"_raw": raw_detail}
                 entry["detail"] = detail
             result.append(entry)
         return result
@@ -1460,7 +1526,9 @@ class Database:
                 out[str(row["device_id"])] = payload
         return out
 
-    def compute_device_effective_config(self, device_id: str) -> Optional[dict[str, Any]]:
+    def compute_device_effective_config(
+        self, device_id: str, *, use_inventory: bool = True
+    ) -> Optional[dict[str, Any]]:
         from .agent_config import compute_effective_config, provenance_from_effective
 
         with self.connection() as conn:
@@ -1473,10 +1541,13 @@ class Database:
         override = override_row["settings"] if override_row else None
         tags = self._parse_tags(device["tags_json"])
         meta = self._parse_meta(device["meta_json"])
+        inventory = (
+            self.latest_inventory_payload(device_id) if use_inventory else None
+        )
         result = compute_effective_config(
             hostname=device["hostname"],
             meta=meta,
-            inventory_payload=self.latest_inventory_payload(device_id),
+            inventory_payload=inventory,
             tags=tags,
             policies=self.list_agent_policies(),
             override=override,
@@ -2429,21 +2500,16 @@ class Database:
 
     def patch_device_meta(self, device_id: str, updates: dict[str, Any]) -> None:
         with self.connection() as conn:
-            row = conn.execute(
-                "SELECT meta_json FROM devices WHERE device_id = ?", (device_id,)
-            ).fetchone()
-            if not row:
+            try:
+                meta = self._lock_device_meta(conn, device_id)
+            except KeyError:
                 return
-            meta = self._parse_meta(row["meta_json"])
             for key, value in updates.items():
                 if value is None:
                     meta.pop(key, None)
                 else:
                     meta[key] = value
-            conn.execute(
-                "UPDATE devices SET meta_json = ? WHERE device_id = ?",
-                (json.dumps(meta, separators=(",", ":"), ensure_ascii=False), device_id),
-            )
+            self._save_device_meta(conn, device_id, meta)
 
     def devices_needing_stale_alert(
         self, *, stale_after_seconds: int
