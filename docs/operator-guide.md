@@ -189,7 +189,7 @@ msiexec /i bad-agent-<версия из agent/VERSION>.msi `
 
 Служба `BlazerityAssetDiscovery` стартует автоматически, один раз регистрируется на сервере, сохраняет API-ключ в `%ProgramData%\blazerity\bAD\config.json`, шлёт полный снимок при старте (далее по расписанию, по умолчанию каждые 6 ч), heartbeat каждые 15 мин. **Обновления MSI:** проверка при старте службы и далее по расписанию (по умолчанию раз в 24 ч); скачивание только с **вашего** сервера, не с GitHub. Целевую версию задают политики (`update_target`: «последняя» или закреплённая).
 
-**Локальный CLI** (сервер не нужен): обычный пользователь — только отчёт `bad` (ASCII) и `bad -r` (HTML); `bad -h` — справка. Настройка — **от имени администратора**: `bad -c`, `bad config set` / `unset`. На карточке устройства (admin) кнопка **«Обновить политику и версию»** запрашивает у агента повторное применение политики и проверку MSI при следующем heartbeat; на самом ПК то же даёт **`bad push`** (с `--update` — ещё и установка MSI). Метка **«задано на агенте»** — параметр задан локально на ПК (через `bad -c`), а не политикой сервера. Service CLI: `BadAgent.exe service status|start|stop|restart` (elevated). См. [agents.md](./agents.md).
+**Локальный CLI** (сервер не нужен): обычный пользователь — только отчёт `bad` (ASCII) и `bad -r` (HTML); `bad -h` — справка. Настройка — **от имени администратора**: `bad -c`, `bad config set` / `unset`. На карточке устройства (admin) кнопка **«Обновить политику и версию»** запрашивает у агента повторное применение политики и проверку MSI при следующем heartbeat. На самом ПК: **`bad push`** — синхронизация с сервером (inventory и heartbeat); **`bad update`** — проверка и установка MSI (с агента **1.3.0**, см. [release-notes-agent-1.3.0.md](release-notes-agent-1.3.0.md)). Метка **«задано на агенте»** — параметр задан локально на ПК (через `bad -c`), а не политикой сервера. Service CLI: `BadAgent.exe service status|start|stop|restart` (elevated). См. [agents.md](./agents.md).
 
 ### Переустановка ОС (reimage)
 
@@ -393,7 +393,7 @@ Panel-first: до cert UI на HTTP (`BAD_COOKIE_SECURE=auto`). После apply
 
 ## Заметки
 
-- **1.9.0** (панель): [release-notes-1.9.0.md](release-notes-1.9.0.md). **1.8.1**: [release-notes-1.8.1.md](release-notes-1.8.1.md). **1.8.0 / агент 1.2.1**: [release-notes-1.8.0.md](release-notes-1.8.0.md). Старые линии: [release-notes-1.5.3.md](release-notes-1.5.3.md).
+- **Агент 1.3.0** (CLI push/update): [release-notes-agent-1.3.0.md](release-notes-agent-1.3.0.md). **1.9.0** (панель): [release-notes-1.9.0.md](release-notes-1.9.0.md). **1.8.1**: [release-notes-1.8.1.md](release-notes-1.8.1.md). **1.8.0 / агент 1.2.1**: [release-notes-1.8.0.md](release-notes-1.8.0.md). Старые линии: [release-notes-1.5.3.md](release-notes-1.5.3.md).
 - Апгрейд MSI сохраняет ProgramData (API key); повторный enroll не нужен.
 - Не кладите enrollment или admin tokens в world-readable файлы.
 - Локальные демо без TLS: uvicorn на Linux (`server/README.md`) и тестовый агент с `BAD_ALLOW_HTTP=1` на `http://127.0.0.1:8000` — только lab.
