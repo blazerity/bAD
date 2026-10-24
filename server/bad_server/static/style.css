@@ -3283,6 +3283,15 @@ body.global-search-open { overflow: hidden; }
   white-space: nowrap;
   overflow-wrap: normal;
 }
+.devices-catalog-filters {
+  flex-wrap: wrap;
+  gap: 0.5rem 0.65rem;
+  align-items: center;
+}
+.devices-catalog-filters .filter-select-inline {
+  min-width: 8.5rem;
+  max-width: 14rem;
+}
 .devices-filter-extra {
   align-items: flex-end;
 }
@@ -3385,12 +3394,6 @@ body.global-search-open { overflow: hidden; }
   font-size: 0.75rem;
   color: var(--fg-tertiary, var(--muted));
   margin-top: 0.15rem;
-}
-.device-cell-id .copyable-value {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.2rem;
-  max-width: 100%;
 }
 .device-col-sub {
   display: block;
@@ -3514,7 +3517,20 @@ mark {
   vertical-align: middle;
 }
 .device-chassis-mini .icon { width: 1rem; height: 1rem; margin: 0; }
-.col-device-state { white-space: nowrap; }
+.col-device-state { white-space: nowrap; vertical-align: middle; }
+.devices-table-modern td { vertical-align: middle; }
+.devices-state-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.devices-state-inline .device-chassis-mini {
+  display: inline-flex;
+  align-items: center;
+}
+.devices-state-inline .badge {
+  vertical-align: middle;
+}
 .dash-grid-3 {
   display: grid;
   grid-template-columns: 2fr 1fr 1fr;

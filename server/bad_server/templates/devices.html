@@ -56,6 +56,73 @@
         </div>
       </div>
       {% endif %}
+      <div class="filter-card-row devices-catalog-filters" role="group" aria-label="Фильтры каталога">
+        <label class="sr-only" for="os">ОС</label>
+        <select id="os" name="os" class="filter-select-inline">
+          <option value="">Все ОС</option>
+          {% for v in catalog_filter_options.os %}
+          <option value="{{ v }}" {% if os_filter == v %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+          {% if os_filter and os_filter not in catalog_filter_options.os %}
+          <option value="{{ os_filter }}" selected>{{ os_filter }}</option>
+          {% endif %}
+        </select>
+        <label class="sr-only" for="ram">ОЗУ</label>
+        <select id="ram" name="ram" class="filter-select-inline">
+          <option value="">Все ОЗУ</option>
+          {% for v in catalog_filter_options.ram %}
+          <option value="{{ v }}" {% if ram_filter == v %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+          {% if ram_filter and ram_filter not in catalog_filter_options.ram %}
+          <option value="{{ ram_filter }}" selected>{{ ram_filter }}</option>
+          {% endif %}
+        </select>
+        <label class="sr-only" for="disk">Диск</label>
+        <select id="disk" name="disk" class="filter-select-inline">
+          <option value="">Все диски</option>
+          {% for v in catalog_filter_options.disk %}
+          <option value="{{ v }}" {% if disk_filter == v %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+          {% if disk_filter and disk_filter not in catalog_filter_options.disk %}
+          <option value="{{ disk_filter }}" selected>{{ disk_filter }}</option>
+          {% endif %}
+        </select>
+        <label class="sr-only" for="cpu">CPU</label>
+        <select id="cpu" name="cpu" class="filter-select-inline">
+          <option value="">Все CPU</option>
+          {% for v in catalog_filter_options.cpu %}
+          <option value="{{ v }}" {% if cpu_filter == v %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+          {% if cpu_filter and cpu_filter not in catalog_filter_options.cpu %}
+          <option value="{{ cpu_filter }}" selected>{{ cpu_filter }}</option>
+          {% endif %}
+        </select>
+        <label class="sr-only" for="cpu_vendor">Вендор CPU</label>
+        <select id="cpu_vendor" name="cpu_vendor" class="filter-select-inline">
+          <option value="">Все вендоры</option>
+          {% for v in catalog_filter_options.cpu_vendor %}
+          <option value="{{ v }}" {% if cpu_vendor_filter == v %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+          {% if cpu_vendor_filter and cpu_vendor_filter not in catalog_filter_options.cpu_vendor %}
+          <option value="{{ cpu_vendor_filter }}" selected>{{ cpu_vendor_filter }}</option>
+          {% endif %}
+        </select>
+        <label class="sr-only" for="agent">Версия агента</label>
+        <select id="agent" name="agent" class="filter-select-inline">
+          <option value="">Все версии</option>
+          {% for v in catalog_filter_options.agent %}
+          <option value="{{ v }}" {% if agent_filter == v %}selected{% endif %}>bAD Agent {{ v }}</option>
+          {% endfor %}
+          {% if agent_filter and agent_filter not in catalog_filter_options.agent %}
+          <option value="{{ agent_filter }}" selected>bAD Agent {{ agent_filter }}</option>
+          {% endif %}
+        </select>
+        <label class="sr-only" for="fresh">На связи</label>
+        <select id="fresh" name="fresh" class="filter-select-inline">
+          <option value="" {% if not fresh_filter %}selected{% endif %}>Связь: все</option>
+          <option value="ok" {% if fresh_filter == 'ok' %}selected{% endif %}>Онлайн</option>
+        </select>
+      </div>
       <div class="filter-card-row filter-card-row-3 devices-filter-extra">
         <label class="sr-only" for="tag">Тег</label>
         <select id="tag" name="tag" class="filter-select-inline">
@@ -116,15 +183,17 @@
       {% set os_line = meta.os_caption or meta.os or '—' %}
       <tr class="table-row-link">
         <td class="col-device-state">
-          <span class="device-chassis-mini" aria-hidden="true">{{ icon(chassis_icon_name(d.chassis_type)) }}</span>
-          <span class="badge badge-fresh-{{ d.freshness or d.silence.status }}">{{ freshness_label(fresh) }}</span>
+          <span class="devices-state-inline">
+            <span class="device-chassis-mini" aria-hidden="true">{{ icon(chassis_icon_name(d.chassis_type)) }}</span>
+            <span class="badge badge-fresh-{{ d.freshness or d.silence.status }}">{{ freshness_label(fresh) }}</span>
+          </span>
         </td>
         <td>
           <a class="device-cell-link" href="{{ d.device_href }}">
             <span class="device-cell-host">{{ d.hostname or '(неизвестно)' }}</span>
           </a>
           {% if d.bad_id %}
-          <span class="mono device-cell-id">{{ copyable(d.bad_id) }}</span>
+          <span class="mono device-cell-id">{{ d.bad_id }}</span>
           {% else %}
           <span class="mono muted device-cell-id">{{ d.device_id }}</span>
           {% endif %}
@@ -138,14 +207,13 @@
         <td class="device-col-user">
           {% if d.user_display_name %}
           <span class="user-presence-{{ d.user_presence }}">{{ d.user_display_name }}</span>
-          <span class="muted device-col-sub">{{ d.user_presence_caption }}</span>
           {% else %}
           <span class="muted">нет данных</span>
           {% endif %}
         </td>
         <td>
           <span>{{ os_line }}</span>
-          <span class="mono muted device-col-sub">bAD {{ d.agent_version or '—' }}</span>
+          <span class="mono muted device-col-sub">bAD Agent {{ d.agent_version or '—' }}</span>
         </td>
         <td class="device-col-cpu muted">{% if meta.cpu_name %}{{ meta.cpu_name }}{% else %}—{% endif %}</td>
         <td class="muted">{{ d.ram_display }}</td>

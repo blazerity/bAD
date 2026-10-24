@@ -1226,6 +1226,45 @@ def _overview_search_users(query: str, fleet: list[dict]) -> list[dict]:
     return ranked[:15]
 
 
+def _devices_catalog_filter_options(fleet: list[dict]) -> dict[str, list[str]]:
+    """Уникальные значения meta для селектов каталога (п. архитектуры 2.1)."""
+    os_vals: set[str] = set()
+    ram_vals: set[str] = set()
+    disk_vals: set[str] = set()
+    cpu_vals: set[str] = set()
+    vendor_vals: set[str] = set()
+    agent_vals: set[str] = set()
+    for d in fleet:
+        meta = d.get("meta") if isinstance(d.get("meta"), dict) else {}
+        oc = str(meta.get("os_caption") or meta.get("os") or "").strip()
+        if oc:
+            os_vals.add(oc)
+        ram = str(meta.get("ram_bucket") or "").strip()
+        if ram:
+            ram_vals.add(ram)
+        disk = str(meta.get("disk_bucket") or "").strip()
+        if disk:
+            disk_vals.add(disk)
+        fam = str(meta.get("cpu_family") or "").strip()
+        if fam:
+            cpu_vals.add(fam)
+        vendor = str(meta.get("cpu_vendor") or "").strip()
+        if vendor:
+            vendor_vals.add(vendor)
+        ver = str(d.get("agent_version") or "").strip()
+        if ver:
+            agent_vals.add(ver)
+    sort_key = lambda s: s.casefold()
+    return {
+        "os": sorted(os_vals, key=sort_key),
+        "ram": sorted(ram_vals, key=sort_key),
+        "disk": sorted(disk_vals, key=sort_key),
+        "cpu": sorted(cpu_vals, key=sort_key),
+        "cpu_vendor": sorted(vendor_vals, key=sort_key),
+        "agent": sorted(agent_vals, key=sort_key),
+    }
+
+
 def _devices_query_params(
     *,
     tag: Optional[str],
@@ -1565,7 +1604,8 @@ def devices_page(
     flash_msg = (flash or "").strip() or None
     if flash_msg and len(flash_msg) > 200:
         flash_msg = flash_msg[:200]
-    _active, _archived, fleet_stats, _ops = _fleet_snapshot(db, settings)
+    active_fleet, _archived, fleet_stats, _ops = _fleet_snapshot(db, settings)
+    catalog_filter_options = _devices_catalog_filter_options(active_fleet)
     return _html(
         request,
         "devices.html",
@@ -1610,6 +1650,7 @@ def devices_page(
                 or fresh_filter
             ),
             "filters_active": bool(filter_chips),
+            "catalog_filter_options": catalog_filter_options,
         },
     )
 
