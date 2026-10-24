@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 _EVENT_IMPORTANCE: dict[str, str] = {
     "minidump_bugcheck": "critical",
     "disk_removed": "critical",
@@ -64,11 +62,3 @@ def types_at_least(min_level: str) -> frozenset[str]:
     return frozenset(
         t for t, lvl in _EVENT_IMPORTANCE.items() if importance_rank(lvl) >= need
     )
-
-
-def event_passes_importance(event_type: str, min_level: Optional[str]) -> bool:
-    if not min_level:
-        return importance_rank(event_importance(event_type)) >= _RANK["medium"]
-    if min_level == "all":
-        return True
-    return importance_rank(event_importance(event_type)) >= importance_rank(min_level)

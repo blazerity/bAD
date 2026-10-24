@@ -17,10 +17,8 @@ from .tls_ops import tls_panel_mode
 
 WAVE_FILTERS = frozenset({"drift", "revoked", "agent_local", "stale", "dup"})
 
-# Дашборд D1–D5 (согласовано с UI Lead / контрактом)
-VERSION_BAR_TOP = 6
+# Дашборд (согласовано с UI Lead / контрактом)
 OS_DOMAIN_BAR_TOP = 5
-MODEL_BAR_TOP = 5
 INVENTORY_SCAN_CAP = 500
 
 _SOURCE_LABEL_RU = {
@@ -654,21 +652,11 @@ def _accumulate_hw_bars(hw: dict[str, Any], ram_counts: dict[str, int], storage_
         storage_counts[storage_label] = storage_counts.get(storage_label, 0) + 1
 
 
-def _facet_from_device_meta(device: dict[str, Any]) -> tuple[str, str, str] | None:
-    """OS / domain / model из meta_json (без inventory), если поля есть."""
+def _os_caption_from_device_meta(device: dict[str, Any]) -> Optional[str]:
+    """Подпись ОС из meta_json (без inventory), если поле есть."""
     meta = device.get("meta") if isinstance(device.get("meta"), dict) else {}
-    os_caption = str(meta.get("os") or meta.get("os_caption") or "").strip()
-    domain = str(meta.get("domain") or "").strip()
-    mfr = str(meta.get("hardware_manufacturer") or meta.get("manufacturer") or "").strip()
-    model = str(meta.get("hardware_model") or meta.get("model") or "").strip()
-    if not os_caption and not domain and not (mfr or model):
-        return None
-    model_label = " · ".join(x for x in (mfr, model) if x) or "—"
-    return (
-        os_caption or "—",
-        domain or "—",
-        model_label,
-    )
+    caption = str(meta.get("os") or meta.get("os_caption") or "").strip()
+    return caption or None
 
 
 def build_dashboard_stats(
@@ -676,14 +664,9 @@ def build_dashboard_stats(
     *,
     stale_after_seconds: int,
     stats: dict[str, Any],
-    ops: dict[str, Any],
     active: Optional[list[dict[str, Any]]] = None,
 ) -> dict[str, Any]:
-    """Агрегаты SSR для /dashboard (D1–D5). Не публичный /v1.
-
-    Поля: park_bar, agent_version_bars, wave_chips, os_bars, domain_bars,
-    model_bars, hardware_feed, mirror. См. server-lead-overview-dashboard.md.
-    """
+    """Агрегаты SSR для /dashboard. Не публичный /v1."""
     del stale_after_seconds  # silence уже в stats; параметр для симметрии home()
     if active is None:
         active = db.list_devices(archived=False)
@@ -717,38 +700,8 @@ def build_dashboard_stats(
         "total_active": total_active,
     }
 
-    # D2 — version bars
-    ver_counts: dict[str, int] = {}
-    for row in stats.get("agent_versions") or []:
-        ver_counts[str(row.get("version") or "—")] = int(row.get("count") or 0)
-    version_items = []
-    for item in _top_bars(ver_counts, top=VERSION_BAR_TOP, total=total_active):
-        row = {
-            "version": item["label"],
-            "count": item["count"],
-            "pct": item["pct"],
-            "is_other": item["is_other"],
-        }
-        if not item.get("is_other") and item.get("label"):
-            row["href"] = chart_filter_href("agent", str(item["label"]))
-        version_items.append(row)
-    agent_version_bars = {
-        "items": version_items,
-        "latest": ops.get("latest_version"),
-        "drift_count": int(ops.get("version_drift_count") or 0),
-        "drift_href": "/devices?wave=drift",
-        "total": total_active,
-        "version_count": len(ver_counts),
-    }
-
-    # D3 — wave chips
-    wave = build_wave_counts(active, ops=ops, stale_n=stale_n)
-    wave_chips = wave["chips"]
-
-    # D4 / D5 — OS / domain / model (cap scan)
+    # OS (cap scan)
     os_counts: dict[str, int] = {}
-    domain_counts: dict[str, int] = {}
-    model_counts: dict[str, int] = {}
     ram_counts: dict[str, int] = {}
     storage_counts: dict[str, int] = {}
     for d in active:
@@ -767,14 +720,10 @@ def build_dashboard_stats(
     need_payload: list[str] = []
     scanned = 0
     for d in active[:scan_cap]:
-        facets = _facet_from_device_meta(d)
-        payload = payloads.get(d["device_id"])
-        if facets:
-            caption, domain, model_label = facets
+        caption = _os_caption_from_device_meta(d)
+        if caption:
             scanned += 1
             os_counts[caption] = os_counts.get(caption, 0) + 1
-            domain_counts[domain] = domain_counts.get(domain, 0) + 1
-            model_counts[model_label] = model_counts.get(model_label, 0) + 1
         else:
             need_payload.append(d["device_id"])
     for device_id, payload in payloads.items():
@@ -791,41 +740,16 @@ def build_dashboard_stats(
             caption = os_raw.strip()
         else:
             caption = "—"
-        domain = str(host.get("domain") or "").strip() or "—"
-        hw = payload.get("hardware") if isinstance(payload, dict) else None
-        if not isinstance(hw, dict):
-            hw = {}
-        model_label = " · ".join(
-            str(x).strip()
-            for x in (hw.get("manufacturer"), hw.get("model"))
-            if x and str(x).strip()
-        ) or "—"
         os_counts[caption] = os_counts.get(caption, 0) + 1
-        domain_counts[domain] = domain_counts.get(domain, 0) + 1
-        model_counts[model_label] = model_counts.get(model_label, 0) + 1
     missing = max(0, len(scan_ids) - scanned)
     if missing:
         os_counts["—"] = os_counts.get("—", 0) + missing
-        domain_counts["—"] = domain_counts.get("—", 0) + missing
-        model_counts["—"] = model_counts.get("—", 0) + missing
         scanned += missing
 
     bar_total = max(scanned, 1)
     capped = len(active) > INVENTORY_SCAN_CAP
     os_bars = {
         "items": _top_bars(os_counts, top=OS_DOMAIN_BAR_TOP, total=bar_total),
-        "scanned": scanned,
-        "capped": capped,
-        "href": "/devices",
-    }
-    domain_bars = {
-        "items": _top_bars(domain_counts, top=OS_DOMAIN_BAR_TOP, total=bar_total),
-        "scanned": scanned,
-        "capped": capped,
-        "href": "/devices",
-    }
-    model_bars = {
-        "items": _top_bars(model_counts, top=MODEL_BAR_TOP, total=bar_total),
         "scanned": scanned,
         "capped": capped,
         "href": "/devices",
@@ -848,21 +772,6 @@ def build_dashboard_stats(
             "capped": capped,
             "href": "/devices",
         }
-
-    # hardware feed (на Дашборде — опц.; Обзор держит список O7)
-    hw_items = list(stats.get("recent_hardware_events") or [])[:8]
-    hardware_feed = {
-        "items": hw_items,
-        "href": "/events",
-    }
-
-    mirror = {
-        "empty": bool(ops.get("mirror_empty")),
-        "latest_version": ops.get("latest_version"),
-        "count": int(ops.get("mirror_count") or 0),
-        "synced_at": ops.get("latest_synced_at"),
-        "href": "/settings/updates",
-    }
 
     cpu_family_counts: dict[str, int] = {}
     for d in active:
@@ -923,29 +832,13 @@ def build_dashboard_stats(
 
     return {
         "park_bar": park_bar,
-        "agent_version_bars": agent_version_bars,
-        "wave_chips": wave_chips,
-        "wave_counts": {
-            "drift": wave["drift"],
-            "revoked": wave["revoked"],
-            "agent_local": wave["agent_local"],
-            "stale": wave["stale"],
-        },
         "os_bars": os_bars,
-        "domain_bars": domain_bars,
-        "model_bars": model_bars,
         "ram_bars": ram_bars,
         "storage_bars": storage_bars,
-        "hardware_feed": hardware_feed,
-        "mirror": mirror,
         "cpu_family_treemap": cpu_family_treemap,
         "event_sparkline": event_sparkline,
         "gauges": gauges,
     }
-
-
-# Совместимое имя для старых ссылок на агрегатор.
-build_overview_dashboard = build_dashboard_stats
 
 
 def device_has_agent_local(device: dict[str, Any]) -> bool:

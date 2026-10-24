@@ -909,7 +909,6 @@ def _overview_page_context(
         qa_ui=settings.qa_ui,
     )
     server_current = server_read_current(releases_dir(settings))
-    versions = list(stats.get("agent_versions") or [])
     events_total = db.count_device_events(importance="all")
     server_runtime = build_server_runtime(db)
     return {
@@ -925,11 +924,6 @@ def _overview_page_context(
         "stale_after_seconds": effective_stale_after_seconds(db, settings),
         "server_current": server_current,
         "wave_chips": wave["chips"],
-        "agent_version_summary": {
-            "top": versions[:6],
-            "total_versions": len(versions),
-            "dashboard_href": "/dashboard",
-        },
     }
 
 
@@ -1038,7 +1032,6 @@ def dashboard_page(
         db,
         stale_after_seconds=effective_stale_after_seconds(db, settings),
         stats=stats,
-        ops=ops,
         active=active,
     )
     critical_events = db.list_device_events(
@@ -1233,10 +1226,6 @@ def _overview_search_users(query: str, fleet: list[dict]) -> list[dict]:
     return ranked[:15]
 
 
-def _canonical_device_id(db: Database, ref: str) -> Optional[str]:
-    return resolve_device_ref(db, (ref or "").strip())
-
-
 def _devices_query_params(
     *,
     tag: Optional[str],
@@ -1312,20 +1301,6 @@ def _devices_filter_chips(
     for param, value, label in specs:
         if not value:
             continue
-        qs = _devices_query_params(
-            tag=tag_filter,
-            q=query,
-            archive=show_archive,
-            page=1,
-            wave=wave_filter,
-            os_filter=os_filter,
-            ram_filter=ram_filter,
-            disk_filter=disk_filter,
-            cpu_filter=cpu_filter,
-            cpu_vendor_filter=cpu_vendor_filter,
-            agent_filter=agent_filter,
-            fresh=fresh,
-        )
         if param == "archive":
             without = _devices_query_params(
                 tag=tag_filter,
@@ -2137,7 +2112,7 @@ def device_detail_page(
     uninstall_error: Optional[str] = None,
     delete_error: Optional[str] = None,
 ):
-    canonical = _canonical_device_id(db, device_id)
+    canonical = resolve_device_ref(db, (device_id or "").strip())
     if not canonical:
         return _html(
             request,
@@ -2181,7 +2156,7 @@ def device_request_refresh(
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
 ):
-    canonical = _canonical_device_id(db, device_id)
+    canonical = resolve_device_ref(db, (device_id or "").strip())
     if not canonical:
         return RedirectResponse(url="/devices", status_code=303)
     device_id = canonical
@@ -2201,7 +2176,7 @@ def device_uninstall_order(
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    canonical = _canonical_device_id(db, device_id)
+    canonical = resolve_device_ref(db, (device_id or "").strip())
     if not canonical:
         return RedirectResponse(url="/devices", status_code=303)
     device_id = canonical
@@ -2234,7 +2209,7 @@ def device_uninstall_cancel(
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
 ):
-    canonical = _canonical_device_id(db, device_id)
+    canonical = resolve_device_ref(db, (device_id or "").strip())
     if not canonical:
         return RedirectResponse(url="/devices", status_code=303)
     device_id = canonical
@@ -2256,7 +2231,7 @@ def device_revoke(
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    canonical = _canonical_device_id(db, device_id)
+    canonical = resolve_device_ref(db, (device_id or "").strip())
     if not canonical:
         return _html(
             request,
@@ -2292,7 +2267,7 @@ def device_rotate_key(
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    canonical = _canonical_device_id(db, device_id)
+    canonical = resolve_device_ref(db, (device_id or "").strip())
     if not canonical:
         return _html(
             request,
@@ -2333,7 +2308,7 @@ def device_archive(
     user: WebUser = Depends(require_web_user),
     db: Database = Depends(get_db),
 ):
-    canonical = _canonical_device_id(db, device_id)
+    canonical = resolve_device_ref(db, (device_id or "").strip())
     if not canonical:
         return RedirectResponse(url="/devices", status_code=303)
     device_id = canonical
@@ -2350,7 +2325,7 @@ def device_restore(
     user: WebUser = Depends(require_web_user),
     db: Database = Depends(get_db),
 ):
-    canonical = _canonical_device_id(db, device_id)
+    canonical = resolve_device_ref(db, (device_id or "").strip())
     if not canonical:
         return RedirectResponse(url="/devices", status_code=303)
     device_id = canonical
@@ -2368,7 +2343,7 @@ def device_delete(
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
 ):
-    canonical = _canonical_device_id(db, device_id)
+    canonical = resolve_device_ref(db, (device_id or "").strip())
     if not canonical:
         return RedirectResponse(url="/devices", status_code=303)
     device_id = canonical
@@ -2439,7 +2414,7 @@ def device_merge(
     settings: Settings = Depends(get_settings),
 ):
     """Явный admin merge дублей. Не /v1; ключ донора отзывает merge_devices (DB)."""
-    survivor_canonical = _canonical_device_id(db, survivor_id)
+    survivor_canonical = resolve_device_ref(db, (survivor_id or "").strip())
     if not survivor_canonical:
         return _html(
             request,
@@ -2449,7 +2424,7 @@ def device_merge(
         )
     survivor_id = survivor_canonical
     donor = (donor_id or "").strip()
-    donor_resolved = _canonical_device_id(db, donor) if donor else None
+    donor_resolved = resolve_device_ref(db, (donor or "").strip()) if donor else None
     if donor and donor_resolved:
         donor = donor_resolved
     if not donor:
@@ -2506,7 +2481,7 @@ def device_tags_save(
     settings: Settings = Depends(get_settings),
     tags: str = Form(""),
 ):
-    canonical = _canonical_device_id(db, device_id)
+    canonical = resolve_device_ref(db, (device_id or "").strip())
     if not canonical:
         return _html(
             request,
@@ -2553,7 +2528,7 @@ def device_config_override_save(
     collect_software: str = Form(""),
     clear_override: Optional[str] = Form(None),
 ):
-    canonical = _canonical_device_id(db, device_id)
+    canonical = resolve_device_ref(db, (device_id or "").strip())
     if not canonical:
         return _html(
             request,
