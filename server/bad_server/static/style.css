@@ -2621,6 +2621,7 @@ body.global-search-open { overflow: hidden; }
 .search-input-wrap {
   position: relative;
   width: 100%;
+  display: block;
 }
 .search-input-icon {
   position: absolute;
@@ -2637,9 +2638,45 @@ body.global-search-open { overflow: hidden; }
 }
 .search-input-wrap .panel-search-input,
 .overview-search-input {
+  display: block;
+  width: 100%;
+  max-width: none;
+  flex: none;
+  box-sizing: border-box;
   padding-left: 2.5rem;
+  padding-right: 2.5rem;
   min-height: 2.75rem;
   font-size: 0.95rem;
+  text-align: left;
+}
+
+/* type=search: крестик очистки справа, не по центру (hero text-align:center) */
+.panel-search-input[type="search"],
+.filter-bar input[type="search"],
+.global-search-input[type="search"] {
+  text-align: left;
+}
+.search-input-wrap input[type="search"]::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1rem;
+  height: 1rem;
+  margin-right: 0.1rem;
+  cursor: pointer;
+  opacity: 0.55;
+  background: center / contain no-repeat
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%235b5b5b' d='M4.47 4.47a.75.75 0 0 1 1.06 0L8 6.94l2.47-2.47a.75.75 0 1 1 1.06 1.06L9.06 8l2.47 2.47a.75.75 0 1 1-1.06 1.06L8 9.06l-2.47 2.47a.75.75 0 0 1-1.06-1.06L6.94 8 4.47 5.53a.75.75 0 0 1 0-1.06z'/%3E%3C/svg%3E");
+}
+.search-input-wrap input[type="search"]::-webkit-search-cancel-button:hover {
+  opacity: 0.9;
+}
+.global-search-dialog .global-search-input[type="search"] {
+  display: block;
+  width: 100%;
+  flex: none;
+  box-sizing: border-box;
+  padding-right: 2.25rem;
+  text-align: left;
 }
 
 .filter-chips {
@@ -2707,6 +2744,10 @@ body.global-search-open { overflow: hidden; }
   padding: 0;
   text-align: left;
   width: 100%;
+}
+.overview-hero .search-input-wrap .panel-search-input,
+.overview-hero .overview-search-input {
+  text-align: left;
 }
 .overview-search-hero .search-input-wrap {
   min-height: 3rem;
