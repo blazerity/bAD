@@ -9,82 +9,68 @@
     <p class="page-lead overview-hero-lead">
       Поиск по устройствам, событиям, serial и разделам параметров
     </p>
-    <div class="overview-search-hero card-surface">
-      <div class="search-input-wrap">
+    <div class="overview-search-hero">
+      <div class="search-input-wrap card-surface">
         <span class="search-input-icon" aria-hidden="true">{{ icon('search') }}</span>
         <input id="overview-search-q" class="panel-search-input overview-search-input" type="search"
           placeholder="Поиск по всему парку…"
           maxlength="128" autocomplete="off" data-overview-search>
       </div>
-      <div class="filter-chips" data-overview-search-cats role="group" aria-label="Категории поиска">
+      <div class="filter-chips overview-search-chips" data-overview-search-cats role="group" aria-label="Категории поиска">
         <button type="button" class="filter-chip is-active" data-cat="devices">Устройства</button>
         <button type="button" class="filter-chip is-active" data-cat="events">События</button>
         <button type="button" class="filter-chip is-active" data-cat="settings">Параметры</button>
         <button type="button" class="filter-chip is-active" data-cat="serial">Serial</button>
       </div>
       <div id="overview-search-results" class="panel-search-dropdown overview-search-results" hidden></div>
-      <p class="panel-search-hint">от 2 символов</p>
+      <p class="panel-search-hint sr-only">от 2 символов</p>
     </div>
   </div>
-
-  {% if bootstrap_progress and not bootstrap_progress.complete %}
-  <div class="install-wizard card-surface" role="status" aria-label="Первый запуск">
-    <h2 class="install-wizard__title">Первый запуск · {{ bootstrap_progress.label }}</h2>
-    <ol class="install-wizard__steps">
-      {% for step in bootstrap_progress.steps %}
-      <li class="install-wizard__step{% if step.done %} is-done{% elif step.n == bootstrap_progress.current %} is-current{% endif %}">
-        <span class="install-wizard__n">{{ step.n }}</span>
-        {% if step.done %}
-        <span>{{ step.label }}</span>
-        {% else %}
-        <a href="{{ step.href }}">{{ step.label }}</a>
-        {% endif %}
-      </li>
-      {% endfor %}
-    </ol>
-  </div>
-  {% endif %}
-
-  {% if bootstrap and bootstrap.visible %}
-  <div class="bootstrap-checklist card-surface" role="status">
-    <h2 class="bootstrap-title">Первый запуск
-      <span class="muted">{{ bootstrap.done }}/{{ bootstrap.total }}</span>
-    </h2>
-    <ol class="bootstrap-steps">
-      {% for step in bootstrap.steps %}
-      <li class="{% if step.done %}is-done{% endif %}">
-        <span class="bootstrap-mark" aria-hidden="true">{% if step.done %}✓{% else %}○{% endif %}</span>
-        {% if step.done %}
-        <span>{{ step.label }}</span>
-        {% else %}
-        <a href="{{ step.href }}">{{ step.label }}</a>
-        {% endif %}
-      </li>
-      {% endfor %}
-    </ol>
-  </div>
-  {% endif %}
 
   <article class="card-surface server-info-card">
     <div class="server-info-head">
-      <div class="kpi-icon kpi-icon-accent">{{ icon('host') }}</div>
-      <div>
-        <h2 class="server-info-title">Сервер bAD</h2>
-        <p class="muted server-info-sub">
-          сборка <span class="mono">{{ (server_current.version if server_current else None) or app_version }}</span>
-        </p>
+      <div class="server-info-head-main">
+        <div class="server-info-icon">{{ icon('host') }}</div>
+        <div>
+          <h2 class="server-info-title">Сервер bAD</h2>
+          <p class="muted server-info-sub">сервер инвентаризации</p>
+        </div>
       </div>
       {% if security and security.https_first and security.https_first.tls_mode == 'https' %}
-      <span class="badge badge-fresh-ok">HTTPS</span>
+      <span class="badge-pill badge-pill-ok"><span class="badge-pill-dot" aria-hidden="true"></span>HTTPS</span>
       {% else %}
-      <span class="badge badge-fresh-stale">HTTP</span>
+      <span class="badge-pill badge-pill-warn"><span class="badge-pill-dot" aria-hidden="true"></span>HTTP</span>
       {% endif %}
     </div>
-    <dl class="server-info-grid meta meta-compact">
-      <div><dt>Активных</dt><dd class="tnum">{{ stats.total_active }}</dd></div>
-      <div><dt>Онлайн</dt><dd class="tnum">{{ stats.online }}</dd></div>
-      <div><dt>Каталог MSI</dt><dd class="mono">{{ ops.latest_version or "—" }}</dd></div>
-      <div><dt>Событий</dt><dd class="tnum">{{ events_total }}</dd></div>
+    <dl class="server-info-grid">
+      <div class="server-metric">
+        <div class="server-metric-icon" aria-hidden="true">{{ icon('devices') }}</div>
+        <div class="server-metric-body">
+          <dt>Агенты</dt>
+          <dd class="tnum">{{ stats.online }} / {{ stats.total_active }}</dd>
+        </div>
+      </div>
+      <div class="server-metric">
+        <div class="server-metric-icon" aria-hidden="true">{{ icon('events') }}</div>
+        <div class="server-metric-body">
+          <dt>События</dt>
+          <dd class="tnum">{{ events_total }}</dd>
+        </div>
+      </div>
+      <div class="server-metric">
+        <div class="server-metric-icon" aria-hidden="true">{{ icon('updates') }}</div>
+        <div class="server-metric-body">
+          <dt>Каталог</dt>
+          <dd class="mono">{{ ops.latest_version or "—" }}</dd>
+        </div>
+      </div>
+      <div class="server-metric">
+        <div class="server-metric-icon" aria-hidden="true">{{ icon('cpu') }}</div>
+        <div class="server-metric-body">
+          <dt>Сборка</dt>
+          <dd class="mono">{{ (server_current.version if server_current else None) or app_version }}</dd>
+        </div>
+      </div>
     </dl>
     {% if security and security.https_first %}
     <p class="muted security-strip">
@@ -131,6 +117,47 @@
       </div>
     </div>
   </div>
+
+  {% if (bootstrap_progress and not bootstrap_progress.complete) or (bootstrap and bootstrap.visible) %}
+  <section class="overview-setup">
+    {% if bootstrap_progress and not bootstrap_progress.complete %}
+    <div class="install-wizard card-surface" role="status" aria-label="Первый запуск">
+      <h2 class="install-wizard__title">Первый запуск · {{ bootstrap_progress.label }}</h2>
+      <ol class="install-wizard__steps">
+        {% for step in bootstrap_progress.steps %}
+        <li class="install-wizard__step{% if step.done %} is-done{% elif step.n == bootstrap_progress.current %} is-current{% endif %}">
+          <span class="install-wizard__n">{{ step.n }}</span>
+          {% if step.done %}
+          <span>{{ step.label }}</span>
+          {% else %}
+          <a href="{{ step.href }}">{{ step.label }}</a>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ol>
+    </div>
+    {% endif %}
+    {% if bootstrap and bootstrap.visible %}
+    <div class="bootstrap-checklist card-surface" role="status">
+      <h2 class="bootstrap-title">Первый запуск
+        <span class="muted">{{ bootstrap.done }}/{{ bootstrap.total }}</span>
+      </h2>
+      <ol class="bootstrap-steps">
+        {% for step in bootstrap.steps %}
+        <li class="{% if step.done %}is-done{% endif %}">
+          <span class="bootstrap-mark" aria-hidden="true">{% if step.done %}✓{% else %}○{% endif %}</span>
+          {% if step.done %}
+          <span>{{ step.label }}</span>
+          {% else %}
+          <a href="{{ step.href }}">{{ step.label }}</a>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ol>
+    </div>
+    {% endif %}
+  </section>
+  {% endif %}
 
   {% if attention %}
   <details class="attention-queue card-surface" {% if attention|length <= 2 %}open{% endif %}>
