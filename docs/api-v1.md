@@ -2,8 +2,8 @@
 
 Этот документ описывает HTTP JSON API сервера bAD для внешних систем, например 1C Itilium, скриптов и систем отчётности.
 
-- Версия сервера: 2.0.1 (поле `version` в `GET /v1/health`, файл `VERSION`).
-- Версия агента: 2.0.1 (поле `agent_version` в данных устройства, файл `agent/VERSION`).
+- Версия сервера: 2.1.0 (поле `version` в `GET /v1/health`, файл `VERSION`).
+- Версия агента: 2.0.2 (поле `agent_version` в данных устройства, файл `agent/VERSION`).
 - Примеры JSON в документе показывают формат, а не актуальные номера версий.
 
 Связанные документы: [operator-guide.md](operator-guide.md), [architecture.md](architecture.md), [guideline.md](guideline.md).
@@ -141,7 +141,7 @@
 | `page` | `1` | номер страницы, от 1 |
 | `page_size` | `50` | от 1 до 200 |
 | `tag` | — | точное совпадение метки, без учёта регистра |
-| `q` | — | подстрока в `device_id`, `hostname` или `meta.serial_number` |
+| `q` | — | подстрока в `hostname`, `device_id`, `bad_id`, тегах или фрагменте `meta_json` (в т.ч. серийный номер) |
 | `archived` | `false` | `true` — только архивные устройства |
 
 Ответ:
@@ -179,6 +179,7 @@
 |------|----------|
 | `id`, `device_id`, `hostname`, `type`, `summary`, `created_at` | основные данные события |
 | `importance` | `low`, `medium`, `high` или `critical`; определяется типом события |
+| `type` | например `usb_added`, `usb_removed`, `disk_removed`, `ip_change` — полный список в коде `event_importance.py` |
 
 Поля `detail` в ленте событий нет. Подробности изменения доступны в карточке устройства (последний снимок).
 
@@ -191,10 +192,11 @@
 ```json
 {
   "device_id": "3f2b…",
+  "bad_id": "BAD-K7Q2MP",
   "hostname": "WS-01",
   "enrolled_at": "2026-10-01T10:00:00Z",
   "last_seen_at": "2026-10-16T11:00:00Z",
-  "agent_version": "2.0.1",
+  "agent_version": "2.0.2",
   "meta": {
     "last_inventory_at": "2026-10-16T10:55:00Z",
     "os": "Microsoft Windows 11 Pro",
@@ -218,6 +220,7 @@
 
 | Поле | Описание |
 |------|----------|
+| `bad_id` | короткий код панели (`BAD-` + 6 символов); в путях `/v1/devices/{device_id}` по-прежнему только `device_id` |
 | `serial_number`, `model` | значения из последнего снимка оборудования |
 | `latest_inventory` | `{ id, received_at, schema_version, payload }` или `null` |
 | `duplicates` | подсказки о возможных дубликатах |
