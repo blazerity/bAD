@@ -4,8 +4,8 @@
 
 | Компонент | Текущая версия | Где посмотреть |
 |-----------|----------------|----------------|
-| Сервер (панель и API) | 1.10.1 | файл `VERSION`, `GET /v1/health`, подвал панели |
-| Агент (MSI на ПК) | 2.0.0 | файл `agent/VERSION`, поле `agent_version` в карточке устройства |
+| Сервер (панель и API) | 2.0.1 | файл `VERSION`, `GET /v1/health`, подвал панели |
+| Агент (MSI на ПК) | 2.0.1 | файл `agent/VERSION`, поле `agent_version` в карточке устройства |
 
 Версии сервера и агента независимы. Обновление панели и обновление агентов — разные процедуры (см. разделы 4 и 5).
 
@@ -69,7 +69,7 @@ BAD_DOMAIN=bad.example.com \
 ```bash
 curl -fsS http://bad.example.com/v1/health    # режим bootstrap
 curl -fsS https://bad.example.com/v1/health   # после настройки TLS
-# → {"status":"ok","version":"1.10.1"}
+# → {"status":"ok","version":"2.0.1"}
 ```
 
 ### 1.3. Сертификат TLS в панели
@@ -168,7 +168,7 @@ uvicorn слушает только `127.0.0.1:8000`, TLS обрабатывае
 Имя файла: `bad-agent-<версия>.msi`, версия указана в `agent/VERSION`. MSI собирается на Windows (см. `installer/msi/README.md`).
 
 ```powershell
-msiexec /i bad-agent-2.0.0.msi `
+msiexec /i bad-agent-2.0.1.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=<enrollment-токен> `
   /qn
@@ -179,7 +179,7 @@ msiexec /i bad-agent-2.0.0.msi `
 Каталог с `bad` по умолчанию добавляется в системный `PATH` (`ADDPATH=1`). Чтобы не менять `PATH`, добавьте `ADDPATH=0`.
 
 ```powershell
-msiexec /i bad-agent-2.0.0.msi `
+msiexec /i bad-agent-2.0.1.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=<enrollment-токен> `
   ADDPATH=0 `
@@ -274,7 +274,7 @@ bad service status|start|stop|restart
 - **Обзор** (`/`): поле **«Поиск по парку»** (от двух символов — устройства и события); блок **«Требует действия»** по умолчанию свёрнут (если пунктов не больше двух — открыт); мастер «Первый запуск» и ops-сигналы (см. раздел 7).
 - **Дашборд** (`/dashboard`): сверху короткая сводка (активные, онлайн, устаревшие, архив), ниже графики и блок «Парк».
 
-Обе страницы используют одну сводку по парку и открываются быстро. На ветке **`beta`** в репозитории тестируется обновлённая вёрстка панели (Fluent/Bolt); после выхода в `main` расположение блоков может немного отличаться, шаги оператора те же.
+Обе страницы используют одну сводку по парку и открываются быстро. С **2.0.1** интерфейс панели в стиле **Bolt** (сетки Обзора и Дашборда, обновлённые списки и Параметры). Подробнее: [release-notes-2.0.1.md](release-notes-2.0.1.md).
 
 ### 3.3. Список устройств
 
@@ -475,7 +475,7 @@ curl -fsS -H "Authorization: Bearer <admin-token>" \
 
 ## Дополнительные материалы
 
-- Заметки о выпусках: [агент 2.0.0](release-notes-agent-2.0.0.md), [1.10.1](release-notes-1.10.1.md), [1.10.0](release-notes-1.10.0.md), [агент 1.3.1](release-notes-agent-1.3.1.md).
+- Заметки о выпусках: [2.0.1](release-notes-2.0.1.md), [агент 2.0.0](release-notes-agent-2.0.0.md), [1.10.1](release-notes-1.10.1.md).
 - [api-v1.md](api-v1.md): интеграции и API.
 - [architecture.md](architecture.md): устройство системы.
 - [guideline.md](guideline.md): правила разработки и релиза.
