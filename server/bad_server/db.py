@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Iterator, Optional
@@ -10,6 +11,9 @@ from .db_backend import (
     CompatConnection,
     connect_postgres,
 )
+from .postgres_ddl import ensure_trgm_search_indexes, set_lock_timeout
+
+logger = logging.getLogger(__name__)
 
 
 def utc_now() -> str:
@@ -68,32 +72,22 @@ class Database:
                 conn.execute(
                     f"INSERT INTO {table}(id) VALUES (1) ON CONFLICT DO NOTHING"
                 )
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_devices_last_seen
-                ON devices (last_seen_at DESC NULLS LAST)
-                """
-            )
             try:
-                conn.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+                set_lock_timeout(conn)
                 conn.execute(
                     """
-                    CREATE INDEX IF NOT EXISTS idx_devices_meta_trgm
-                    ON devices USING gin (meta_json gin_trgm_ops)
+                    CREATE INDEX IF NOT EXISTS idx_devices_last_seen
+                    ON devices (last_seen_at DESC NULLS LAST)
                     """
                 )
-                conn.execute(
-                    """
-                    CREATE INDEX IF NOT EXISTS idx_devices_hostname_trgm
-                    ON devices USING gin (hostname gin_trgm_ops)
-                    """
+            except Exception as exc:
+                logger.warning(
+                    "idx_devices_last_seen skipped on start (retry later): %s", exc
                 )
-            except Exception:
-                pass
-            from .wave_21_migration import run_wave_21_migration
+        ensure_trgm_search_indexes(self.database_url)
+        from .wave_21_migration import run_wave_21_migration
 
-            run_wave_21_migration(self)
-            conn.commit()
+        run_wave_21_migration(self)
 
     @contextmanager
     def connection(self) -> Iterator[CompatConnection]:
