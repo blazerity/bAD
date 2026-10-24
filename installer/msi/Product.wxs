@@ -14,6 +14,7 @@
       Manufacturer="blazerity"
       Version="$(ProductVersion)"
       UpgradeCode="BADA0001-BADA-4B01-8BAD-00BADA000001"
+      Codepage="1251"
       Scope="perMachine">
 
     <MajorUpgrade
