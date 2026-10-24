@@ -113,7 +113,7 @@
     </article>
     <article class="dash-card card-surface">
       <h2>{{ dashboard.event_sparkline.label }}</h2>
-      <div id="dash-event-sparkline" class="dash-sparkline" data-points='{{ dashboard.event_sparkline.items|tojson }}'></div>
+      <div id="dash-event-sparkline" class="dash-sparkline" data-points='{{ dashboard.event_sparkline["items"]|tojson }}'></div>
     </article>
   </div>
 
