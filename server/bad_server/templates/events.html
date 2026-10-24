@@ -12,7 +12,7 @@
   </header>
 
   <div class="card-surface filter-card">
-  <form method="get" action="/events" class="filter-bar filter-bar-flat events-filter-form" data-live-submit data-live-delay="350">
+  <form method="get" action="/events" class="filter-bar filter-bar-flat" data-live-submit data-live-delay="350">
     {% if device_filter %}
     <input type="hidden" name="device_id" value="{{ device_filter }}">
     {% endif %}
@@ -22,14 +22,14 @@
         placeholder="текст, hostname, тип" maxlength="128" autocomplete="off">
     </div>
     <label class="sr-only" for="event-type">Тип</label>
-    <select id="event-type" name="type" class="filter-select-compact">
+    <select id="event-type" name="type">
       <option value="">Все типы</option>
       {% for key, label in event_type_filter_labels|dictsort %}
       <option value="{{ key }}" {% if event_type == key %}selected{% endif %}>{{ label }}</option>
       {% endfor %}
     </select>
     <label class="sr-only" for="importance">Важность</label>
-    <select id="importance" name="importance" class="filter-select-compact">
+    <select id="importance" name="importance">
       {% for key, label in importance_filter_labels.items() %}
       <option value="{{ key }}" {% if importance == key %}selected{% endif %}>{{ label }}</option>
       {% endfor %}
@@ -101,7 +101,7 @@
         <td class="col-icon"><span class="event-type-icon event-imp-{{ imp }}">{{ icon('events') }}</span></td>
         <td>
           <details class="event-inline-detail">
-            <summary><a href="/events/{{ e.id }}">{{ e.summary }}</a></summary>
+            <summary>{{ e.summary }}</summary>
             <p class="muted event-inline-body">{{ e.summary }}</p>
             <p><a href="/events/{{ e.id }}">Карточка события #{{ e.id }}</a></p>
           </details>

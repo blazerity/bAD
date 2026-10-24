@@ -1,16 +1,5 @@
 /** Поиск на Обзоре → /overview/search.json + чипы категорий */
 (function () {
-  var SETTINGS_HITS = [
-    { label: "Доступ / LDAP", href: "/settings/ldap", keys: "ldap доступ домен" },
-    { label: "Сертификат TLS", href: "/settings/tls", keys: "tls https сертификат" },
-    { label: "Почта и уведомления", href: "/settings/mail", keys: "smtp почта mail digest" },
-    { label: "Хранение и очистка", href: "/settings/retention", keys: "retention хранение очистка" },
-    { label: "Резервные копии", href: "/settings/backups", keys: "backup резерв ключи" },
-    { label: "Политики агента", href: "/settings/policies", keys: "политики policy агент" },
-    { label: "Обновления агента", href: "/settings/updates", keys: "агент msi обновление enrollment" },
-    { label: "Обновление сервера", href: "/settings/server-update", keys: "сервер обновление release" },
-  ];
-
   function debounce(fn, ms) {
     var t;
     return function () {
@@ -20,17 +9,6 @@
         fn.apply(null, args);
       }, ms);
     };
-  }
-
-  function settingsSection(q, enabled) {
-    if (!enabled) return [];
-    var ql = q.toLowerCase();
-    return SETTINGS_HITS.filter(function (s) {
-      return (
-        s.label.toLowerCase().indexOf(ql) >= 0 ||
-        s.keys.indexOf(ql) >= 0
-      );
-    });
   }
 
   function init() {
@@ -97,7 +75,10 @@
         });
       }
       var evts = cats.events ? data.events || [] : [];
-      var sets = cats.settings ? settingsSection(q, true) : [];
+      var sets =
+        cats.settings && typeof window.badPanelSettingsHits === "function"
+          ? window.badPanelSettingsHits(q)
+          : [];
       if (!devs.length && !evts.length && !sets.length) {
         var p = document.createElement("p");
         p.className = "muted";
@@ -110,7 +91,7 @@
         var a = document.createElement("a");
         a.href = d.href;
         a.className =
-          "panel-search-item live-search-item search-hit-row device-link chassis-" +
+          "panel-search-item live-search-item device-link chassis-" +
           (d.chassis_type || "other");
         var body = document.createElement("span");
         body.className = "live-search-body";
@@ -135,7 +116,7 @@
       section("События", evts, function (e) {
         var a = document.createElement("a");
         a.href = e.href;
-        a.className = "panel-search-item live-search-item search-hit-row";
+        a.className = "panel-search-item live-search-item";
         var body = document.createElement("span");
         body.className = "live-search-body";
         var title = document.createElement("span");
@@ -156,7 +137,7 @@
       section("Параметры", sets, function (s) {
         var a = document.createElement("a");
         a.href = s.href;
-        a.className = "panel-search-item search-hit-row";
+        a.className = "panel-search-item";
         a.innerHTML =
           '<span class="search-hit-body"><span class="search-hit-title">' +
           s.label +

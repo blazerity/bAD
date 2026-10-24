@@ -11,27 +11,6 @@
     };
   }
 
-  var SETTINGS_HITS = [
-    { label: "Доступ / LDAP", href: "/settings/ldap", keys: "ldap доступ домен" },
-    { label: "Сертификат TLS", href: "/settings/tls", keys: "tls https сертификат" },
-    { label: "Почта и уведомления", href: "/settings/mail", keys: "smtp почта mail digest" },
-    { label: "Хранение и очистка", href: "/settings/retention", keys: "retention хранение очистка" },
-    { label: "Резервные копии", href: "/settings/backups", keys: "backup резерв ключи" },
-    { label: "Политики агента", href: "/settings/policies", keys: "политики policy агент" },
-    { label: "Обновления агента", href: "/settings/updates", keys: "агент msi обновление enrollment" },
-    { label: "Обновление сервера", href: "/settings/server-update", keys: "сервер обновление release" },
-  ];
-
-  function settingsSection(q) {
-    var ql = q.toLowerCase();
-    return SETTINGS_HITS.filter(function (s) {
-      return (
-        s.label.toLowerCase().indexOf(ql) >= 0 ||
-        s.keys.indexOf(ql) >= 0
-      );
-    });
-  }
-
   function init() {
     var openBtn = document.getElementById("global-search-open");
     var modal = document.getElementById("global-search-modal");
@@ -87,7 +66,10 @@
       box.innerHTML = "";
       var devs = data.devices || [];
       var evts = data.events || [];
-      var sets = settingsSection(q);
+      var sets =
+        typeof window.badPanelSettingsHits === "function"
+          ? window.badPanelSettingsHits(q)
+          : [];
       if (!devs.length && !evts.length && !sets.length) {
         var p = document.createElement("p");
         p.className = "muted";
@@ -99,7 +81,7 @@
       section("Устройства", devs, function (d) {
         var a = document.createElement("a");
         a.href = d.href;
-        a.className = "panel-search-item search-hit-row";
+        a.className = "panel-search-item";
         a.innerHTML =
           '<span class="search-hit-body"><span class="search-hit-title">' +
           (d.title_html || d.hostname || "") +
@@ -111,7 +93,7 @@
       section("События", evts, function (e) {
         var a = document.createElement("a");
         a.href = e.href;
-        a.className = "panel-search-item search-hit-row";
+        a.className = "panel-search-item";
         a.innerHTML =
           '<span class="search-hit-body"><span class="search-hit-title">' +
           (e.title_html || e.summary || "") +
@@ -123,7 +105,7 @@
       section("Параметры", sets, function (s) {
         var a = document.createElement("a");
         a.href = s.href;
-        a.className = "panel-search-item search-hit-row";
+        a.className = "panel-search-item";
         a.innerHTML =
           '<span class="search-hit-body"><span class="search-hit-title">' +
           s.label +

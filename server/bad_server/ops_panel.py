@@ -720,7 +720,6 @@ def build_dashboard_stats(
     hardware_feed = {
         "items": hw_items,
         "href": "/events",
-        "empty": not hw_items,
     }
 
     mirror = {

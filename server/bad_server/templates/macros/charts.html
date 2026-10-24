@@ -2,7 +2,7 @@
 {% macro conic_donut(items, class_name='chart-donut') -%}
 {% set total = items|map(attribute='count')|sum %}
 {% if total < 1 %}
-<p class="muted chart-empty">Нет данных</p>
+<p class="muted">Нет данных</p>
 {% else %}
 {% set palette = ['#0067c0', '#2c96e8', '#5bb0f5', '#8ac9fa', '#9d5d00', '#5d5d5d'] %}
 {% set ns = namespace(grad='', pos=0.0) %}

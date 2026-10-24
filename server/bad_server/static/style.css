@@ -423,14 +423,6 @@ main {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.03);
 }
 
-.panel-search-block {
-  padding: 1rem 1.1rem 1.05rem;
-  margin-bottom: 1.25rem;
-}
-.panel-search-block .panel-search {
-  margin: 0;
-}
-
 @keyframes page-in {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: none; }
@@ -1873,9 +1865,6 @@ dl.speccy-kv dd {
   gap: 0.45rem;
   font-size: 0.92rem;
 }
-.wave-links { margin: 0.35rem 0 1rem; }
-.park-dash-link { margin: 0.35rem 0 1rem; }
-
 /* —— Дашборд: Win11-lite motion (UI polish поверх #85) —— */
 .dashboard-page .dash-card {
   margin: 1.1rem 0 1.25rem;
@@ -2059,7 +2048,6 @@ dl.speccy-kv dd {
 }
 
 @media (max-width: 640px) {
-  .dashboard-page .dash-grid { grid-template-columns: 1fr; }
   .dashboard-page .dash-card { padding: 0.85rem 0.9rem; }
   .park-bar { flex-direction: column; min-height: 0; }
   .park-seg {
@@ -2872,8 +2860,6 @@ body.global-search-open { overflow: hidden; }
 
 .settings-page-header { margin-bottom: 0.5rem; }
 .settings-page .settings-shell { margin-top: 0.35rem; }
-
-.search-hit-row { display: block; }
 
 @media (max-width: 900px) {
   .kpi-grid { grid-template-columns: 1fr 1fr; }
