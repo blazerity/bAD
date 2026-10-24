@@ -122,8 +122,12 @@
         <td>
           <a class="device-cell-link" href="{{ d.device_href }}">
             <span class="device-cell-host">{{ d.hostname or '(неизвестно)' }}</span>
-            <span class="mono muted device-cell-id">{{ d.bad_id or d.device_id }}</span>
           </a>
+          {% if d.bad_id %}
+          <span class="mono device-cell-id">{{ copyable(d.bad_id) }}</span>
+          {% else %}
+          <span class="mono muted device-cell-id">{{ d.device_id }}</span>
+          {% endif %}
           {% if d.is_duplicate %}
             {% set kinds = d.dup_kinds or [] %}
             <span class="badge badge-stale" title="Возможный дубль">дубль</span>

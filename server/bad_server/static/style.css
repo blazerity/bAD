@@ -1019,21 +1019,6 @@ pre.inventory {
   width: auto;
   min-width: 12rem;
 }
-.devices-bulk-bar {
-  margin-bottom: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.devices-bulk-hint {
-  font-size: 0.85rem;
-}
-
-.bulk-check-col {
-  width: 2.25rem;
-  text-align: center;
-  vertical-align: middle;
-}
-
 .panel-search-input,
 .filter-bar input[type="search"],
 .filter-bar input[type="text"] {
@@ -1963,6 +1948,10 @@ dl.speccy-kv dd {
 }
 
 /* —— Обзор admin —— */
+.overview-hw-wide {
+  width: 100%;
+  box-sizing: border-box;
+}
 .overview-hw-list {
   list-style: none;
   margin: 0.5rem 0 0.75rem;
@@ -1971,6 +1960,21 @@ dl.speccy-kv dd {
   flex-direction: column;
   gap: 0.45rem;
   font-size: 0.92rem;
+}
+.overview-hw-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.5rem;
+}
+.overview-hw-list li > .muted:not(.mono) {
+  font-size: 0.75rem;
+}
+.overview-hw-list .badge-importance {
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 0.1rem 0.45rem;
 }
 /* —— Дашборд: Win11-lite motion (UI polish поверх #85) —— */
 .dashboard-page .dash-card {
@@ -2435,20 +2439,20 @@ time.local-time {
   white-space: nowrap;
 }
 .badge-importance-critical {
-  background: #fde7e9;
-  color: #a4262c;
+  background: rgba(196, 43, 28, 0.08);
+  color: #c42b1c;
 }
 .badge-importance-high {
-  background: #fff4ce;
-  color: #8a6116;
+  background: rgba(157, 93, 0, 0.1);
+  color: #9d5d00;
 }
 .badge-importance-medium {
-  background: #e8f4fd;
-  color: #005a9e;
+  background: rgba(0, 103, 192, 0.12);
+  color: #0067c0;
 }
 .badge-importance-low {
-  background: #f0f0f0;
-  color: #605e5c;
+  background: rgba(0, 0, 0, 0.04);
+  color: #5b5b5b;
 }
 
 /* Copy-to-clipboard controls */
@@ -2484,8 +2488,8 @@ button.copy-btn {
   transform: none;
 }
 button.copy-btn .icon {
-  width: 0.875rem;
-  height: 0.875rem;
+  width: 1rem;
+  height: 1rem;
   color: inherit;
 }
 button.copy-btn .copy-btn-label {
@@ -3226,6 +3230,67 @@ body.global-search-open { overflow: hidden; }
   margin-top: 0;
   flex: 1 1 auto;
 }
+.devices-active-filters {
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  margin-bottom: 0.15rem;
+}
+.devices-active-filters .filter-chip.is-active {
+  background: #0067c0;
+  border-color: #0067c0;
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+.devices-active-filters .filter-chip.is-active:hover {
+  background: #005da8;
+  border-color: #005da8;
+  color: #fff;
+  text-decoration: none;
+}
+.user-presence-online,
+.user-presence-last {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 0.45rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1;
+  border: 1px solid transparent;
+}
+.user-presence-online {
+  border-color: #0f7b0f;
+  color: #0f7b0f;
+  background: rgba(15, 123, 15, 0.08);
+}
+.user-presence-last {
+  border-color: #9d5d00;
+  color: #9d5d00;
+  background: rgba(157, 93, 0, 0.1);
+}
+.device-col-user .device-col-sub {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.device-col-ip.device-col-ip-nowrap {
+  max-width: 11rem;
+  white-space: nowrap;
+}
+.device-col-ip .copyable-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  max-width: 100%;
+  min-width: 0;
+  vertical-align: middle;
+}
+.device-col-ip .copyable-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
 .devices-filter-extra {
   align-items: flex-end;
 }
@@ -3313,18 +3378,32 @@ body.global-search-open { overflow: hidden; }
 .device-status-recent { background: var(--accent); }
 .device-status-stale { background: var(--warn); }
 .device-cell-link {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
+  display: inline;
   color: inherit;
   text-decoration: none;
 }
-.device-cell-link:hover { text-decoration: none; color: var(--accent); }
-.device-cell-host { font-weight: 500; }
-.device-cell-id { font-size: 0.72rem; }
+.device-cell-link:hover { text-decoration: none; }
+.device-cell-host {
+  font-weight: 500;
+  color: var(--accent);
+}
+.device-cell-link:hover .device-cell-host { text-decoration: underline; }
+.device-cell-id {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--fg-tertiary, var(--muted));
+  margin-top: 0.15rem;
+}
+.device-cell-id .copyable-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  max-width: 100%;
+}
 .device-col-sub {
   display: block;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
+  color: var(--muted);
   margin-top: 0.1rem;
 }
 .device-col-cpu {
@@ -3466,11 +3545,46 @@ mark {
   color: var(--fg);
   text-decoration: none;
   min-width: 4.5rem;
-  background: var(--accent-soft);
+  background: var(--subtle-bg);
+  cursor: pointer;
+  transition: filter var(--dur) var(--ease);
 }
-.dash-treemap-cell.vendor-amd { background: rgba(196, 43, 28, 0.12); color: var(--error); }
-.dash-treemap-cell.vendor-intel { background: var(--accent-soft); color: var(--accent); }
-.dash-treemap-label { font-size: 0.75rem; font-weight: 600; }
+.dash-treemap-cell:hover {
+  filter: brightness(1.08);
+  text-decoration: none;
+}
+.dash-treemap-cell.vendor-intel {
+  background: #5bb0f5;
+  color: #1a1a1a;
+}
+.dash-treemap-cell.vendor-intel:nth-child(2n) {
+  background: #0067c0;
+  color: #fff;
+}
+.dash-treemap-cell.vendor-amd {
+  background: #e8625a;
+  color: #1a1a1a;
+}
+.dash-treemap-cell.vendor-amd:nth-child(2n) {
+  background: #c42b1c;
+  color: #fff;
+}
+.dash-treemap-cell.vendor-neutral {
+  background: var(--subtle-bg);
+  border: 1px solid var(--control-stroke);
+  color: var(--fg);
+}
+.dash-treemap-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.dash-treemap-cell .tnum {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.85rem;
+  line-height: 1.2;
+}
 .dash-gauges {
   display: flex;
   gap: 1.25rem;
@@ -3484,8 +3598,18 @@ mark {
   display: block;
   color: inherit;
   text-decoration: none;
+  border-radius: var(--radius-control);
+  padding: 0.2rem 0.35rem;
+  margin: -0.2rem -0.35rem;
 }
-.hbar-link-row:hover { text-decoration: none; color: var(--accent); }
+.hbar-link-row:hover {
+  background: var(--subtle-bg-hover);
+  text-decoration: none;
+  color: inherit;
+}
+.dash-bar-links .hbar-fill {
+  background: #0067c0;
+}
 
 @media (max-width: 900px) {
   .kpi-grid { grid-template-columns: 1fr 1fr; }
