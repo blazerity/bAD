@@ -1857,13 +1857,6 @@ dl.speccy-kv dd {
     width: 100%;
   }
 
-  /* Список устройств: скрыть device_id и теги (есть на карточке) */
-  table.devices-list th:nth-child(3),
-  table.devices-list td:nth-child(3),
-  table.devices-list th:nth-child(5),
-  table.devices-list td:nth-child(5) {
-    display: none;
-  }
   .table-scroll > table.devices {
     min-width: 22rem;
   }
@@ -3539,20 +3532,37 @@ mark {
   vertical-align: middle;
 }
 .device-chassis-mini .icon { width: 1rem; height: 1rem; margin: 0; }
-table.devices-list th,
-table.devices-list td {
+table.devices.devices-list th,
+table.devices.devices-list td {
   vertical-align: middle;
 }
-.devices-list td.col-device-state {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
+.col-device-state {
   white-space: nowrap;
 }
-.devices-list td.col-device-state .device-chassis-mini {
+.devices-state-inline {
   display: inline-flex;
   align-items: center;
-  margin-right: 0;
+  gap: 0.35rem;
+  vertical-align: middle;
+}
+.devices-state-inline .device-chassis-mini {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+}
+.devices-state-inline .device-chassis-mini .icon {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  vertical-align: 0;
+  line-height: 1;
+}
+.devices-state-inline .badge {
+  margin-left: 0;
+}
+.devices-list .device-col-ip .copyable-value {
+  align-items: center;
+  vertical-align: middle;
 }
 .dash-grid-3 {
   display: grid;

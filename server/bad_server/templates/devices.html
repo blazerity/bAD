@@ -122,10 +122,10 @@
           <select id="agent" name="agent" class="filter-select-inline devices-facet-select{% if agent_filter %} is-active{% endif %}">
             <option value="">все</option>
             {% for v in catalog_filter_options.agent %}
-            <option value="{{ v }}" {% if agent_filter == v %}selected{% endif %}>{{ v }}</option>
+            <option value="{{ v }}" {% if agent_filter == v %}selected{% endif %}>bAD Agent {{ v }}</option>
             {% endfor %}
             {% if agent_filter and agent_filter not in catalog_filter_options.agent %}
-            <option value="{{ agent_filter }}" selected>{{ agent_filter }}</option>
+            <option value="{{ agent_filter }}" selected>bAD Agent {{ agent_filter }}</option>
             {% endif %}
           </select>
         </div>
@@ -197,8 +197,10 @@
       {% set os_line = meta.os_caption or meta.os or '—' %}
       <tr class="table-row-link">
         <td class="col-device-state">
-          <span class="device-chassis-mini" aria-hidden="true">{{ icon(chassis_icon_name(d.chassis_type)) }}</span>
-          <span class="badge badge-fresh-{{ d.freshness or d.silence.status }}">{{ freshness_label(fresh) }}</span>
+          <span class="devices-state-inline">
+            <span class="device-chassis-mini" aria-hidden="true">{{ icon(chassis_icon_name(d.chassis_type)) }}</span>
+            <span class="badge badge-fresh-{{ d.freshness or d.silence.status }}">{{ freshness_label(fresh) }}</span>
+          </span>
         </td>
         <td>
           <a class="device-cell-link" href="{{ d.device_href }}">
