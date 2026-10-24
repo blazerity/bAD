@@ -30,7 +30,7 @@
 | [API v1](docs/api-v1.md) | интеграции (например, 1C Itilium) |
 | [Агенты и карта репозитория](docs/agents.md) | разработка |
 | [Правила разработки и релиз MSI](docs/guideline.md) | разработка и релизы |
-| [Release notes](docs/) | история версий: [1.5.3](docs/release-notes-1.5.3.md), [1.0.1](docs/release-notes-1.0.1.md), [1.0.0](docs/release-notes-1.0.0.md) |
+| [Release notes](docs/) | [сервер 1.10.1](docs/release-notes-1.10.1.md), [1.10.0](docs/release-notes-1.10.0.md), [агент 1.3.1](docs/release-notes-agent-1.3.1.md), [1.9.x](docs/release-notes-1.9.1.md); архив: [1.5.3](docs/release-notes-1.5.3.md) |
 
 Если вы администрируете сервер, начните с [руководства оператора](docs/operator-guide.md).
 

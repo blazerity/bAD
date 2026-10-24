@@ -1,384 +1,382 @@
 # Архитектура bAD
 
-**blazerity Asset Discovery** — Windows-агент инвентаризации и on-prem сервер накопления снимков. Документ описывает фактическую архитектуру репозитория. **Две независимые версии:** сервер (`VERSION`, сейчас 1.8.0) и агент (`agent/VERSION`, сейчас 1.2.1). Обновление панели с GitHub ≠ зеркало MSI агента.
+bAD (blazerity Asset Discovery) состоит из двух частей: агента на Windows-компьютерах и сервера в вашей сети. Агент собирает данные об оборудовании и программах, сервер хранит снимки, фиксирует изменения и показывает их в веб-панели и через API.
 
-- **Инвариант:** HTTP bootstrap = **только временный UI-режим** (доверенная сеть → смена пароля → upload cert → HTTPS). Агенты всегда HTTPS (кроме lab `BAD_ALLOW_HTTP=1`). Risk rating bootstrap: **Medium** при runbook; **High** на публичном `:80` до cert — не Critical defect.
-- **ACME / Let’s Encrypt:** вне scope 1.0; не обещать без решения владельца.
-- **Альтернатива bootstrap (оценка, не реализация в 1.0):** self-signed / внутренний CA при install → сразу HTTPS на проводе vs warning в браузере; предпочтительно install сразу с `BAD_TLS_CERT`/`BAD_TLS_KEY`.
-- **Settings gate:** HTML settings (в т.ч. `/settings/tls`) не обходят `ensure_csrf` + `require_web_admin`.
+Версии двух частей независимы:
+
+- **Сервер:** файл `VERSION` в корне репозитория (сейчас 1.10.1).
+- **Агент:** файл `agent/VERSION` (сейчас 1.3.1).
+
+Обновление панели с GitHub и обновление агентов на ПК — разные процедуры.
+
+## Принципы
+
+- **Тонкий агент.** Агент только собирает данные и отправляет их на сервер. Хранение, сравнение и политики работают на сервере.
+- **Всё внутри сети.** Агенты не обращаются к GitHub. Обновления MSI они получают с вашего сервера.
+- **Только HTTPS для агентов.** Незащищённый HTTP разрешён только в лаборатории, с явным флагом.
+- **Устойчивость.** Сбой одного сборщика не отменяет весь снимок. Недоступность сервера не приводит к потере данных.
+- **Идемпотентность.** Устройство идентифицируется стабильным `device_id`, повторная отправка безопасна.
+- **Разделение секретов.** Токен регистрации, ключ агента и токен администратора — три разных секрета.
 
 ## Компоненты
 
-| Компонент | Путь | Роль |
-|-----------|------|------|
-| **Agent** | `agent/` | .NET 8 Worker Service (`BlazerityAssetDiscovery`): collect → enroll/heartbeat/inventory; self-update через сервер; CLI `service …` |
-| **Server** | `server/` | FastAPI + **Postgres** (`BAD_DATABASE_URL`): API `/v1/*`, web UI, зеркало MSI, uvicorn `127.0.0.1:8000` |
-| **MSI** | `installer/msi/` | WiX: Program Files, служба, public properties `SERVERURL` / `ENROLLMENTTOKEN`; MajorUpgrade сохраняет ProgramData; полный uninstall чистит config/queue; optional Authenticode в `release-msi` |
-| **Deploy** | `deploy/debian/` | one-line `install.sh`: `[1/6]…[6/6]`, local PG, systemd, nginx, ufw, памятка |
-| **GitHub Release** | `.github/workflows/release-msi.yml` | Источник `bad-agent-<ver>.msi` + `agent-release.json`; агенты к GitHub **не** ходят |
+| Компонент | Путь в репозитории | Назначение |
+|-----------|--------------------|------------|
+| Агент | `agent/` | Служба Windows на .NET 8: сбор, регистрация, отправка, обновление; CLI `bad` |
+| Сервер | `server/` | Приложение FastAPI: API `/v1`, веб-панель, зеркало MSI |
+| Установщик агента | `installer/msi/` | MSI на WiX: файлы, служба, параметры `SERVERURL` и `ENROLLMENTTOKEN` |
+| Развёртывание | `deploy/debian/` | Скрипт установки на Debian 12, systemd-службы, шаблоны nginx |
+| Релизы | `.github/workflows/` | Сборка MSI и публикация в GitHub Release |
 
 ```mermaid
 flowchart LR
-  subgraph Win["Windows host"]
-    SVC["bAD Agent"]
-    CFG["ProgramData config"]
+  subgraph Win["Windows-ПК"]
+    SVC["Служба агента"]
+    CFG["ProgramData: config.json, очередь"]
     SVC --> CFG
   end
-  subgraph Deb["Debian 12"]
-    NGX["nginx TLS :443"]
-    API["uvicorn FastAPI :8000"]
-    DB[("Postgres\nBAD_DATABASE_URL")]
-    STORE["/var/lib/bad/agent-updates/"]
+  subgraph Srv["Сервер (Debian 12)"]
+    NGX["nginx, TLS :443"]
+    API["uvicorn + FastAPI, 127.0.0.1:8000"]
+    DB[("PostgreSQL")]
+    MIRROR["Зеркало MSI"]
     NGX --> API --> DB
-    API --> STORE
+    API --> MIRROR
   end
-  SVC -->|"HTTPS JSON + update check"| NGX
+  GH["GitHub Release"]
+  SVC -->|"HTTPS: регистрация, снимки, heartbeat"| NGX
+  GH -->|"синхронизация"| MIRROR
 ```
 
-**Persistence:** только Postgres через `BAD_DATABASE_URL` (без URL API не стартует). Fresh install → local cluster (localhost). Keys (`/etc/bad/data_key`, `session_secret`) **вне** БД. HA / ACME — out of scope.
+Сервер состоит из трёх слоёв:
 
-## Клиент (агент)
+- **nginx** принимает HTTPS и передаёт запросы приложению. Здесь же завершается TLS.
+- **uvicorn с FastAPI** обрабатывает API и веб-панель. Слушает только `127.0.0.1`.
+- **PostgreSQL** хранит всё состояние. Строка подключения задаётся переменной `BAD_DATABASE_URL`.
 
-- Установка: MSI → `%ProgramFiles%\blazerity\bAD\`, служба auto-start под LocalSystem.
-- Конфиг: `%ProgramData%\blazerity\bAD\config.json` (`server_url`, `enrollment_token` временно, `api_key`, `device_id`, интервалы, `update_*`, `remote_config_version`).
-- Жизненный цикл: при старте enroll (если нет API key) → flush offline queue → check update → полный inventory → heartbeat (с подтягиванием remote config) → циклы по эффективным интервалам.
-- Offline queue: при недоступном сервере inventory/heartbeat пишутся в `%ProgramData%\blazerity\bAD\queue\` и уходят с backoff (cap 64 / 14 дней); не молча теряются.
-- Revoked API key (401/403): очистить `api_key`, сохранить `device_id`, запись в Application Event Log, не долбить API до re-enroll / reinstall.
-- Remote config: сервер считает effective settings (defaults &lt; matching policies &lt; per-device override); агент применяет только safe knobs, сохраняет в `config.json`. Секреты / `server_url` / `device_id` с сервера не принимаются.
-- `device_id`: MachineGuid (registry), fallback SMBIOS UUID.
-- Collectors: WMI/CIM + .NET (+ Uninstall registry для software); сбор на `BelowNormal` + yields между WMI; сбой подсекции → `collector_errors[]` с `section` вроде `hardware.gpus` (остальной snapshot сохраняется).
-- Секции `hardware` / `users` / `software` управляются knobs `collect_*` (disabled → поле `null`/omitted, без error spam).
-- Hardware (когда `collect_hardware`): CPU, `ram_bytes`, disks/volumes **плюс** `serial_number`, `model`, `manufacturer`, `chassis_type` (нормализованный тип корпуса), `bios_version` (+ manufacturer/release), `battery` (charge/status/runtime), `monitors[]` (EDID/WMI, cap 8), `gpus[]` (cap 16), `ram_modules[]` (cap 32), `ram_memory_type`. Секция корпуса (`hardware.chassis`) собирается **всегда**, даже если остальной hardware выключен knob’ом. Host: `ad_distinguished_name` / `ad_ou` (domain-joined, soft-fail workgroup). `minidumps` — метаданные `%SystemRoot%\Minidump\*.dmp` / `Memory.dmp` (имена/время/count, **без** тел файлов, cap 20). Тяжёлые подсекции (ПО, minidumps, модули RAM) могут браться из in-process кэша при неизменном «отпечатке» машины. Поля additive внутри `schema_version=2`.
-- HTTPS only; cleartext `http://` отклоняется (кроме явного `BAD_ALLOW_HTTP=1` для локальной разработки).
-- `User-Agent: bad-agent/<semver>`; в payload поле `agent_version`.
-- Heartbeat несёт лёгкий health: `last_inventory_ok` / `last_inventory_error`, `agent_uptime_seconds`, `system_drive_free_bytes` (DriveInfo, без тяжёлого WMI) → device `meta`; опционально `config_local` (manual keys / agent_local) — см. API notes.
-- Local CLI: `bad` / `-r` — отчёты без сервера (любой пользователь); `bad -c` / `config set|unset` — только elevated. ASCII/HTML показывают serial/BIOS/battery/monitors/AD OU/minidumps при наличии; в HTML свежесть меток времени — **относительно** («N мин. назад») плюс точное локальное время (`TimeFormat.FormatFreshnessHtml`); HTML визуально согласован с web panel (Win11/Fluent light).
-- Крупные сбои enroll/update/revoke → Windows Application Event Log (source `bAD Agent`).
-- Service CLI: `BadAgent.exe service status|start|stop|restart` (elevated); без подкоманды — host службы. См. [agents.md](agents.md).
+Ключи шифрования и сессий хранятся в `/etc/bad/*`, а не в базе. Поэтому дамп базы не содержит ключей (см. «Резервные копии»).
 
-## Удалённые настройки агента
+## Агент
+
+### Установка и службы
+
+MSI устанавливает агент в `%ProgramFiles%\blazerity\bAD\` и регистрирует службу `BlazerityAssetDiscovery`, которая запускается автоматически от учётной записи LocalSystem.
+
+Конфигурация и рабочие данные лежат в `%ProgramData%\blazerity\bAD\`:
+
+- `config.json`: адрес сервера, ключ агента, идентификатор устройства, интервалы и настройки обновления;
+- `queue\`: очередь неотправленных данных;
+- `logs\`: журналы агента.
+
+Обновление MSI сохраняет `ProgramData`, поэтому повторная регистрация не нужна.
+
+### Жизненный цикл
+
+При старте служба выполняет шаги по порядку:
+
+1. Регистрация на сервере, если ключа агента ещё нет.
+2. Отправка данных из очереди.
+3. Проверка обновления.
+4. Полный снимок инвентаризации.
+5. Heartbeat с подтягиванием настроек.
+
+Дальше шаги повторяются по интервалам. По умолчанию инвентаризация выполняется раз в 6 часов, heartbeat — раз в 15 минут, проверка обновлений — раз в 24 часа.
+
+### Идентификатор устройства
+
+`device_id` берётся из `MachineGuid` в реестре. Если его нет, используется UUID из SMBIOS.
+
+### Сбор данных
+
+Сборщики используют WMI, CIM и .NET, а список программ читается из ветки Uninstall реестра (64- и 32-битная).
+
+- Сбор идёт с пониженным приоритетом (`BelowNormal`) и с паузами между запросами WMI.
+- Если подсекция не собралась, в снимке появляется запись в `collector_errors` с именем секции (например, `hardware.gpus`), а остальные данные сохраняются.
+- Секции `hardware`, `users` и `software` включаются настройками `collect_*`. Выключенная секция передаётся как `null` или не передаётся вовсе.
+- Секция корпуса (`hardware.chassis`) собирается всегда, даже если остальное оборудование выключено.
+- Тяжёлые секции (программы, дампы, модули памяти) могут браться из кэша в памяти, если состав машины не изменился.
+- **С 1.3.1:** признак «нужна перезагрузка» учитывает осмысленные операции PFRO (без ложных срабатываний на временные файлы). Для NVMe при пустом WMI-serial используется запасной идентификатор из `MSFT_PhysicalDisk.UniqueId` (префиксы `eui.` / `nguid.`).
+
+Состав данных:
+
+- **Система:** имя узла, домен, ОС, при вхождении в домен — OU и распределённое имя в Active Directory.
+- **Оборудование:** процессор, память (объём и модули), диски и тома, видеокарты, мониторы, батарея, серийный номер, модель, производитель, тип корпуса, версия BIOS.
+- **Сеть:** сетевые адаптеры, IPv4 и MAC-адреса.
+- **Пользователи:** вошедшие в систему и последний интерактивный вход.
+- **Программы:** название, версия и издатель (опционально, `collect_software`).
+- **Дампы:** только метаданные файлов `Minidump` (имена, время, количество). Содержимое не отправляется.
+
+Ограничения на количество элементов: 16 видеокарт, 32 модуля памяти, 8 мониторов, 20 файлов дампов, 500 программ.
+
+### Heartbeat
+
+Heartbeat сообщает серверу, что агент жив, и передаёт лёгкие показатели здоровья: успешность последней инвентаризации, время работы службы, свободное место на системном диске. Эти данные попадают в `meta` устройства.
+
+Если на сервере изменились настройки, ответ heartbeat содержит их новую версию. Если у агента уже актуальная `config_version`, полный блок `config` **не** дублируется (меньше трафика, с **1.10.0**). Если оператор нажал «Обновить политику и версию», ответ содержит полный набор настроек и команды на инвентаризацию и проверку обновления.
+
+### Очередь и отказ сервера
+
+Если сервер недоступен, снимки и heartbeat сохраняются в `queue\` и отправляются позже с нарастающей паузой. Ограничения очереди: 64 элемента и 14 дней хранения.
+
+Если сервер отклонил ключ агента (ответы 401 или 403), агент очищает ключ, сохраняет идентификатор устройства, пишет событие в журнал приложений Windows и больше не обращается к API, пока устройство не зарегистрируют заново или не переустановят агент.
+
+### CLI `bad`
+
+CLI — тот же исполняемый файл `BadAgent.exe`, с командой `bad` рядом.
+
+| Режим | Кто может | Что делает |
+|-------|-----------|------------|
+| `bad`, `bad -r` | любой пользователь | Локальный отчёт в ASCII или HTML, сервер не нужен |
+| `bad -c`, `bad config set/unset` | администратор | Настройка параметров на самом ПК |
+| `bad push`, `bad update` | администратор | Отправка данных на сервер и проверка обновления |
+| `BadAgent.exe service ...` | администратор | Управление службой |
+
+Параметр, заданный через CLI, помечается на сервере как «задано на агенте». Значения ключа агента и токена регистрации CLI не выводит и не задаёт.
+
+## Сервер
+
+### Структура приложения
+
+Код лежит в пакете `server/bad_server/`. Основные модули:
+
+- `api.py`: маршруты `/v1`;
+- `web.py`: страницы веб-панели;
+- `db.py`: работа с PostgreSQL;
+- `auth.py`, `sessions.py`, `ldap_client.py`: аутентификация;
+- `agent_config.py`: политики и настройки агента;
+- `agent_update.py`, `github_release.py`: зеркало MSI и синхронизация с GitHub;
+- `device_meta.py`: кэш полей устройства для списков;
+- `panel_search.py`: глобальный поиск на Обзоре;
+- `event_importance.py`: важность событий.
+
+### Модель данных
+
+Основные таблицы:
+
+| Таблица | Содержимое |
+|---------|-----------|
+| `devices` | устройства: идентификатор, имя узла, метки, признаки отзыва и архива, `meta` |
+| `inventory_snapshots` | снимки инвентаризации |
+| `device_events` | события изменений и флаг отправки в почту |
+| `agent_policies`, `device_config_overrides` | политики и индивидуальные переопределения настроек |
+| `agent_msi_versions`, `agent_update` | каталог версий MSI и текущая версия |
+| `local_users`, `ldap_settings`, `smtp_settings`, `retention_settings` | учётные записи и настройки |
+| `site_secrets` | хэши токенов и служебные значения |
+
+Поле `devices.meta` содержит кэш для списков: домен, ОС, производитель и модель, серийный номер, тип корпуса, время последнего снимка, данные heartbeat. Списки и дашборд читают кэш, а не полный снимок. Тип корпуса нормализуется в значения `laptop`, `desktop`, `server`, `vm` или `other`.
+
+Подсказки «возможные дубликаты» на карточке сравнивают нормализованные идентификаторы: заглушки (все нули, все **F**, типовые OEM-строки) **не** считаются совпадением (с **1.10.1**). Для ускорения поиска по парку при старте создаются индексы PostgreSQL (в т.ч. `pg_trgm` для имени и `meta_json`, если расширение доступно).
+
+### События изменений
+
+При каждом приёме снимка сервер сравнивает его с предыдущим. Фиксируются значимые изменения: имя узла и домен, вход пользователей, добавление и удаление дисков, резкое падение свободного места, смена IP-адреса, изменение процессора, памяти, серийного номера, модели. Первый снимок событий не создаёт.
+
+Важность события определяется по его типу, а не хранится в базе. Значения: `low`, `medium`, `high`, `critical`.
+
+### Веб-панель
+
+Панель работает на русском языке и рассчитана на администраторов. Основные разделы:
+
+| Путь | Назначение |
+|------|-----------|
+| `/`, `/dashboard` | сводка по парку и сигналы для оператора |
+| `/devices`, `/devices/{id}` | список и карточка устройства, live-поиск, массовые действия (архив, тег), экспорт CSV |
+| `/events`, `/events/{id}` | лента событий с фильтрами; отдельная страница события со ссылкой для копирования |
+| `/settings/*` | параметры: LDAP, сертификат, почта, хранение, резервные копии, политики, обновления агента, обновление сервера |
+| `/account/password` | смена пароля |
+
+Страницы обзора и устройств получают сводку по парку одним запросом к базе. На **Обзоре** — поиск по парку и событиям (`GET /overview/search.json`, от двух символов). В списке устройств — `GET /devices/search.json`. Оформление в стиле Windows 11 Fluent (CSS-токены).
+
+На ветке **`beta`** развивается обновлённая оболочка панели (макеты Fluent/Bolt, сетки Обзора и Дашборда). После слияния в `main` внешний вид отдельных страниц может отличаться от описания здесь; поведение API и агентов то же.
+
+Время в панели отображается относительно («5 мин. назад»), точная дата и время — в подсказке. В API и базе хранится только UTC в формате ISO 8601.
+
+### Почтовые уведомления
+
+Изменения, регистрация и пропажа устройств сразу записываются в `device_events`. Письма не отправляются мгновенно. Фоновый процесс примерно раз в 5 минут проверяет, прошло ли время интервала (от 1 до 48 часов, по умолчанию 3). Если да, все новые события группируются в одно письмо с HTML-версией.
+
+Какие типы событий попадают в письмо, задаётся переключателями в настройках. События помечаются «отправленными» **только после успешной** отправки письма (с **1.10.0**). Ошибка отправки не блокирует приём данных от агентов: событие остаётся в очереди до следующей попытки.
+
+### Хранение данных
+
+- Количество снимков на устройство ограничено параметром `BAD_SNAPSHOT_RETENTION` (по умолчанию 30).
+- Срок хранения событий (по умолчанию 90 дней) и старых снимков (по умолчанию 180 дней) задаётся в настройках.
+- Фоновая очистка выполняется раз в час. Последний снимок устройства никогда не удаляется.
+
+## Аутентификация и секреты
+
+| Механизм | Где используется | Назначение |
+|----------|------------------|-----------|
+| Токен регистрации (`enrollment`) | `POST /v1/enroll` | Одноразовый обмен на ключ агента. Хранится в базе в виде хэша |
+| Ключ агента | heartbeat, снимки, настройки, обновления агента | Доступ конкретного устройства. Хранится в базе в виде хэша |
+| Токен администратора | `/v1/...` для администратора и интеграций | Доступ к API. Выдаётся при установке |
+| Сессия в браузере | веб-панель | Cookie `bad_session`, подписана, срок 12 часов |
+| LDAP | вход в панель (опционально) | Пользователи каталога AD с ограничением по группе |
+
+Правила:
+
+- Локальная учётная запись `admin` создаётся при первом запуске с паролем `admin` и обязательной сменой пароля. До смены панель открывает только страницу смены пароля.
+- При каждом запросе панели роль локального пользователя и настройки LDAP сверяются с **БД** (с **1.10.0**), чтобы смена роли подхватывалась без обязательного повторного входа.
+- Лимиты частоты входа и регистрации агентов считают **IP клиента** за nginx (`X-Real-IP` в шаблоне установки).
+- Все HTML-формы защищены CSRF-токеном.
+- Учётные записи LDAP проверяются сначала локально, затем через каталог. Соединение с LDAP защищено проверкой сертификата.
+- Пароль LDAP и SMTP хранятся в зашифрованном виде. Ключ шифрования лежит в `/etc/bad/data_key`, вне базы.
+- Ключи агентов и токены в журналах не записываются.
+
+## Транспорт и регистрация
+
+### Протокол
+
+Агент и сервер обмениваются JSON по HTTPS. Заголовок `User-Agent` содержит `bad-agent/<версия>`, в данных снимка передаётся `agent_version`.
+
+Агент отказывается работать с адресом `http://`, если не задан `BAD_ALLOW_HTTP=1` (только для лаборатории).
+
+### Регистрация
+
+1. Администратор задаёт токен регистрации при установке сервера или в **Параметры → Обновления агента**.
+2. MSI передаёт адрес сервера и токен. Токен записывается в реестр и не попадает в аргументы PowerShell.
+3. Агент отправляет `POST /v1/enroll` и получает ключ агента, который сохраняет в `ProgramData`.
+4. Повторные запуски используют ключ агента. Устройства сопоставляются по `device_id`.
+
+Смена токена регистрации действует только для новых устройств. Уже зарегистрированные агенты продолжают работать.
+
+Когда включён TLS на сервере, регистрация по незащищённому HTTP отклоняется с ответом 403. В лаборатории это можно разрешить переменной `BAD_ALLOW_ENROLL_OVER_HTTP=1`.
+
+## Настройки агента
+
+Настройки агента вычисляются на сервере. Приоритеты от низшего к высшему:
+
+1. значения по умолчанию;
+2. подходящие политики (по возрастанию приоритета);
+3. индивидуальное переопределение устройства.
+
+Агент получает итоговые значения и применяет только разрешённые параметры (интервалы, включение обновлений, выбор сборщиков). Адрес сервера и секреты с сервера не принимаются.
 
 ```mermaid
 flowchart LR
-  DEF["defaults"] --> POL["matching policies\n(by priority)"]
-  POL --> OV["device override"]
-  OV --> EFF["effective settings"]
-  EFF --> API["GET /v1/agent/config\nor heartbeat.config"]
-  API --> AG["BadAgent config.json"]
-  AG -->|"heartbeat config_local"| META["device meta\n+ sources"]
+  DEF["Значения по умолчанию"] --> POL["Подходящие политики\n(по приоритету)"]
+  POL --> OV["Переопределение устройства"]
+  OV --> EFF["Итоговые настройки"]
+  EFF --> AG["Агент: config.json"]
+  AG -->|"config_local в heartbeat"| META["Карточка устройства"]
 ```
 
-- Таблицы: `agent_policies` (name, priority, conditions JSON, settings JSON), `device_config_overrides` (per `device_id`).
-- Условия: `hostname` / `domain` / `os_caption` / `tag` × `equals` / `contains` (AND внутри политики).
-- Safe knobs: `inventory_interval_hours`, `heartbeat_interval_minutes`, `update_check_interval_hours`, `update_enabled`, `collect_hardware` (default true), `collect_users` (default true), `collect_software` (default false, opt-in).
-- Software inventory (когда `collect_software`): лёгкий список name/version/publisher из Uninstall registry (64+32), cap 500.
-- Web: `/settings/policies`; на странице устройства — effective + override **и** источник knobs (`sources` / `agent_local`) — см. [API notes: config source](#api-notes-config-source-provenance).
-- Теги устройства: JSON-массив `tags_json` на `devices`; правка в web / `PUT /v1/devices/{id}/tags`; фильтр списка `?tag=`.
+Условия политик: имя узла, домен, ОС, метка — с операторами «равно» и «содержит». Все условия внутри политики объединяются логическим «И».
 
-## Поток обновления агента
+### Источник настройки
+
+На карточке устройства для каждого параметра показывается источник:
+
+| Источник | Значение |
+|----------|----------|
+| `default` | значение по умолчанию |
+| `policy` | задано политикой |
+| `device_override` | задано переопределением устройства |
+| `agent_local` | задано локально на ПК через CLI |
+
+Для отображения приоритет такой: `agent_local`, затем `device_override`, затем `policy`, затем `default`. Итоговое значение при этом вычисляется по порядку из раздела выше.
+
+Агент передаёт список параметров, заданных локально, в поле `config_local` heartbeat. Сервер сохраняет его в `meta.config_local` и не записывает в переопределения. Ключи агента и токены в `config_local` не передаются.
+
+Если нужно немедленно применить настройки, оператор нажимает «Обновить политику и версию». Сервер ставит флаг, и при следующем heartbeat агент получает полный набор настроек и команды на инвентаризацию и проверку обновления.
+
+## Обновление агента
+
+Агенты не обращаются к GitHub. Обновление проходит через зеркало на сервере.
 
 ```mermaid
 flowchart LR
   subgraph GH["GitHub"]
-    TAG["tag v*"]
-    GHA["windows-latest\nrelease-msi.yml"]
-    REL["Release\nMSI + agent-release.json"]
-    TAG --> GHA --> REL
+    TAG["Тег agent-v*"]
+    CI["Сборка MSI (windows-latest)"]
+    REL["Release: MSI и agent-release.json"]
+    TAG --> CI --> REL
   end
-  subgraph Deb2["On-prem server"]
-    SYNC["background / admin sync"]
-    STORE2["agent-updates/"]
-    DB2[("Postgres agent_update")]
-    UAPI["/v1/agent/update/*"]
-    REL --> SYNC --> STORE2
-    SYNC --> DB2
-    STORE2 --> UAPI
-    DB2 --> UAPI
+  subgraph SRV["Сервер"]
+    SYNC["Синхронизация"]
+    STORE["Каталог MSI"]
+    API2["/v1/agent/update/*"]
+    REL --> SYNC --> STORE --> API2
   end
-  subgraph Win2["Windows"]
-    AG["BadAgent"]
+  subgraph PC["ПК"]
+    AG2["Агент"]
     MSI["msiexec /qn"]
-    AG -->|API key| UAPI
-    UAPI -->|MSI| AG
-    AG -->|sha256| MSI
+    AG2 -->|"проверка версии"| API2
+    API2 -->|"MSI"| AG2 --> MSI
   end
 ```
 
-1. **GitHub → MSI** — workflow `release-msi.yml` на тег `agent-v*` (переходно `v*`) / `workflow_dispatch` (agent `version`): `dotnet publish` win-x64 self-contained → WiX v5 → optional Authenticode → upload MSI + `agent-release.json`. Semver агента (`agent/VERSION`), не server `VERSION`. Linux CI MSI **не** собирает. Агент при apply: sanitize `msi_name` (SEC-002) и same-origin download URL (SEC-009).
-2. **Зеркало на сервере** — `BAD_GITHUB_REPO` (default `blazerity/bAD`), опционально `BAD_GITHUB_TOKEN`, интервал sync. Job / `POST /v1/admin/agent-update/sync` кладёт файлы в `BAD_AGENT_UPDATES_DIR` и метаданные в БД.
-3. **Агент применяет** — check на старте и по расписанию → follow `target_version` (вкл. downgrade) → download (same-origin) → verify sha256 → `msiexec /i … /qn` → выход; WiX `ServiceControl` / MajorUpgrade (**AllowDowngrades**). Remote knob: `update_target`. Anti-loop pending 2h. Токены не логируются.
-
-## Сервер
-
-### API (`/v1`)
-
-Интеграционный гайд (1C Itilium, additive freeze): [api-v1.md](api-v1.md).
-
-| Method | Path | Auth | Назначение |
-|--------|------|------|------------|
-| `GET` | `/v1/health` | нет | liveness + `version` |
-| `POST` | `/v1/enroll` | enrollment Bearer | обмен на per-agent API key |
-| `POST` | `/v1/heartbeat` | API key | `last_seen` + optional health + optional `config_local` → meta; piggyback `config` если `config_version` устарел; при панельном refresh — всегда `config` + optional `actions` |
-| `POST` | `/v1/devices/{id}/request-refresh` | admin Bearer | meta `refresh_*` → одноразово на следующем heartbeat агента |
-| `POST` | `/v1/inventory` | API key | upsert снимка по `device_id` (host/network + optional hardware/users/software); diff → `device_events` |
-| `GET` | `/v1/agent/config` | API key | effective settings только для своего устройства |
-| `GET` | `/v1/devices` | admin Bearer | список (`?tag=&q=&archived=&page=&page_size=`) |
-| `GET` | `/v1/devices/{device_id}` | admin Bearer | meta + tags + inventory + duplicates hint |
-| `POST` | `/v1/devices/{id}/revoke` | admin | отозвать API key (далее 403) |
-| `POST` | `/v1/devices/{id}/rotate-key` | admin | новый API key (plaintext один раз) |
-| `POST` | `/v1/devices/{id}/archive` / `restore` | admin | скрыть/вернуть в списке |
-| `DELETE` | `/v1/devices/{id}` | admin | hard-delete + связанные строки |
-| `PUT` | `/v1/devices/{device_id}/tags` | admin Bearer | заменить теги устройства |
-| `GET` | `/v1/events` | admin Bearer | события (`?device_id=&q=&importance=&limit=&offset=`; пустой `importance` = medium+); в ответе **нет** поля `detail` (лёгкий список + `importance`) |
-| `GET` | `/v1/agent/update/check?current=` | API key | `{current, target_version, update_available, sha256, url, msi_name, reason}` |
-| `GET` | `/v1/agent/update/msi` | API key | байты зеркалированного MSI |
-| `GET` | `/v1/admin/agent-update` | admin | статус зеркала |
-| `POST` | `/v1/admin/agent-update/sync` | admin | sync с GitHub сейчас |
-| `GET/POST/PUT/DELETE` | `/v1/admin/policies*` | admin | CRUD условных политик |
-| `GET` | `/v1/admin/devices/{id}/config` | admin | effective + override + matched + `sources` / `agent_local_keys` |
-| `PUT/DELETE` | `/v1/admin/devices/{id}/config-override` | admin | ручной override |
-| `POST` | `/v1/admin/enrollment/rotate` | admin Bearer | новый site enrollment token (plaintext в ответе **один раз**) |
-
-- `schema_version` inventory: сервер принимает `1` и `2` (v2 добавляет optional `software`; hardware fields вроде `serial_number`/`gpus`/`ram_modules` — additive, без bump schema); неизвестные → `400`.
-- Секреты сайта: enrollment и admin tokens (разные); в БД хранятся hash (argon2).
-- Rate limit на `/v1/enroll` (sliding window).
-- Count-retention: последние N снимков на устройство (`BAD_SNAPSHOT_RETENTION`, default 30).
-- Day-retention (web): `retention_settings` — events (default 90d) и old snapshots (default 180d); фоновый prune раз в час; новейший снимок устройства не удаляется.
-- После `POST /v1/inventory` в `devices.meta` кэшируются поля для списков и поиска (`device_meta.inventory_meta_cache`): `domain`, `os`, `hardware_manufacturer`, `hardware_model`, `serial_number`, **`chassis_type`** (`laptop` \| `desktop` \| `server` \| `vm` \| `other`). Панель читает `chassis_type` из meta для иконок ссылок; это не меняет JSON API устройств.
-
-#### API notes: config source (provenance)
-
-**Зачем.** На карточке устройства в web UI нужно отличать knobs, которые **прописаны руками на агенте** (CLI / правка `config.json`), от site default, политики и server `device_override`.
-
-**Enum `source` (на ключ safe knob):**
-
-| Значение | Смысл |
-|----------|--------|
-| `default` | значение из `DEFAULT_AGENT_SETTINGS`, не перекрыто политикой/override и не agent_local |
-| `policy` | последнее совпавшее policy settings выставило ключ; нет device_override и не agent_local |
-| `device_override` | ключ есть в server `device_config_overrides`; не agent_local |
-| `agent_local` | агент сообщил, что ключ задан локально (руками); **побеждает** для UI provenance |
-
-Порядок для UI-метки (не меняет remote effective merge `defaults < policy < device_override`):  
-`agent_local` > `device_override` > `policy` > `default`.
-
-**Schema notes — inbound heartbeat** (`POST /v1/heartbeat`, additive / optional):
-
-```json
-{
-  "device_id": "…",
-  "config_version": "…",
-  "config_local": {
-    "keys": ["inventory_interval_hours", "collect_software"],
-    "settings": {
-      "inventory_interval_hours": 3,
-      "collect_software": true
-    },
-    "server_url": "https://bad.example.com"
-  }
-}
-```
-
-| Поле | Тип | Правила |
-|------|-----|---------|
-| `config_local` | object \| omit | отсутствует / `null` → не трогать сохранённый meta-снимок; пустой объект / `keys: []` → сбросить agent_local |
-| `config_local.keys` | `string[]` | только `ALLOWED_SETTING_KEYS`; неизвестные отбросить; max ≤ числа safe knobs; **источник истины** списка manual keys |
-| `config_local.settings` | object | опционально: значения для ключей из `keys` (sanitize как remote settings); для UI «что стоит на агенте» |
-| `config_local.server_url` | string | опционально, **display-only** (не safe knob, не remote merge); max length как у URL в агенте; не логировать как секрет |
-
-`api_key` / `enrollment_token` в `config_local` **запрещены** (игнор / strip).
-
-**Schema notes — хранение (Server Lead):** в `devices.meta_json`:
-
-```json
-{
-  "config_local": {
-    "keys": ["inventory_interval_hours"],
-    "settings": { "inventory_interval_hours": 3 },
-    "server_url": "https://bad.example.com",
-    "reported_at": "2026-10-16T12:00:00Z"
-  }
-}
-```
-
-Приём: sanitize → replace целиком блока `meta.config_local` (как health merge по ключам meta, но блок `config_local` атомарный). Не писать в `device_config_overrides`. Не менять piggyback `config` / `config_version` из-за `config_local`.
-
-**Schema notes — outbound heartbeat** (additive, pull-only «push» с панели):
-
-```json
-{
-  "status": "ok",
-  "config_version": "…",
-  "config": { "version": "…", "settings": { "…": "…" } },
-  "actions": { "inventory": true, "update_check": true }
-}
-```
-
-- `config` — как обычно при смене `config_version`; **дополнительно** сервер всегда кладёт полный `config`, если в `devices.meta` есть свежий (`≤24 ч`) `refresh_requested_at` (см. request-refresh).
-- `actions` — только при том же refresh-запросе; флаги из `meta.refresh_inventory` / `meta.refresh_update_check` (по умолчанию оба `true`). После ответа сервер **сбрасывает** все `refresh_*` ключи meta (одноразово).
-- Web: `POST /devices/{device_id}/request-refresh` (admin session, CSRF) → `patch_device_meta`; API: `POST /v1/devices/{id}/request-refresh` (admin Bearer).
-
-**Schema notes — outbound admin/web** (`GET /v1/admin/devices/{id}/config` и контекст карточки устройства):
-
-```json
-{
-  "effective": { "inventory_interval_hours": 6, "…": "…" },
-  "sources": {
-    "inventory_interval_hours": "agent_local",
-    "heartbeat_interval_minutes": "policy",
-    "collect_hardware": "default",
-    "update_target": "device_override"
-  },
-  "agent_local_keys": ["inventory_interval_hours"],
-  "has_agent_local": true,
-  "config_local": { "keys": ["…"], "settings": {}, "server_url": "…", "reported_at": "…" },
-  "override": {},
-  "matched_policies": [],
-  "version": "…"
-}
-```
-
-- `sources`: полный map по всем `ALLOWED_SETTING_KEYS`.
-- `agent_local_keys`: удобный список (= `config_local.keys`); UI Lead: бейдж «задано на агенте».
-- Server-side provenance без агента: default / policy / device_override; overlay `agent_local` из meta.
-
-**Роли:** Windows Agent Lead — маркер + heartbeat payload; Server Lead — приём/sanitize/meta + `sources` в admin/web; CLI Lead — set → local; UI Lead — отображение; API Lead — этот контракт.
-
-**Статус кода:** контракт зафиксирован в docs; реализация Server/Agent — по задачам координатора (сверить `detail`/поля при merge).
-
-#### API notes: transport (HTTPS) и enrollment
-
-**Prod expectation.** `POST /v1/enroll` и agent endpoints (`/v1/heartbeat`, `/v1/inventory`, `/v1/agent/config`, `/v1/agent/update/*`) **ожидают HTTPS** за nginx. Cleartext `http://` — только lab: агент режет URL без `BAD_ALLOW_HTTP=1` (`BadApiClient`); HTTP bootstrap панели (UI до cert) **не** означает поддержку HTTP для агентов.
-
-**Клиент и сервер.** Агент отклоняет cleartext до сети (`BadApiClient`; lab: `BAD_ALLOW_HTTP=1`). На сервере при **managed TLS** (файлы cert в `/etc/bad/tls/`, `tls_configured`) запрос `POST /v1/enroll`, пришедший как cleartext за nginx (`X-Forwarded-Proto: http` или схема не https), получает **403** — `enroll_cleartext_blocked` в `http_bootstrap.py`, вызов в `api.py`:
-
-| Поле | Значение |
-|------|----------|
-| HTTP status | **403 Forbidden** |
-| `detail` | `HTTPS required for enrollment (managed TLS active; cleartext refused). Lab: BAD_ALLOW_ENROLL_OVER_HTTP=1.` (`ENROLL_CLEARTEXT_MSG`) |
-| Условие | managed TLS на диске **и** cleartext hop **и** не задан `BAD_ALLOW_ENROLL_OVER_HTTP=1` |
-| Не путать с | **401** — неверный/отсутствующий enrollment Bearer; **429** — rate limit |
+1. **Сборка.** Workflow `release-msi` запускается по тегу `agent-v*` или вручную. Он публикует MSI и `agent-release.json` в GitHub Release. Версия берётся из `agent/VERSION`.
+2. **Зеркало.** Сервер периодически или по запросу администратора загружает файлы из Release в каталог `BAD_AGENT_UPDATES_DIR` (в проде по умолчанию `/var/lib/bad/agent-updates`; в lab при отсутствии прав — запасной каталог в `data_dir`) и регистрирует версии в базе. Версии также можно загрузить вручную (режим air-gap).
+3. **Применение.** Агент запрашивает целевую версию, скачивает MSI с сервера, проверяет SHA-256 и запускает `msiexec /i ... /qn`. Установка выполняется как обновление с понижением версии разрешено, поэтому откат тоже возможен.
 
-Пока cert ещё не загружен (чистый HTTP bootstrap), enroll по HTTP технически возможен — поэтому MSI на агентов не ставят до HTTPS. После apply cert enroll по HTTP блокируется на сервере даже при временном доступе к :80.
+Целевую версию задаёт параметр `update_target`: `latest` (последняя в зеркале) или конкретный номер версии. Защита от зацикливания: после неудачной попытки агент не повторяет её в течение 2 часов.
 
-**`POST /v1/admin/enrollment/rotate`.** Ответ содержит plaintext нового token один раз. Вызывать **только по HTTPS** (или localhost/trusted tunnel в lab); **не** по cleartext HTTP bootstrap и не через незащищённые каналы. Не логировать тело ответа (`token`) в access/app logs, shell history, CI. Runbook: [operator-guide.md](operator-guide.md#ротация-enrollment-token-после-массовой-установки-msi).
+Проверки безопасности:
 
-### TLS и nginx
+- имя файла MSI должно быть безопасным и оставаться во временном каталоге;
+- ссылка на MSI должна вести на тот же сервер, что и настроенный адрес;
+- контрольная сумма SHA-256 обязательна.
 
-- TLS только на **nginx**; uvicorn — `127.0.0.1:8000` без TLS.
-- Managed files: `/etc/bad/tls/fullchain.pem`, `/etc/bad/tls/privkey.pem` (UI **Параметры → Сертификат** `/settings/tls` или cert при install).
-- **HTTP bootstrap:** без cert — HTTP-only (`bad-http.conf.template`); после upload — HTTPS template, 80→443, HSTS, `BAD_COOKIE_SECURE=auto` (Secure по `X-Forwarded-Proto`).
-- Apply: app → staging + `apply.request` → systemd `bad-tls-apply.path` → `/usr/local/sbin/bad-apply-tls` (`nginx -t` + reload). Кнопка UI: **«Установить и перезагрузить nginx»**. `NoNewPrivileges` на `bad-api` → sudo из процесса не используем.
-- Агентам HTTP bootstrap не рекламируем.
+## Установщик MSI
 
-### Web UI и аутентификация
+- Исходники: `installer/msi/Product.wxs`, `write-config.ps1`, `cleanup-uninstall.ps1`.
+- Сборка выполняется на Windows: локально или в GitHub Actions.
+- Параметры установки: `SERVERURL`, `ENROLLMENTTOKEN`, `ADDPATH` (по умолчанию 1).
+- Обновление MSI выполняется как major upgrade без удаления `ProgramData`.
+- Полное удаление требует остановки службы и запуска `cleanup-uninstall.ps1`.
+- Подпись кода необязательна: без сертификата MSI собирается без подписи.
 
-**SEC-004 / SEC-010:** при `must_change_password` `require_web_user` пускает только `/account/password` и `/logout`; в `base.html` скрыта основная навигация. CSRF: cookie `bad_csrf` + поле формы `csrf_token`; все HTML POST — через `Depends(ensure_csrf)` на web-router (`bad_server/csrf.py`).
-
+## Сервер: развёртывание и TLS
 
-Визуальный язык: светлая оболочка в духе Windows 11 / Fluent — Segoe UI Variable, слоистые полупрозрачные поверхности, радиусы 4px (controls) / 8px (surfaces), акцент Fluent blue (`#0067C0`), UI copy на русском, stroke-иконки секций (без emoji). Стили: `server/bad_server/static/style.css` + `favicon.svg`/`favicon.ico`; локальный HTML-отчёт (`HtmlReportWriter`) — та же семья токенов/иконок. Иконка агента: `agent/assets/bad.ico` (`ApplicationIcon` + WiX `ARPPRODUCTICON`).
+### Установка
 
-**Время в UI:** в HTML панели (`local-time.js`, элементы `time.local-time`) и в HTML-отчёте агента (`bad -r`) метки **относительные** («только что», «N мин. назад», «вчера»…); точное локальное время — в подсказке и атрибуте `title` / `aria-label` (**ЧЧ:ММ:СС ДД.ММ.ГГГГ**, `TimeFormat.LocalDisplayPattern`). В API, БД и JSON inventory — только UTC (ISO); относительный формат **не** является контрактом API.
+Скрипт `deploy/debian/install.sh` выполняет установку на Debian 12 в шесть шагов: пакеты, пользователь и каталоги, PostgreSQL, службы systemd, nginx, итоговая памятка.
 
-| Path | Назначение |
-|------|------------|
-| `/`, `/overview` | обзор: счётчики, версии агента, события железа; сигналы для оператора (пустое зеркало, отставание версий, битый pin, отозванные). Сводка по парку **общая** с `/dashboard` (один запрос к БД) |
-| `/dashboard` | дашборд: те же агрегаты и ops-сигналы, что на Обзоре |
-| `/login` | username/password (local, затем LDAP если включён) |
-| `/logout` | сброс cookie сессии |
-| `/devices`, `/devices/{id}` | список (поиск/тег/волна/архив, **пагинация**, **сброс фильтров**, CSV); пустой парк — подсказка с ссылкой на установку агента; **массовые действия** `POST /devices/bulk` (архив / добавить тег); ссылки на устройство с **иконкой типа корпуса** (`meta.chassis_type`); карточка — **«Обновить политику и версию»**, revoke/rotate, архив, delete, дубли, tags, override, hardware summary; копирование серийников / IPv4 / MAC |
-| `/devices/search.json` | live-поиск (сессия): `?q=` → устройства с `chassis_type`; `panel-search.js` |
-| `/devices/export.csv` | CSV устройств с учётом фильтров |
-| `/setup/progress.json` | JSON прогресса мастера первых шагов (сессия web) для Обзора |
-| `/events` | события inventory + пагинация; группировка **«Сегодня» / «Ранее»**; `?q=&importance=` (пусто = medium+, `all` = все) |
-| `/settings` | редирект в оболочку «Параметры» (левый nav) |
-| `/settings/ldap` | LDAP + группа доступа AD |
-| `/settings/tls` | nav **Сертификат**; статус HTTP/HTTPS; upload PEM cert+key[+chain] → nginx reload (key не в HTML) |
-| `/settings/mail` | SMTP + получатели + toggles + интервал единой сводки уведомлений (часы) |
-| `/settings/retention` | сроки хранения events/inventory; порог **«устарел»** (минуты); запасной вариант — env `BAD_DEVICE_STALE_AFTER_SECONDS` |
-| `/settings/backups` | daily `pg_dump -Fc` + **Скачать site bundle** (`GET …/site-bundle`) |
-| `/settings/policies` | CRUD; knob `update_target` = `latest` \| pin semver |
-| `/settings/updates` | каталог MSI, upload air-gap, sync, Latest/Удалить; секция **Enrollment token** + `POST /settings/enrollment/rotate` |
-| `/account/password` | смена пароля локального пользователя |
+Варианты настройки TLS:
 
-**Локальные пользователи**
+- **HTTP bootstrap (основной путь).** Сертификат не передан при установке. nginx работает только по HTTP. Администратор входит в панель из доверенной сети, меняет пароль и загружает сертификат через **Параметры → Сертификат**.
+- **Сертификат при установке.** Переменные `BAD_TLS_CERT` и `BAD_TLS_KEY` передают готовые файлы.
 
-- Таблица `local_users`; пароли — argon2.
-- Первый boot / пустая таблица: создаётся `admin` / `admin` с флагом `must_change_password` (баннер + редирект; остальные HTML-страницы закрыты до смены пароля). **Оператор обязан сменить пароль сразу.**
-- Работает **без** настроенного LDAP.
+### Применение сертификата
 
-**LDAP (опционально)**
+Панель проверяет PEM и соответствие ключа сертификату, сохраняет файлы в промежуточный каталог и передаёт их systemd-службе `bad-tls-apply`. Служба копирует файлы, выполняет `nginx -t` и перезагружает nginx. При ошибке рабочие файлы не меняются.
 
-- Настройки в `ldap_settings` (одна строка): host, port, use_ssl / start_tls, bind DN, encrypted bind password, search base, filter template (`{username}`), display name attr, default role, **`allowed_group`** (sAMAccountName или DN группы AD; пусто = без ограничения).
-- Bind password шифруется Fernet-ключом из `site_secrets.data_key`; в форме после save — placeholder «unchanged», plaintext не отдаётся.
-- **TLS verify (SEC-003):** по умолчанию `ssl.CERT_REQUIRED`. Lab opt-in: `tls_insecure` в LDAP settings (UI/DB). Без verify — только lab; не для боевого AD.
-- Логин: сначала local match (break-glass); иначе, если LDAP enabled — search + user bind через `ldap3`, затем проверка членства в `allowed_group` (в т.ч. nested via matching rule). Иначе — отказ с русской ошибкой.
-- Роль LDAP-пользователей: `operator` или `admin` — поле default role.
+Пути:
 
-**Почта (SMTP)**
+- `/etc/bad/tls/fullchain.pem`;
+- `/etc/bad/tls/privkey.pem`;
+- `/etc/bad/tls/staging/` (до применения).
 
-- Таблица `smtp_settings`: host/port/TLS, user, encrypted password, From, To (comma-separated), `notify_json` toggles, **`digest_interval_hours`** (1–48, default 3; UI «Интервал сводки, часы»).
-- **Единая сводка:** inventory-diff, **enroll** (`device_enrolled`) и **stale** (`device_stale`) сразу в `device_events` и web `/events`, без мгновенного SMTP. Очередь: `mailed_at IS NULL`. Фоновый цикл ~каждые 5 мин: если с прошлой успешной сводки прошло ≥ `digest_interval_hours`, одно письмо **multipart plain+HTML** («Сводка уведомлений») — группировка по устройствам, бейджи **Появилось** / **Пропало** / **Изменилось**, inline SVG (диск, RAM, CPU, устройства, …). Чекбоксы `notify_json` фильтруют типы; если после фильтра пусто — письмо не уходит, события помечаются отправленными.
-- Defaults ON: hardware (RAM/CPU/disks/serial/model), stale, enroll. Defaults OFF: hostname, domain. Без webhooks.
-- Soft-fail: ошибки SMTP только в лог; API enroll/inventory не ломаются. Ошибка digest — события остаются с `mailed_at` NULL до следующей попытки.
-- Bootstrap миграция `mail_digest_schema_v1`: при первом подъёме схемы существующие `device_events` получают `mailed_at = created_at`, чтобы **не разослать старую историю**.
-- Обнаружение stale (~5 мин): запись `device_stale` в очередь + флаг `meta.stale_notified_at` (не дублировать до восстановления heartbeat).
+После применения включаются перенаправление с HTTP на HTTPS, HSTS и флаг `Secure` для cookie (`BAD_COOKIE_SECURE=auto`).
 
-**Зеркало MSI**
+Автоматический выпуск сертификатов (Let's Encrypt) не поддерживается.
 
-- Диск: `{BAD_AGENT_UPDATES_DIR}/{version}/bad-agent-{version}.msi` (+ `agent-release.json`).
-- БД: `agent_msi_versions` + указатель `agent_update` / `site_secrets.agent_msi_latest_version`.
-- Ingest: GitHub sync и ручная заливка UI/API; cap ~10 версий; delete запрещён для latest и pin.
-- Remote-config knob **`update_target`**: `latest` (default) или semver из зеркала; check отдаёт target даже для downgrade.
-- Enrollment rotate из UI/API (hash в БД); restart не обязателен.
-- Site bundle: `bad.dump` + keys + meta зеркала (MSI в tar опционально); restore — `deploy/debian/restore-site-bundle.sh`.
+### Обновление сервера
 
-**Резервные копии**
+Страница **Параметры → Обновление сервера** загружает выбранную ветку репозитория в каталог `/var/lib/bad/server-releases/` и переключает `/opt/bad`. Установка выполняется через systemd-службу `bad-server-update-apply`. Хранятся до трёх предыдущих версий для отката. Обновление сервера не затрагивает MSI агентов.
 
-- Каталог `BAD_BACKUP_DIR` (default `/var/lib/bad/backups`).
-- Daily **`pg_dump -Fc`** → `bad-YYYY-MM-DD.dump` (не copy data directory); prune как KEEP_DAILY.
-- Site bundle: `bad.dump` + keys + mirror meta; restore — `restore-site-bundle.sh` (`pg_restore`).
-- **SEC-005:** **dump ≠ ключи**; fresh install keys в `/etc/bad/*`. Legacy keys в `site_secrets` → dump = компромисс. [operator-guide.md](operator-guide.md#безопасность-для-операторов).
+## Резервные копии
 
-**Сессия**
+| Артефакт | Содержимое | Назначение |
+|----------|-----------|------------|
+| Ежедневный дамп | `pg_dump -Fc`, файл `bad-YYYY-MM-DD.dump` | данные |
+| Ключи | `/etc/bad/data_key`, `/etc/bad/session_secret` | расшифровка и сессии |
+| Site bundle | дамп, ключи и метаданные зеркала | полное восстановление |
 
-- Подписанный cookie `bad_session` (itsdangerous, 12h); секрет из `BAD_SESSION_SECRET` или `site_secrets.session_secret`.
-- В проде — только за TLS (nginx); cookie должен быть `Secure` за HTTPS. Не публиковать uvicorn на внешний интерфейс.
+Дамп без ключей не позволяет полностью восстановить систему. Восстановление из site bundle выполняет `deploy/debian/restore-site-bundle.sh`.
 
-- На `/devices` дополнительно показывается mirrored agent MSI version (из `agent_update`).
-- Статус связи: badge **OK** / **устарел (stale)** если `last_seen_at` старше порога из **Параметры → Хранение и очистка** (или env, default 3600 с). На карточке — last seen + опциональный health из `meta`.
+## Ограничения версии 1
 
-### События inventory
+- Агенты только для Windows.
+- Единственная СУБД — PostgreSQL на одном сервере. Высокая доступность не поддерживается.
+- Нет ролевой модели и единого входа (SSO). Пользователи панели — администраторы или операторы.
+- Агент не принимает команд с сервера, кроме обновления настроек и запуска инвентаризации или проверки обновления.
+- Нет управления программами и патчами.
 
-При каждом upsert сравнивается предыдущий и новый snapshot. Пишутся осмысленные изменения: hostname/domain, logged-on / last_interactive, диск добавлен/удалён, сильное падение free space тома, смена IPv4 NIC, **CPU / RAM bytes / RAM modules / serial / model / manufacturer**. Таблица `device_events` (+ `mailed_at` для очереди почты). Первый снимок событий не создаёт. Уведомления по почте для этих событий — **периодическая сводка**, не мгновенно (см. [Почта (SMTP)](#почта-smtp)); панель `/events` и API `GET /v1/events` — без задержки digest.
+## Связанные документы
 
-### Данные
-
-- **Postgres:** единственный backend — `BAD_DATABASE_URL` в `site.env` (fresh install: localhost); credentials не в git; cluster не слушать мир.
-- Схема: `devices` (+ `tags_json`, `revoked`, `archived`), `inventory_snapshots`, `device_events`, `site_secrets`, `local_users`, `ldap_settings`, `retention_settings`, `smtp_settings`, `agent_update`, `agent_policies`, `device_config_overrides`, …
-- Каталог MSI: `/var/lib/bad/agent-updates/`; бэкапы: `/var/lib/bad/backups/`.
-
-## Enrollment и inventory
-
-1. Оператор задаёт site enrollment token (install script → `/etc/bad/site.env`).
-2. MSI/config передаёт `SERVERURL` + `ENROLLMENTTOKEN` (**SEC-011:** deferred CA читает token из HKLM Setup, не из argv PowerShell; residual — родительский `msiexec … ENROLLMENTTOKEN=` / verbose logs — не шарить).
-3. Агент `POST /v1/enroll` → получает `api_key`, сохраняет в ProgramData, затирает enrollment token.
-4. Повторные запуски используют API key; upsert по стабильному `device_id`.
-5. **Ротация enrollment:** UI на `/settings/updates` → **Сменить enrollment token** (`POST /settings/enrollment/rotate` + admin API `POST /v1/admin/enrollment/rotate`); hash в БД сразу, restart не нужен. После смены — одноразовый plaintext token и готовая команда **msiexec** (`SERVERURL`, `ENROLLMENTTOKEN`, `ADDPATH=1`) для копирования в GPO/Intune. Plaintext — только по защищённому каналу (не HTTP bootstrap). Runbook: [operator-guide.md](operator-guide.md#ротация-enrollment-token-после-массовой-установки-msi).
-6. **Multi-version MSI:** `agent_msi_versions` + latest; upload/sync/set-latest/delete; `update_target`; check → target в т.ч. downgrade. Оператор: [operator-guide.md](operator-guide.md#4-обновления-агента-upload-msi-и-выбор-версии).
-7. **Site bundle:** `GET /settings/backups/site-bundle`; restore: `deploy/debian/restore-site-bundle.sh`. Daily dump без keys.
-
-## Deploy
-
-```bash
-# Local Postgres + памятка (panel-first HTTP или BAD_TLS_* сразу)
-BAD_DOMAIN=… sudo -E bash deploy/debian/install.sh
-```
-
-Скрипт `[1/6]…[6/6]`: пакеты → user/dirs/venv → local PG + `BAD_DATABASE_URL` → `bad-api` / tls-apply → nginx → готово + памятка. ufw 22/80/443 (PG localhost). `site.env`: `BAD_DOMAIN`, `BAD_COOKIE_SECURE`, `BAD_DATABASE_URL`, sync.
-
-Артефакты релиза агента: `bad-agent-<semver>.msi`, `agent-release.json` (через GitHub Release). Как вырезать релиз: [guideline.md](guideline.md).
-
-## Вне scope v1
-
-macOS/Linux агенты (полноценный collect), расширенный software/патчи, RBAC/SSO, **HA Postgres**, push-команды на агент, Let’s Encrypt как основной путь, полноценный product dashboard. Прямой доступ агентов к GitHub — вне модели (только server mirror).
+- [api-v1.md](api-v1.md): интеграционный API для внешних систем;
+- [operator-guide.md](operator-guide.md): установка и эксплуатация;
+- [agents.md](agents.md): карта репозитория для разработчиков;
+- [guideline.md](guideline.md): правила разработки и выпуска релизов.
