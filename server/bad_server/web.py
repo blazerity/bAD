@@ -68,7 +68,12 @@ from .enrollment_ops import (
     rotate_enrollment_token,
 )
 from .http_bootstrap import HTTP_SENSITIVE_MSG, client_ip, sensitive_over_http_blocked
-from .device_meta import meta_search_haystack
+from .device_meta import (
+    format_logged_on_display,
+    meta_search_haystack,
+    normalize_logged_on_list,
+    normalize_logged_on_user,
+)
 from .panel_search import (
     device_match_label,
     event_match_label,
@@ -265,6 +270,9 @@ def _importance_label_ru(level: object, empty: str = "") -> str:
 
 
 templates.env.filters["importance_label_ru"] = _importance_label_ru
+templates.env.filters["format_logged_on"] = format_logged_on_display
+templates.env.filters["logged_on_names"] = normalize_logged_on_list
+templates.env.filters["logged_on_user"] = normalize_logged_on_user
 
 
 def _pager_items(current: object, total_pages: object) -> list:
@@ -534,10 +542,10 @@ def _device_inventory_nav(
         add("network", "network", "Сеть", lines)
 
     if users_info:
-        who = users_info.get("last_interactive") or (
-            ", ".join(users_info.get("logged_on") or [])[:80]
+        who = normalize_logged_on_user(users_info.get("last_interactive")) or (
+            format_logged_on_display(users_info.get("logged_on"))[:80]
         )
-        add("users", "users", "Пользователи", [str(who) if who else "нет данных"])
+        add("users", "users", "Пользователи", [who if who else "нет данных"])
 
     if software_info is not None:
         programs = software_info.get("programs")

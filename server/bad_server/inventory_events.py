@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from .device_meta import normalize_logged_on_user
+
 # Абсолютное падение свободного места (байты) или относительное к предыдущему free.
 VOLUME_FREE_DROP_ABS = 5 * 1024**3  # 5 ГиБ
 VOLUME_FREE_DROP_REL = 0.20
@@ -26,7 +28,10 @@ def _norm_str(value: Any) -> str:
 def _sorted_str_list(values: Any) -> list[str]:
     items = []
     for v in _as_list(values):
-        text = _norm_str(v)
+        if isinstance(v, dict):
+            text = normalize_logged_on_user(v) or ""
+        else:
+            text = _norm_str(v)
         if text:
             items.append(text)
     return sorted(set(items), key=str.casefold)
@@ -275,8 +280,8 @@ def diff_inventory_snapshots(
             }
         )
 
-    prev_li = _norm_str(prev_users.get("last_interactive"))
-    cur_li = _norm_str(cur_users.get("last_interactive"))
+    prev_li = normalize_logged_on_user(prev_users.get("last_interactive")) or ""
+    cur_li = normalize_logged_on_user(cur_users.get("last_interactive")) or ""
     if prev_li != cur_li and (prev_li or cur_li):
         events.append(
             {

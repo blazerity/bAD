@@ -6,7 +6,7 @@ import html
 import re
 from typing import Any, Optional
 
-from .device_meta import meta_search_haystack
+from .device_meta import meta_search_haystack, normalize_logged_on_list
 
 _MATCH_FIELDS: tuple[tuple[str, str], ...] = (
     ("имя", "hostname"),
@@ -37,8 +37,8 @@ def device_match_label(device: dict[str, Any], query: str) -> str:
     meta = device.get("meta") if isinstance(device.get("meta"), dict) else {}
     for label, key in _MATCH_FIELDS[2:]:
         if key == "logged_on":
-            for user in meta.get("logged_on") or []:
-                if q in str(user).casefold():
+            for user in normalize_logged_on_list(meta.get("logged_on")):
+                if q in user.casefold():
                     return label
             continue
         if key in {"ipv4_addresses", "mac_addresses"}:

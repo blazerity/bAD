@@ -129,7 +129,7 @@
       {% for d in devices %}
       {% set meta = d.meta if d.meta is mapping else {} %}
       {% set fresh = d.freshness or d.silence.status %}
-      {% set logged = (meta.logged_on or [])|first if meta.logged_on else '—' %}
+      {% set logged = (meta.logged_on|logged_on_names|first) if meta.logged_on else '—' %}
       {% set os_line = meta.os_caption or meta.os or '—' %}
       {% set ip_line = (meta.ipv4_addresses or [])|first if meta.ipv4_addresses else '—' %}
       <tr class="table-row-link">

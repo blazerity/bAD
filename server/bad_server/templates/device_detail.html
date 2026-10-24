@@ -8,7 +8,7 @@
 <section class="page device-card">
   {% set meta = device.meta if device.meta is mapping else {} %}
   {% set logged_src = (users_info.logged_on if users_info and users_info.logged_on else none) or meta.logged_on or [] %}
-  {% set logged = logged_src[0] if logged_src else none %}
+  {% set logged = (logged_src|logged_on_names|first) if logged_src else none %}
   {% set ip_line = (meta.ipv4_addresses[0] if meta.ipv4_addresses else none) %}
   {% set serial_line = hw.serial_number if hw and hw.serial_number else meta.serial_number %}
   <header class="device-detail-hero">
@@ -413,8 +413,8 @@
       <div class="device-panel {% if view == 'users' %}is-active{% endif %}" data-device-panel="users">
         <h2 class="with-icon">{{ icon('users') }}Пользователи</h2>
         <dl class="speccy-kv">
-          <div><dt>Последний интерактивный</dt><dd>{{ users_info.last_interactive or "—" }}</dd></div>
-          <div><dt>В системе</dt><dd>{% if users_info.logged_on %}{{ users_info.logged_on|join(", ") }}{% else %}—{% endif %}</dd></div>
+          <div><dt>Последний интерактивный</dt><dd>{{ users_info.last_interactive|logged_on_user or "—" }}</dd></div>
+          <div><dt>В системе</dt><dd>{{ users_info.logged_on|format_logged_on or '—' }}</dd></div>
         </dl>
       </div>
       {% endif %}

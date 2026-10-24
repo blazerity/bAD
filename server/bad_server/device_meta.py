@@ -7,6 +7,40 @@ from typing import Any, Optional
 CHASSIS_TYPES = frozenset({"laptop", "desktop", "server", "vm", "other"})
 
 
+def normalize_logged_on_user(entry: object) -> Optional[str]:
+    """Строка для UI/поиска: str, либо dict с username/user и опционально domain."""
+    if entry is None:
+        return None
+    if isinstance(entry, dict):
+        username = str(entry.get("username") or entry.get("user") or "").strip()
+        if not username:
+            upn = str(entry.get("upn") or "").strip()
+            return upn or None
+        domain = str(entry.get("domain") or "").strip()
+        if domain and "\\" not in username and "@" not in username:
+            return f"{domain}\\{username}"
+        return username
+    text = str(entry).strip()
+    return text or None
+
+
+def normalize_logged_on_list(entries: object) -> list[str]:
+    if entries is None:
+        return []
+    if not isinstance(entries, list):
+        entries = [entries]
+    out: list[str] = []
+    for item in entries:
+        name = normalize_logged_on_user(item)
+        if name:
+            out.append(name)
+    return out
+
+
+def format_logged_on_display(entries: object, sep: str = ", ") -> str:
+    return sep.join(normalize_logged_on_list(entries))
+
+
 def normalize_chassis_type(value: object) -> Optional[str]:
     if value is None:
         return None
@@ -57,8 +91,7 @@ def inventory_meta_cache(
             if cpu_name is not None and str(cpu_name).strip():
                 out["cpu_name"] = str(cpu_name).strip()
     if users and isinstance(users, dict):
-        logged = users.get("logged_on") or []
-        clean = [str(u).strip() for u in logged if u and str(u).strip()]
+        clean = normalize_logged_on_list(users.get("logged_on"))
         if clean:
             out["logged_on"] = clean
     if network and isinstance(network, dict):
@@ -96,8 +129,8 @@ def meta_search_haystack(meta: dict[str, Any]) -> str:
         str(meta.get("chassis_type") or ""),
         str(meta.get("cpu_name") or ""),
     ]
-    for user in meta.get("logged_on") or []:
-        bits.append(str(user or ""))
+    for user in normalize_logged_on_list(meta.get("logged_on")):
+        bits.append(user)
     for ip in meta.get("ipv4_addresses") or []:
         bits.append(str(ip or ""))
     for mac in meta.get("mac_addresses") or []:
