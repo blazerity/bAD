@@ -135,7 +135,6 @@ def require_admin_token(
 def current_web_user(
     request: Request,
     db: Database = Depends(get_db),
-    settings: Settings = Depends(get_settings),
     session_secret: str = Depends(get_session_secret),
 ) -> Optional[WebUser]:
     from .sessions import SESSION_COOKIE

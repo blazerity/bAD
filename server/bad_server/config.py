@@ -101,16 +101,15 @@ class Settings(BaseSettings):
 def resolve_agent_updates_dir(settings: Settings) -> Path:
     """Prod: /var/lib/bad/agent-updates; dev/lab: data_dir при PermissionError."""
     preferred = settings.agent_updates_dir
-    if os.environ.get("BAD_AGENT_UPDATES_DIR"):
-        preferred.mkdir(parents=True, exist_ok=True)
-        return preferred
     try:
         preferred.mkdir(parents=True, exist_ok=True)
         return preferred
     except (OSError, PermissionError):
-        fallback = settings.data_dir / "agent-updates"
-        fallback.mkdir(parents=True, exist_ok=True)
-        return fallback
+        if os.environ.get("BAD_AGENT_UPDATES_DIR"):
+            raise
+    fallback = settings.data_dir / "agent-updates"
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
 
 
 @lru_cache

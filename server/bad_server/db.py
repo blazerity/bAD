@@ -374,17 +374,12 @@ class Database:
                     """
                     UPDATE devices
                     SET last_seen_at = ?,
-                        agent_version = COALESCE(?, agent_version),
-                        meta_json = ?
+                        agent_version = COALESCE(?, agent_version)
                     WHERE device_id = ?
                     """,
-                    (
-                        now,
-                        agent_version,
-                        json.dumps(meta, separators=(",", ":"), ensure_ascii=False),
-                        device_id,
-                    ),
+                    (now, agent_version, device_id),
                 )
+                self._save_device_meta(conn, device_id, meta)
             else:
                 conn.execute(
                     """
@@ -578,22 +573,7 @@ class Database:
         """
         with self.connection() as conn:
             rows = conn.execute(sql, (like, like, like, like, cap)).fetchall()
-        out: list[dict[str, Any]] = []
-        for row in rows:
-            out.append(
-                {
-                    "device_id": row["device_id"],
-                    "hostname": row["hostname"],
-                    "enrolled_at": row["enrolled_at"],
-                    "last_seen_at": row["last_seen_at"],
-                    "agent_version": row["agent_version"],
-                    "meta": self._parse_meta(row["meta_json"]),
-                    "tags": self._parse_tags(row["tags_json"]),
-                    "revoked": bool(row["revoked"]),
-                    "archived": bool(row["archived"]),
-                }
-            )
-        return out
+        return [self._device_row_dict(row) for row in rows]
 
     def get_device_event(self, event_id: int) -> Optional[dict[str, Any]]:
         sql = """

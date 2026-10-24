@@ -189,16 +189,11 @@ def heartbeat(
     meta = db.get_device_meta(body.device_id) or {}
     had_refresh_flag = bool(meta.get("refresh_requested_at"))
     refresh_pending = refresh_request_pending(meta)
-    use_inventory = refresh_pending or not body.config_version
     effective = db.compute_device_effective_config(
-        body.device_id, use_inventory=use_inventory
+        body.device_id, use_inventory=refresh_pending or not body.config_version
     )
     assert effective is not None
-    if (
-        body.config_version
-        and body.config_version != effective["version"]
-        and not use_inventory
-    ):
+    if body.config_version and body.config_version != effective["version"]:
         effective = db.compute_device_effective_config(
             body.device_id, use_inventory=True
         )
@@ -206,19 +201,20 @@ def heartbeat(
         "status": "ok",
         "config_version": effective["version"],
     }
-    if not body.config_version or body.config_version != effective["version"]:
+    push_config = (
+        refresh_pending
+        or not body.config_version
+        or body.config_version != effective["version"]
+    )
+    if push_config:
         resp["config"] = {
             "version": effective["version"],
             "settings": effective["settings"],
         }
-    if refresh_pending:
-        resp["config"] = {
-            "version": effective["version"],
-            "settings": effective["settings"],
-        }
-        actions = heartbeat_actions_for_refresh(meta)
-        if actions:
-            resp["actions"] = actions
+        if refresh_pending:
+            actions = heartbeat_actions_for_refresh(meta)
+            if actions:
+                resp["actions"] = actions
     if had_refresh_flag:
         db.patch_device_meta(body.device_id, clear_refresh_meta_patch())
     return resp

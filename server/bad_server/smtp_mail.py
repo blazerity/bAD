@@ -381,14 +381,11 @@ def _parse_utc_iso(ts: str) -> Optional[datetime]:
         return None
 
 
-def _mark_digest_events_mailed(
+def _finalize_digest_send(
     db: "Database", event_ids: list[int], mailed_at: str
 ) -> None:
     if event_ids:
         db.mark_device_events_mailed(event_ids, mailed_at)
-
-
-def _touch_digest_interval(db: "Database", mailed_at: str) -> None:
     db.set_site_secret(INVENTORY_MAIL_LAST_DIGEST_KEY, mailed_at)
 
 
@@ -470,8 +467,7 @@ def flush_inventory_mail_digest(
         return result
 
     sent_ids = [int(e["id"]) for e in filtered]
-    _mark_digest_events_mailed(db, sent_ids, mailed_at)
-    _touch_digest_interval(db, mailed_at)
+    _finalize_digest_send(db, sent_ids, mailed_at)
     logger.info(
         "Mail digest emailed: devices=%s events=%s marked=%s",
         len(devices_groups),
