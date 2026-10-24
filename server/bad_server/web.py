@@ -82,15 +82,22 @@ from .panel_search import (
     event_match_label,
     highlight_match,
 )
+from .bad_id import device_panel_href
+from .fleet_buckets import disk_role, meta_facet_matches
+from .wave_21_migration import resolve_device_ref
+from .device_uninstall import (
+    cancel_device_uninstall,
+    device_uninstall_confirm_value,
+    request_device_uninstall,
+    uninstall_confirm_matches,
+    uninstall_ui_context,
+)
 from .ops_panel import (
     build_attention_queue,
     build_bootstrap_checklist,
     build_bootstrap_progress,
     build_config_winner,
     build_dashboard_stats,
-    device_chart_facets,
-    device_matches_chart_filters,
-    INVENTORY_SCAN_CAP,
     build_wave_counts,
     device_has_agent_local,
     enrich_overview_ops_signals,
@@ -280,6 +287,36 @@ templates.env.filters["format_logged_on"] = format_logged_on_display
 templates.env.filters["logged_on_names"] = normalize_logged_on_list
 templates.env.filters["logged_on_user"] = normalize_logged_on_user
 
+_REBOOT_REASON_LABELS_RU = {
+    "windows_update": "Центр обновления Windows",
+    "cbs": "обслуживание компонентов",
+}
+
+_DISK_ROLE_LABELS_RU = {
+    "flash": "флешка",
+    "usb_disk": "USB-диск",
+    "fixed": "диск",
+}
+
+
+def _disk_role_label_ru(disk: object) -> str:
+    if not isinstance(disk, dict):
+        return "диск"
+    role = disk_role(disk)
+    return _DISK_ROLE_LABELS_RU.get(role, role)
+
+
+def _pending_reboot_visible(host_info: Optional[dict]) -> bool:
+    if not isinstance(host_info, dict):
+        return False
+    if host_info.get("pending_reboot") is not True:
+        return False
+    reasons = host_info.get("pending_reboot_reasons")
+    return isinstance(reasons, list) and bool(reasons)
+
+
+templates.env.filters["disk_role_label"] = _disk_role_label_ru
+
 
 def _pager_items(current: object, total_pages: object) -> list:
     """Номера страниц и «…» для компактной пагинации списков."""
@@ -317,6 +354,13 @@ def _pager_url(
     event_type: str = "",
     date_from: str = "",
     date_to: str = "",
+    os: str = "",
+    ram: str = "",
+    disk: str = "",
+    cpu: str = "",
+    cpu_vendor: str = "",
+    agent: str = "",
+    fresh: str = "",
 ) -> str:
     """URL списка с сохранением фильтров (серверная пагинация ?page=)."""
     params: dict[str, str] = {}
@@ -330,6 +374,20 @@ def _pager_url(
         params["wave"] = wave
     if archive:
         params["archive"] = "1"
+    if os:
+        params["os"] = os
+    if ram:
+        params["ram"] = ram
+    if disk:
+        params["disk"] = disk
+    if cpu:
+        params["cpu"] = cpu
+    if cpu_vendor:
+        params["cpu_vendor"] = cpu_vendor
+    if agent:
+        params["agent"] = agent
+    if fresh:
+        params["fresh"] = fresh
     if importance:
         params["importance"] = importance
     if event_type:
@@ -369,6 +427,7 @@ def _device_inventory_nav(
     minidumps_info: Optional[dict],
     collector_errors: Optional[list],
     security_info: Optional[dict] = None,
+    device_meta: Optional[dict] = None,
 ) -> list[dict]:
     """Пункты Speccy-навигации + краткие строки для Обзора.
 
@@ -400,7 +459,7 @@ def _device_inventory_nav(
         os_line = _format_os(host_info.get("os"))
         # boot / pending reboot / timezone — одна строка вместе с ОС
         status = ""
-        if host_info.get("pending_reboot") is True:
+        if _pending_reboot_visible(host_info):
             status = "ожидает перезагрузку"
         elif host_info.get("last_boot_at"):
             status = f"загрузка {host_info.get('last_boot_at')}"
@@ -547,11 +606,17 @@ def _device_inventory_nav(
             lines = [lines[0], f"+{len(nics) - 1} ещё"]
         add("network", "network", "Сеть", lines)
 
-    if users_info:
+    meta = device_meta if isinstance(device_meta, dict) else {}
+    presence = str(meta.get("user_presence") or "")
+    if presence == "online":
+        who = format_logged_on_display(meta.get("logged_on"))[:80]
+    else:
+        who = str(meta.get("last_logged_on") or "").strip()
+    if not who and users_info:
         who = normalize_logged_on_user(users_info.get("last_interactive")) or (
             format_logged_on_display(users_info.get("logged_on"))[:80]
         )
-        add("users", "users", "Пользователи", [who if who else "нет данных"])
+    add("users", "users", "Пользователи", [who if who else "нет данных"])
 
     if software_info is not None:
         programs = software_info.get("programs")
@@ -823,12 +888,18 @@ def _overview_page_context(
         settings=settings,
     )
     chassis_by_id = _chassis_map_for_devices(active)
+    fleet_by_id = {str(d["device_id"]): d for d in active if d.get("device_id")}
     for d in ops.get("version_drift") or []:
         if isinstance(d, dict):
             d["chassis_type"] = chassis_by_id.get(str(d.get("device_id") or ""), "other")
     for e in stats.get("recent_hardware_events") or []:
         if isinstance(e, dict):
-            e["chassis_type"] = chassis_by_id.get(str(e.get("device_id") or ""), "other")
+            did = str(e.get("device_id") or "")
+            e["chassis_type"] = chassis_by_id.get(did, "other")
+            dev = fleet_by_id.get(did) or {}
+            e["bad_id"] = dev.get("bad_id")
+            e["device_href"] = device_panel_href(dev.get("bad_id"), did)
+            e["importance"] = event_importance(str(e.get("type") or ""))
     attention = build_attention_queue(
         user=user,
         ops=ops,
@@ -893,7 +964,7 @@ def overview_search_json(
     del user
     query = (q or "").strip()
     if len(query) < 2:
-        return JSONResponse({"devices": [], "events": []})
+        return JSONResponse({"devices": [], "events": [], "users": []})
     dev_cap = max(1, min(int(limit), 40))
     evt_cap = max(1, min(20, dev_cap))
     devices = db.search_devices_global(query, limit=dev_cap)
@@ -913,8 +984,9 @@ def overview_search_json(
             {
                 "kind": "device",
                 "device_id": did,
+                "bad_id": d.get("bad_id"),
                 "hostname": label,
-                "href": f"/devices/{did}",
+                "href": device_panel_href(d.get("bad_id"), did),
                 "chassis_type": _chassis_type_from_device(d),
                 "match_reason": device_match_label(d, query),
                 "title_html": highlight_match(label, query),
@@ -925,6 +997,7 @@ def overview_search_json(
                 "archived": bool(d.get("archived")),
             }
         )
+    users_out = _overview_search_users(query, db.list_devices(archived=False))
     evt_out = []
     for e in events:
         eid = int(e["id"])
@@ -945,7 +1018,9 @@ def overview_search_json(
                 "created_at": e.get("created_at"),
             }
         )
-    return JSONResponse({"devices": dev_out, "events": evt_out, "q": query})
+    return JSONResponse(
+        {"devices": dev_out, "events": evt_out, "users": users_out, "q": query}
+    )
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
@@ -1076,6 +1151,7 @@ def logout():
 
 def _enrich_device_row(device: dict, *, stale_after_seconds: int) -> dict:
     device = dict(device)
+    meta = device.get("meta") if isinstance(device.get("meta"), dict) else {}
     device["silence"] = device_silence_status(
         device.get("last_seen_at"),
         stale_after_seconds=stale_after_seconds,
@@ -1085,7 +1161,80 @@ def _enrich_device_row(device: dict, *, stale_after_seconds: int) -> dict:
     device["freshness"] = _device_freshness_tier(
         device.get("last_seen_at"), stale_after_seconds=stale_after_seconds
     )
+    device["bad_id"] = device.get("bad_id") or meta.get("bad_id")
+    did = str(device.get("device_id") or "")
+    device["device_href"] = device_panel_href(device.get("bad_id"), did)
+    device["ram_display"] = meta.get("ram_display") or "—"
+    presence = str(meta.get("user_presence") or "")
+    if presence == "online":
+        names = normalize_logged_on_list(meta.get("logged_on"))
+        device["user_display_name"] = names[0] if names else None
+        device["user_presence"] = "online"
+        device["user_presence_caption"] = "в системе"
+    else:
+        device["user_display_name"] = meta.get("last_logged_on") or None
+        device["user_presence"] = "last" if device["user_display_name"] else ""
+        device["user_presence_caption"] = "последний" if device["user_display_name"] else ""
+    ips = meta.get("ipv4_addresses")
+    if isinstance(ips, list) and ips:
+        device["ip_display"] = " · ".join(str(x) for x in ips if x)
+        device["ip_copy"] = ", ".join(str(x) for x in ips if x)
+        device["ip_title"] = device["ip_display"]
+    else:
+        device["ip_display"] = "—"
+        device["ip_copy"] = ""
+        device["ip_title"] = ""
     return device
+
+
+def _overview_search_users(query: str, fleet: list[dict]) -> list[dict]:
+    qcf = (query or "").strip().casefold()
+    if len(qcf) < 2:
+        return []
+    groups: dict[str, dict[str, Any]] = {}
+    for d in fleet:
+        meta = d.get("meta") if isinstance(d.get("meta"), dict) else {}
+        did = str(d.get("device_id") or "")
+        href = device_panel_href(d.get("bad_id"), did)
+        host = d.get("hostname") or did
+        entries: list[tuple[str, str]] = []
+        logged = normalize_logged_on_list(meta.get("logged_on"))
+        if logged:
+            for name in logged:
+                entries.append((name, "online"))
+        else:
+            last = meta.get("last_logged_on")
+            if last:
+                entries.append((str(last), str(meta.get("user_presence") or "last")))
+        for name, presence in entries:
+            if qcf not in name.casefold():
+                continue
+            key = name.casefold()
+            grp = groups.get(key)
+            if not grp:
+                grp = {
+                    "kind": "user",
+                    "name": name,
+                    "presence": presence,
+                    "devices": [],
+                }
+                groups[key] = grp
+            grp["devices"].append(
+                {
+                    "hostname": host,
+                    "bad_id": d.get("bad_id"),
+                    "href": href,
+                    "presence": presence,
+                }
+            )
+            if presence == "online":
+                grp["presence"] = "online"
+    ranked = sorted(groups.values(), key=lambda g: str(g.get("name") or "").casefold())
+    return ranked[:15]
+
+
+def _canonical_device_id(db: Database, ref: str) -> Optional[str]:
+    return resolve_device_ref(db, (ref or "").strip())
 
 
 def _devices_query_params(
@@ -1100,6 +1249,8 @@ def _devices_query_params(
     disk_filter: Optional[str] = None,
     cpu_filter: Optional[str] = None,
     cpu_vendor_filter: Optional[str] = None,
+    agent_filter: Optional[str] = None,
+    fresh: Optional[str] = None,
 ) -> str:
     params: dict[str, str] = {}
     if tag:
@@ -1120,9 +1271,127 @@ def _devices_query_params(
         params["cpu"] = cpu_filter
     if cpu_vendor_filter:
         params["cpu_vendor"] = cpu_vendor_filter
+    if agent_filter:
+        params["agent"] = agent_filter
+    if fresh:
+        params["fresh"] = fresh
     if page > 1:
         params["page"] = str(page)
     return urlencode(params)
+
+
+def _devices_filter_chips(
+    *,
+    tag_filter: Optional[str],
+    query: Optional[str],
+    show_archive: bool,
+    wave_filter: Optional[str],
+    os_filter: Optional[str],
+    ram_filter: Optional[str],
+    disk_filter: Optional[str],
+    cpu_filter: Optional[str],
+    cpu_vendor_filter: Optional[str],
+    agent_filter: Optional[str],
+    fresh: Optional[str],
+) -> list[dict[str, str]]:
+    chips: list[dict[str, str]] = []
+    specs: list[tuple[str, Optional[str], str]] = [
+        ("tag", tag_filter, tag_filter or ""),
+        ("q", query, query or ""),
+        ("wave", wave_filter, wave_filter or ""),
+        ("os", os_filter, os_filter or ""),
+        ("ram", ram_filter, ram_filter or ""),
+        ("disk", disk_filter, disk_filter or ""),
+        ("cpu", cpu_filter, cpu_filter or ""),
+        ("cpu_vendor", cpu_vendor_filter, cpu_vendor_filter or ""),
+        ("agent", agent_filter, f"bAD {agent_filter}" if agent_filter else ""),
+        ("fresh", fresh, "Онлайн" if fresh == "ok" else (fresh or "")),
+    ]
+    if show_archive:
+        specs.append(("archive", "1", "Архив"))
+    for param, value, label in specs:
+        if not value:
+            continue
+        qs = _devices_query_params(
+            tag=tag_filter,
+            q=query,
+            archive=show_archive,
+            page=1,
+            wave=wave_filter,
+            os_filter=os_filter,
+            ram_filter=ram_filter,
+            disk_filter=disk_filter,
+            cpu_filter=cpu_filter,
+            cpu_vendor_filter=cpu_vendor_filter,
+            agent_filter=agent_filter,
+            fresh=fresh,
+        )
+        if param == "archive":
+            without = _devices_query_params(
+                tag=tag_filter,
+                q=query,
+                archive=False,
+                page=1,
+                wave=wave_filter,
+                os_filter=os_filter,
+                ram_filter=ram_filter,
+                disk_filter=disk_filter,
+                cpu_filter=cpu_filter,
+                cpu_vendor_filter=cpu_vendor_filter,
+                agent_filter=agent_filter,
+                fresh=fresh,
+            )
+        else:
+            omit: dict[str, Optional[str]] = {
+                "tag": tag_filter,
+                "q": query,
+                "archive": show_archive,
+                "wave": wave_filter,
+                "os_filter": os_filter,
+                "ram_filter": ram_filter,
+                "disk_filter": disk_filter,
+                "cpu_filter": cpu_filter,
+                "cpu_vendor_filter": cpu_vendor_filter,
+                "agent_filter": agent_filter,
+                "fresh": fresh,
+            }
+            if param == "tag":
+                omit["tag"] = None
+            elif param == "q":
+                omit["q"] = None
+            elif param == "wave":
+                omit["wave"] = None
+            elif param == "os":
+                omit["os_filter"] = None
+            elif param == "ram":
+                omit["ram_filter"] = None
+            elif param == "disk":
+                omit["disk_filter"] = None
+            elif param == "cpu":
+                omit["cpu_filter"] = None
+            elif param == "cpu_vendor":
+                omit["cpu_vendor_filter"] = None
+            elif param == "agent":
+                omit["agent_filter"] = None
+            elif param == "fresh":
+                omit["fresh"] = None
+            without = _devices_query_params(
+                tag=omit["tag"],
+                q=omit["q"],
+                archive=bool(omit["archive"]),
+                page=1,
+                wave=omit["wave"],
+                os_filter=omit["os_filter"],
+                ram_filter=omit["ram_filter"],
+                disk_filter=omit["disk_filter"],
+                cpu_filter=omit["cpu_filter"],
+                cpu_vendor_filter=omit["cpu_vendor_filter"],
+                agent_filter=omit["agent_filter"],
+                fresh=omit["fresh"],
+            )
+        href = f"/devices?{without}" if without else "/devices"
+        chips.append({"param": param, "label": label, "href": href})
+    return chips
 
 
 def _attach_duplicate_signals(
@@ -1151,6 +1420,8 @@ def _devices_wave_context(
     disk_filter: Optional[str] = None,
     cpu_filter: Optional[str] = None,
     cpu_vendor_filter: Optional[str] = None,
+    agent_filter: Optional[str] = None,
+    fresh: Optional[str] = None,
 ) -> tuple[list[dict], int, int, int]:
     # Индекс дублей всегда по всему парку (meta), иначе поиск/тег ломают бейджи.
     fleet = db.list_devices(archived=None)
@@ -1179,7 +1450,10 @@ def _devices_wave_context(
             if wanted_tag not in tags:
                 continue
         if query_cf:
-            hay = f"{d.get('device_id') or ''} {d.get('hostname') or ''}".casefold()
+            hay = (
+                f"{d.get('device_id') or ''} {d.get('hostname') or ''} "
+                f"{d.get('bad_id') or ''}"
+            ).casefold()
             if query_cf not in hay:
                 meta = d.get("meta") if isinstance(d.get("meta"), dict) else {}
                 if query_cf not in meta_search_haystack(meta):
@@ -1194,30 +1468,36 @@ def _devices_wave_context(
         drift_ids=drift_ids,
         stale_after_seconds=stale_sec,
     )
-    chart_active = any(
+    fresh_ok = (fresh or "").strip().casefold() == "ok"
+    facet_active = any(
         (
             os_filter,
             ram_filter,
             disk_filter,
             cpu_filter,
             cpu_vendor_filter,
+            agent_filter,
+            fresh_ok,
         )
     )
-    if chart_active:
-        ids = [d["device_id"] for d in filtered[:INVENTORY_SCAN_CAP]]
-        payloads = (
-            db.latest_inventory_payloads(ids, cap=INVENTORY_SCAN_CAP) if ids else {}
-        )
+    if facet_active:
         narrowed = []
         for d in filtered:
-            facets = device_chart_facets(d, payloads.get(d["device_id"]))
-            if device_matches_chart_filters(
-                facets,
+            meta = d.get("meta") if isinstance(d.get("meta"), dict) else {}
+            silence = d.get("silence") or device_silence_status(
+                d.get("last_seen_at"), stale_after_seconds=stale_sec
+            )
+            if meta_facet_matches(
+                meta,
+                d,
                 os_filter=os_filter,
                 ram_filter=ram_filter,
                 disk_filter=disk_filter,
                 cpu_filter=cpu_filter,
                 cpu_vendor_filter=cpu_vendor_filter,
+                agent_filter=agent_filter,
+                fresh_ok=fresh_ok,
+                silence_status=str(silence.get("status") or ""),
             ):
                 narrowed.append(d)
         filtered = narrowed
@@ -1228,57 +1508,6 @@ def _devices_wave_context(
         page_i = pages
     offset = (page_i - 1) * page_size
     return filtered[offset : offset + page_size], total, pages, page_i
-
-
-# Массовые действия на /devices (U2): лимит batch, CSRF на router.
-BULK_DEVICES_MAX = 100
-_BULK_ACTIONS = frozenset({"archive", "add_tag", "assign_tag"})
-
-
-def _maybe_admin_audit(
-    db: Database,
-    *,
-    actor: str,
-    action: str,
-    target_type: str,
-    target_id: Optional[str] = None,
-    detail: Optional[dict[str, Any]] = None,
-) -> None:
-    """Пишет audit только если DB Lead уже добавил insert_admin_audit."""
-    insert = getattr(db, "insert_admin_audit", None)
-    if not callable(insert):
-        return
-    try:
-        insert(
-            actor=actor,
-            action=action,
-            target_type=target_type,
-            target_id=target_id,
-            detail_json=detail,
-        )
-    except Exception:
-        # Массовое действие не откатываем из‑за журнала.
-        pass
-
-
-def _devices_redirect_with_flash(
-    *,
-    flash: str,
-    tag: Optional[str] = None,
-    q: Optional[str] = None,
-    archive: bool = False,
-    wave: Optional[str] = None,
-) -> RedirectResponse:
-    params: dict[str, str] = {"flash": flash}
-    if tag:
-        params["tag"] = tag
-    if q:
-        params["q"] = q
-    if archive:
-        params["archive"] = "1"
-    if wave:
-        params["wave"] = wave
-    return RedirectResponse(url=f"/devices?{urlencode(params)}", status_code=303)
 
 
 @router.get("/devices", response_class=HTMLResponse)
@@ -1293,6 +1522,8 @@ def devices_page(
     disk: Optional[str] = None,
     cpu: Optional[str] = None,
     cpu_vendor: Optional[str] = None,
+    agent: Optional[str] = None,
+    fresh: Optional[str] = None,
     page: int = 1,
     flash: Optional[str] = None,
     user: WebUser = Depends(require_web_user),
@@ -1308,6 +1539,8 @@ def devices_page(
     disk_filter = (disk or "").strip() or None
     cpu_filter = (cpu or "").strip() or None
     cpu_vendor_filter = (cpu_vendor or "").strip() or None
+    agent_filter = (agent or "").strip() or None
+    fresh_filter = (fresh or "").strip() or None
     page_i = max(1, int(page or 1))
     devices, total, pages, page_i = _devices_wave_context(
         db,
@@ -1322,6 +1555,8 @@ def devices_page(
         disk_filter=disk_filter,
         cpu_filter=cpu_filter,
         cpu_vendor_filter=cpu_vendor_filter,
+        agent_filter=agent_filter,
+        fresh=fresh_filter,
     )
 
     agent_update = db.get_agent_update()
@@ -1336,6 +1571,21 @@ def devices_page(
         disk_filter=disk_filter,
         cpu_filter=cpu_filter,
         cpu_vendor_filter=cpu_vendor_filter,
+        agent_filter=agent_filter,
+        fresh=fresh_filter,
+    )
+    filter_chips = _devices_filter_chips(
+        tag_filter=tag_filter,
+        query=query,
+        show_archive=show_archive,
+        wave_filter=wave_filter,
+        os_filter=os_filter,
+        ram_filter=ram_filter,
+        disk_filter=disk_filter,
+        cpu_filter=cpu_filter,
+        cpu_vendor_filter=cpu_vendor_filter,
+        agent_filter=agent_filter,
+        fresh=fresh_filter,
     )
     flash_msg = (flash or "").strip() or None
     if flash_msg and len(flash_msg) > 200:
@@ -1354,6 +1604,13 @@ def devices_page(
             "q": query or "",
             "show_archive": show_archive,
             "wave": wave_filter or "",
+            "os_filter": os_filter or "",
+            "ram_filter": ram_filter or "",
+            "disk_filter": disk_filter or "",
+            "cpu_filter": cpu_filter or "",
+            "cpu_vendor_filter": cpu_vendor_filter or "",
+            "agent_filter": agent_filter or "",
+            "fresh_filter": fresh_filter or "",
             "all_tags": db.list_all_tags(),
             "stale_after_seconds": effective_stale_after_seconds(db, settings),
             "page": page_i,
@@ -1362,9 +1619,9 @@ def devices_page(
             "page_size": DEVICES_PAGE_SIZE,
             "export_qs": qs,
             "flash": flash_msg,
+            "filter_chips": filter_chips,
             "park_empty": total == 0
-            and not (tag_filter or query or wave_filter or show_archive),
-            "filters_active": bool(
+            and not (
                 tag_filter
                 or query
                 or wave_filter
@@ -1374,7 +1631,10 @@ def devices_page(
                 or disk_filter
                 or cpu_filter
                 or cpu_vendor_filter
+                or agent_filter
+                or fresh_filter
             ),
+            "filters_active": bool(filter_chips),
         },
     )
 
@@ -1446,6 +1706,7 @@ def devices_csv_export(
         "ram_bytes",
         "domain",
         "os",
+        "bad_id",
     ]
     writer = csv.DictWriter(buf, fieldnames=fields, extrasaction="ignore")
     writer.writeheader()
@@ -1487,7 +1748,7 @@ def devices_search_json(
             {
                 "device_id": d["device_id"],
                 "hostname": label,
-                "href": f"/devices/{d['device_id']}",
+                "href": device_panel_href(d.get("bad_id"), d["device_id"]),
                 "chassis_type": _chassis_type_from_device(d),
                 "chassis_label": _format_chassis(_chassis_type_from_device(d)),
                 "match_reason": _search_match_reason(d, query),
@@ -1496,95 +1757,6 @@ def devices_search_json(
             }
         )
     return JSONResponse({"devices": out})
-
-
-@router.post("/devices/bulk")
-async def devices_bulk(
-    request: Request,
-    action: str = Form(""),
-    tag: str = Form(""),
-    return_tag: str = Form(""),
-    return_q: str = Form(""),
-    return_archive: str = Form(""),
-    return_wave: str = Form(""),
-    user: WebUser = Depends(require_web_user),
-    db: Database = Depends(get_db),
-):
-    """Массовые действия: archive / add_tag (CSRF на router). Confirm — на стороне UI."""
-    form = await request.form()
-    raw_ids = form.getlist("device_id")
-    ids: list[str] = []
-    seen: set[str] = set()
-    for raw in raw_ids:
-        did = str(raw or "").strip()
-        if not did or did in seen:
-            continue
-        seen.add(did)
-        ids.append(did)
-
-    ret_tag = (return_tag or "").strip() or None
-    ret_q = (return_q or "").strip() or None
-    ret_archive = (return_archive or "").strip() in {"1", "true", "yes"}
-    ret_wave = normalize_wave_filter(return_wave)
-
-    def _back(flash: str) -> RedirectResponse:
-        return _devices_redirect_with_flash(
-            flash=flash,
-            tag=ret_tag,
-            q=ret_q,
-            archive=ret_archive,
-            wave=ret_wave,
-        )
-
-    act = (action or "").strip().casefold()
-    if act not in _BULK_ACTIONS:
-        return _back("неизвестное действие")
-    if not ids:
-        return _back("ничего не выбрано")
-    if len(ids) > BULK_DEVICES_MAX:
-        return _back(f"слишком много устройств (макс. {BULK_DEVICES_MAX})")
-
-    processed = 0
-    tag_clean = ""
-    if act in {"add_tag", "assign_tag"}:
-        tags = normalize_tags(tag)
-        if not tags:
-            return _back("укажите тег")
-        tag_clean = tags[0]
-
-    for device_id in ids:
-        detail = db.get_device_detail(device_id)
-        if not detail:
-            continue
-        if act == "archive":
-            # Идемпотентно: уже в архиве тоже считается обработанным.
-            if not detail.get("archived"):
-                db.set_device_archived(device_id, True)
-            processed += 1
-        else:
-            current = list(detail.get("tags") or [])
-            have = {t.casefold() for t in current}
-            if tag_clean.casefold() not in have:
-                current.append(tag_clean)
-                db.set_device_tags(device_id, current)
-            processed += 1
-
-    audit_action = (
-        "devices.bulk_archive" if act == "archive" else "devices.bulk_add_tag"
-    )
-    _maybe_admin_audit(
-        db,
-        actor=user.username,
-        action=audit_action,
-        target_type="device",
-        target_id=None,
-        detail={
-            "count": processed,
-            "requested": len(ids),
-            "tag": tag_clean or None,
-        },
-    )
-    return _back(f"обработано {processed}")
 
 
 @router.get("/setup/progress.json")
@@ -1848,6 +2020,7 @@ def _device_config_context(
         for d in g.get("devices") or []:
             if isinstance(d, dict):
                 d["chassis_type"] = _chassis_type_from_device(d)
+    device_meta = detail.get("meta") if isinstance(detail.get("meta"), dict) else {}
     inventory_nav = _device_inventory_nav(
         host_info=host_info,
         hardware_summary=hardware_summary,
@@ -1857,14 +2030,34 @@ def _device_config_context(
         minidumps_info=minidumps_info,
         collector_errors=collector_errors,
         security_info=security_info,
+        device_meta=device_meta,
     )
     inventory_ids = {item["id"] for item in inventory_nav}
     view = (active_view or "").strip()
     if view not in DEVICE_FIXED_VIEWS and view not in inventory_ids:
         view = "overview"
     allowed_keys = sorted(ALLOWED_SETTING_KEYS)
+    presence = str(device_meta.get("user_presence") or "")
+    if presence == "online":
+        user_names = normalize_logged_on_list(device_meta.get("logged_on"))
+        user_display_name = user_names[0] if user_names else None
+        user_presence_caption = "в системе"
+    else:
+        user_display_name = device_meta.get("last_logged_on") or None
+        user_presence_caption = "последний" if user_display_name else ""
+    uninstall = uninstall_ui_context(device_meta)
+    uninstall_confirm = device_uninstall_confirm_value(detail)
+    device_href = device_panel_href(detail.get("bad_id"), device_id)
     return {
         "device": detail,
+        "device_href": device_href,
+        "pending_reboot_visible": _pending_reboot_visible(host_info),
+        "reboot_reason_labels": _REBOOT_REASON_LABELS_RU,
+        "user_display_name": user_display_name,
+        "user_presence": presence if user_display_name else "",
+        "user_presence_caption": user_presence_caption,
+        "uninstall": uninstall,
+        "uninstall_confirm": uninstall_confirm,
         "inventory_pretty": inventory_pretty,
         "hardware_summary": hardware_summary,
         "host_info": host_info,
@@ -1944,6 +2137,15 @@ def device_detail_page(
     uninstall_error: Optional[str] = None,
     delete_error: Optional[str] = None,
 ):
+    canonical = _canonical_device_id(db, device_id)
+    if not canonical:
+        return _html(
+            request,
+            "device_missing.html",
+            {"device_id": device_id, "user": user},
+            status_code=404,
+        )
+    device_id = canonical
     flash_message = None
     error = None
     if refresh_sent == "1":
@@ -1979,6 +2181,10 @@ def device_request_refresh(
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
 ):
+    canonical = _canonical_device_id(db, device_id)
+    if not canonical:
+        return RedirectResponse(url="/devices", status_code=303)
+    device_id = canonical
     if not set_device_refresh_request(db, device_id):
         return RedirectResponse(url="/devices", status_code=303)
     return RedirectResponse(
@@ -1995,25 +2201,29 @@ def device_uninstall_order(
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
+    canonical = _canonical_device_id(db, device_id)
+    if not canonical:
+        return RedirectResponse(url="/devices", status_code=303)
+    device_id = canonical
     detail = db.get_device_detail(device_id)
     if not detail:
         return RedirectResponse(url="/devices", status_code=303)
-    expected = device_uninstall_confirm_value(detail)
-    if (confirm or "").strip() != expected:
+    panel_ref = device_panel_href(detail.get("bad_id"), device_id)
+    if not uninstall_confirm_matches(detail, confirm):
         return RedirectResponse(
-            url=f"/devices/{device_id}?view=admin&uninstall_error=1",
+            url=f"{panel_ref}?view=admin&uninstall_error=1",
             status_code=303,
         )
     ok, reason = request_device_uninstall(db, device_id)
     if not ok:
         if reason == "revoked":
             return RedirectResponse(
-                url=f"/devices/{device_id}?view=admin",
+                url=f"{panel_ref}?view=admin",
                 status_code=303,
             )
         return RedirectResponse(url="/devices", status_code=303)
     return RedirectResponse(
-        url=f"/devices/{device_id}?view=admin&uninstall_sent=1",
+        url=f"{panel_ref}?view=admin&uninstall_sent=1",
         status_code=303,
     )
 
@@ -2024,10 +2234,16 @@ def device_uninstall_cancel(
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
 ):
+    canonical = _canonical_device_id(db, device_id)
+    if not canonical:
+        return RedirectResponse(url="/devices", status_code=303)
+    device_id = canonical
+    detail = db.get_device_detail(device_id) or {}
+    panel_ref = device_panel_href(detail.get("bad_id"), device_id)
     if not cancel_device_uninstall(db, device_id):
         return RedirectResponse(url="/devices", status_code=303)
     return RedirectResponse(
-        url=f"/devices/{device_id}?view=admin&uninstall_cancelled=1",
+        url=f"{panel_ref}?view=admin&uninstall_cancelled=1",
         status_code=303,
     )
 
@@ -2040,6 +2256,15 @@ def device_revoke(
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
+    canonical = _canonical_device_id(db, device_id)
+    if not canonical:
+        return _html(
+            request,
+            "device_missing.html",
+            {"device_id": device_id, "user": user},
+            status_code=404,
+        )
+    device_id = canonical
     if not db.set_device_revoked(device_id, True):
         return _html(
             request,
@@ -2067,6 +2292,15 @@ def device_rotate_key(
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
+    canonical = _canonical_device_id(db, device_id)
+    if not canonical:
+        return _html(
+            request,
+            "device_missing.html",
+            {"device_id": device_id, "user": user},
+            status_code=404,
+        )
+    device_id = canonical
     if not db.get_device_detail(device_id):
         return _html(
             request,
@@ -2099,9 +2333,15 @@ def device_archive(
     user: WebUser = Depends(require_web_user),
     db: Database = Depends(get_db),
 ):
+    canonical = _canonical_device_id(db, device_id)
+    if not canonical:
+        return RedirectResponse(url="/devices", status_code=303)
+    device_id = canonical
+    detail = db.get_device_detail(device_id) or {}
+    panel_ref = device_panel_href(detail.get("bad_id"), device_id)
     if not db.set_device_archived(device_id, True):
         return RedirectResponse(url="/devices", status_code=303)
-    return RedirectResponse(url=f"/devices/{device_id}?view=admin", status_code=303)
+    return RedirectResponse(url=f"{panel_ref}?view=admin", status_code=303)
 
 
 @router.post("/devices/{device_id}/restore")
@@ -2110,9 +2350,15 @@ def device_restore(
     user: WebUser = Depends(require_web_user),
     db: Database = Depends(get_db),
 ):
+    canonical = _canonical_device_id(db, device_id)
+    if not canonical:
+        return RedirectResponse(url="/devices", status_code=303)
+    device_id = canonical
+    detail = db.get_device_detail(device_id) or {}
+    panel_ref = device_panel_href(detail.get("bad_id"), device_id)
     if not db.set_device_archived(device_id, False):
         return RedirectResponse(url="/devices", status_code=303)
-    return RedirectResponse(url=f"/devices/{device_id}?view=admin", status_code=303)
+    return RedirectResponse(url=f"{panel_ref}?view=admin", status_code=303)
 
 
 @router.post("/devices/{device_id}/delete")
@@ -2122,9 +2368,15 @@ def device_delete(
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
 ):
+    canonical = _canonical_device_id(db, device_id)
+    if not canonical:
+        return RedirectResponse(url="/devices", status_code=303)
+    device_id = canonical
+    detail = db.get_device_detail(device_id) or {}
+    panel_ref = device_panel_href(detail.get("bad_id"), device_id)
     if (confirm or "").strip() != device_id:
         return RedirectResponse(
-            url=f"/devices/{device_id}?delete_error=1", status_code=303
+            url=f"{panel_ref}?delete_error=1", status_code=303
         )
     db.delete_device(device_id)
     return RedirectResponse(url="/devices", status_code=303)
@@ -2187,7 +2439,19 @@ def device_merge(
     settings: Settings = Depends(get_settings),
 ):
     """Явный admin merge дублей. Не /v1; ключ донора отзывает merge_devices (DB)."""
+    survivor_canonical = _canonical_device_id(db, survivor_id)
+    if not survivor_canonical:
+        return _html(
+            request,
+            "device_missing.html",
+            {"device_id": survivor_id, "user": user},
+            status_code=404,
+        )
+    survivor_id = survivor_canonical
     donor = (donor_id or "").strip()
+    donor_resolved = _canonical_device_id(db, donor) if donor else None
+    if donor and donor_resolved:
+        donor = donor_resolved
     if not donor:
         return _device_merge_page(
             request,
@@ -2242,6 +2506,15 @@ def device_tags_save(
     settings: Settings = Depends(get_settings),
     tags: str = Form(""),
 ):
+    canonical = _canonical_device_id(db, device_id)
+    if not canonical:
+        return _html(
+            request,
+            "device_missing.html",
+            {"device_id": device_id, "user": user},
+            status_code=404,
+        )
+    device_id = canonical
     try:
         db.set_device_tags(device_id, tags)
     except KeyError:
@@ -2280,6 +2553,15 @@ def device_config_override_save(
     collect_software: str = Form(""),
     clear_override: Optional[str] = Form(None),
 ):
+    canonical = _canonical_device_id(db, device_id)
+    if not canonical:
+        return _html(
+            request,
+            "device_missing.html",
+            {"device_id": device_id, "user": user},
+            status_code=404,
+        )
+    device_id = canonical
     if clear_override is not None:
         if not db.get_device_detail(device_id):
             return _html(

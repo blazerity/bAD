@@ -90,6 +90,9 @@ class Database:
                 )
             except Exception:
                 pass
+            from .wave_21_migration import run_wave_21_migration
+
+            run_wave_21_migration(self)
             conn.commit()
 
     @contextmanager
@@ -181,15 +184,27 @@ class Database:
                     ),
                 )
                 return False
+            from .bad_id import generate_bad_id
+
+            bad_id = generate_bad_id()
+            for _ in range(8):
+                dup = conn.execute(
+                    "SELECT 1 FROM devices WHERE bad_id = ?", (bad_id,)
+                ).fetchone()
+                if not dup:
+                    break
+                bad_id = generate_bad_id()
             conn.execute(
                 """
                 INSERT INTO devices(
-                  device_id, hostname, api_key_hash, api_key_lookup, enrolled_at,
-                  last_seen_at, agent_version, meta_json, revoked, archived
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
+                  device_id, bad_id, hostname, api_key_hash, api_key_lookup,
+                  enrolled_at, last_seen_at, agent_version, meta_json,
+                  revoked, archived
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
                 """,
                 (
                     device_id,
+                    bad_id,
                     hostname,
                     api_key_hash,
                     api_key_lookup,
@@ -314,11 +329,11 @@ class Database:
         if query:
             like = f"%{query}%"
             clauses.append(
-                "(hostname ILIKE ? OR device_id ILIKE ? "
+                "(hostname ILIKE ? OR device_id ILIKE ? OR bad_id ILIKE ? "
                 "OR COALESCE(meta_json, '') ILIKE ? "
                 "OR COALESCE(tags_json, '') ILIKE ?)"
             )
-            params.extend([like, like, like, like])
+            params.extend([like, like, like, like, like])
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         return where, params
 
@@ -326,6 +341,7 @@ class Database:
     def _device_row_dict(row: Any) -> dict[str, Any]:
         return {
             "device_id": row["device_id"],
+            "bad_id": row["bad_id"] if row["bad_id"] else None,
             "hostname": row["hostname"],
             "enrolled_at": row["enrolled_at"],
             "last_seen_at": row["last_seen_at"],
@@ -426,6 +442,16 @@ class Database:
 
             merged_meta = self._lock_device_meta(conn, device_id)
             merged_meta.update(meta or {})
+            users_block = (
+                payload.get("users")
+                if isinstance(payload.get("users"), dict)
+                else None
+            )
+            from .device_meta import apply_user_presence_patch
+
+            apply_user_presence_patch(
+                merged_meta, users_block, existing=merged_meta
+            )
             meta_json = json.dumps(
                 merged_meta, separators=(",", ":"), ensure_ascii=False
             )
@@ -504,7 +530,7 @@ class Database:
             tag=tag, archived=archived, q=q
         )
         sql = f"""
-            SELECT device_id, hostname, enrolled_at, last_seen_at,
+            SELECT device_id, bad_id, hostname, enrolled_at, last_seen_at,
                    agent_version, meta_json, tags_json, revoked, archived
             FROM devices
             {where}
@@ -561,18 +587,19 @@ class Database:
         cap = max(1, min(int(limit), 50))
         like = f"%{query}%"
         sql = """
-            SELECT device_id, hostname, enrolled_at, last_seen_at,
+            SELECT device_id, bad_id, hostname, enrolled_at, last_seen_at,
                    agent_version, meta_json, tags_json, revoked, archived
             FROM devices
             WHERE hostname ILIKE ?
                OR device_id ILIKE ?
+               OR bad_id ILIKE ?
                OR COALESCE(meta_json, '') ILIKE ?
                OR COALESCE(tags_json, '') ILIKE ?
             ORDER BY COALESCE(last_seen_at, enrolled_at) DESC NULLS LAST
             LIMIT ?
         """
         with self.connection() as conn:
-            rows = conn.execute(sql, (like, like, like, like, cap)).fetchall()
+            rows = conn.execute(sql, (like, like, like, like, like, cap)).fetchall()
         return [self._device_row_dict(row) for row in rows]
 
     def get_device_event(self, event_id: int) -> Optional[dict[str, Any]]:
@@ -895,6 +922,7 @@ class Database:
             disk_serials = list(from_meta.get("disk_serials") or [])
         return {
             "device_id": device["device_id"],
+            "bad_id": device["bad_id"] if device.get("bad_id") else None,
             "hostname": device["hostname"],
             "enrolled_at": device["enrolled_at"],
             "last_seen_at": device["last_seen_at"],
@@ -2375,6 +2403,7 @@ class Database:
                     "os": (host.get("os") or {}).get("caption")
                     if isinstance(host.get("os"), dict)
                     else "",
+                    "bad_id": d.get("bad_id") or "",
                 }
             )
         return rows

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from .device_meta import normalize_logged_on_user
+from .fleet_buckets import disk_role
 
 # Абсолютное падение свободного места (байты) или относительное к предыдущему free.
 VOLUME_FREE_DROP_ABS = 5 * 1024**3  # 5 ГиБ
@@ -434,24 +435,62 @@ def diff_inventory_snapshots(
     }
     for key in sorted(cur_disks.keys() - prev_disks.keys()):
         d = cur_disks[key]
+        role = disk_role(d)
         label = _norm_str(d.get("model")) or key
-        events.append(
-            {
-                "type": "disk_added",
-                "summary": f"Disk added: {label}",
-                "detail": {"disk": d},
-            }
-        )
+        disk_detail = {**d, "role": role}
+        if role == "fixed":
+            events.append(
+                {
+                    "type": "disk_added",
+                    "summary": f"Диск подключён: {label}",
+                    "detail": {"disk": disk_detail},
+                }
+            )
+        elif role == "flash":
+            events.append(
+                {
+                    "type": "usb_added",
+                    "summary": f"Флешка подключена: {label}",
+                    "detail": {"disk": disk_detail},
+                }
+            )
+        else:
+            events.append(
+                {
+                    "type": "usb_added",
+                    "summary": f"USB-диск подключён: {label}",
+                    "detail": {"disk": disk_detail},
+                }
+            )
     for key in sorted(prev_disks.keys() - cur_disks.keys()):
         d = prev_disks[key]
+        role = disk_role(d)
         label = _norm_str(d.get("model")) or key
-        events.append(
-            {
-                "type": "disk_removed",
-                "summary": f"Disk removed: {label}",
-                "detail": {"disk": d},
-            }
-        )
+        disk_detail = {**d, "role": role}
+        if role == "fixed":
+            events.append(
+                {
+                    "type": "disk_removed",
+                    "summary": f"Диск отключён: {label}",
+                    "detail": {"disk": disk_detail},
+                }
+            )
+        elif role == "flash":
+            events.append(
+                {
+                    "type": "usb_removed",
+                    "summary": f"Флешка отключена: {label}",
+                    "detail": {"disk": disk_detail},
+                }
+            )
+        else:
+            events.append(
+                {
+                    "type": "usb_removed",
+                    "summary": f"USB-диск отключён: {label}",
+                    "detail": {"disk": disk_detail},
+                }
+            )
 
     prev_vols = {
         _volume_key(v): v

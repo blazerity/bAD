@@ -7,8 +7,7 @@
 {% set view = active_view or 'overview' %}
 <section class="page device-card">
   {% set meta = device.meta if device.meta is mapping else {} %}
-  {% set logged_src = (users_info.logged_on if users_info and users_info.logged_on else none) or meta.logged_on or [] %}
-  {% set logged = (logged_src|logged_on_names|first) if logged_src else none %}
+  {% set logged = user_display_name %}
   {% set ip_line = (meta.ipv4_addresses[0] if meta.ipv4_addresses else none) %}
   {% set serial_line = hw.serial_number if hw and hw.serial_number else meta.serial_number %}
   <header class="device-detail-hero">
@@ -28,10 +27,10 @@
         {% endif %}
       </div>
       <p class="muted device-detail-subline">
-        {% if logged %}<span>{{ logged }}</span>{% endif %}
-        {% if ip_line %}<span>{% if logged %} · {% endif %}<span class="mono">{{ ip_line }}</span></span>{% endif %}
-        {% if serial_line %}<span>{% if logged or ip_line %} · {% endif %}<span class="mono">{{ serial_line }}</span></span>{% endif %}
-        {% if not logged and not ip_line and not serial_line %}<span>{{ device.device_id }}</span>{% endif %}
+        {% if device.bad_id %}<span class="mono">{{ copyable(device.bad_id) }}</span>{% endif %}
+        {% if logged %}<span>{% if device.bad_id %} · {% endif %}{{ logged }}</span>{% endif %}
+        {% if ip_line %}<span>{% if device.bad_id or logged %} · {% endif %}<span class="mono">{{ ip_line }}</span></span>{% endif %}
+        {% if serial_line %}<span>{% if device.bad_id or logged or ip_line %} · {% endif %}<span class="mono">{{ serial_line }}</span></span>{% endif %}
       </p>
     </div>
   </header>
@@ -144,13 +143,15 @@
       <div class="device-panel {% if view == 'overview' %}is-active{% endif %}" data-device-panel="overview">
         <h2 class="with-icon">{{ icon('overview') }}Обзор</h2>
         <dl class="meta identity-meta device-identity-meta">
-          <div><dt>Идентификатор</dt><dd class="mono">{{ device.device_id }}</dd></div>
+          {% if device.bad_id %}
+          <div><dt>bad-id</dt><dd class="mono">{{ copyable(device.bad_id) }}</dd></div>
+          {% endif %}
           <div><dt>Версия агента</dt><dd class="mono">{{ device.agent_version or "—" }}</dd></div>
           <div>
             <dt>Последний контакт</dt>
             <dd>
               {{ local_time(device.last_seen_at) }}
-              {% if host_info and host_info.pending_reboot is true %}
+              {% if pending_reboot_visible %}
               <span class="badge badge-pending-reboot" title="Агент сообщает о pending reboot">ожидает перезагрузку</span>
               {% endif %}
               {% if device.revoked %}<span class="badge badge-stale">доступ отозван</span>{% endif %}
@@ -235,18 +236,27 @@
           {% if host_info.timezone %}
           <div><dt>Часовой пояс</dt><dd>{{ host_info.timezone }}</dd></div>
           {% endif %}
-          {% if host_info.pending_reboot is not none %}
           <div>
             <dt>Ожидает перезагрузку</dt>
             <dd>
-              {% if host_info.pending_reboot %}
+              {% if pending_reboot_visible %}
               <span class="badge badge-pending-reboot">да</span>
-              {% else %}
+              {% if host_info.pending_reboot_reasons %}
+              <ul class="muted pending-reboot-reasons">
+                {% for r in host_info.pending_reboot_reasons %}
+                <li>{{ reboot_reason_labels.get(r, r) }}</li>
+                {% endfor %}
+              </ul>
+              {% endif %}
+              {% elif host_info.pending_reboot is true %}
+              нет данных агента
+              {% elif host_info.pending_reboot is false %}
               нет
+              {% else %}
+              нет данных агента
               {% endif %}
             </dd>
           </div>
-          {% endif %}
           {% if host_info.ad_ou %}
           <div><dt>AD OU</dt><dd>{{ host_info.ad_ou }}</dd></div>
           {% endif %}
@@ -346,7 +356,7 @@
         {% endif %}
         {% if hw.disks %}
         {% for d in hw.disks %}
-        <p class="speccy-group">Диск {{ loop.index }}</p>
+        <p class="speccy-group">{{ d|disk_role_label }} {{ loop.index }}</p>
         <dl class="speccy-kv">
           {% if d.model %}<div><dt>Модель</dt><dd>{{ d.model }}</dd></div>{% endif %}
           {% if d.size_bytes is defined and d.size_bytes is not none %}
@@ -415,15 +425,22 @@
       </div>
       {% endif %}
 
-      {% if users_info %}
       <div class="device-panel {% if view == 'users' %}is-active{% endif %}" data-device-panel="users">
         <h2 class="with-icon">{{ icon('users') }}Пользователи</h2>
         <dl class="speccy-kv">
-          <div><dt>Последний интерактивный</dt><dd>{{ users_info.last_interactive|logged_on_user or "—" }}</dd></div>
-          <div><dt>В системе</dt><dd>{{ users_info.logged_on|format_logged_on or '—' }}</dd></div>
+          <div>
+            <dt>Пользователь</dt>
+            <dd>
+              {% if user_display_name %}
+              <span class="user-presence-{{ user_presence }}">{{ user_display_name }}</span>
+              <span class="muted">{{ user_presence_caption }}</span>
+              {% else %}
+              нет данных
+              {% endif %}
+            </dd>
+          </div>
         </dl>
       </div>
-      {% endif %}
 
       {% if software_info %}
       <div class="device-panel {% if view == 'software' %}is-active{% endif %}" data-device-panel="software">
@@ -786,6 +803,9 @@
       <div class="device-panel {% if view == 'admin' %}is-active{% endif %}" data-device-panel="admin">
         <h2>Управление записью</h2>
         <p class="muted">Действия, которые меняют запись устройства в БД.</p>
+        <dl class="meta meta-compact">
+          <div><dt>Служебный идентификатор</dt><dd class="mono">{{ copyable(device.device_id) }}</dd></div>
+        </dl>
 
         <h3>Теги</h3>
         <form method="post" action="/devices/{{ device.device_id }}/tags" class="settings-form compact-form">

@@ -125,6 +125,7 @@ def connect_postgres(database_url: str) -> CompatConnection:
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS devices (
   device_id TEXT PRIMARY KEY,
+  bad_id TEXT UNIQUE,
   hostname TEXT,
   api_key_hash TEXT NOT NULL,
   api_key_lookup TEXT,

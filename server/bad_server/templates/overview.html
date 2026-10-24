@@ -245,62 +245,26 @@
     </article>
   </div>
 
-  <div class="overview-grid-2">
-    <article class="card-surface stack-card">
-      <h2>Версии агента</h2>
-      {% set ver_top = (agent_version_summary.top if agent_version_summary else stats.agent_versions) or [] %}
-      {% if ver_top %}
-      <ul class="compact-stat-list">
-        {% for row in ver_top[:6] %}
-        <li><span class="mono">{{ row.version }}</span><span class="muted tnum">{{ row.count }}</span></li>
-        {% endfor %}
-      </ul>
-      {% if agent_version_summary and agent_version_summary.total_versions > 6 %}
-      <p class="muted"><a href="{{ agent_version_summary.dashboard_href }}">все на дашборде</a></p>
-      {% endif %}
-      {% else %}
-      <p class="muted">Пока нет активных устройств.</p>
-      {% endif %}
-    </article>
-    <article class="card-surface stack-card">
-      <h2 class="with-icon">{{ icon('events') }}Недавнее железо</h2>
-      {% if stats.recent_hardware_events %}
-      <ul class="overview-hw-list">
-        {% for e in stats.recent_hardware_events[:6] %}
-        <li>
-          <a href="/events/{{ e.id }}">{{ local_time(e.created_at, extra_class='mono muted') }}</a>
-          · {{ device_link(e.device_id, e.hostname or e.device_id, e.chassis_type) }}
-          · <span title="{{ e.type }}">{{ e.type|format_event_type }}</span>
-        </li>
-        {% endfor %}
-      </ul>
-      {% else %}
-      <p class="muted">Пока нет событий.</p>
-      {% endif %}
-      <p class="muted"><a href="/events">Все события</a></p>
-    </article>
-  </div>
-
-  {% if ops.version_drift_count %}
-  <article class="card-surface stack-card">
-    <h2>Отстающие по версии</h2>
-    <div class="table-scroll">
-    <table class="devices">
-      <thead><tr><th>Устройство</th><th>Агент</th><th>Цель</th></tr></thead>
-      <tbody>
-      {% for d in ops.version_drift[:6] %}
-        <tr>
-          <td>{{ device_link(d.device_id, d.hostname or d.device_id, d.chassis_type) }}</td>
-          <td class="mono">{{ d.agent_version }}</td>
-          <td class="mono">{{ d.target }}</td>
-        </tr>
+  <article class="card-surface stack-card overview-hw-wide">
+    <h2 class="with-icon">{{ icon('events') }}Недавнее железо</h2>
+    {% if stats.recent_hardware_events %}
+    <ul class="overview-hw-list">
+      {% for e in stats.recent_hardware_events[:8] %}
+      <li>
+        <a href="/events/{{ e.id }}">{{ local_time(e.created_at, extra_class='mono muted') }}</a>
+        · <a href="{{ e.device_href or ('/devices/' ~ e.device_id) }}">{{ e.hostname or e.device_id }}</a>
+        {% if e.bad_id %}<span class="mono muted">{{ e.bad_id }}</span>{% endif %}
+        · <span title="{{ e.type }}">{{ e.type|format_event_type }}</span>
+        {% if e.importance %}<span class="badge badge-importance-{{ e.importance }}">{{ e.importance|importance_label_ru }}</span>{% endif %}
+        {% if e.summary %}<span class="muted">{{ e.summary }}</span>{% endif %}
+      </li>
       {% endfor %}
-      </tbody>
-    </table>
-    </div>
-    <p class="muted"><a href="/devices?wave=drift">волна drift</a></p>
+    </ul>
+    {% else %}
+    <p class="muted">Пока нет событий.</p>
+    {% endif %}
+    <p class="muted"><a href="/events">Все события</a></p>
   </article>
-  {% endif %}
 </section>
 <script src="/static/overview-search.js" defer></script>
 {% endblock %}

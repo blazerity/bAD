@@ -700,7 +700,7 @@ def build_dashboard_stats(
                 "label": "Онлайн",
                 "count": online,
                 "pct": _pct(online, total_active),
-                "href": "/devices",
+                "href": "/devices?fresh=ok",
             },
             {
                 "id": "stale",
@@ -721,15 +721,17 @@ def build_dashboard_stats(
     ver_counts: dict[str, int] = {}
     for row in stats.get("agent_versions") or []:
         ver_counts[str(row.get("version") or "—")] = int(row.get("count") or 0)
-    version_items = [
-        {
+    version_items = []
+    for item in _top_bars(ver_counts, top=VERSION_BAR_TOP, total=total_active):
+        row = {
             "version": item["label"],
             "count": item["count"],
             "pct": item["pct"],
             "is_other": item["is_other"],
         }
-        for item in _top_bars(ver_counts, top=VERSION_BAR_TOP, total=total_active)
-    ]
+        if not item.get("is_other") and item.get("label"):
+            row["href"] = chart_filter_href("agent", str(item["label"]))
+        version_items.append(row)
     agent_version_bars = {
         "items": version_items,
         "latest": ops.get("latest_version"),
@@ -749,6 +751,16 @@ def build_dashboard_stats(
     model_counts: dict[str, int] = {}
     ram_counts: dict[str, int] = {}
     storage_counts: dict[str, int] = {}
+    for d in active:
+        meta = d.get("meta") if isinstance(d.get("meta"), dict) else {}
+        ram_label = meta.get("ram_bucket")
+        if ram_label:
+            key = str(ram_label)
+            ram_counts[key] = ram_counts.get(key, 0) + 1
+        disk_label = meta.get("disk_bucket")
+        if disk_label:
+            key = str(disk_label)
+            storage_counts[key] = storage_counts.get(key, 0) + 1
     scan_cap = min(len(active), INVENTORY_SCAN_CAP)
     scan_ids = [d["device_id"] for d in active[:scan_cap]]
     payloads = db.latest_inventory_payloads(scan_ids, cap=INVENTORY_SCAN_CAP) if scan_ids else {}
@@ -757,13 +769,6 @@ def build_dashboard_stats(
     for d in active[:scan_cap]:
         facets = _facet_from_device_meta(d)
         payload = payloads.get(d["device_id"])
-        hw: dict[str, Any] = {}
-        if isinstance(payload, dict):
-            raw_hw = payload.get("hardware")
-            if isinstance(raw_hw, dict):
-                hw = raw_hw
-        if hw:
-            _accumulate_hw_bars(hw, ram_counts, storage_counts)
         if facets:
             caption, domain, model_label = facets
             scanned += 1
@@ -860,19 +865,25 @@ def build_dashboard_stats(
     }
 
     cpu_family_counts: dict[str, int] = {}
-    for d in active[:scan_cap]:
-        facets = device_chart_facets(d, payloads.get(d["device_id"]))
-        fam = facets.get("cpu") or "Прочее"
-        cpu_family_counts[fam] = cpu_family_counts.get(fam, 0) + 1
+    for d in active:
+        meta = d.get("meta") if isinstance(d.get("meta"), dict) else {}
+        fam = meta.get("cpu_family")
+        if not fam:
+            continue
+        key = str(fam)
+        cpu_family_counts[key] = cpu_family_counts.get(key, 0) + 1
     cpu_treemap_items = []
     for label, count in sorted(
         cpu_family_counts.items(), key=lambda x: (-x[1], x[0])
     ):
         if count <= 0:
             continue
-        vendor = "amd" if label.startswith("Ryzen") else (
-            "intel" if label.startswith("Core") or label == "Xeon" else "neutral"
-        )
+        if label.startswith("Intel"):
+            vendor = "intel"
+        elif label.startswith("AMD"):
+            vendor = "amd"
+        else:
+            vendor = "neutral"
         cpu_treemap_items.append(
             {
                 "label": label,

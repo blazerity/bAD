@@ -82,11 +82,12 @@
             })
           : [];
       var evts = cats.events ? data.events || [] : [];
+      var users = data.users || [];
       var sets =
         cats.settings && typeof window.badPanelSettingsHits === "function"
           ? window.badPanelSettingsHits(q)
           : [];
-      if (!devs.length && !evts.length && !sets.length) {
+      if (!devs.length && !evts.length && !users.length && !sets.length) {
         var p = document.createElement("p");
         p.className = "muted search-hit-empty";
         p.textContent = "Ничего не найдено.";
@@ -111,6 +112,21 @@
             e.title_html || e.summary || "",
             e.subtitle_html || e.hostname || "",
             "События"
+          )
+        );
+      });
+      users.forEach(function (u) {
+        var subs = (u.devices || [])
+          .map(function (d) {
+            return d.hostname || d.bad_id || "";
+          })
+          .join(", ");
+        box.appendChild(
+          hitRow(
+            (u.devices && u.devices[0] && u.devices[0].href) || "/devices",
+            u.name || "",
+            subs,
+            "Пользователь"
           )
         );
       });
