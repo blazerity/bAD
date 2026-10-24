@@ -9,70 +9,73 @@
   <header class="page-header">
     <h1 class="with-icon">{{ icon('devices') }}Устройства</h1>
     <p class="page-lead muted">
-    {% if show_archive %}Архив{% else %}Активные{% endif %}:
-    показано {{ devices|length }} из {{ total }}.
-    {% if wave %}· фильтр волны: <span class="mono">{{ wave }}</span>{% endif %}
+      {% if show_archive %}Архив{% else %}Активные{% endif %}:
+      {% if fleet_stats %}<span class="tnum">{{ fleet_stats.total_active }}</span> в парке · {% endif %}
+      показано {{ devices|length }} из {{ total }}
+      {% if wave %}· фильтр: <span class="mono">{{ wave }}</span>{% endif %}
+    </p>
+    <p class="muted devices-catalog-line">
+      Каталог MSI:
+      {% if agent_update %}
+        <strong>{{ agent_update.version }}</strong>
+        <span class="mono">({{ agent_update.msi_name }})</span>
+      {% else %}
+        <em>пока нет</em> — <a href="/settings/updates">загрузить</a>
+      {% endif %}
     </p>
   </header>
   {% if flash %}<p class="ok">{{ flash }}</p>{% endif %}
-  {% if fleet_stats %}
-  <div class="filter-chips devices-fleet-chips" role="group" aria-label="Состояние парка">
-    {{ filter_chip('/devices', 'Все', fleet_stats.total_active, not show_archive and not wave) }}
-    {{ filter_chip('/devices?wave=stale', 'Устарели', fleet_stats.stale, wave == 'stale') }}
-    {{ filter_chip('/devices?wave=drift', 'Drift', none, wave == 'drift') }}
-    {{ filter_chip('/devices?archive=1', 'Архив', fleet_stats.archived, show_archive) }}
-  </div>
-  {% endif %}
-  <p class="muted">
-    Основная версия в каталоге установщиков:
-    {% if agent_update %}
-      <strong>{{ agent_update.version }}</strong>
-      ({{ agent_update.msi_name }}, синхр. {{ local_time(agent_update.synced_at) }})
-    {% else %}
-      <em>пока нет</em> —
-      <a href="/settings/updates">Параметры → Обновления агента</a>
-    {% endif %}
-  </p>
 
-  <div class="card-surface filter-card">
-  <div class="filter-bar filter-bar-flat">
-    <div class="live-search-wrap">
-      <label for="device-live-q">Быстрый переход</label>
-      <input id="device-live-q" class="panel-search-input" type="search" placeholder="начните вводить имя…" maxlength="128" autocomplete="off">
-      <div id="device-live-results" class="live-search-results" hidden></div>
-    </div>
-  </div>
-
-  <form method="get" action="/devices" class="filter-bar" data-live-submit data-live-delay="300">
-    <label for="q">Поиск</label>
-    <input id="q" name="q" type="search" value="{{ q }}"
-      placeholder="hostname / device_id / serial / UUID" maxlength="128" autocomplete="off">
-    <label for="tag">Тег</label>
-    <select id="tag" name="tag">
-      <option value="">Все теги</option>
-      {% for t in all_tags %}
-      <option value="{{ t }}" {% if tag_filter == t %}selected{% endif %}>{{ t }}</option>
-      {% endfor %}
-    </select>
-    <label for="wave">Волна</label>
-    <select id="wave" name="wave">
-      <option value="" {% if not wave %}selected{% endif %}>все</option>
-      <option value="drift" {% if wave == 'drift' %}selected{% endif %}>отстают по версии</option>
-      <option value="revoked" {% if wave == 'revoked' %}selected{% endif %}>доступ отозван</option>
-      <option value="agent_local" {% if wave == 'agent_local' %}selected{% endif %}>настройка на компьютере</option>
-      <option value="stale" {% if wave == 'stale' %}selected{% endif %}>давно без связи</option>
-      <option value="dup" {% if wave == 'dup' %}selected{% endif %}>дубли (hostname/serial/UUID/disk)</option>
-    </select>
-    <label class="check">
-      <input type="checkbox" name="archive" value="1" {% if show_archive %}checked{% endif %}>
-      Архив
-    </label>
-    <button type="submit">Найти</button>
-    {% if filters_active %}
-    <a class="btn secondary" href="/devices">Сбросить фильтры</a>
-    {% endif %}
-    <a class="btn secondary" href="/devices/export.csv{% if export_qs %}?{{ export_qs }}{% endif %}">CSV</a>
-  </form>
+  <div class="card-surface filter-card devices-filter-card">
+    <form method="get" action="/devices" class="devices-filter-form" data-live-submit data-live-delay="300">
+      <div class="filter-card-row filter-card-row-1">
+        <div class="search-input-wrap filter-search-grow card-surface filter-search-surface">
+          <span class="search-input-icon" aria-hidden="true">{{ icon('search') }}</span>
+          <input id="q" name="q" class="panel-search-input" type="search" value="{{ q }}"
+            placeholder="hostname, device_id, serial, UUID…" maxlength="128" autocomplete="off">
+        </div>
+        {% if filters_active %}
+        <a class="filter-reset-link" href="/devices">Сбросить</a>
+        {% endif %}
+      </div>
+      {% if fleet_stats %}
+      <div class="filter-card-row filter-card-row-2">
+        <div class="filter-chips devices-fleet-chips" role="group" aria-label="Состояние парка">
+          {{ filter_chip('/devices', 'Все', fleet_stats.total_active, not show_archive and not wave) }}
+          {{ filter_chip('/devices?wave=stale', 'Устарели', fleet_stats.stale, wave == 'stale') }}
+          {{ filter_chip('/devices?archive=1', 'Архив', fleet_stats.archived, show_archive) }}
+        </div>
+      </div>
+      {% endif %}
+      <div class="filter-card-row filter-card-row-3 devices-filter-extra">
+        <div class="live-search-wrap" data-live-skip>
+          <label class="sr-only" for="device-live-q">Быстрый переход</label>
+          <input id="device-live-q" class="panel-search-input" type="search" placeholder="Быстрый переход по имени…" maxlength="128" autocomplete="off">
+          <div id="device-live-results" class="live-search-results" hidden></div>
+        </div>
+        <label class="sr-only" for="tag">Тег</label>
+        <select id="tag" name="tag" class="filter-select-inline">
+          <option value="">Все теги</option>
+          {% for t in all_tags %}
+          <option value="{{ t }}" {% if tag_filter == t %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+        <label class="sr-only" for="wave">Волна</label>
+        <select id="wave" name="wave" class="filter-select-inline">
+          <option value="" {% if not wave %}selected{% endif %}>Все волны</option>
+          <option value="drift" {% if wave == 'drift' %}selected{% endif %}>отстают по версии</option>
+          <option value="revoked" {% if wave == 'revoked' %}selected{% endif %}>доступ отозван</option>
+          <option value="agent_local" {% if wave == 'agent_local' %}selected{% endif %}>настройка на ПК</option>
+          <option value="stale" {% if wave == 'stale' %}selected{% endif %}>давно без связи</option>
+          <option value="dup" {% if wave == 'dup' %}selected{% endif %}>дубли</option>
+        </select>
+        <label class="check devices-archive-check">
+          <input type="checkbox" name="archive" value="1" {% if show_archive %}checked{% endif %}>
+          Архив
+        </label>
+        <a class="btn secondary btn-compact" href="/devices/export.csv{% if export_qs %}?{{ export_qs }}{% endif %}">CSV</a>
+      </div>
+    </form>
   </div>
 
   {% if not devices %}
@@ -83,7 +86,7 @@
     <p class="muted">После установки устройство появится в списке в течение нескольких минут.</p>
   </div>
   {% else %}
-  <p>Нет устройств{% if q %} по запросу <span class="mono">{{ q }}</span>{% endif %}{% if tag_filter %} с тегом <span class="mono">{{ tag_filter }}</span>{% endif %}{% if wave %} по фильтру <span class="mono">{{ wave }}</span>{% endif %}.</p>
+  <p class="muted table-empty">Нет устройств{% if q %} по запросу <span class="mono">{{ q }}</span>{% endif %}{% if tag_filter %} с тегом <span class="mono">{{ tag_filter }}</span>{% endif %}{% if wave %} по фильтру <span class="mono">{{ wave }}</span>{% endif %}.</p>
   {% endif %}
   {% else %}
   <form method="post" action="/devices/bulk" id="devices-bulk-form" class="devices-bulk-form">
@@ -111,48 +114,53 @@
     <thead>
       <tr>
         <th class="bulk-check-col" aria-label="Выбор"></th>
-        <th>Имя узла</th>
-        <th>Идентификатор</th>
-        <th>Состояние</th>
-        <th>Теги</th>
-        <th>Версия агента</th>
-        <th>Последний контакт</th>
+        <th class="col-status-dot" aria-hidden="true"></th>
+        <th>Устройство</th>
+        <th>Пользователь</th>
+        <th>ОС</th>
+        <th>CPU</th>
+        <th>ОЗУ</th>
+        <th>IP</th>
+        <th>Контакт</th>
+        <th class="col-chevron" aria-hidden="true"></th>
       </tr>
     </thead>
     <tbody>
       {% for d in devices %}
-      <tr>
-        <td class="bulk-check-col">
+      {% set meta = d.meta if d.meta is mapping else {} %}
+      {% set fresh = d.freshness or d.silence.status %}
+      {% set logged = (meta.logged_on or [])|first if meta.logged_on else '—' %}
+      {% set os_line = meta.os_caption or meta.os or '—' %}
+      {% set ip_line = (meta.ipv4_addresses or [])|first if meta.ipv4_addresses else '—' %}
+      <tr class="table-row-link">
+        <td class="bulk-check-col" onclick="event.stopPropagation()">
           <input type="checkbox" name="device_id" value="{{ d.device_id }}" class="bulk-device-cb">
         </td>
+        <td class="col-status-dot">
+          <span class="device-status-dot device-status-{{ fresh }}" title="{{ freshness_label(fresh) }}"></span>
+        </td>
         <td>
-          {{ device_link(d.device_id, d.hostname or '(неизвестно)', d.chassis_type) }}
+          <a class="device-cell-link" href="/devices/{{ d.device_id }}">
+            <span class="device-cell-host">{{ d.hostname or '(неизвестно)' }}</span>
+            <span class="mono muted device-cell-id">{{ d.device_id }}</span>
+          </a>
           {% if d.is_duplicate %}
             {% set kinds = d.dup_kinds or [] %}
-            <span class="badge badge-stale" title="Возможный дубль: {{ (kinds|join(', ')) if kinds else 'hostname/serial/smbios_uuid/disk' }} (автослияния нет)">дубль</span>
+            <span class="badge badge-stale" title="Возможный дубль">дубль</span>
           {% endif %}
-          {% if d.revoked %}
-            <span class="badge badge-stale">отозван</span>
-          {% endif %}
-          {% if d.has_agent_local %}
-            <span class="badge badge-agent-local">на компьютере</span>
-          {% endif %}
+          {% if d.revoked %}<span class="badge badge-stale">отозван</span>{% endif %}
+          {% if d.has_agent_local %}<span class="badge badge-agent-local">на ПК</span>{% endif %}
         </td>
-        <td class="mono">{{ d.device_id }}</td>
+        <td class="device-col-user">{{ logged }}</td>
         <td>
-          <span class="badge badge-fresh-{{ d.freshness or d.silence.status }}">{{ freshness_label(d.freshness or d.silence.status) }}</span>
+          <span>{{ os_line }}</span>
+          {% if d.agent_version %}<span class="mono muted device-col-sub">{{ d.agent_version }}</span>{% endif %}
         </td>
-        <td>
-          {% if d.tags %}
-            {% for t in d.tags %}
-              <a class="tag-chip" href="/devices?tag={{ t }}">{{ t }}</a>
-            {% endfor %}
-          {% else %}
-            <span class="muted">—</span>
-          {% endif %}
-        </td>
-        <td class="mono">{{ d.agent_version or "—" }}</td>
-        <td>{{ local_time(d.last_seen_at) }}</td>
+        <td class="device-col-cpu muted">{% if meta.cpu_name %}{{ meta.cpu_name }}{% else %}—{% endif %}</td>
+        <td class="muted">—</td>
+        <td class="mono device-col-ip">{{ ip_line }}</td>
+        <td class="muted">{{ local_time(d.last_seen_at) }}</td>
+        <td class="col-chevron"><a class="row-chevron" href="/devices/{{ d.device_id }}" aria-label="Открыть устройство"></a></td>
       </tr>
       {% endfor %}
     </tbody>

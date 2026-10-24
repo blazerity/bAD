@@ -6,36 +6,32 @@
 {% set hw = hardware_summary %}
 {% set view = active_view or 'overview' %}
 <section class="page device-card">
-  <p class="crumb"><a href="/devices">Устройства</a> / {{ device.hostname or device.device_id }}</p>
-  <div class="device-title-row">
-    <h1 class="with-icon">{{ icon(chassis_icon_name(chassis_type)) }}{{ device.hostname or "(неизвестный узел)" }}</h1>
-    {% if user.is_admin %}
-    <form method="post" action="/devices/{{ device.device_id }}/request-refresh" class="device-refresh-form">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <button type="submit" class="secondary">Обновить политику и версию</button>
-    </form>
-    {% endif %}
-  </div>
-  {% if hw or chassis_label %}
-  <div class="device-hardware-strip" role="group" aria-label="Кратко о железе">
-    {% if chassis_label %}<span class="device-hardware-chip">{{ chassis_label }}</span>{% endif %}
-    {% if hw and hw.serial_number %}
-    <span class="device-hardware-chip"><span class="muted">Серия</span> <span class="mono">{{ hw.serial_number }}</span></span>
-    {% endif %}
-    {% if hw and (hw.manufacturer or hw.model) %}
-    <span class="device-hardware-chip"><span class="muted">Модель</span> {{ hw.manufacturer }} {{ hw.model }}</span>
-    {% endif %}
-    {% if hw and hw.ram_bytes is not none %}
-    <span class="device-hardware-chip"><span class="muted">ОЗУ</span> {{ hw.ram_bytes|format_bytes }}</span>
-    {% endif %}
-    {% if hw and hw.disks and hw.disks[0] %}
-    {% set d0 = hw.disks[0] %}
-    <span class="device-hardware-chip"><span class="muted">Диск</span> {{ d0.model or 'накопитель' }} · {{ d0.size_bytes|format_bytes }}</span>
-    {% elif hw and hw.volumes %}
-    <span class="device-hardware-chip"><span class="muted">Тома</span> {{ hw.volumes|length }}</span>
-    {% endif %}
-  </div>
-  {% endif %}
+  {% set meta = device.meta if device.meta is mapping else {} %}
+  {% set logged_src = (users_info.logged_on if users_info and users_info.logged_on else none) or meta.logged_on or [] %}
+  {% set logged = logged_src[0] if logged_src else none %}
+  {% set ip_line = (meta.ipv4_addresses[0] if meta.ipv4_addresses else none) %}
+  {% set serial_line = hw.serial_number if hw and hw.serial_number else meta.serial_number %}
+  <header class="device-detail-hero">
+    <a class="device-back-link" href="/devices">← Устройства</a>
+    <div class="device-detail-hero-main">
+      <div class="device-detail-title-row">
+        <h1 class="with-icon">{{ icon(chassis_icon_name(chassis_type)) }}{{ device.hostname or "(неизвестный узел)" }}</h1>
+        <span class="badge badge-fresh-{{ freshness or silence.status }}">{{ freshness_label(freshness or silence.status) }}</span>
+        {% if user.is_admin %}
+        <form method="post" action="/devices/{{ device.device_id }}/request-refresh" class="device-refresh-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="btn secondary btn-compact">Обновить политику</button>
+        </form>
+        {% endif %}
+      </div>
+      <p class="muted device-detail-subline">
+        {% if logged %}<span>{{ logged }}</span>{% endif %}
+        {% if ip_line %}<span>{% if logged %} · {% endif %}<span class="mono">{{ ip_line }}</span></span>{% endif %}
+        {% if serial_line %}<span>{% if logged or ip_line %} · {% endif %}<span class="mono">{{ serial_line }}</span></span>{% endif %}
+        {% if not logged and not ip_line and not serial_line %}<span>{{ device.device_id }}</span>{% endif %}
+      </p>
+    </div>
+  </header>
   {% if device.meta and device.meta.refresh_requested_at %}
   <p class="muted">ожидает агента…</p>
   {% endif %}
@@ -44,42 +40,6 @@
   {% if new_api_key %}
   <p class="ok warn-box">Новый ключ доступа агента (покажите один раз): <span class="mono">{{ copyable(new_api_key) }}</span></p>
   {% endif %}
-
-  <dl class="meta identity-meta">
-    <div><dt>Идентификатор</dt><dd class="mono">{{ device.device_id }}</dd></div>
-    <div><dt>Версия агента</dt><dd class="mono">{{ device.agent_version or "—" }}</dd></div>
-    <div>
-      <dt>Последний контакт</dt>
-      <dd>
-        {{ local_time(device.last_seen_at) }}
-        <span class="badge badge-fresh-{{ freshness or silence.status }}">{{ freshness_label(freshness or silence.status) }}</span>
-        {% if host_info and host_info.pending_reboot is true %}
-        <span class="badge badge-pending-reboot" title="Агент сообщает о pending reboot">ожидает перезагрузку</span>
-        {% endif %}
-        {% if device.revoked %}<span class="badge badge-stale">доступ отозван</span>{% endif %}
-        {% if device.archived %}<span class="badge badge-stale">архив</span>{% endif %}
-      </dd>
-    </div>
-    <div><dt>Состояние</dt><dd class="mono">{{ health_snippet or "—" }}</dd></div>
-    {% if device.smbios_uuid %}
-    <div>
-      <dt>SMBIOS UUID</dt>
-      <dd class="mono identity-uuid" title="{{ device.smbios_uuid }}">
-        {%- if device.smbios_uuid|length > 18 -%}
-        {{ copyable(device.smbios_uuid, display=device.smbios_uuid[:8] ~ '…' ~ device.smbios_uuid[-4:]) }}
-        {%- else -%}
-        {{ copyable(device.smbios_uuid) }}
-        {%- endif -%}
-      </dd>
-    </div>
-    {% endif %}
-    {% if device.tags %}
-    <div>
-      <dt>Теги</dt>
-      <dd>{% for t in device.tags %}<span class="tag-chip">{{ t }}</span>{% endfor %}</dd>
-    </div>
-    {% endif %}
-  </dl>
 
   {% if duplicate_groups %}
   <div class="warn-box">
@@ -180,6 +140,40 @@
       {# —— Обзор —— #}
       <div class="device-panel {% if view == 'overview' %}is-active{% endif %}" data-device-panel="overview">
         <h2 class="with-icon">{{ icon('overview') }}Обзор</h2>
+        <dl class="meta identity-meta device-identity-meta">
+          <div><dt>Идентификатор</dt><dd class="mono">{{ device.device_id }}</dd></div>
+          <div><dt>Версия агента</dt><dd class="mono">{{ device.agent_version or "—" }}</dd></div>
+          <div>
+            <dt>Последний контакт</dt>
+            <dd>
+              {{ local_time(device.last_seen_at) }}
+              {% if host_info and host_info.pending_reboot is true %}
+              <span class="badge badge-pending-reboot" title="Агент сообщает о pending reboot">ожидает перезагрузку</span>
+              {% endif %}
+              {% if device.revoked %}<span class="badge badge-stale">доступ отозван</span>{% endif %}
+              {% if device.archived %}<span class="badge badge-stale">архив</span>{% endif %}
+            </dd>
+          </div>
+          <div><dt>Состояние</dt><dd class="mono">{{ health_snippet or "—" }}</dd></div>
+          {% if device.smbios_uuid %}
+          <div>
+            <dt>SMBIOS UUID</dt>
+            <dd class="mono identity-uuid" title="{{ device.smbios_uuid }}">
+              {%- if device.smbios_uuid|length > 18 -%}
+              {{ copyable(device.smbios_uuid, display=device.smbios_uuid[:8] ~ '…' ~ device.smbios_uuid[-4:]) }}
+              {%- else -%}
+              {{ copyable(device.smbios_uuid) }}
+              {%- endif -%}
+            </dd>
+          </div>
+          {% endif %}
+          {% if device.tags %}
+          <div>
+            <dt>Теги</dt>
+            <dd>{% for t in device.tags %}<span class="tag-chip">{{ t }}</span>{% endfor %}</dd>
+          </div>
+          {% endif %}
+        </dl>
         {% if inventory_pretty %}
         <p class="muted inventory-meta">
           Инвентаризация {{ local_time(device.latest_inventory.received_at) }}

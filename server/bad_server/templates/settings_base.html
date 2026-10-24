@@ -8,8 +8,7 @@
     <p class="page-lead muted">Сервер, агенты, доступ, почта и обслуживание</p>
   </header>
 <div class="settings-shell">
-  <aside class="settings-nav card-surface" aria-label="Разделы параметров">
-    <p class="settings-nav-hint muted">Разделы</p>
+  <aside class="settings-nav card-surface settings-nav-rail" aria-label="Разделы параметров">
     <nav class="settings-nav-list">
       {% if user is defined and user and user.must_change_password %}
       {# SEC-004: только смена пароля, остальные разделы скрыты #}

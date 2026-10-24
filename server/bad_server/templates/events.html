@@ -11,54 +11,55 @@
     <p class="page-lead muted">Изменения inventory · показано {{ events|length }} из {{ total }}</p>
   </header>
 
-  <div class="card-surface filter-card">
-  <form method="get" action="/events" class="filter-bar filter-bar-flat" data-live-submit data-live-delay="350">
+  <div class="card-surface filter-card events-filter-card">
+  <form method="get" action="/events" class="events-filter-form" data-live-submit data-live-delay="350">
     {% if device_filter %}
     <input type="hidden" name="device_id" value="{{ device_filter }}">
     {% endif %}
-    <div class="search-input-wrap filter-search-grow">
-      <span class="search-input-icon" aria-hidden="true">{{ icon('search') }}</span>
-      <input id="q" class="panel-search-input" name="q" type="search" value="{{ q }}"
-        placeholder="текст, hostname, тип" maxlength="128" autocomplete="off">
-    </div>
-    <label class="sr-only" for="event-type">Тип</label>
-    <select id="event-type" name="type">
-      <option value="">Все типы</option>
-      {% for key, label in event_type_filter_labels|dictsort %}
-      <option value="{{ key }}" {% if event_type == key %}selected{% endif %}>{{ label }}</option>
-      {% endfor %}
-    </select>
-    <label class="sr-only" for="importance">Важность</label>
-    <select id="importance" name="importance">
-      {% for key, label in importance_filter_labels.items() %}
-      <option value="{{ key }}" {% if importance == key %}selected{% endif %}>{{ label }}</option>
-      {% endfor %}
-    </select>
-    <label class="lbl-icon" for="date-from">{{ icon('events') }}<span>с</span></label>
-    <input id="date-from" name="date_from" type="date" value="{{ date_from }}" class="filter-date-input">
-    <label class="lbl-icon" for="date-to"><span>по</span></label>
-    <input id="date-to" name="date_to" type="date" value="{{ date_to }}" class="filter-date-input">
-    <button type="submit">Применить</button>
-    {% if device_filter or q or importance or event_type or date_from or date_to %}
-    <a class="btn secondary" href="/events">Сбросить</a>
+    {% if importance %}
+    <input type="hidden" name="importance" value="{{ importance }}">
     {% endif %}
+    <div class="filter-card-row filter-card-row-1">
+      <div class="search-input-wrap filter-search-grow card-surface filter-search-surface">
+        <span class="search-input-icon" aria-hidden="true">{{ icon('search') }}</span>
+        <input id="q" class="panel-search-input" name="q" type="search" value="{{ q }}"
+          placeholder="текст, hostname, тип" maxlength="128" autocomplete="off">
+      </div>
+      <label class="sr-only" for="event-type">Тип</label>
+      <select id="event-type" name="type" class="filter-select-inline">
+        <option value="">Все типы</option>
+        {% for key, label in event_type_filter_labels|dictsort %}
+        <option value="{{ key }}" {% if event_type == key %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      {% if device_filter or q or importance or event_type or date_from or date_to %}
+      <a class="filter-reset-link" href="/events">Сбросить</a>
+      {% endif %}
+    </div>
+    <div class="filter-card-row filter-card-row-2">
+      <label class="sr-only" for="date-from">Дата с</label>
+      <input id="date-from" name="date_from" type="date" value="{{ date_from }}" class="filter-date-input" title="Дата с">
+      <span class="filter-date-sep muted" aria-hidden="true">—</span>
+      <label class="sr-only" for="date-to">Дата по</label>
+      <input id="date-to" name="date_to" type="date" value="{{ date_to }}" class="filter-date-input" title="Дата по">
+      {% if event_filter_counts %}
+      <div class="filter-chips events-importance-chips" role="group" aria-label="Важность">
+        {% set chip_qs = '' %}
+        {% if device_filter %}{% set chip_qs = chip_qs ~ 'device_id=' ~ device_filter|urlencode ~ '&' %}{% endif %}
+        {% if q %}{% set chip_qs = chip_qs ~ 'q=' ~ q|urlencode ~ '&' %}{% endif %}
+        {% if event_type %}{% set chip_qs = chip_qs ~ 'type=' ~ event_type|urlencode ~ '&' %}{% endif %}
+        {% if date_from %}{% set chip_qs = chip_qs ~ 'date_from=' ~ date_from|urlencode ~ '&' %}{% endif %}
+        {% if date_to %}{% set chip_qs = chip_qs ~ 'date_to=' ~ date_to|urlencode ~ '&' %}{% endif %}
+        {% set chip_root = '/events' ~ ('?' ~ chip_qs if chip_qs else '') %}
+        {% set chip_sep = '&' if chip_qs else '?' %}
+        {{ filter_chip(chip_root, 'Без шума', event_filter_counts.default, not importance) }}
+        {{ filter_chip(chip_root ~ chip_sep ~ 'importance=all', 'Все', event_filter_counts.all, importance == 'all') }}
+        {{ filter_chip(chip_root ~ chip_sep ~ 'importance=high', 'Высокая+', event_filter_counts.high, importance == 'high') }}
+        {{ filter_chip(chip_root ~ chip_sep ~ 'importance=critical', 'Критичные', event_filter_counts.critical, importance == 'critical') }}
+      </div>
+      {% endif %}
+    </div>
   </form>
-  {% if event_filter_counts %}
-  <div class="filter-chips" role="group" aria-label="Важность">
-    {% set chip_qs = '' %}
-    {% if device_filter %}{% set chip_qs = chip_qs ~ 'device_id=' ~ device_filter|urlencode ~ '&' %}{% endif %}
-    {% if q %}{% set chip_qs = chip_qs ~ 'q=' ~ q|urlencode ~ '&' %}{% endif %}
-    {% if event_type %}{% set chip_qs = chip_qs ~ 'type=' ~ event_type|urlencode ~ '&' %}{% endif %}
-    {% if date_from %}{% set chip_qs = chip_qs ~ 'date_from=' ~ date_from|urlencode ~ '&' %}{% endif %}
-    {% if date_to %}{% set chip_qs = chip_qs ~ 'date_to=' ~ date_to|urlencode ~ '&' %}{% endif %}
-    {% set chip_root = '/events' ~ ('?' ~ chip_qs if chip_qs else '') %}
-    {% set chip_sep = '&' if chip_qs else '?' %}
-    {{ filter_chip(chip_root, 'Без шума', event_filter_counts.default, not importance) }}
-    {{ filter_chip(chip_root ~ chip_sep ~ 'importance=all', 'Все', event_filter_counts.all, importance == 'all') }}
-    {{ filter_chip(chip_root ~ chip_sep ~ 'importance=high', 'Высокая+', event_filter_counts.high, importance == 'high') }}
-    {{ filter_chip(chip_root ~ chip_sep ~ 'importance=critical', 'Критичные', event_filter_counts.critical, importance == 'critical') }}
-  </div>
-  {% endif %}
   </div>
 
   {% if device_filter %}
@@ -67,19 +68,19 @@
   {% endif %}
 
   {% if not events %}
-  <p class="muted">Нет событий по выбранным фильтрам.</p>
+  <p class="muted table-empty">Нет событий по выбранным фильтрам.</p>
   {% else %}
   <div class="card-surface table-card">
   <div class="table-scroll">
   <table class="devices events-table-modern">
     <thead>
       <tr>
-        <th class="col-icon" aria-hidden="true"></th>
         <th>Событие</th>
         <th>Устройство</th>
         <th>Тип</th>
         <th>Важность</th>
         <th>Когда</th>
+        <th class="col-chevron" aria-hidden="true"></th>
       </tr>
     </thead>
     <tbody>
@@ -97,19 +98,21 @@
         </td>
       </tr>
       {% endif %}
-      <tr class="events-row-link">
-        <td class="col-icon"><span class="event-type-icon event-imp-{{ imp }}">{{ icon('events') }}</span></td>
+      <tr class="table-row-link">
         <td>
-          <details class="event-inline-detail">
-            <summary>{{ e.summary }}</summary>
-            <p class="muted event-inline-body">{{ e.summary }}</p>
-            <p><a href="/events/{{ e.id }}">Карточка события #{{ e.id }}</a></p>
-          </details>
+          <a class="event-cell-link" href="/events/{{ e.id }}">
+            <span class="event-type-icon event-imp-{{ imp }}" aria-hidden="true">{{ icon('events') }}</span>
+            <span class="event-cell-text">
+              <span class="event-cell-title">{{ e.summary }}</span>
+              <span class="muted event-cell-sub">{{ e.type|format_event_type }}</span>
+            </span>
+          </a>
         </td>
         <td>{{ device_link(e.device_id, e.hostname or e.device_id, e.chassis_type) }}</td>
         <td title="{{ e.type }}">{{ e.type|format_event_type }}</td>
         <td><span class="badge badge-importance badge-importance-{{ imp }}">{{ imp|importance_label_ru }}</span></td>
         <td class="mono muted">{{ local_time(e.created_at) }}</td>
+        <td class="col-chevron"><a class="row-chevron" href="/events/{{ e.id }}" aria-label="Открыть событие"></a></td>
       </tr>
       {% endfor %}
     </tbody>
