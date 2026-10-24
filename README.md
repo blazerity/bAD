@@ -3,7 +3,7 @@
 Лёгкая инвентаризация Windows-компьютеров для локальной сети. Агент собирает данные на ПК, сервер хранит их и показывает в веб-панели. Всё работает on-prem, данные никуда не уходят за пределы вашей инфраструктуры.
 
 [![Версия сервера](https://img.shields.io/badge/server-1.10.1-blue)](VERSION)
-[![Версия агента](https://img.shields.io/badge/agent-1.3.1-blue)](agent/VERSION)
+[![Версия агента](https://img.shields.io/badge/agent-2.0.0-blue)](agent/VERSION)
 
 ## Возможности
 
@@ -18,7 +18,7 @@
 | Компонент | Версия | Стек |
 |-----------|--------|------|
 | Сервер | 1.10.1 (`VERSION`) | Python 3.11+, FastAPI, PostgreSQL, nginx |
-| Агент | 1.3.1 (`agent/VERSION`) | .NET 8, служба Windows, WiX MSI |
+| Агент | 2.0.0 (`agent/VERSION`) | .NET 8, служба Windows, WiX MSI |
 | Деплой | — | `deploy/debian/install.sh` (Debian 12) |
 
 ## Документация
@@ -30,7 +30,7 @@
 | [API v1](docs/api-v1.md) | интеграции (например, 1C Itilium) |
 | [Агенты и карта репозитория](docs/agents.md) | разработка |
 | [Правила разработки и релиз MSI](docs/guideline.md) | разработка и релизы |
-| [Release notes](docs/) | [сервер 1.10.1](docs/release-notes-1.10.1.md), [1.10.0](docs/release-notes-1.10.0.md), [агент 1.3.1](docs/release-notes-agent-1.3.1.md), [1.9.x](docs/release-notes-1.9.1.md); архив: [1.5.3](docs/release-notes-1.5.3.md) |
+| [Release notes](docs/) | [агент 2.0.0](docs/release-notes-agent-2.0.0.md), [сервер 1.10.1](docs/release-notes-1.10.1.md), [1.10.0](docs/release-notes-1.10.0.md), [агент 1.3.1](docs/release-notes-agent-1.3.1.md); архив: [1.5.3](docs/release-notes-1.5.3.md) |
 
 Если вы администрируете сервер, начните с [руководства оператора](docs/operator-guide.md).
 
@@ -109,8 +109,10 @@ msiexec /i BadAgent.msi SERVERURL=https://bad.example.com ENROLLMENTTOKEN=ваш
 Выполняется от администратора:
 
 ```powershell
-BadAgent.exe service status|start|stop|restart
+bad service status|start|stop|restart
 ```
+
+Установка (2.0+): `%ProgramFiles%\blazerity\bad agent\`, служба **`badagent`**.
 
 ### CLI `bad`
 
@@ -119,6 +121,8 @@ BadAgent.exe service status|start|stop|restart
 | `bad` | любой пользователь | текстовый отчёт |
 | `bad -r` | любой пользователь | HTML-отчёт |
 | `bad -c`, `bad config set`, `bad config unset` | администратор | настройка агента |
+| `bad push` | администратор | синхронизация с сервером |
+| `bad update` | администратор | проверка и установка MSI с сервера |
 
 ## Обновление агента
 

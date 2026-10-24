@@ -3,7 +3,7 @@
 Этот документ описывает HTTP JSON API сервера bAD для внешних систем, например 1C Itilium, скриптов и систем отчётности.
 
 - Версия сервера: 1.10.1 (поле `version` в `GET /v1/health`, файл `VERSION`).
-- Версия агента: 1.3.1 (поле `agent_version` в данных устройства, файл `agent/VERSION`).
+- Версия агента: 2.0.0 (поле `agent_version` в данных устройства, файл `agent/VERSION`).
 - Примеры JSON в документе показывают формат, а не актуальные номера версий.
 
 Связанные документы: [operator-guide.md](operator-guide.md), [architecture.md](architecture.md), [guideline.md](guideline.md).
@@ -194,7 +194,7 @@
   "hostname": "WS-01",
   "enrolled_at": "2026-10-01T10:00:00Z",
   "last_seen_at": "2026-10-16T11:00:00Z",
-  "agent_version": "1.3.1",
+  "agent_version": "2.0.0",
   "meta": {
     "last_inventory_at": "2026-10-16T10:55:00Z",
     "os": "Microsoft Windows 11 Pro",
@@ -242,7 +242,7 @@
   "schema_version": 2,
   "device_id": "3f2b…",
   "collected_at": "2026-10-16T11:00:00Z",
-  "agent_version": "1.3.1",
+  "agent_version": "2.0.0",
   "host": {
     "hostname": "WS-01",
     "domain": "CONTOSO",
