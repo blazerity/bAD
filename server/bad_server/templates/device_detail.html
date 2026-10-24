@@ -17,6 +17,9 @@
       <div class="device-detail-title-row">
         <h1 class="with-icon">{{ icon(chassis_icon_name(chassis_type)) }}{{ device.hostname or "(неизвестный узел)" }}</h1>
         <span class="badge badge-fresh-{{ freshness or silence.status }}">{{ freshness_label(freshness or silence.status) }}</span>
+        {% if uninstall and uninstall.badge %}
+        <span class="badge badge-uninstall badge-uninstall-{{ uninstall.badge }}">{{ uninstall.badge_label }}</span>
+        {% endif %}
         {% if user.is_admin %}
         <form method="post" action="/devices/{{ device.device_id }}/request-refresh" class="device-refresh-form">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -152,6 +155,9 @@
               {% endif %}
               {% if device.revoked %}<span class="badge badge-stale">доступ отозван</span>{% endif %}
               {% if device.archived %}<span class="badge badge-stale">архив</span>{% endif %}
+              {% if uninstall and uninstall.badge %}
+              <span class="badge badge-uninstall badge-uninstall-{{ uninstall.badge }}">{{ uninstall.badge_label }}</span>
+              {% endif %}
             </dd>
           </div>
           <div><dt>Состояние</dt><dd class="mono">{{ health_snippet or "—" }}</dd></div>
@@ -817,6 +823,47 @@
           </form>
           {% endif %}
         </div>
+
+        {% if user.is_admin %}
+        <h3>Агент на компьютере</h3>
+        <p class="muted">
+          Программа будет удалена с этого ПК при следующем выходе на связь. Запись в панели останется.
+          Это не отзыв доступа и не удаление карточки.
+        </p>
+        {% if device.revoked %}
+        <p class="muted">
+          Доступ отозван — агент команды не получит. Сначала выпустите новый ключ, если программа ещё стоит на ПК.
+        </p>
+        {% elif uninstall and uninstall.pending %}
+        <p class="muted">
+          {% if silence.status == 'stale' or freshness == 'stale' %}
+          Компьютер сейчас не на связи. Команда уйдёт, когда агент снова выйдет на сервер.
+          {% else %}
+          Ожидание следующего heartbeat агента.
+          {% endif %}
+        </p>
+        <form method="post" action="/devices/{{ device.device_id }}/uninstall/cancel" class="form-actions">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="subtle">Отменить снятие</button>
+        </form>
+        {% elif uninstall and uninstall.can_order %}
+        {% if silence.status == 'stale' or freshness == 'stale' %}
+        <p class="muted">
+          Компьютер сейчас не на связи. Команда уйдёт, когда агент снова выйдет на сервер.
+        </p>
+        {% endif %}
+        <form method="post" action="/devices/{{ device.device_id }}/uninstall" class="settings-form compact-form"
+          onsubmit="return confirm('Снять агент bAD с компьютера «{{ uninstall_confirm }}»? Программа удалится с ПК. Карточка в панели останется.');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <label for="uninstall_confirm">Подтверждение</label>
+          <input id="uninstall_confirm" name="confirm" type="text" autocomplete="off"
+            placeholder="{{ uninstall_confirm }}">
+          <div class="form-actions">
+            <button type="submit" class="danger subtle-danger">Снять агент с компьютера</button>
+          </div>
+        </form>
+        {% endif %}
+        {% endif %}
 
         {% if user.is_admin %}
         <h3>Удаление</h3>

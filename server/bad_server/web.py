@@ -1921,6 +1921,13 @@ _REFRESH_SENT_MESSAGE = (
     "Запрос отправлен — применится при следующем heartbeat агента "
     "(обычно в пределах интервала heartbeat)"
 )
+_UNINSTALL_SENT_MESSAGE = (
+    "Команда снятия сохранена. Она уйдёт при следующем heartbeat."
+)
+_UNINSTALL_CANCEL_MESSAGE = "Снятие агента отменено."
+_UNINSTALL_CONFIRM_MISMATCH = (
+    "Подтверждение не совпало — введите точное имя узла или идентификатор."
+)
 
 
 @router.get("/devices/{device_id}", response_class=HTMLResponse)
@@ -1932,15 +1939,29 @@ def device_detail_page(
     settings: Settings = Depends(get_settings),
     view: Optional[str] = None,
     refresh_sent: Optional[str] = None,
+    uninstall_sent: Optional[str] = None,
+    uninstall_cancelled: Optional[str] = None,
+    uninstall_error: Optional[str] = None,
+    delete_error: Optional[str] = None,
 ):
-    flash_message = _REFRESH_SENT_MESSAGE if refresh_sent == "1" else None
+    flash_message = None
+    error = None
+    if refresh_sent == "1":
+        flash_message = _REFRESH_SENT_MESSAGE
+    elif uninstall_sent == "1":
+        flash_message = _UNINSTALL_SENT_MESSAGE
+    elif uninstall_cancelled == "1":
+        flash_message = _UNINSTALL_CANCEL_MESSAGE
+    if uninstall_error == "1" or delete_error == "1":
+        error = _UNINSTALL_CONFIRM_MISMATCH
     ctx = _device_config_context(
         db,
         device_id,
         user=user,
         settings=settings,
         message=flash_message,
-        active_view=view,
+        error=error,
+        active_view=view or ("admin" if uninstall_error == "1" else None),
     )
     if not ctx:
         return _html(
@@ -1962,6 +1983,51 @@ def device_request_refresh(
         return RedirectResponse(url="/devices", status_code=303)
     return RedirectResponse(
         url=f"/devices/{device_id}?refresh_sent=1",
+        status_code=303,
+    )
+
+
+@router.post("/devices/{device_id}/uninstall")
+def device_uninstall_order(
+    device_id: str,
+    confirm: str = Form(""),
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    detail = db.get_device_detail(device_id)
+    if not detail:
+        return RedirectResponse(url="/devices", status_code=303)
+    expected = device_uninstall_confirm_value(detail)
+    if (confirm or "").strip() != expected:
+        return RedirectResponse(
+            url=f"/devices/{device_id}?view=admin&uninstall_error=1",
+            status_code=303,
+        )
+    ok, reason = request_device_uninstall(db, device_id)
+    if not ok:
+        if reason == "revoked":
+            return RedirectResponse(
+                url=f"/devices/{device_id}?view=admin",
+                status_code=303,
+            )
+        return RedirectResponse(url="/devices", status_code=303)
+    return RedirectResponse(
+        url=f"/devices/{device_id}?view=admin&uninstall_sent=1",
+        status_code=303,
+    )
+
+
+@router.post("/devices/{device_id}/uninstall/cancel")
+def device_uninstall_cancel(
+    device_id: str,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+):
+    if not cancel_device_uninstall(db, device_id):
+        return RedirectResponse(url="/devices", status_code=303)
+    return RedirectResponse(
+        url=f"/devices/{device_id}?view=admin&uninstall_cancelled=1",
         status_code=303,
     )
 

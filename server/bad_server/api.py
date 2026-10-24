@@ -34,6 +34,11 @@ from .device_refresh import (
     refresh_request_pending,
     set_device_refresh_request,
 )
+from .device_uninstall import (
+    expire_uninstall_request_if_needed,
+    heartbeat_should_send_uninstall,
+    mark_uninstall_sent_patch,
+)
 from .config import Settings, get_settings
 from .db import Database
 from .schemas import (
@@ -187,8 +192,10 @@ def heartbeat(
         config_local_provided=config_local_provided,
     )
     meta = db.get_device_meta(body.device_id) or {}
+    meta = expire_uninstall_request_if_needed(db, body.device_id, meta)
     had_refresh_flag = bool(meta.get("refresh_requested_at"))
     refresh_pending = refresh_request_pending(meta)
+    send_uninstall = heartbeat_should_send_uninstall(meta)
     effective = db.compute_device_effective_config(
         body.device_id, use_inventory=refresh_pending or not body.config_version
     )
@@ -206,17 +213,22 @@ def heartbeat(
         or not body.config_version
         or body.config_version != effective["version"]
     )
+    actions: dict[str, bool] = {}
     if push_config:
         resp["config"] = {
             "version": effective["version"],
             "settings": effective["settings"],
         }
         if refresh_pending:
-            actions = heartbeat_actions_for_refresh(meta)
-            if actions:
-                resp["actions"] = actions
+            actions.update(heartbeat_actions_for_refresh(meta))
+    if send_uninstall:
+        actions["uninstall"] = True
+    if actions:
+        resp["actions"] = actions
     if had_refresh_flag:
         db.patch_device_meta(body.device_id, clear_refresh_meta_patch())
+    if send_uninstall:
+        db.patch_device_meta(body.device_id, mark_uninstall_sent_patch())
     return resp
 
 
