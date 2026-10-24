@@ -218,7 +218,9 @@ public static class HardwareMaps
         }
 
         var compact = text.Replace("-", "", StringComparison.Ordinal)
-            .Replace(" ", "", StringComparison.Ordinal);
+            .Replace(" ", "", StringComparison.Ordinal)
+            .Replace("_", "", StringComparison.Ordinal)
+            .Replace(".", "", StringComparison.Ordinal);
         if (compact.Length == 0)
         {
             return null;
