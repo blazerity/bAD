@@ -15,7 +15,7 @@ public static class VersionUtil
     /// Версия сборки как major.minor.patch или <paramref name="fallback"/>.
     /// Fallback = <c>agent/VERSION</c> (линия агента; не корневой/server VERSION).
     /// </summary>
-    public static string GetAgentVersion(string fallback = "1.3.0") =>
+    public static string GetAgentVersion(string fallback = "1.3.1") =>
         Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? fallback;
 
     public static bool TryParseSemVer(string? value, out Version version)
