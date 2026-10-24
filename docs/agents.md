@@ -87,8 +87,8 @@ bad -h                  # справка (--help | -?)
 bad -c                  # интерактивная настройка — только elevated (администратор)
 bad config set <k> <v>  # один knob — только elevated
 bad config unset <k>    # сброс knob — только elevated
-bad push                # очередь → inventory → heartbeat (подтянуть config с сервера)
-bad push --update       # то же + проверка/установка MSI с сервера
+bad push                # синхронизация: очередь → inventory → heartbeat (config с сервера)
+bad update              # проверка и установка MSI с сервера (1.3.0+; push --update снят)
 BadAgent.exe service status|start|stop|restart
 ```
 
