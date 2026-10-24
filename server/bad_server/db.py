@@ -1688,6 +1688,16 @@ class Database:
             return None
         return text
 
+    @staticmethod
+    def _serial_compact(text: str) -> str:
+        """Как CleanHardwareSerial: без - _ пробелов и точек."""
+        return (
+            text.replace("-", "")
+            .replace("_", "")
+            .replace(" ", "")
+            .replace(".", "")
+        )
+
     @classmethod
     def normalize_serial_number(cls, raw: Any) -> Optional[str]:
         if raw is None:
@@ -1699,6 +1709,11 @@ class Database:
         if folded in cls._WEAK_SERIAL_EXACT:
             return None
         if folded.startswith("to be filled") or folded.startswith("fill by oem"):
+            return None
+        compact = cls._serial_compact(folded)
+        if not compact:
+            return None
+        if all(c == "0" for c in compact) or all(c == "f" for c in compact):
             return None
         return text
 
