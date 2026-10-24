@@ -871,7 +871,7 @@ public sealed class InventoryCollector : IInventoryCollector
         {
             hw.Disks = new List<DiskInfo>();
             var mediaSerialByTag = TryLoadPhysicalMediaSerialsByTag();
-            var storageSerialByIndex = TryLoadMsftPhysicalDiskSerialsByIndex();
+            var storageDiskByIndex = TryLoadMsftPhysicalDiskByIndex();
             using var disks = new ManagementObjectSearcher(
                 "SELECT Model, Size, MediaType, SerialNumber, InterfaceType, DeviceID, Index FROM Win32_DiskDrive");
             foreach (ManagementObject obj in disks.Get())
@@ -887,7 +887,7 @@ public sealed class InventoryCollector : IInventoryCollector
                             deviceId,
                             diskIndex,
                             mediaSerialByTag,
-                            storageSerialByIndex);
+                            storageDiskByIndex);
                     }
 
                     hw.Disks.Add(new DiskInfo
@@ -1469,26 +1469,97 @@ public sealed class InventoryCollector : IInventoryCollector
             return false;
         }
 
-        var value = key.GetValue("PendingFileRenameOperations");
-        if (value is string[] lines)
+        foreach (var (src, dst) in EnumeratePfroOperations(key.GetValue("PendingFileRenameOperations")))
         {
-            foreach (var line in lines)
+            if (PfroPairImpliesReboot(src, dst))
             {
-                if (!string.IsNullOrWhiteSpace(line))
-                {
-                    return true;
-                }
+                return true;
             }
-
-            return false;
-        }
-
-        if (value is string single)
-        {
-            return !string.IsNullOrWhiteSpace(single);
         }
 
         return false;
+    }
+
+    /// <summary>PFRO — пары (источник, назначение); пустое назначение = удаление при reboot.</summary>
+    private static IEnumerable<(string Src, string? Dst)> EnumeratePfroOperations(object? value)
+    {
+        if (value is string[] lines)
+        {
+            for (var i = 0; i < lines.Length; i += 2)
+            {
+                yield return (lines[i], i + 1 < lines.Length ? lines[i + 1] : null);
+            }
+
+            yield break;
+        }
+
+        if (value is string single && !string.IsNullOrWhiteSpace(single))
+        {
+            var parts = single.Split('\0', StringSplitOptions.RemoveEmptyEntries);
+            for (var i = 0; i < parts.Length; i += 2)
+            {
+                yield return (parts[i], i + 1 < parts.Length ? parts[i + 1] : null);
+            }
+        }
+    }
+
+    private static bool PfroPairImpliesReboot(string? src, string? dst)
+    {
+        if (string.IsNullOrWhiteSpace(src))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(dst))
+        {
+            return !IsIgnorablePfroPath(dst);
+        }
+
+        return !IsIgnorablePfroPath(src);
+    }
+
+    private static bool IsIgnorablePfroPath(string? path)
+    {
+        var p = NormalizePfroPath(path);
+        if (p.Length == 0)
+        {
+            return true;
+        }
+
+        if (p.Contains(@"\Temp\", StringComparison.OrdinalIgnoreCase)
+            || p.Contains(@"\TMP\", StringComparison.OrdinalIgnoreCase)
+            || p.Contains(@"\AppData\Local\Temp\", StringComparison.OrdinalIgnoreCase)
+            || p.Contains(@"\Windows\Temp\", StringComparison.OrdinalIgnoreCase)
+            || p.Contains(@"\INetCache\", StringComparison.OrdinalIgnoreCase)
+            || p.Contains(@"\Config.Msi\", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (p.Contains('~', StringComparison.Ordinal)
+            && (p.Contains(@"\Temp\", StringComparison.OrdinalIgnoreCase)
+                || p.Contains(@"\TMP\", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static string NormalizePfroPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return string.Empty;
+        }
+
+        var p = path.Trim();
+        if (p.StartsWith(@"\??\", StringComparison.Ordinal))
+        {
+            p = p[4..];
+        }
+
+        return p.Replace('/', '\\');
     }
 
     [SupportedOSPlatform("windows")]
@@ -1522,14 +1593,20 @@ public sealed class InventoryCollector : IInventoryCollector
     }
 
     [SupportedOSPlatform("windows")]
-    private static Dictionary<int, string?> TryLoadMsftPhysicalDiskSerialsByIndex()
+    private readonly struct MsftPhysicalDiskRow
     {
-        var map = new Dictionary<int, string?>();
+        public string? Serial { get; init; }
+        public string? UniqueId { get; init; }
+    }
+
+    private static Dictionary<int, MsftPhysicalDiskRow> TryLoadMsftPhysicalDiskByIndex()
+    {
+        var map = new Dictionary<int, MsftPhysicalDiskRow>();
         try
         {
             using var searcher = new ManagementObjectSearcher(
                 @"root\Microsoft\Windows\Storage",
-                "SELECT DeviceId, SerialNumber FROM MSFT_PhysicalDisk");
+                "SELECT DeviceId, SerialNumber, UniqueId FROM MSFT_PhysicalDisk");
             foreach (ManagementObject obj in searcher.Get())
             {
                 using (obj)
@@ -1541,7 +1618,11 @@ public sealed class InventoryCollector : IInventoryCollector
                         continue;
                     }
 
-                    map[index.Value] = obj["SerialNumber"]?.ToString();
+                    map[index.Value] = new MsftPhysicalDiskRow
+                    {
+                        Serial = obj["SerialNumber"]?.ToString(),
+                        UniqueId = obj["UniqueId"]?.ToString()
+                    };
                 }
             }
         }
@@ -1557,8 +1638,20 @@ public sealed class InventoryCollector : IInventoryCollector
         string? deviceId,
         int? diskIndex,
         IReadOnlyDictionary<string, string?> mediaSerialByTag,
-        IReadOnlyDictionary<int, string?> storageSerialByIndex)
+        IReadOnlyDictionary<int, MsftPhysicalDiskRow> storageDiskByIndex)
     {
+        var index = diskIndex ?? TryParsePhysicalDriveIndex(deviceId);
+        if (index is not null && storageDiskByIndex.TryGetValue(index.Value, out var fromStorage))
+        {
+            var fromMsft = TryFirstCleanDiskSerial(
+                fromStorage.Serial,
+                TrySerialFromStorageUniqueId(fromStorage.UniqueId));
+            if (fromMsft is not null)
+            {
+                return fromMsft;
+            }
+        }
+
         if (!string.IsNullOrWhiteSpace(deviceId))
         {
             var tag = deviceId.Trim();
@@ -1572,27 +1665,42 @@ public sealed class InventoryCollector : IInventoryCollector
             }
         }
 
-        if (diskIndex is not null
-            && storageSerialByIndex.TryGetValue(diskIndex.Value, out var fromStorage))
+        return null;
+    }
+
+    private static string? TryFirstCleanDiskSerial(params string?[] candidates)
+    {
+        foreach (var c in candidates)
         {
-            var cleaned = HardwareMaps.CleanHardwareSerial(fromStorage);
+            var cleaned = HardwareMaps.CleanHardwareSerial(c);
             if (cleaned is not null)
             {
                 return cleaned;
             }
         }
 
-        if (!string.IsNullOrWhiteSpace(deviceId))
+        return null;
+    }
+
+    private static string? TrySerialFromStorageUniqueId(string? uniqueId)
+    {
+        if (string.IsNullOrWhiteSpace(uniqueId))
         {
-            var parsed = TryParsePhysicalDriveIndex(deviceId);
-            if (parsed is not null
-                && storageSerialByIndex.TryGetValue(parsed.Value, out var fromDeviceId))
-            {
-                return HardwareMaps.CleanHardwareSerial(fromDeviceId);
-            }
+            return null;
         }
 
-        return null;
+        var u = uniqueId.Trim();
+        if (u.StartsWith("eui.", StringComparison.OrdinalIgnoreCase))
+        {
+            return HardwareMaps.CleanHardwareSerial(u["eui.".Length..]);
+        }
+
+        if (u.StartsWith("nguid.", StringComparison.OrdinalIgnoreCase))
+        {
+            return HardwareMaps.CleanHardwareSerial(u["nguid.".Length..]);
+        }
+
+        return HardwareMaps.CleanHardwareSerial(u);
     }
 
     /// <summary>\\.\PHYSICALDRIVE0 → 0</summary>
