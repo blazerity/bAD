@@ -1226,40 +1226,66 @@ def _overview_search_users(query: str, fleet: list[dict]) -> list[dict]:
     return ranked[:15]
 
 
-def _devices_catalog_filter_options(fleet: list[dict]) -> dict[str, list[str]]:
-    """Уникальные значения meta для селектов каталога (п. архитектуры 2.1)."""
-    os_vals: set[str] = set()
-    ram_vals: set[str] = set()
-    disk_vals: set[str] = set()
-    cpu_vals: set[str] = set()
+def _facet_catalog_label_ok(label: str) -> bool:
+    text = (label or "").strip()
+    if not text or text == "—":
+        return False
+    low = text.casefold()
+    if low in {"прочее", "другое", "other"}:
+        return False
+    if low.startswith("прочее"):
+        return False
+    return True
+
+
+def _bar_chart_labels(bar: Optional[dict[str, Any]]) -> list[str]:
+    if not isinstance(bar, dict):
+        return []
+    out: list[str] = []
+    for row in bar.get("items") or []:
+        if not isinstance(row, dict) or row.get("is_other"):
+            continue
+        label = str(row.get("label") or "").strip()
+        if _facet_catalog_label_ok(label):
+            out.append(label)
+    return out
+
+
+def _devices_catalog_filter_options(
+    fleet: list[dict],
+    dashboard: dict[str, Any],
+    stats: dict[str, Any],
+) -> dict[str, list[str]]:
+    """Ярлыки фасетов как на дашборде + версии агента из парка."""
+    treemap = dashboard.get("cpu_family_treemap") or {}
+    cpu_vals: list[str] = []
+    for item in treemap.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or "").strip()
+        if _facet_catalog_label_ok(label):
+            cpu_vals.append(label)
     vendor_vals: set[str] = set()
-    agent_vals: set[str] = set()
     for d in fleet:
         meta = d.get("meta") if isinstance(d.get("meta"), dict) else {}
-        oc = str(meta.get("os_caption") or meta.get("os") or "").strip()
-        if oc:
-            os_vals.add(oc)
-        ram = str(meta.get("ram_bucket") or "").strip()
-        if ram:
-            ram_vals.add(ram)
-        disk = str(meta.get("disk_bucket") or "").strip()
-        if disk:
-            disk_vals.add(disk)
-        fam = str(meta.get("cpu_family") or "").strip()
-        if fam:
-            cpu_vals.add(fam)
         vendor = str(meta.get("cpu_vendor") or "").strip()
-        if vendor:
+        if vendor and _facet_catalog_label_ok(vendor):
             vendor_vals.add(vendor)
+    agent_vals: set[str] = set()
+    for row in stats.get("agent_versions") or []:
+        ver = str(row.get("version") or "").strip()
+        if ver and ver != "—":
+            agent_vals.add(ver)
+    for d in fleet:
         ver = str(d.get("agent_version") or "").strip()
         if ver:
             agent_vals.add(ver)
     sort_key = lambda s: s.casefold()
     return {
-        "os": sorted(os_vals, key=sort_key),
-        "ram": sorted(ram_vals, key=sort_key),
-        "disk": sorted(disk_vals, key=sort_key),
-        "cpu": sorted(cpu_vals, key=sort_key),
+        "os": _bar_chart_labels(dashboard.get("os_bars")),
+        "ram": _bar_chart_labels(dashboard.get("ram_bars")),
+        "disk": _bar_chart_labels(dashboard.get("storage_bars")),
+        "cpu": sorted(set(cpu_vals), key=sort_key),
         "cpu_vendor": sorted(vendor_vals, key=sort_key),
         "agent": sorted(agent_vals, key=sort_key),
     }
@@ -1605,7 +1631,15 @@ def devices_page(
     if flash_msg and len(flash_msg) > 200:
         flash_msg = flash_msg[:200]
     active_fleet, _archived, fleet_stats, _ops = _fleet_snapshot(db, settings)
-    catalog_filter_options = _devices_catalog_filter_options(active_fleet)
+    dashboard = build_dashboard_stats(
+        db,
+        stale_after_seconds=effective_stale_after_seconds(db, settings),
+        stats=fleet_stats,
+        active=active_fleet,
+    )
+    catalog_filter_options = _devices_catalog_filter_options(
+        active_fleet, dashboard, fleet_stats
+    )
     return _html(
         request,
         "devices.html",
