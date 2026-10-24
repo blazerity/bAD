@@ -20,6 +20,23 @@ ENROLL_CLEARTEXT_MSG = (
     "cleartext refused). Lab: BAD_ALLOW_ENROLL_OVER_HTTP=1."
 )
 
+# uvicorn за nginx на 127.0.0.1 — только тогда доверяем proxy-заголовкам.
+_TRUSTED_PROXY_HOSTS = frozenset({"127.0.0.1", "::1"})
+
+
+def client_ip(request: Request) -> str:
+    """IP клиента для rate limit: X-Real-IP / XFF только от доверенного прокси."""
+    peer = (request.client.host if request.client else "") or ""
+    if peer not in _TRUSTED_PROXY_HOSTS:
+        return peer or "unknown"
+    real = (request.headers.get("x-real-ip") or "").strip()
+    if real:
+        return real
+    xff = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    if xff:
+        return xff
+    return peer or "unknown"
+
 
 def request_is_cleartext(request: Request) -> bool:
     """True when the client-facing hop is HTTP (honours X-Forwarded-Proto)."""

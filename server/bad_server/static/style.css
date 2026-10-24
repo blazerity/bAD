@@ -657,6 +657,21 @@ pre.inventory {
   width: auto;
   min-width: 12rem;
 }
+.devices-bulk-bar {
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.devices-bulk-hint {
+  font-size: 0.85rem;
+}
+
+.bulk-check-col {
+  width: 2.25rem;
+  text-align: center;
+  vertical-align: middle;
+}
+
 .filter-bar input[type="search"],
 .filter-bar input[type="text"] {
   flex: 1 1 12rem;
@@ -1371,10 +1386,10 @@ dl.speccy-kv dd {
   }
 
   /* Список устройств: скрыть device_id и теги (есть на карточке) */
-  table.devices-list th:nth-child(2),
-  table.devices-list td:nth-child(2),
-  table.devices-list th:nth-child(4),
-  table.devices-list td:nth-child(4) {
+  table.devices-list th:nth-child(3),
+  table.devices-list td:nth-child(3),
+  table.devices-list th:nth-child(5),
+  table.devices-list td:nth-child(5) {
     display: none;
   }
   .table-scroll > table.devices {

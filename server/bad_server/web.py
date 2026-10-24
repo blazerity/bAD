@@ -67,7 +67,7 @@ from .enrollment_ops import (
     mark_enrollment_wave_done,
     rotate_enrollment_token,
 )
-from .http_bootstrap import HTTP_SENSITIVE_MSG, sensitive_over_http_blocked
+from .http_bootstrap import HTTP_SENSITIVE_MSG, client_ip, sensitive_over_http_blocked
 from .device_meta import meta_search_haystack
 from .ops_panel import (
     build_attention_queue,
@@ -924,7 +924,7 @@ def login_submit(
     session_secret: str = Depends(get_session_secret),
     settings: Settings = Depends(get_settings),
 ):
-    client = request.client.host if request.client else "unknown"
+    client = client_ip(request)
     user_key = (username or "").strip().casefold() or "-"
     ip_limiter = getattr(request.app.state, "login_ip_limiter", None)
     user_limiter = getattr(request.app.state, "login_user_limiter", None)

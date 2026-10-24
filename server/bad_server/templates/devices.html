@@ -73,10 +73,30 @@
   <p>Нет устройств{% if q %} по запросу <span class="mono">{{ q }}</span>{% endif %}{% if tag_filter %} с тегом <span class="mono">{{ tag_filter }}</span>{% endif %}{% if wave %} по фильтру <span class="mono">{{ wave }}</span>{% endif %}.</p>
   {% endif %}
   {% else %}
+  <form method="post" action="/devices/bulk" id="devices-bulk-form" class="devices-bulk-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="return_tag" value="{{ tag_filter }}">
+    <input type="hidden" name="return_q" value="{{ q }}">
+    {% if show_archive %}<input type="hidden" name="return_archive" value="1">{% endif %}
+    <input type="hidden" name="return_wave" value="{{ wave }}">
+    <div class="filter-bar devices-bulk-bar">
+      <label class="check">
+        <input type="checkbox" id="bulk-select-page" title="Выбрать все на странице">
+        На странице
+      </label>
+      <label for="bulk-tag">Тег</label>
+      <input id="bulk-tag" name="tag" type="text" maxlength="64" placeholder="для добавления" autocomplete="off">
+      <button type="submit" name="action" value="add_tag" class="btn secondary"
+        onclick="return badDevicesBulkConfirm('add_tag')">Добавить тег</button>
+      <button type="submit" name="action" value="archive" class="btn secondary"
+        onclick="return badDevicesBulkConfirm('archive')">В архив</button>
+      <span class="muted devices-bulk-hint">до 100 за раз</span>
+    </div>
   <div class="table-scroll">
   <table class="devices devices-list">
     <thead>
       <tr>
+        <th class="bulk-check-col" aria-label="Выбор"></th>
         <th>Имя узла</th>
         <th>Идентификатор</th>
         <th>Состояние</th>
@@ -88,6 +108,9 @@
     <tbody>
       {% for d in devices %}
       <tr>
+        <td class="bulk-check-col">
+          <input type="checkbox" name="device_id" value="{{ d.device_id }}" class="bulk-device-cb">
+        </td>
         <td>
           {{ device_link(d.device_id, d.hostname or '(неизвестно)', d.chassis_type) }}
           {% if d.is_duplicate %}
@@ -121,8 +144,44 @@
     </tbody>
   </table>
   </div>
+  </form>
 
   {{ table_pager('/devices', page, pages, total, page_size, q=q, tag=tag_filter, wave=wave, archive=show_archive) }}
+  <script>
+  (function () {
+    var form = document.getElementById("devices-bulk-form");
+    if (!form) return;
+    var pageCb = document.getElementById("bulk-select-page");
+    if (pageCb) {
+      pageCb.addEventListener("change", function () {
+        form.querySelectorAll(".bulk-device-cb").forEach(function (cb) {
+          cb.checked = pageCb.checked;
+        });
+      });
+    }
+    window.badDevicesBulkConfirm = function (action) {
+      var boxes = form.querySelectorAll(".bulk-device-cb:checked");
+      var n = boxes.length;
+      if (!n) {
+        alert("Выберите хотя бы одно устройство.");
+        return false;
+      }
+      if (n > 100) {
+        alert("Не более 100 устройств за раз.");
+        return false;
+      }
+      if (action === "add_tag") {
+        var tag = (document.getElementById("bulk-tag").value || "").trim();
+        if (!tag) {
+          alert("Укажите тег.");
+          return false;
+        }
+        return confirm("Добавить тег «" + tag + "» к " + n + " устройствам?");
+      }
+      return confirm("Отправить в архив " + n + " устройств?");
+    };
+  })();
+  </script>
   {% endif %}
 </section>
 {% endblock %}

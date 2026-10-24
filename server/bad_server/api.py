@@ -45,7 +45,7 @@ from .schemas import (
     HeartbeatRequest,
     InventoryRequest,
 )
-from .http_bootstrap import ENROLL_CLEARTEXT_MSG, enroll_cleartext_blocked
+from .http_bootstrap import ENROLL_CLEARTEXT_MSG, client_ip, enroll_cleartext_blocked
 from .security import api_key_lookup, generate_token, hash_secret, verify_secret
 from .device_meta import inventory_meta_cache
 from .inventory_events import sanitize_inventory_payload
@@ -82,7 +82,7 @@ def enroll(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=ENROLL_CLEARTEXT_MSG,
         )
-    client = request.client.host if request.client else "unknown"
+    client = client_ip(request)
     limiter = request.app.state.enroll_limiter
     if not limiter.allow(client):
         raise HTTPException(
