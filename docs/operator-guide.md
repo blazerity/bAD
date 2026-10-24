@@ -109,6 +109,8 @@ curl -fsS https://bad.example.com/v1/health  # после TLS / с cert при i
 
 Токены лежат в `/etc/bad/site.env` (режим `640`, `root:bad`). uvicorn — только `127.0.0.1:8000`; TLS терминирует **nginx** (не uvicorn). См. [Безопасность](#безопасность-для-операторов).
 
+**Лимиты входа и регистрации:** при штатной установке nginx передаёт в приложение **реальный IP** клиента; по нему считаются ограничения на вход в панель и на регистрацию агентов (см. [release-notes-1.8.1.md](release-notes-1.8.1.md)). Свой прокси перед bAD — настройте передачу IP так же, как в шаблоне nginx из `deploy/debian`.
+
 ### Сертификат TLS из панели
 
 Страница: **Параметры → Сертификат** (`/settings/tls`, nav desc «TLS для nginx») — только web admin. Заголовок **«Сертификат TLS»**.
@@ -389,7 +391,7 @@ Panel-first: до cert UI на HTTP (`BAD_COOKIE_SECURE=auto`). После apply
 
 ## Заметки
 
-- Кратко о возможностях **1.8.0 / агент 1.2.1**: [release-notes-1.8.0.md](release-notes-1.8.0.md). Старые линии: [release-notes-1.5.3.md](release-notes-1.5.3.md).
+- **1.8.1** (патч панели): [release-notes-1.8.1.md](release-notes-1.8.1.md). **1.8.0 / агент 1.2.1**: [release-notes-1.8.0.md](release-notes-1.8.0.md). Старые линии: [release-notes-1.5.3.md](release-notes-1.5.3.md).
 - Апгрейд MSI сохраняет ProgramData (API key); повторный enroll не нужен.
 - Не кладите enrollment или admin tokens в world-readable файлы.
 - Локальные демо без TLS: uvicorn на Linux (`server/README.md`) и тестовый агент с `BAD_ALLOW_HTTP=1` на `http://127.0.0.1:8000` — только lab.
