@@ -201,7 +201,7 @@
 
     <InstallExecuteSequence>
       <!-- Скрипты уже на диске; migrate — до InstallServices (служба badagent). -->
-      <Custom Action="MigrateLegacyAction" After="InstallFiles" Before="InstallServices" Condition="NOT REMOVE" />
+      <Custom Action="MigrateLegacyAction" Before="InstallServices" Condition="NOT REMOVE" />
       <Custom Action="WriteConfigAction" After="MigrateLegacyAction" Condition="NOT REMOVE" />
       <Custom Action="CleanupUninstallAction" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
     </InstallExecuteSequence>
