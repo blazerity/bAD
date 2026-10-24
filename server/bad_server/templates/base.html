@@ -8,11 +8,17 @@
   <link rel="icon" href="/static/favicon.ico" sizes="any">
   <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
+<body class="{% block body_class %}mica-noise{% endblock %}">
   {% from "macros/icons.html" import icon %}
-  <header class="top">
-    <a class="brand" href="{% if user is defined and user and user.must_change_password %}/account/password{% else %}/{% endif %}">bAD</a>
-    <span class="tagline">blazerity Asset Discovery</span>
+  <header class="top acrylic-bar">
+    <div class="top-inner">
+    <a class="brand-lockup" href="{% if user is defined and user and user.must_change_password %}/account/password{% else %}/{% endif %}">
+      <span class="brand-mark" aria-hidden="true">{{ icon('cpu') }}</span>
+      <span class="brand-text">
+        <span class="brand-title">bAD</span>
+        <span class="brand-sub">blazerity Asset Discovery</span>
+      </span>
+    </a>
     {% if user is defined and user %}
       {% if user.must_change_password %}
       {# SEC-004: no nav to other pages until password is changed #}
@@ -33,12 +39,15 @@
         {% endif %}
       </nav>
       {% endif %}
+    <div class="top-actions">
     <form class="logout" method="post" action="/logout">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <span class="who mono">{{ user.username }}{% if user.source == 'ldap' %} (ldap){% endif %}</span>
-      <button type="submit">{{ icon('signout') }}<span>Выйти</span></button>
+      <span class="who mono">{{ user.username }}{% if user.source == 'ldap' %} <span class="who-tag">ldap</span>{% endif %}</span>
+      <button type="submit" class="icon-btn" title="Выйти">{{ icon('signout') }}<span class="sr-only">Выйти</span></button>
     </form>
+    </div>
     {% endif %}
+    </div>
   </header>
   {% if tls_mode is defined and tls_mode == 'http' %}
   <div class="banner banner-http" role="status">

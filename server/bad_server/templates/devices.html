@@ -4,13 +4,15 @@
 {% from "macros/pager.html" import table_pager %}
 {% block title %}Устройства — bAD{% endblock %}
 {% block content %}
-<section>
-  <h1 class="with-icon">{{ icon('devices') }}Устройства</h1>
-  <p class="muted">
+<section class="page devices-page">
+  <header class="page-header">
+    <h1 class="with-icon">{{ icon('devices') }}Устройства</h1>
+    <p class="page-lead muted">
     {% if show_archive %}Архив{% else %}Активные{% endif %}:
     показано {{ devices|length }} из {{ total }}.
     {% if wave %}· фильтр волны: <span class="mono">{{ wave }}</span>{% endif %}
-  </p>
+    </p>
+  </header>
   {% if flash %}<p class="ok">{{ flash }}</p>{% endif %}
   <p class="muted">
     Основная версия в каталоге установщиков:

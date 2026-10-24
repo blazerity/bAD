@@ -3,13 +3,16 @@
 {% from "macros/ui.html" import local_time, device_link %}
 {% block title %}Обзор — bAD{% endblock %}
 {% block content %}
-<section class="overview-admin">
-  <h1 class="with-icon">{{ icon('overview') }}Обзор</h1>
-  <p class="muted overview-lead">
-    Сервер <span class="mono">{{ (server_current.version if server_current else None) or app_version }}</span>
-    · <a href="/dashboard">Дашборд</a>
-  </p>
+<section class="page overview-admin">
+  <header class="page-header">
+    <h1 class="with-icon">{{ icon('overview') }}Обзор</h1>
+    <p class="page-lead muted">
+      Сервер <span class="mono">{{ (server_current.version if server_current else None) or app_version }}</span>
+      · <a href="/dashboard">Дашборд</a>
+    </p>
+  </header>
 
+  <div class="card-surface panel-search-block">
   <div class="panel-search">
     <label class="panel-field-label" for="overview-search-q">Поиск по парку</label>
     <input id="overview-search-q" class="panel-search-input" type="search"
@@ -17,6 +20,7 @@
       maxlength="128" autocomplete="off" data-overview-search>
     <p class="panel-search-hint">от 2 символов · устройства и события</p>
     <div id="overview-search-results" class="panel-search-dropdown" hidden></div>
+  </div>
   </div>
 
   {% if bootstrap_progress and not bootstrap_progress.complete %}

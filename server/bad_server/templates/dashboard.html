@@ -2,11 +2,13 @@
 {% from "macros/icons.html" import icon %}
 {% block title %}Дашборд — bAD{% endblock %}
 {% block content %}
-<section class="dashboard-page" data-dashboard>
-  <h1 class="with-icon dash-reveal">{{ icon('dashboard') }}Дашборд</h1>
-  <p class="muted dash-reveal" style="--dash-delay:40ms">
-    Парк и графики · <a href="/">Обзор</a>
-  </p>
+<section class="page dashboard-page" data-dashboard>
+  <header class="page-header dash-reveal">
+    <h1 class="with-icon">{{ icon('dashboard') }}Дашборд</h1>
+    <p class="page-lead muted" style="--dash-delay:40ms">
+      Парк и графики · <a href="/">Обзор</a>
+    </p>
+  </header>
 
   <div class="stat-row dash-park-compact dash-reveal" style="--dash-delay:60ms">
     <div class="stat">

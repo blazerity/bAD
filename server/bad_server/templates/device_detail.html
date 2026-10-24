@@ -5,7 +5,7 @@
 {% block content %}
 {% set hw = hardware_summary %}
 {% set view = active_view or 'overview' %}
-<section class="device-card">
+<section class="page device-card">
   <p class="crumb"><a href="/devices">Устройства</a> / {{ device.hostname or device.device_id }}</p>
   <div class="device-title-row">
     <h1 class="with-icon">{{ icon(chassis_icon_name(chassis_type)) }}{{ device.hostname or "(неизвестный узел)" }}</h1>

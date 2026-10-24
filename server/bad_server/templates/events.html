@@ -4,9 +4,11 @@
 {% from "macros/pager.html" import table_pager %}
 {% block title %}События — bAD{% endblock %}
 {% block content %}
-<section>
-  <h1 class="with-icon">{{ icon('events') }}События</h1>
-  <p class="muted">Изменения inventory (сначала новые). По умолчанию скрыт «шум» (низкая важность).</p>
+<section class="page events-page">
+  <header class="page-header">
+    <h1 class="with-icon">{{ icon('events') }}События</h1>
+    <p class="page-lead muted">Изменения inventory (сначала новые). По умолчанию скрыт «шум» (низкая важность).</p>
+  </header>
 
   <form method="get" action="/events" class="filter-bar" data-live-submit data-live-delay="350">
     {% if device_filter %}
