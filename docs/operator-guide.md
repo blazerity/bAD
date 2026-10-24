@@ -393,7 +393,7 @@ Panel-first: до cert UI на HTTP (`BAD_COOKIE_SECURE=auto`). После apply
 
 ## Заметки
 
-- **Агент 1.3.0** (CLI push/update): [release-notes-agent-1.3.0.md](release-notes-agent-1.3.0.md). **1.9.0** (панель): [release-notes-1.9.0.md](release-notes-1.9.0.md). **1.8.1**: [release-notes-1.8.1.md](release-notes-1.8.1.md). **1.8.0 / агент 1.2.1**: [release-notes-1.8.0.md](release-notes-1.8.0.md). Старые линии: [release-notes-1.5.3.md](release-notes-1.5.3.md).
+- **Сервер 1.10.0** (надёжность, heartbeat, почта, поиск): [release-notes-1.10.0.md](release-notes-1.10.0.md). **Агент 1.3.0** (CLI push/update): [release-notes-agent-1.3.0.md](release-notes-agent-1.3.0.md). **1.9.0** (панель): [release-notes-1.9.0.md](release-notes-1.9.0.md). **1.8.1**: [release-notes-1.8.1.md](release-notes-1.8.1.md). **1.8.0 / агент 1.2.1**: [release-notes-1.8.0.md](release-notes-1.8.0.md). Старые линии: [release-notes-1.5.3.md](release-notes-1.5.3.md).
 - Апгрейд MSI сохраняет ProgramData (API key); повторный enroll не нужен.
 - Не кладите enrollment или admin tokens в world-readable файлы.
 - Локальные демо без TLS: uvicorn на Linux (`server/README.md`) и тестовый агент с `BAD_ALLOW_HTTP=1` на `http://127.0.0.1:8000` — только lab.
