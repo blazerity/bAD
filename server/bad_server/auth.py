@@ -178,7 +178,12 @@ def require_web_user(
             status_code=status.HTTP_303_SEE_OTHER,
             headers={"Location": "/login"},
         )
-    if user.must_change_password and request.url.path not in _PASSWORD_CHANGE_PATHS:
+    settings = get_settings()
+    if (
+        user.must_change_password
+        and not settings.qa_ui
+        and request.url.path not in _PASSWORD_CHANGE_PATHS
+    ):
         raise HTTPException(
             status_code=status.HTTP_303_SEE_OTHER,
             headers={"Location": "/account/password"},

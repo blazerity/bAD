@@ -10,7 +10,7 @@
 <div class="settings-shell">
   <aside class="settings-nav card-surface settings-nav-rail" aria-label="Разделы параметров">
     <nav class="settings-nav-list">
-      {% if user is defined and user and user.must_change_password %}
+      {% if user is defined and user and user.must_change_password and not qa_ui %}
       {# SEC-004: только смена пароля, остальные разделы скрыты #}
       <a class="settings-nav-item active" href="/account/password">
         <span class="settings-nav-icon">{{ icon('password') }}</span>

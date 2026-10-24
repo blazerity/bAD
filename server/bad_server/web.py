@@ -68,6 +68,7 @@ from .enrollment_ops import (
     rotate_enrollment_token,
 )
 from .http_bootstrap import HTTP_SENSITIVE_MSG, client_ip, sensitive_over_http_blocked
+from .qa_ui import panel_tls_mode, patch_security_for_qa
 from .device_meta import (
     format_logged_on_display,
     meta_search_haystack,
@@ -653,15 +654,16 @@ def _html(
     token = get_csrf_token(request)
     ctx = dict(context)
     ctx["csrf_token"] = token
+    settings = get_settings()
+    ctx["qa_ui"] = settings.qa_ui
     # Global HTTP bootstrap chrome (banner + gated settings actions).
-    if "tls_mode" not in ctx:
-        ctx["tls_mode"] = tls_panel_mode()
+    actual_tls = ctx.get("tls_mode") or tls_panel_mode()
+    ctx["tls_mode"] = panel_tls_mode(settings, actual_tls)
     if "tls_domain" not in ctx:
         ctx["tls_domain"] = read_domain_from_env()
     if "https_url" not in ctx:
         ctx["https_url"] = https_panel_url(ctx.get("tls_domain") or "")
     resp = templates.TemplateResponse(request, name, ctx, status_code=status_code)
-    settings = get_settings()
     set_csrf_cookie(
         resp,
         token,
@@ -788,7 +790,7 @@ def _overview_page_context(
 ) -> dict[str, Any]:
     """SSR context Обзора (O*): admin/ops, без склада графиков Дашборда."""
     active, _archived, stats, ops = _fleet_snapshot(db, settings)
-    security = security_status(db, settings)
+    security = patch_security_for_qa(security_status(db, settings), settings)
     ops = merge_security_into_ops(ops, security)
     # O8: числа волны (не bar-chart)
     wave = build_wave_counts(
@@ -802,7 +804,9 @@ def _overview_page_context(
     }
     ops["wave_chips"] = wave["chips"]
     ops["agent_local_count"] = wave["agent_local"]
-    tls_mode = str(ops.get("tls_mode") or tls_panel_mode() or "http")
+    tls_mode = panel_tls_mode(
+        settings, str(ops.get("tls_mode") or tls_panel_mode() or "http")
+    )
     bootstrap = build_bootstrap_checklist(
         user=user,
         db=db,
@@ -816,6 +820,7 @@ def _overview_page_context(
         ops=ops,
         active_devices=int(stats.get("total_active") or 0),
         security=security,
+        settings=settings,
     )
     chassis_by_id = _chassis_map_for_devices(active)
     for d in ops.get("version_drift") or []:
@@ -830,6 +835,7 @@ def _overview_page_context(
         stats=stats,
         tls_mode=tls_mode,
         security=security,
+        qa_ui=settings.qa_ui,
     )
     server_current = server_read_current(releases_dir(settings))
     versions = list(stats.get("agent_versions") or [])
@@ -951,7 +957,7 @@ def dashboard_page(
 ):
     """Отдельная вкладка Дашборд: визуальные агрегаты D1–D5 (не /v1)."""
     active, _archived, stats, ops = _fleet_snapshot(db, settings)
-    security = security_status(db, settings)
+    security = patch_security_for_qa(security_status(db, settings), settings)
     ops = merge_security_into_ops(ops, security)
     dashboard = build_dashboard_stats(
         db,
@@ -1589,13 +1595,14 @@ def setup_progress_json(
 ):
     """U5: явный прогресс мастера (шаг 1/2/3) для UI без своих эвристик."""
     _active, _archived, stats, ops = _fleet_snapshot(db, settings)
-    security = security_status(db, settings)
+    security = patch_security_for_qa(security_status(db, settings), settings)
     ops = merge_security_into_ops(ops, security)
     progress = build_bootstrap_progress(
         user=user,
         ops=ops,
         active_devices=int(stats.get("total_active") or 0),
         security=security,
+        settings=settings,
     )
     return JSONResponse({"progress": progress})
 

@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     # Cookie Secure: True/False force; None = auto (X-Forwarded-Proto / HTTPS).
     # Prefer BAD_COOKIE_SECURE=auto so Secure flips with nginx without API restart.
     cookie_secure: Optional[bool] = None
+    # Lab: панель для скриншотов/QA без HTTP-bootstrap (баннер, гейты, sensitive over HTTP).
+    qa_ui: bool = _env_bool("BAD_QA_UI", False)
     # Lab opt-out: site-bundle + LDAP/SMTP password save while mode=http.
     allow_sensitive_over_http: bool = False
     # Lab opt-out: /v1/enroll on cleartext when managed TLS is already active.

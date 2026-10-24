@@ -61,11 +61,22 @@ def build_bootstrap_progress(
     ops: dict[str, Any],
     active_devices: int,
     security: Optional[dict[str, Any]] = None,
+    settings: Any = None,
 ) -> dict[str, Any]:
     """Мастер первого запуска: явные шаги 1/2/3 без дублирования эвристик в UI.
 
     1 — пароль сменён; 2 — HTTPS; 3 — есть устройство или каталог установщиков не пуст.
     """
+    if settings and getattr(settings, "qa_ui", False):
+        return {
+            "total": 3,
+            "done": 3,
+            "current": 4,
+            "complete": True,
+            "label": "готово",
+            "steps": [],
+            "tls_mode": "https",
+        }
     security = security or {}
     https = security.get("https_first") or {}
     tls_mode = str(
@@ -146,6 +157,22 @@ def build_bootstrap_checklist(
     security: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Компактный прогресс первого запуска. Скрывается после HTTPS + смена пароля."""
+    if getattr(settings, "qa_ui", False):
+        progress = build_bootstrap_progress(
+            user=user,
+            ops=ops,
+            active_devices=active_devices,
+            security=security,
+            settings=settings,
+        )
+        return {
+            "visible": False,
+            "steps": [],
+            "done": 0,
+            "total": 0,
+            "tls_mode": "https",
+            "progress": progress,
+        }
     security = security or {}
     https = security.get("https_first") or {}
     enroll_block = security.get("enrollment") or {}
@@ -226,6 +253,7 @@ def build_attention_queue(
     stats: dict[str, Any],
     tls_mode: str,
     security: Optional[dict[str, Any]] = None,
+    qa_ui: bool = False,
 ) -> list[dict[str, Any]]:
     """Одна приоритизированная лента «требует действия» для Обзора.
 
@@ -245,7 +273,7 @@ def build_attention_queue(
         or secrets.get("legacy_keys_in_sqlite")
     )
 
-    if user.must_change_password:
+    if user.must_change_password and not qa_ui:
         items.append(
             {
                 "id": "password",
@@ -256,7 +284,7 @@ def build_attention_queue(
                 "cta": "Сменить пароль",
             }
         )
-    if mode == "http":
+    if mode == "http" and not qa_ui:
         items.append(
             {
                 "id": "tls",

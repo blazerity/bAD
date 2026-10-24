@@ -12,7 +12,7 @@
   {% from "macros/icons.html" import icon %}
   <header class="top acrylic-bar">
     <div class="top-inner">
-    <a class="brand-lockup" href="{% if user is defined and user and user.must_change_password %}/account/password{% else %}/{% endif %}">
+    <a class="brand-lockup" href="{% if user is defined and user and user.must_change_password and not qa_ui %}/account/password{% else %}/{% endif %}">
       <span class="brand-mark" aria-hidden="true">{{ icon('cpu') }}</span>
       <span class="brand-text">
         <span class="brand-title">bAD</span>
@@ -20,7 +20,7 @@
       </span>
     </a>
     {% if user is defined and user %}
-      {% if user.must_change_password %}
+      {% if user.must_change_password and not qa_ui %}
       {# SEC-004: no nav to other pages until password is changed #}
       <nav class="nav" aria-label="Смена пароля">
         {% if user.source == 'local' %}
@@ -40,7 +40,7 @@
       </nav>
       {% endif %}
     <div class="top-actions">
-      {% if not user.must_change_password %}
+      {% if not user.must_change_password or qa_ui %}
       <button type="button" class="icon-btn" id="global-search-open" title="Поиск по парку">{{ icon('search') }}<span class="sr-only">Поиск</span></button>
       <a class="icon-btn icon-btn-link" href="/events?importance=high" title="Важные события">{{ icon('bell') }}<span class="sr-only">События</span></a>
       <div class="user-meta">
@@ -61,7 +61,7 @@
     {% endif %}
     </div>
   </header>
-  {% if tls_mode is defined and tls_mode == 'http' %}
+  {% if tls_mode is defined and tls_mode == 'http' and not qa_ui %}
   <div class="banner banner-http" role="status">
     Сайт пока без защищённого соединения — только доверенная сеть.
     Путь:
@@ -72,7 +72,7 @@
     {% endif %}
   </div>
   {% endif %}
-  {% if user is defined and user and user.must_change_password %}
+  {% if user is defined and user and user.must_change_password and not qa_ui %}
   <div class="banner">Используется пароль по умолчанию — <a href="/account/password">смените его сейчас</a>.</div>
   {% endif %}
   <main>
@@ -81,7 +81,7 @@
   <footer class="foot">
     Версия сервера {{ app_version }}
   </footer>
-  {% if user is defined and user and not user.must_change_password %}
+  {% if user is defined and user and (not user.must_change_password or qa_ui) %}
   <div id="global-search-modal" class="global-search-modal" hidden>
     <div class="global-search-backdrop" data-global-search-close tabindex="-1"></div>
     <div class="global-search-dialog card-surface" role="dialog" aria-label="Поиск по парку">
