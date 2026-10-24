@@ -5,7 +5,7 @@
 | Компонент | Текущая версия | Где посмотреть |
 |-----------|----------------|----------------|
 | Сервер (панель и API) | 1.10.1 | файл `VERSION`, `GET /v1/health`, подвал панели |
-| Агент (MSI на ПК) | 1.3.1 | файл `agent/VERSION`, поле `agent_version` в карточке устройства |
+| Агент (MSI на ПК) | 2.0.0 | файл `agent/VERSION`, поле `agent_version` в карточке устройства |
 
 Версии сервера и агента независимы. Обновление панели и обновление агентов — разные процедуры (см. разделы 4 и 5).
 
@@ -168,16 +168,18 @@ uvicorn слушает только `127.0.0.1:8000`, TLS обрабатывае
 Имя файла: `bad-agent-<версия>.msi`, версия указана в `agent/VERSION`. MSI собирается на Windows (см. `installer/msi/README.md`).
 
 ```powershell
-msiexec /i bad-agent-1.3.1.msi `
+msiexec /i bad-agent-2.0.0.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=<enrollment-токен> `
   /qn
 ```
 
+Файлы агента: **`%ProgramFiles%\blazerity\bad agent\`** (`bin\`, `bad.cmd`). Служба Windows: **`badagent`** (в списке служб — **bAD Agent**).
+
 Каталог с `bad` по умолчанию добавляется в системный `PATH` (`ADDPATH=1`). Чтобы не менять `PATH`, добавьте `ADDPATH=0`.
 
 ```powershell
-msiexec /i bad-agent-1.3.1.msi `
+msiexec /i bad-agent-2.0.0.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=<enrollment-токен> `
   ADDPATH=0 `
@@ -188,7 +190,7 @@ msiexec /i bad-agent-1.3.1.msi `
 
 ### 2.2. Что делает агент
 
-- Работает как служба `BlazerityAssetDiscovery` и запускается автоматически.
+- Работает как служба **`badagent`** и запускается автоматически.
 - Регистрируется на сервере один раз и сохраняет API-ключ в `%ProgramData%\blazerity\bAD\config.json`.
 - Отправляет полный снимок инвентаризации при старте и далее по расписанию (по умолчанию каждые 6 часов).
 - Отправляет heartbeat каждые 15 минут.
@@ -197,6 +199,8 @@ msiexec /i bad-agent-1.3.1.msi `
 Целевую версию задают политики: `update_target` — «последняя» или закреплённая.
 
 Обновление MSI не требует повторной регистрации: `ProgramData` сохраняется.
+
+**Апгрейд с агента 1.x на 2.0.** Установите MSI **2.0.0** поверх старой версии (тот же `msiexec` или self-update с сервера). Установщик сам остановит службу **`BlazerityAssetDiscovery`**, уберёт каталог **`%ProgramFiles%\blazerity\bAD\`** и запустит **`badagent`**. Настройки в **`%ProgramData%\blazerity\bAD\`** сохраняются, повторный enroll не нужен. Подробнее: [release-notes-agent-2.0.0.md](release-notes-agent-2.0.0.md).
 
 ### 2.3. Локальная команда `bad`
 
@@ -211,13 +215,16 @@ msiexec /i bad-agent-1.3.1.msi `
 | `bad config set <ключ> <значение>` | администратор | задать параметр |
 | `bad config unset <ключ>` | администратор | сбросить параметр |
 | `bad push` | администратор | синхронизация с сервером: очередь, инвентаризация, heartbeat |
-| `bad update` | администратор | проверить и установить MSI с сервера (с агента **1.3.0**; флаг `push --update` снят) |
+| `bad update` | администратор | проверить и установить MSI с сервера |
+| `bad service …` | администратор | управление службой `badagent` |
 
 Управление службой (от администратора):
 
 ```powershell
-BadAgent.exe service status|start|stop|restart
+bad service status|start|stop|restart
 ```
+
+Справка по командам: `bad -h`.
 
 Параметр, заданный локально через `bad -c` или `bad config set`, в панели помечается как «задано на агенте». Значения API-ключа и enrollment-токена через CLI не задаются и не выводятся.
 
@@ -468,7 +475,7 @@ curl -fsS -H "Authorization: Bearer <admin-token>" \
 
 ## Дополнительные материалы
 
-- Заметки о выпусках: [1.10.1](release-notes-1.10.1.md), [1.10.0](release-notes-1.10.0.md), [агент 1.3.1](release-notes-agent-1.3.1.md), [1.9.1](release-notes-1.9.1.md).
+- Заметки о выпусках: [агент 2.0.0](release-notes-agent-2.0.0.md), [1.10.1](release-notes-1.10.1.md), [1.10.0](release-notes-1.10.0.md), [агент 1.3.1](release-notes-agent-1.3.1.md).
 - [api-v1.md](api-v1.md): интеграции и API.
 - [architecture.md](architecture.md): устройство системы.
 - [guideline.md](guideline.md): правила разработки и релиза.

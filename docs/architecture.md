@@ -5,7 +5,7 @@ bAD (blazerity Asset Discovery) состоит из двух частей: аг�
 Версии двух частей независимы:
 
 - **Сервер:** файл `VERSION` в корне репозитория (сейчас 1.10.1).
-- **Агент:** файл `agent/VERSION` (сейчас 1.3.1).
+- **Агент:** файл `agent/VERSION` (сейчас 2.0.0).
 
 Обновление панели с GitHub и обновление агентов на ПК — разные процедуры.
 
@@ -60,7 +60,9 @@ flowchart LR
 
 ### Установка и службы
 
-MSI устанавливает агент в `%ProgramFiles%\blazerity\bAD\` и регистрирует службу `BlazerityAssetDiscovery`, которая запускается автоматически от учётной записи LocalSystem.
+MSI устанавливает агент в **`%ProgramFiles%\blazerity\bad agent\`** (`bin\BadAgent.exe`, `bad.cmd`, скрипты) и регистрирует службу **`badagent`** (отображаемое имя **bAD Agent**, описание на русском). Запуск — автоматически от LocalSystem.
+
+Апгрейд с линии **1.x**: WiX **MajorUpgrade** и скрипт **`migrate-legacy-install.ps1`** (снять службу `BlazerityAssetDiscovery`, старый каталог `...\blazerity\bAD\`, устаревший PATH). **`%ProgramData%\blazerity\bAD\`** не переносится — config и очередь сохраняются.
 
 Конфигурация и рабочие данные лежат в `%ProgramData%\blazerity\bAD\`:
 
@@ -122,14 +124,14 @@ Heartbeat сообщает серверу, что агент жив, и пере
 
 ### CLI `bad`
 
-CLI — тот же исполняемый файл `BadAgent.exe`, с командой `bad` рядом.
+CLI: shim **`bad.cmd`** в каталоге установки вызывает `bin\BadAgent.exe`.
 
 | Режим | Кто может | Что делает |
 |-------|-----------|------------|
 | `bad`, `bad -r` | любой пользователь | Локальный отчёт в ASCII или HTML, сервер не нужен |
 | `bad -c`, `bad config set/unset` | администратор | Настройка параметров на самом ПК |
-| `bad push`, `bad update` | администратор | Отправка данных на сервер и проверка обновления |
-| `BadAgent.exe service ...` | администратор | Управление службой |
+| `bad push`, `bad update` | администратор | Синхронизация с сервером и установка MSI с сервера |
+| `bad service status\|start\|stop\|restart` | администратор | Управление службой `badagent` |
 
 Параметр, заданный через CLI, помечается на сервере как «задано на агенте». Значения ключа агента и токена регистрации CLI не выводит и не задаёт.
 
@@ -323,6 +325,7 @@ flowchart LR
 - Исходники: `installer/msi/Product.wxs`, `write-config.ps1`, `cleanup-uninstall.ps1`.
 - Сборка выполняется на Windows: локально или в GitHub Actions.
 - Параметры установки: `SERVERURL`, `ENROLLMENTTOKEN`, `ADDPATH` (по умолчанию 1).
+- **2.0+:** каталог `bad agent`, служба `badagent`; миграция с 1.x — `migrate-legacy-install.ps1`.
 - Обновление MSI выполняется как major upgrade без удаления `ProgramData`.
 - Полное удаление требует остановки службы и запуска `cleanup-uninstall.ps1`.
 - Подпись кода необязательна: без сертификата MSI собирается без подписи.

@@ -74,23 +74,25 @@ Lab/cleartext (uvicorn без TLS): `BAD_SERVER_URL=http://127.0.0.1:8000` **и*
 
 ## Локальный CLI (`bad`) и Service CLI
 
-Тот же `BadAgent.exe` (shim `bad.cmd` рядом в MSI). Режим:
+Shim `bad.cmd` → `bin\BadAgent.exe` в `%ProgramFiles%\blazerity\bad agent\`. Режим:
 
 1. `service …` — управление службой (elevated).
 2. Интерактивный запуск (консоль / Win+R) — локальные отчёты inventory (**без** обращения к серверу).
 3. Запуск SCM — Windows Service host (без изменений).
 
 ```powershell
-bad                     # ASCII-отчёт (то же: bad report | bad info) — любой пользователь
-bad -r [path]           # HTML-отчёт (--report; устар. --html)
-bad -h                  # справка (--help | -?)
+bad                     # ASCII-отчёт inventory — любой пользователь
+bad -r [path]           # HTML-отчёт
+bad -h                  # справка
 bad -c                  # интерактивная настройка — только elevated (администратор)
 bad config set <k> <v>  # один knob — только elevated
 bad config unset <k>    # сброс knob — только elevated
 bad push                # синхронизация: очередь → inventory → heartbeat (config с сервера)
-bad update              # проверка и установка MSI с сервера (1.3.0+; push --update снят)
-BadAgent.exe service status|start|stop|restart
+bad update              # проверка и установка MSI с сервера
+bad service status|start|stop|restart   # служба badagent — elevated
 ```
+
+MSI **2.0+:** `%ProgramFiles%\blazerity\bad agent\`; служба **`badagent`**. Апгрейд с 1.x: MajorUpgrade + `migrate-legacy-install.ps1` (см. `installer/msi/README.md`).
 
 > Обычный пользователь: **`bad`**, **`bad -r`**, **`-h`**. Настройка: **`bad -c`** / **`config set|unset`** — запуск от администратора.
 
