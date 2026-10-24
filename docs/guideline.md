@@ -1,139 +1,183 @@
-# Руководства по разработке bAD
+# Правила разработки bAD
 
-Краткие инженерные правила для этого репозитория. Стек, границы и update pipeline: [architecture.md](architecture.md).
+Этот документ описывает, как устроен проект и как в нём принято писать код, документацию и релизы. Он адресован и людям, и ИИ-агентам, которые вносят изменения в репозиторий. Если правило здесь противоречит коду, исходите из кода и сообщите об этом в описании изменения.
 
-## Общие принципы
+Подробности по архитектуре: [architecture.md](architecture.md). Карта репозитория: [agents.md](agents.md). Контракт API: [api-v1.md](api-v1.md).
 
-- **Thin agent**: агент только собирает и POST’ит; бизнес-логика и хранение — на сервере.
-- **Idempotent upsert**: стабильный `device_id`; повторная отправка безопасна.
-- **Least privilege / secrets**: TLS везде; секреты не вшивать в MSI binary; не логировать tokens/API keys.
-- **MVP scope**: не раздувать web UI, роли, плагины, cloud control plane.
-- **Updates via server**: агенты качают MSI только с on-prem API; GitHub — источник для серверного зеркала.
+## Принципы
+
+1. **Агент тонкий.** Агент собирает данные и отправляет их на сервер. Хранение, сравнение, политики и уведомления — на сервере.
+2. **Повторная отправка безопасна.** Устройство определяется стабильным `device_id`, запись выполняется как upsert.
+3. **Минимум прав и секретов.** TLS везде, секреты не вшиваются в MSI и не попадают в журналы.
+4. **Узкий MVP.** Не добавляйте роли, плагины, облачную часть и новые разделы панели без явного запроса владельца.
+5. **Обновления идут через сервер.** Агенты скачивают MSI только с on-prem сервера. GitHub — источник для зеркала на сервере.
+6. **Одна задача — один изменение.** Не смешивайте в одном изменении рефакторинг, новую функциональность и правки документации, если их можно разделить.
+
+## Что нельзя ломать
+
+Эти инварианты проверяются при любом изменении.
+
+- **HTTPS для агентов.** Агент отклоняет `http://` без `BAD_ALLOW_HTTP=1`. Этот флаг только для лаборатории.
+- **Три разных секрета.** Токен регистрации, ключ агента и токен администратора не заменяют друг друга.
+- **Хранение хэшей.** В базе лежат хэши токенов и ключей агентов. Открытый ключ показывается один раз, в `ProgramData` с жёсткими правами.
+- **Upsert по `device_id`.** Обновление MSI не требует повторной регистрации и не удаляет `ProgramData`.
+- **uvicorn только на localhost.** Наружу выходит только nginx с TLS.
+- **Вход в панель по сессии.** Страницы `/devices` без сессии перенаправляют на `/login`.
+- **OpenAPI выключен** в приложении.
+- **Сбой одного сборщика не валит снимок.** Ошибка попадает в `collector_errors`.
+- **Агент не ходит в GitHub.** Только зеркало на сервере.
+- **Секреты не логируются.** Это касается токенов регистрации, ключей агентов, токена администратора и токена GitHub.
+- **Веб-формы защищены CSRF.** Каждый POST в HTML-формах проверяет токен через `ensure_csrf`.
+- **Пароль по умолчанию меняется сразу.** Пока `must_change_password` включён, панель открывает только смену пароля и выход.
+
+## Структура репозитория
+
+| Каталог | Что внутри |
+|---------|-----------|
+| `agent/` | служба Windows и CLI `bad` (.NET 8) |
+| `server/` | приложение FastAPI, веб-панель, зеркало MSI |
+| `installer/msi/` | WiX, скрипты для MSI |
+| `deploy/debian/` | установка на Debian 12, systemd, nginx |
+| `docs/` | документация |
+| `VERSION` | версия сервера |
+| `agent/VERSION` | версия агента |
+| `.github/workflows/` | CI и сборка MSI |
+
+Не коммитьте: `.env`, `site.env`, локальные базы `*.db`, каталоги `bin/` и `obj/`, файлы сборки MSI.
+
+## Язык и стиль
+
+### Документация
+
+- Документация пишется на русском языке.
+- Имена кода, команд, путей и переменных остаются в исходном виде: `BAD_DATABASE_URL`, `GET /v1/health`, `agent/VERSION`.
+- Заголовки короткие и описывают содержимое. Используйте таблицы для параметров и сравнений, а не длинные списки.
+- Каждая инструкция начинается с действия: «Откройте», «Выполните», «Проверьте».
+- Не используйте внутренние коды (`SEC-…`), названия задач и служебные пометки в публичных документах.
+- Не пишите про «переходный» режим без даты окончания. Если режим временный, укажите, когда он закончится.
+- Не указывайте версии в тексте, если их можно взять из `VERSION` или `agent/VERSION`. Если версия нужна, укажите, откуда её взять.
+- Примеры команд должны работать как есть. Заменяемые значения пишите в угловых скобках или верхнем регистре: `<токен>`, `DEVICE_ID`.
+
+### Код
+
+- Идентификаторы в коде — на английском.
+- Комментарии в коде пишите коротко и только там, где неочевидна причина решения. Пересказ строки кода не нужен.
+- Сообщения в интерфейсе — на русском языке.
+- Сообщения журналов — понятные и без секретов: что не получилось и что делать.
+- Ошибки API — `{ "detail": "краткое описание" }`. Для неизвестной версии схемы — `400`.
+
+### Интерфейс
+
+- Панель: русский язык, светлая тема в стиле Windows 11 (Fluent), иконки в линейном стиле без emoji.
+- Стили: `server/bad_server/static/style.css`. HTML-отчёт агента использует те же цвета и иконки.
+- Время: относительное в интерфейсе, точное — в подсказке. В API и базе — только UTC в формате ISO 8601.
+- Не добавляйте маркетинговые блоки и «пустые» виджеты. Обзор показывает сигналы для оператора.
 
 ## API
 
-- Префикс версионирования пути: `/v1/...`.
-- **Additive freeze `/v1`:** breaking только по решению владельца. Интеграционный гайд (1C Itilium): [api-v1.md](api-v1.md).
-- JSON, `Content-Type: application/json`, `Authorization: Bearer <token>`.
-- Разделять enrollment token, agent API key и admin token.
-- Ошибки: осмысленный HTTP status + краткий `detail`; неизвестный `schema_version` → `400`.
-- Не включать OpenAPI UI в production (`docs_url=None` уже так).
-- Новые поля в inventory — обратно совместимо внутри `schema_version=1` или новый integer schema с явной поддержкой на сервере.
-- Update endpoints: agent key на `/v1/agent/update/*`; admin на `/v1/admin/agent-update*`.
-- Remote config: agent key только на `GET /v1/agent/config` (и piggyback в heartbeat); мутации policies/overrides — admin session/token. Только allowlisted knobs, без shell/команд.
+- Путь начинается с `/v1/`.
+- **Аддитивная заморозка `/v1`.** Можно добавлять необязательные поля и эндпоинты. Удаление, переименование и изменение смысла полей — только по решению владельца.
+- Формат: JSON, заголовок `Authorization: Bearer <токен>`.
+- Неизвестная `schema_version` инвентаризации даёт `400`.
+- Эндпоинты агента: ключ агента. Эндпоинты администратора: токен администратора или сессия панели.
+- Настройки агента через политики — только из списка разрешённых параметров. Никаких команд оболочки.
+- Новое поле в снимке можно добавлять без повышения `schema_version`, если старые клиенты его игнорируют.
+
+Когда меняете публичный контракт, обновите тесты и [api-v1.md](api-v1.md). Если меняете архитектуру, обновите [architecture.md](architecture.md). Если меняете обновление агента или CLI, обновите [agents.md](agents.md).
 
 ## Безопасность
 
-- Агент отклоняет `http://` без явного opt-in для dev.
-- На сервере: hash секретов (argon2); site.env `640` root:bad; каталог бэкапов — как секреты (`700` / файлы `600`).
-- **SEC-005:** keys в `/etc/bad/data_key` + `session_secret`; **dump/daily DB ≠ ключи** (`pg_dump -Fc`). Site bundle = `bad.dump`+keys; key escrow отдельно. Legacy keys в `site_secrets` → dump = компромисс. [operator-guide.md](operator-guide.md#безопасность-для-операторов).
-- **БД:** только Postgres через `BAD_DATABASE_URL` (без URL API не стартует). Local PG при install — localhost. HA/ACME — не обещать.
-- **SEC-011:** MSI write-config не кладёт token в argv PowerShell (HKLM Setup); residual — `msiexec … ENROLLMENTTOKEN=` / verbose logs — не пересылать; **после массовой установки MSI смена enrollment-токена обязательна** ([operator-guide.md](operator-guide.md#ротация-enrollment-token-после-массовой-установки-msi)).
-- **SEC-003:** LDAP TLS — по умолчанию `CERT_REQUIRED`; lab opt-in `tls_insecure` только для лаборатории, не для боя.
-- После install **сразу** сменить `admin`/`admin` (`/account/password`); до смены UI пускает только `/account/password` и `/logout` (навигация скрыта).
-- Cookie `bad_session`: `BAD_COOKIE_SECURE=auto`; **инвариант panel-first:** cert из UI (`/settings/tls`) — канон; `BAD_TLS_*` при install опциональны; агенты только HTTPS (кроме lab). Risk HTTP-окна **Medium** при runbook ([чеклист](operator-guide.md#чеклист-окна-http-bootstrap)). ACME не обещать.
-- uvicorn не наружу.
-- nginx rate-limit / app enroll limiter — сохранять и ужесточать осторожно.
-- ProgramData ACL: Administrators + SYSTEM; не world-readable.
-- Логи (Serilog / journald): без plaintext tokens и API keys (включая `BAD_GITHUB_TOKEN` и enrollment).
+- Проверяйте входные данные на сервере, даже если агент уже их проверил.
+- Не передавайте имена файлов и адреса из запросов без проверки. Для MSI имя должно быть безопасным, адрес загрузки — с того же сервера.
+- LDAP: проверка сертификата обязательна (`CERT_REQUIRED`). Отключение проверки — только для лаборатории через явный флаг.
+- Пароли и токены хранятся в хэшированном или зашифрованном виде. Ключи шифрования лежат в `/etc/bad/*`, а не в базе.
+- Файлы `site.env` и ключи: права `640` или `440`, владелец `root:bad`.
+- Резервные копии: владелец `bad`, права `600` (файлы) и `700` (каталог).
+- Логи (Serilog, journald) не содержат секретов, включая токен GitHub.
+- При изменении места, где читается секрет, проверьте, что он не попадает в журнал, аргументы командной строки или ответ API.
 
-## Логирование
+## Версионирование
 
-- Сервер: структурированно через стандартный logging / journalctl unit `bad-api`.
-- Агент: Serilog file sink под `%ProgramData%\blazerity\bAD\logs\` (ротация ~7 дней); msiexec log рядом при upgrade.
-- Сообщения — actionable (enroll failed, backoff, update sha mismatch), без секретов.
+В репозитории две независимые линии.
 
-## Версионирование (две линии)
+| Линия | Канон | Тег | Что публикует |
+|-------|-------|-----|---------------|
+| Сервер | `VERSION` в корне | `server-vX.Y.Z` | ничего не собирает, MSI не меняется |
+| Агент | `agent/VERSION` | `agent-vX.Y.Z` | MSI через `release-msi` |
 
-| Линия | Канон | Tags |
-|-------|-------|------|
-| **Server** | корневой `VERSION` | `server-vX.Y.Z` |
-| **Agent** | `agent/VERSION` (+ csproj / MSI) | `agent-vX.Y.Z` (переходно голый `v*` = agent) |
+Правила:
 
-- Bump (обе): **patch** hotfix / **minor** feature / **major** — только владелец. Checklist: [agents.md](agents.md).
-- Агент стабилен → можно держать agent patch-line ([`agent/VERSION`](../agent/VERSION)) и бампать только сервер ([`VERSION`](../VERSION)) без нового MSI.
-- **Не путать:** **Обновление сервера** (server) ≠ **Обновления агента** / «Собрать MSI» (agent semver в `workflow_dispatch.version`).
-- `schema_version` inventory — integer, третья ось. Агент шлёт `agent_version`; `/v1/health` → `version` = **server**.
+- Не меняйте `agent/VERSION` при изменениях только сервера, и наоборот.
+- Не используйте корневой `VERSION` для сборки MSI.
+- Переходный тег `v*` без префикса принимается как версия агента. Новые релизы используйте с префиксом `agent-v`.
+- Номер меняет владелец продукта. Патч — исправление ошибки, минор — новая функция, мажор — несовместимое изменение. Если вы не владелец, оставьте номер как есть и опишите нужное изменение в описании PR.
+- Чтобы поменять версию, обновите все места из чек-листа в [agents.md](agents.md).
 
-## Как вырезать релиз агента (MSI)
+`schema_version` снимка — отдельная ось. Она меняется, только если меняется протокол.
 
-1. Bump **agent** line ([`agent/VERSION`](../agent/VERSION) + csproj / WiX) — не корневой [`VERSION`](../VERSION); checklist в [agents.md](agents.md).
-2. Тег и push (`VER` = содержимое `agent/VERSION`):
+## Выпуск релиза агента (MSI)
+
+1. Измените `agent/VERSION` и связанные файлы (`Directory.Build.props`, `Product.wxs`). Не трогайте корневой `VERSION`.
+2. Создайте тег и отправьте его в репозиторий:
+
    ```bash
    VER=$(tr -d '[:space:]' < agent/VERSION)
    git tag "agent-v${VER}"
    git push origin "agent-v${VER}"
    ```
-   (переходно ещё принимают голый `v*` = agent, пока CI на `v*`.)
-3. Workflow **`release-msi`** (`windows-latest`): publish agent → WiX v5 → GitHub Release assets `bad-agent-<версия из agent/VERSION>.msi` + `agent-release.json`. Semver: input `version` > tag > `agent/VERSION`; **не** читать server `VERSION`.
-4. Права: `contents: write`. Для public repo достаточно `GITHUB_TOKEN`. Private / panel — `BAD_GITHUB_TOKEN` на сервере.
-5. На сервере: фоновая синхронизация, `POST /v1/admin/agent-update/sync`, загрузка MSI в панели или кнопка сборки на GitHub — файл попадает в **зеркало на сервере**.
-6. Агенты на ПК проверяют зеркало при старте службы и по расписанию (по умолчанию раз в 24 ч), либо после `BadAgent.exe service restart`.
 
-**Не обещать**: что MSI уже собирается в Linux CI — нет. Server-tag **`server-v*`** MSI не публикует.
+3. Workflow `release-msi` запускается на `windows-latest`, собирает агент и MSI через WiX v5 и публикует в GitHub Release файлы `bad-agent-<версия>.msi` и `agent-release.json`.
+4. Версия для сборки берётся в таком порядке: поле `version` при ручном запуске, затем тег, затем `agent/VERSION`. Корневой `VERSION` не используется.
+5. Сервер загружает MSI в зеркало: автоматически по расписанию, через `POST /v1/admin/agent-update/sync` или кнопкой в панели.
+6. Агенты проверяют зеркало при старте службы и далее по расписанию (по умолчанию раз в 24 часа).
 
-Ручной запуск: Actions → `release-msi` → `workflow_dispatch` (поле `version` = agent).
+Права workflow — `contents: write`. Для закрытого репозитория на сервере нужен `BAD_GITHUB_TOKEN`.
 
-## Зеркало на сервере
+Не обещайте, что MSI собирается в Linux CI: сборка выполняется только на Windows. Тег `server-v*` MSI не публикует.
 
-В `/etc/bad/site.env`:
-
-```bash
-BAD_GITHUB_REPO=blazerity/bAD
-BAD_AGENT_UPDATES_DIR=/var/lib/bad/agent-updates
-BAD_AGENT_UPDATE_SYNC_INTERVAL_SECONDS=3600
-BAD_AGENT_UPDATE_SYNC_ON_STARTUP=true
-# BAD_GITHUB_TOKEN=...   # private repo + panel server-update / Actions MSI
-#   scopes: contents:read; для «Собрать MSI» — actions:write
-# BAD_GITHUB_TOKEN_FILE=/etc/bad/github_token   # опц. файл 440
-BAD_BACKUP_DIR=/var/lib/bad/backups
-# BAD_BACKUP_INTERVAL_SECONDS=3600
-```
-
-## Web UI (admin)
-
-Единый раздел. Не плодить противоречащие описания «без дашборда» — обзорная сводка есть, marketing landing нет.
-
-- **Язык / look**: Windows 11 / Fluent light, русский UI; `static/style.css`, favicon; stroke-иконки секций; HTML-отчёт CLI в той же семье токенов.
-- **Обзор** `/` (`/overview`): totals (активные / онлайн / устарели / архив), breakdown версий агента, последние события железа.
-- **Устройства** `/devices`: поиск (hostname / device_id / serial), теги, архив, пагинация (50), сброс фильтров, CSV; пустой парк — CTA на установку агента; массовый архив/тег (`POST /devices/bulk`); иконки типа корпуса у ссылок; на карточке — revoke/rotate key, архив, hard delete, подсказки дублей, inventory summary, копирование серийников / IP / MAC.
-- **Обзор:** мастер первых шагов + `GET /setup/progress.json` (web session).
-- **Время в UI:** относительные подписи + точное локальное в подсказке; API/БД — UTC ISO.
-- **События** `/events`: лента + пагинация; группы «Сегодня» / «Ранее». `GET /v1/events` — без поля `detail`, с `importance`.
-- **Enroll:** при managed TLS cleartext `POST /v1/enroll` → 403 (`ENROLL_CLEARTEXT_MSG`); lab `BAD_ALLOW_ENROLL_OVER_HTTP=1`.
-- **Параметры** `/settings/*` — оболочка в духе «Параметры Windows 11» (левый список с иконками):
-  - Доступ / LDAP (`allowed_group` = sAMAccountName группы AD)
-  - Почта и уведомления (SMTP + чекбоксы; **интервал сводки** 1–48 ч, default 3; все включённые типы — одна HTML-сводка; без webhooks)
-  - Хранение и очистка (сроки хранения событий/снимков, порог **«устарел»** в минутах, фоновый prune)
-  - Резервные копии (daily `pg_dump -Fc` + **Скачать site bundle**; restore `restore-site-bundle.sh`)
-  - Политики агента (`update_target`: latest / pin)
-  - **Обновление сервера** (`/settings/server-update`): ветка default `main`, check/apply/rollback ≤3 (branch+sha), token без plaintext; apply через systemd helper (не sudo-password); MSI `workflow_dispatch` отдельно от зеркала агента — [operator-guide](operator-guide.md#4-обновление-сервера-из-github)
-  - Обновления агента (каталог MSI, «Подгрузить в зеркало», Latest; секция Enrollment + «Сменить enrollment token»)
-- **Обзор**: empty mirror, version drift, broken pin, revoked active.
-- Login: local first, optional LDAP; local admin — break-glass. Не возвращать paste-admin-token gate.
-- Операторский runbook: [operator-guide.md](operator-guide.md).
-
-## Агент
-
-- Не добавлять UI в v1.
-- Сбой одного collector не валит весь снимок.
-- Atomic replace при записи `config.json`.
-- Интервалы по умолчанию: inventory 6h, heartbeat 15m, update check 24h (могут быть переопределены remote config).
-- Remote settings применяются только к safe knobs; `server_url` / secrets не трогать.
-- Service CLI elevated: `BadAgent.exe service status|start|stop|restart` ([agents.md](agents.md)).
-- Self-update: download → sha256 → msiexec → exit (файлы разблокируются для MajorUpgrade).
-
-## Коммиты и PR
-
-- Ветки по задаче; PR в `main` с ясным описанием «что / зачем».
-- Не коммитить `.env`, `site.env`, локальные `*.db`, `bin/`/`obj/`, MSI build outputs.
-- Менять locked-решения плана только осознанно и с обновлением docs.
-- После изменения публичного контракта API — обновить тесты и `docs/architecture.md` (+ `agents.md` / `guideline.md` при update/CLI).
+Ручной запуск: Actions → `release-msi` → `workflow_dispatch`, поле `version` — версия агента.
 
 ## Тесты
 
-Unit tests (`agent/tests/`, `server/tests/`) — **только локально**, не коммитить в GitHub; CI их не гоняет.
+- Модульные тесты лежат в `agent/tests/` и `server/tests/`. Они хранятся только локально и не коммитятся в репозиторий. CI их не запускает.
+- Сервер: `pytest -q` в каталоге `server/`.
+- Агент: `dotnet test tests/BadAgent.Tests -c Release` в каталоге `agent/`.
+- Проверяйте инварианты, а не детали реализации: авторизацию, схему снимка, upsert, сравнение версий, приоритет настроек, отказ от HTTP, службу CLI.
+- Большие снимки-эталоны не используйте: при любом изменении они ломаются без причины.
+- Для ошибок, которые уже встречались, пишите регрессионный тест.
 
-- Локально (если деревья есть): сервер — `pytest -q`; агент — `dotnet test tests/BadAgent.Tests -c Release`.
-- Покрывать: enroll → inventory → admin/web login + agent-update + policy/override; revoke/rotate, archive, retention, SMTP, backup; xUnit collector/schema, cleartext reject, semver/sha256, service CLI, ApplyRemoteSettings.
-- Предпочитать узкие регрессии инвариантов (auth, schema, upsert, update compare, config precedence), а не хрупкие snapshot-гиганты.
+CI (`.github/workflows/ci.yml`) проверяет импорт и `ruff` для сервера и сборку агента в Release. Тесты в CI не запускаются.
+
+## Логирование
+
+- Сервер: стандартный модуль `logging`. Служба `bad-api` пишет в journald.
+- Агент: Serilog, файлы в `%ProgramData%\blazerity\bAD\logs\`, хранение примерно 7 дней. Лог установки MSI лежит рядом.
+- Сообщения должны подсказывать действие: «регистрация не прошла, повтор через N минут», «SHA-256 не совпал, MSI не установлен».
+- Не записывайте в журнал значения токенов, ключей и паролей, даже частично.
+
+## Коммиты и pull request
+
+- Одна ветка — одна задача. Ветки создаются от `main`.
+- Pull request в `main` содержит описание: что изменилось и зачем.
+- Сообщения коммитов короткие, в повелительном наклонении, на русском или английском языке. Пример: `Исправить проверку SHA-256 при обновлении агента`.
+- Если изменение меняет поведение для оператора, добавьте строку в раздел версии документа [operator-guide.md](operator-guide.md) или в файл заметок о выпуске.
+- Перед отправкой проверьте, что не попали секреты, локальные базы и каталоги сборки.
+
+## Документация
+
+- При изменении поведения обновляйте документ, который описывает это поведение. Не создавайте новых файлов, если можно дополнить существующий.
+- Документы для оператора: [operator-guide.md](operator-guide.md). Документы для интеграций: [api-v1.md](api-v1.md). Документы для разработчиков: [architecture.md](architecture.md), [agents.md](agents.md), этот файл.
+- Не дублируйте одно и то же правило в нескольких файлах. Давайте ссылку на основной документ.
+- Ссылки на разделы пишите через якоря, которые совпадают с заголовками.
+
+## Чек-лист для ИИ-агента перед изменением
+
+1. Прочитайте этот файл и [architecture.md](architecture.md) для той части системы, которую меняете.
+2. Найдите нужный файл по таблице из [agents.md](agents.md).
+3. Проверьте инварианты из раздела «Что нельзя ломать».
+4. Внесите минимальное изменение, не трогая соседний код без необходимости.
+5. Обновите тесты (локальные) и документ, который описывает изменённое поведение.
+6. Проверьте, что в тексте нет секретов, внутренних кодов и служебных пометок.
+7. Опишите в ответе, что изменилось, какие файлы затронуты и что нужно проверить вручную.
+
+Если задача требует решения владельца (версии, несовместимое изменение API, новая функция вне MVP), остановитесь и спросите.

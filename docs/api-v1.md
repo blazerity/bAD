@@ -1,105 +1,134 @@
-# bAD API `/v1` — интеграционный гайд (1C Itilium и др.)
+# API v1: интеграции с bAD
 
-Стабильный HTTP JSON API on-prem сервера bAD. Живая версия сервера — в корневом [`VERSION`](../VERSION) (сейчас **1.8.0**; `GET /v1/health` → `version`). Версия агента в полях `agent_version` — из [`agent/VERSION`](../agent/VERSION) (сейчас **1.2.1**). Примеры JSON с `"1.0.1"` — **образец формата**, не обязательно актуальный номер.
+Этот документ описывает HTTP JSON API сервера bAD для внешних систем, например 1C Itilium, скриптов и систем отчётности.
 
-**Политика совместимости (additive freeze):** путь `/v1` заморожен как **additive**. Можно добавлять необязательные поля, query-параметры с default и новые эндпоинты. **Breaking** (удаление/переименование полей, смена смысла, обязательность новых полей, смена кодов ошибок для существующих сценариев) — только по явному решению владельца продукта. Клиенты (в т.ч. **1C Itilium**) должны игнорировать неизвестные JSON-поля.
+- Версия сервера: 1.10.1 (поле `version` в `GET /v1/health`, файл `VERSION`).
+- Версия агента: 1.3.1 (поле `agent_version` в данных устройства, файл `agent/VERSION`).
+- Примеры JSON в документе показывают формат, а не актуальные номера версий.
 
-Связанные документы: [architecture.md](architecture.md) · [operator-guide.md](operator-guide.md) · [guideline.md](guideline.md). Allowlist knobs политик (тема C): Project store `internal/policies-knobs-contract.md`.
+Связанные документы: [operator-guide.md](operator-guide.md), [architecture.md](architecture.md), [guideline.md](guideline.md).
 
----
+## Политика совместимости
 
-## 1. Base URL и транспорт
+Путь `/v1` развивается только **аддитивно**:
 
-| Среда | Base URL (пример) |
-|-------|-------------------|
-| Prod (nginx TLS) | `https://bad.example.com` |
-| Lab (uvicorn local) | `http://127.0.0.1:8000` |
+- можно добавлять необязательные поля в ответы;
+- можно добавлять необязательные параметры запроса со значениями по умолчанию;
+- можно добавлять новые эндпоинты.
 
-Все пути ниже — относительно base, с префиксом `/v1/...`.
+Следующие изменения считаются несовместимыми и выполняются только по решению владельца продукта:
 
-- **JSON:** `Content-Type: application/json` (тела POST/PUT).
-- **Доступ по токену:** заголовок `Authorization: Bearer <ваш_токен>` — стандартный способ передать секрет в HTTP (слово *Bearer* = «носитель токена»; для 1C достаточно подставить токен в этот заголовок). Исключение: `GET /v1/health` без токена.
-- **TLS:** в бою — только HTTPS. Интерактивная документация OpenAPI в production отключена.
-- **Не путать** вход в браузер (cookie `bad_session`) с admin-токеном: после логина в панель API-токен **не** появляется — он только в `site.env` при установке.
+- удаление или переименование полей;
+- изменение смысла поля;
+- появление новых обязательных полей в запросах;
+- изменение кодов ошибок для существующих сценариев;
+- изменение модели авторизации.
 
-Токен admin печатается при `deploy/debian/install.sh` (файл `/etc/bad/site.env`, переменная `BAD_ADMIN_TOKEN`) или задаётся env `BAD_ADMIN_TOKEN` в lab.
-
----
-
-## 2. Три вида токенов (не смешивать)
-
-| Вид | Заголовок | Кто использует | Зачем |
-|-----|-----------|----------------|-------|
-| **Admin-токен** | `Authorization: Bearer <BAD_ADMIN_TOKEN>` | 1C Itilium, скрипты | список устройств, inventory, события, политики |
-| **API-ключ агента** | `Authorization: Bearer <bad_ak_…>` | служба на Windows | heartbeat, снимки, проверка обновлений |
-| **Enrollment-токен** | `Authorization: Bearer <site_enrollment>` | только при первой регистрации ПК | `POST /v1/enroll` → выдача API-ключа |
-
-Web UI (local/LDAP session) — **не** контракт для 1C.
+Клиенты должны игнорировать неизвестные поля в ответах.
 
 ---
 
-## 3. Что для 1C / внешней системы, что только для агента
+## 1. Адрес и транспорт
 
-### Рекомендуется для 1C Itilium (admin-токен)
+| Среда | Базовый адрес (пример) |
+|-------|------------------------|
+| Производственная (nginx с TLS) | `https://bad.example.com` |
+| Лаборатория (uvicorn локально) | `http://127.0.0.1:8000` |
 
-| Method | Path | Назначение |
-|--------|------|------------|
-| `GET` | `/v1/health` | liveness + `version` (без auth) |
-| `GET` | `/v1/devices` | список устройств (пагинация, фильтры) |
-| `GET` | `/v1/devices/{device_id}` | карточка + **latest inventory** |
-| `GET` | `/v1/events` | лента изменений inventory |
-| `GET` | `/v1/admin/devices/{device_id}/config` | effective settings + `sources` (опционально) |
+Все пути ниже указаны относительно базового адреса и начинаются с `/v1`.
+
+- Тела запросов передаются в JSON: `Content-Type: application/json`.
+- Авторизация по токену: заголовок `Authorization: Bearer <токен>`.
+- Исключение: `GET /v1/health` не требует токена.
+- В производстве используйте только HTTPS. Интерактивная документация OpenAPI отключена.
+- Вход в веб-панель (cookie `bad_session`) и токен администратора — разные механизмы. Токен не появляется в панели.
+
+Токен администратора выводится при установке и хранится в `/etc/bad/site.env` (переменная `BAD_ADMIN_TOKEN`). В лаборатории его задают переменной окружения.
+
+---
+
+## 2. Типы токенов
+
+Не используйте один токен вместо другого.
+
+| Токен | Заголовок | Кто использует | Назначение |
+|-------|-----------|----------------|------------|
+| Администратора | `Authorization: Bearer <BAD_ADMIN_TOKEN>` | 1C, скрипты, интеграции | Чтение устройств, событий, политик; управление устройствами |
+| Ключ агента | `Authorization: Bearer <ключ bad_ak_…>` | служба агента на Windows | Снимки, heartbeat, проверка обновлений |
+| Регистрации | `Authorization: Bearer <токен сайта>` | агент при первой регистрации | `POST /v1/enroll` выдаёт ключ агента |
+
+---
+
+## 3. Эндпоинты для внешних систем
+
+### Чтение (рекомендуется для 1C)
+
+| Метод | Путь | Назначение |
+|-------|------|------------|
+| `GET` | `/v1/health` | доступность и версия сервера (без токена) |
+| `GET` | `/v1/devices` | список устройств с пагинацией и фильтрами |
+| `GET` | `/v1/devices/{device_id}` | карточка устройства и последний снимок |
+| `GET` | `/v1/events` | лента изменений |
+| `GET` | `/v1/admin/devices/{device_id}/config` | итоговые настройки и источники (опционально) |
 | `GET` | `/v1/admin/policies` | список политик (опционально) |
-| `GET` | `/v1/admin/agent-update` | статус зеркала MSI (опционально) |
+| `GET` | `/v1/admin/agent-update` | состояние зеркала MSI (опционально) |
 
-Опционально (мутации — осознанно, не для read-only выгрузки):
+### Изменение данных (осознанно, не для выгрузки только для чтения)
 
-| Method | Path | Заметка |
-|--------|------|---------|
-| `PUT` | `/v1/devices/{device_id}/tags` | заменить теги |
-| `POST` | `/v1/devices/{device_id}/archive` / `restore` | скрыть/вернуть |
-| `POST` | `/v1/devices/{device_id}/revoke` | отозвать agent key |
-| `POST` | `/v1/devices/{device_id}/rotate-key` | новый key (**plaintext один раз** — не логировать) |
-| `DELETE` | `/v1/devices/{device_id}` | hard-delete |
-| `GET/POST/PUT/DELETE` | `/v1/admin/policies*` | CRUD политик |
-| `PUT/DELETE` | `/v1/admin/devices/{id}/config-override` | server override |
-| `POST` | `/v1/admin/enrollment/rotate` | plaintext enrollment token один раз — **только HTTPS** |
-| `POST` | `/v1/admin/agent-update/sync` | sync зеркала |
+| Метод | Путь | Что делает |
+|-------|------|-----------|
+| `PUT` | `/v1/devices/{device_id}/tags` | заменяет теги устройства |
+| `POST` | `/v1/devices/{device_id}/archive` | переносит устройство в архив |
+| `POST` | `/v1/devices/{device_id}/restore` | возвращает устройство из архива |
+| `POST` | `/v1/devices/{device_id}/revoke` | отзывает ключ агента |
+| `POST` | `/v1/devices/{device_id}/rotate-key` | выдаёт новый ключ агента (показывается один раз) |
+| `POST` | `/v1/devices/{device_id}/request-refresh` | просит агент при следующем heartbeat применить настройки и проверить обновление |
+| `DELETE` | `/v1/devices/{device_id}` | безвозвратно удаляет устройство |
+| `GET`, `POST`, `PUT`, `DELETE` | `/v1/admin/policies*` | управление политиками |
+| `PUT`, `DELETE` | `/v1/admin/devices/{id}/config-override` | индивидуальные настройки устройства |
+| `POST` | `/v1/admin/enrollment/rotate` | новый токен регистрации (показывается один раз, только по HTTPS) |
+| `POST` | `/v1/admin/agent-update/sync` | синхронизация зеркала MSI с GitHub |
 
-### Только для агента (не вызывать из 1C)
+### Только для агента
 
-| Method | Path | Auth |
-|--------|------|------|
-| `POST` | `/v1/enroll` | enrollment |
-| `POST` | `/v1/heartbeat` | agent key |
-| `POST` | `/v1/inventory` | agent key |
-| `GET` | `/v1/agent/config` | agent key |
-| `GET` | `/v1/agent/update/check` | agent key |
-| `GET` | `/v1/agent/update/msi` | agent key |
+Эти эндпоинты не предназначены для внешних систем.
+
+| Метод | Путь | Авторизация |
+|-------|------|-------------|
+| `POST` | `/v1/enroll` | токен регистрации |
+| `POST` | `/v1/heartbeat` | ключ агента |
+| `POST` | `/v1/inventory` | ключ агента |
+| `GET` | `/v1/agent/config` | ключ агента |
+| `GET` | `/v1/agent/update/check` | ключ агента |
+| `GET` | `/v1/agent/update/msi` | ключ агента |
 
 ---
 
 ## 4. Ошибки
 
-Формат FastAPI/HTTPException:
+Ошибки возвращаются в формате FastAPI:
 
 ```json
-{ "detail": "краткое сообщение" }
+{ "detail": "краткое описание" }
 ```
 
-иногда `detail` — массив валидации Pydantic.
+Поле `detail` может быть массивом, если ошибка валидации Pydantic.
 
-| HTTP | Когда (типично) |
-|------|------------------|
-| `400` | плохой body / `Unsupported schema_version: N` / невалидные policy settings |
-| `401` | нет/неверный Bearer (admin / agent key / enrollment) |
-| `403` | revoked API key; `device_id mismatch`; cleartext enroll при managed TLS |
-| `404` | устройство / политика / MSI не найдены |
-| `409` | re-enroll без proof / устройство уже enrolled |
-| `429` | rate limit на `/v1/enroll` |
-| `502` | сбой GitHub sync (admin sync) |
+| Код | Когда возникает |
+|-----|-----------------|
+| `400` | неверное тело запроса, неподдерживаемая `schema_version`, некорректные настройки политики |
+| `401` | нет или неверный токен (администратора, ключа агента или регистрации) |
+| `403` | ключ агента отозван; `device_id` не совпадает; регистрация по HTTP при включённом TLS |
+| `404` | устройство, политика или MSI не найдены |
+| `409` | повторная регистрация без подтверждения; устройство уже зарегистрировано |
+| `429` | превышен лимит запросов к `/v1/enroll` |
+| `502` | ошибка синхронизации с GitHub (административный вызов) |
 
-Клиент 1C: при `401` — проверить admin token; при `404` на device — устройство удалено/не enroll’ено; неизвестные поля в успешном JSON **игнорировать**.
+Что делать клиенту:
+
+- при `401` проверьте токен администратора;
+- при `404` для устройства — устройство удалено или не зарегистрировано;
+- неизвестные поля в успешном ответе игнорируйте.
 
 ---
 
@@ -107,68 +136,69 @@ Web UI (local/LDAP session) — **не** контракт для 1C.
 
 ### `GET /v1/devices`
 
-| Query | Default | Описание |
-|-------|---------|----------|
-| `page` | `1` | страница, ≥ 1 |
-| `page_size` | `50` | 1…200 |
-| `tag` | — | точное совпадение тега (case-insensitive) |
-| `q` | — | подстрока в `device_id` / `hostname` / `meta.serial_number` |
-| `archived` | `false` | `true` — только архив |
+| Параметр | По умолчанию | Описание |
+|----------|--------------|----------|
+| `page` | `1` | номер страницы, от 1 |
+| `page_size` | `50` | от 1 до 200 |
+| `tag` | — | точное совпадение метки, без учёта регистра |
+| `q` | — | подстрока в `device_id`, `hostname` или `meta.serial_number` |
+| `archived` | `false` | `true` — только архивные устройства |
 
 Ответ:
 
 ```json
 {
-  "devices": [ /* см. §6 */ ],
+  "devices": [],
   "total": 123,
   "page": 1,
   "page_size": 50
 }
 ```
 
-Обход всех устройств: `page=1…ceil(total/page_size)`.
+Чтобы получить все устройства, запрашивайте страницы от 1 до `ceil(total / page_size)`.
 
 ### `GET /v1/events`
 
-| Query | Default | Описание |
-|-------|---------|----------|
-| `device_id` | — | фильтр |
-| `q` | — | поиск по summary / type / hostname / device_id (ILIKE) |
-| `importance` | — (medium+) | `medium`\|`high`\|`critical` = не ниже порога; `all` = все; пусто = medium и выше (low скрыт) |
-| `limit` | `100` | 1…500 |
+| Параметр | По умолчанию | Описание |
+|----------|--------------|----------|
+| `device_id` | — | фильтр по устройству |
+| `q` | — | поиск по описанию, типу, имени узла и `device_id` (без учёта регистра) |
+| `importance` | medium и выше | `medium`, `high`, `critical` — не ниже указанного уровня; `all` — все события |
+| `limit` | `100` | от 1 до 500 |
 | `offset` | `0` | смещение |
 
-Без `q`/`importance` поведение прежнее (additive). Семантика как у web `/events` и `db.list_device_events`.
+Ответ:
 
-Ответ: `{ "events": [...], "total", "limit", "offset" }`.
+```json
+{ "events": [], "total": 0, "limit": 100, "offset": 0 }
+```
 
-Элемент `events[]` (лёгкий список для интеграций):
+Элемент `events[]`:
 
 | Поле | Описание |
 |------|----------|
-| `id`, `device_id`, `hostname`, `type`, `summary`, `created_at` | как в web-ленте |
-| `importance` | `low` \| `medium` \| `high` \| `critical` (по типу события, не колонка БД) |
-| `detail` | **отсутствует** в `GET /v1/events` (`include_detail=false`); полный JSON детали хранится в БД для панели/почты |
+| `id`, `device_id`, `hostname`, `type`, `summary`, `created_at` | основные данные события |
+| `importance` | `low`, `medium`, `high` или `critical`; определяется типом события |
 
-Для разбора изменений по полям смотрите `summary` и тип; при необходимости полного diff — карточка устройства / latest inventory, не лента API.
+Поля `detail` в ленте событий нет. Подробности изменения доступны в карточке устройства (последний снимок).
 
 ---
 
-## 6. Устройства (admin)
+## 6. Устройства
 
-### Элемент списка (`GET /v1/devices`)
+### Элемент списка
 
 ```json
 {
-  "device_id": "…",
+  "device_id": "3f2b…",
   "hostname": "WS-01",
   "enrolled_at": "2026-10-01T10:00:00Z",
   "last_seen_at": "2026-10-16T11:00:00Z",
-  "agent_version": "1.0.1",
+  "agent_version": "1.3.1",
   "meta": {
-    "last_inventory_at": "…",
-    "os": "Microsoft Windows 11 …",
-    "serial_number": "…",
+    "last_inventory_at": "2026-10-16T10:55:00Z",
+    "os": "Microsoft Windows 11 Pro",
+    "serial_number": "ABC123",
     "chassis_type": "laptop",
     "last_inventory_ok": true
   },
@@ -178,51 +208,53 @@ Web UI (local/LDAP session) — **не** контракт для 1C.
 }
 ```
 
-`meta` — произвольный JSON объекта (health, `config_local`, …). Новые ключи additive. Часто встречается **`chassis_type`**: `laptop` \| `desktop` \| `server` \| `vm` \| `other` (кэш из последнего inventory, `device_meta.normalize_chassis_type`).
+Поле `meta` содержит данные heartbeat и кэш из последнего снимка. Новые поля в нём могут появляться без предупреждения.
 
-### Карточка (`GET /v1/devices/{device_id}`)
+`chassis_type` принимает значения `laptop`, `desktop`, `server`, `vm` или `other`.
 
-Поля списка **плюс**:
+### Карточка устройства
+
+Кроме полей элемента списка, возвращаются:
 
 | Поле | Описание |
 |------|----------|
-| `serial_number` / `model` | удобные извлечения из latest hardware |
+| `serial_number`, `model` | значения из последнего снимка оборудования |
 | `latest_inventory` | `{ id, received_at, schema_version, payload }` или `null` |
-| `duplicates` | подсказки возможных дублей |
+| `duplicates` | подсказки о возможных дубликатах |
 
-`latest_inventory.payload` — тот же снимок, что агент POST’ит на `/v1/inventory` (см. §7).
+`latest_inventory.payload` — тот же снимок, который агент отправляет на `/v1/inventory` (раздел 7).
 
 ---
 
-## 7. Inventory schema
+## 7. Формат снимка инвентаризации
 
-Сервер принимает `schema_version` ∈ `{1, 2}` (`Settings.known_schema_versions`). Иное → `400`.
+Сервер принимает `schema_version` со значениями `1` и `2`. Другие значения дают ошибку `400`.
 
-| Version | Заметка |
-|---------|---------|
-| `1` | host / network / hardware / users; без обязательного software |
-| `2` | + optional `software`; hardware fields (`serial_number`, `gpus`, `ram_modules`, …) **additive** без bump |
+| Версия | Что меняется |
+|--------|--------------|
+| `1` | система, сеть, оборудование, пользователи |
+| `2` | добавлен необязательный раздел `software`; поля оборудования (серийный номер, видеокарты, модули памяти) добавлены без изменения версии |
 
-Типичный `payload` (сокращённо):
+Пример (сокращённый):
 
 ```json
 {
   "schema_version": 2,
-  "device_id": "…",
+  "device_id": "3f2b…",
   "collected_at": "2026-10-16T11:00:00Z",
-  "agent_version": "1.0.1",
+  "agent_version": "1.3.1",
   "host": {
     "hostname": "WS-01",
     "domain": "CONTOSO",
     "ad_ou": "OU=Laptops,OU=Workstations,DC=contoso,DC=com",
-    "ad_distinguished_name": "CN=WS-01,…",
-    "os": { "caption": "…", "version": "…", "build": "…" }
+    "ad_distinguished_name": "CN=WS-01,OU=Laptops,OU=Workstations,DC=contoso,DC=com",
+    "os": { "caption": "Microsoft Windows 11 Pro", "version": "10.0.22631", "build": "22631" }
   },
   "hardware": {
-    "serial_number": "…",
-    "model": "…",
-    "manufacturer": "…",
-    "cpu": "…",
+    "serial_number": "ABC123",
+    "model": "ThinkPad T14",
+    "manufacturer": "LENOVO",
+    "cpu": "Intel Core i7",
     "ram_bytes": 17179869184,
     "disks": [],
     "volumes": [],
@@ -239,68 +271,67 @@ Web UI (local/LDAP session) — **не** контракт для 1C.
 }
 ```
 
-Неизвестные поля в payload сервер сохраняет (`extra` allow). Для 1C: читать нужные ключи; отсутствие optional-секции = коллектор выключен / soft-fail (`null` / omit), смотреть `collector_errors`.
+Сервер сохраняет неизвестные поля в снимке. Если раздел отсутствует, сборщик был выключен или не смог собрать данные. Причины смотрите в `collector_errors`.
 
 ---
 
-## 8. Примеры curl (1C / автоматизация)
+## 8. Примеры запросов
 
-Подставьте `BASE` и `ADMIN`.
+Замените `BASE` и `ADMIN` на свои значения.
 
 ```bash
 BASE=https://bad.example.com
-ADMIN='…from site.env BAD_ADMIN_TOKEN…'
+ADMIN='токен из /etc/bad/site.env (BAD_ADMIN_TOKEN)'
 
-# Health
+# Доступность и версия сервера
 curl -sS "$BASE/v1/health"
 
-# Список устройств (первая страница)
+# Первая страница устройств
 curl -sS -H "Authorization: Bearer $ADMIN" \
   "$BASE/v1/devices?page=1&page_size=50"
 
-# Поиск / фильтр
+# Поиск и фильтр по метке
 curl -sS -H "Authorization: Bearer $ADMIN" \
   "$BASE/v1/devices?q=WS-01&tag=wave-1"
 
-# Карточка + latest inventory
+# Карточка и последний снимок
 curl -sS -H "Authorization: Bearer $ADMIN" \
-  "$BASE/v1/devices/DEVICE_ID_HERE"
+  "$BASE/v1/devices/DEVICE_ID"
 
-# События изменений
+# Лента событий
 curl -sS -H "Authorization: Bearer $ADMIN" \
   "$BASE/v1/events?limit=100&offset=0"
 
-# Effective config + provenance sources
+# Итоговые настройки и источники
 curl -sS -H "Authorization: Bearer $ADMIN" \
-  "$BASE/v1/admin/devices/DEVICE_ID_HERE/config"
+  "$BASE/v1/admin/devices/DEVICE_ID/config"
 ```
 
-PowerShell (1C часто рядом с Windows):
+Пример для PowerShell:
 
 ```powershell
 $h = @{ Authorization = "Bearer $env:BAD_ADMIN_TOKEN" }
 Invoke-RestMethod -Uri "https://bad.example.com/v1/devices?page=1" -Headers $h
 ```
 
-Рекомендуемый цикл выгрузки в Itilium:
+### Рекомендуемый порядок выгрузки в 1C
 
-1. `GET /v1/health` — доступность и версия API-сервера.  
-2. Листать `GET /v1/devices` до исчерпания `total`.  
-3. Для каждого (или по дельте `last_seen_at`) — `GET /v1/devices/{id}` и разобрать `latest_inventory.payload`.  
-4. Опционально догонять `GET /v1/events` для изменений без полного inventory.
+1. Вызвать `GET /v1/health` и проверить доступность.
+2. Пролистать `GET /v1/devices` до значения `total`.
+3. Для каждого устройства (или для изменившихся по `last_seen_at`) вызвать `GET /v1/devices/{id}` и разобрать `latest_inventory.payload`.
+4. При необходимости дополнительно читать `GET /v1/events`, чтобы не запрашивать полный снимок ради изменений.
 
-Не кладите admin token в URL query, логи 1C или публичные обработки.
+Не передавайте токен администратора в адресе запроса (параметром URL), в журналах 1C или в открытых обработках.
 
 ---
 
-## 9. Policies / config (кратко)
+## 9. Настройки агента
 
-Remote merge: **defaults < matching policies (priority asc) < device_override**.  
-UI provenance на ключ: `default` | `policy` | `device_override` | `agent_local` (см. [architecture.md — config source](architecture.md#api-notes-config-source-provenance)).
+Итоговые настройки вычисляются по порядку: значения по умолчанию, подходящие политики (по возрастанию приоритета), индивидуальное переопределение устройства.
 
-Allowlist knobs и условия политик — в Project `internal/policies-knobs-contract.md` (тема C). Не пушить `server_url` / секреты через policies.
+Источник каждого параметра (`sources`) принимает значения `default`, `policy`, `device_override` или `agent_local`.
 
-`GET /v1/admin/devices/{id}/config` возвращает в т.ч.:
+Пример ответа `GET /v1/admin/devices/{id}/config`:
 
 ```json
 {
@@ -314,33 +345,37 @@ Allowlist knobs и условия политик — в Project `internal/polici
 }
 ```
 
+Допустимые параметры политик перечислены в разделе «Настройки агента» [architecture.md](architecture.md). Через политики нельзя передавать адрес сервера и секреты.
+
 ---
 
-## 10. Agent-only (справка, не для 1C)
+## 10. Эндпоинты агента (справочно)
 
-| Endpoint | Заметка |
-|----------|---------|
-| `POST /v1/enroll` | body: `device_id`, optional `hostname`, `agent_version`, `current_api_key`; ответ `{ api_key, device_id }` |
-| `POST /v1/heartbeat` | health + optional `config_local`; piggyback `config` если `config_version` устарел |
-| `POST /v1/inventory` | upsert снимка; ответ `{ status, snapshot_id }` |
-| `GET /v1/agent/config` | effective settings своего устройства |
-| `/v1/agent/update/*` | self-update MSI |
+Внешним системам эти вызовы не нужны.
 
-Cleartext enroll при managed TLS (файлы cert на диске) → **403**, тело:
+| Эндпоинт | Примечание |
+|----------|------------|
+| `POST /v1/enroll` | тело: `device_id`, необязательные `hostname`, `agent_version`, `current_api_key`; ответ: `{ api_key, device_id }` |
+| `POST /v1/heartbeat` | состояние агента и необязательный `config_local`; если версия настроек устарела, в ответе есть `config` |
+| `POST /v1/inventory` | приём снимка; ответ: `{ status, snapshot_id }` |
+| `GET /v1/agent/config` | итоговые настройки этого устройства |
+| `/v1/agent/update/*` | обновление MSI |
+
+Если при включённом TLS регистрация приходит по HTTP, сервер отвечает `403` с текстом:
 
 `HTTPS required for enrollment (managed TLS active; cleartext refused). Lab: BAD_ALLOW_ENROLL_OVER_HTTP=1.`
 
-Lab: env `BAD_ALLOW_ENROLL_OVER_HTTP=1` (см. `Settings.allow_enroll_over_http`). Агент в lab по-прежнему требует `BAD_ALLOW_HTTP=1` для cleartext URL.
+В лаборатории регистрацию по HTTP можно разрешить переменной `BAD_ALLOW_ENROLL_OVER_HTTP=1`. Агент при этом также требует `BAD_ALLOW_HTTP=1`.
 
 ---
 
-## 11. Заморозка и эволюция
+## 11. Что можно менять без согласования
 
-| Разрешено без breaking-решения | Требует решения владельца |
-|--------------------------------|---------------------------|
-| Новые optional поля в ответах | Удаление/rename полей |
-| Новые эндпоинты `/v1/...` | Смена auth модели |
-| Новый `schema_version` inventory + поддержка старых | Обязательные новые поля в существующих request |
-| Расширение allowlist knobs (документировать) | Сужение allowlist / ужесточение валидации ломающее старых клиентов |
+| Можно без решения владельца | Требует решения владельца |
+|-----------------------------|---------------------------|
+| Новые необязательные поля в ответах | удаление или переименование полей |
+| Новые эндпоинты `/v1/...` | изменение модели авторизации |
+| Новая версия `schema_version` при поддержке старых | новые обязательные поля в существующих запросах |
+| Расширение списка разрешённых параметров настроек с описанием | сужение списка или ужесточение валидации, которое ломает старых клиентов |
 
-Код роутера: `server/bad_server/api.py` (префикс `/v1`). При изменении публичного контракта — обновить этот файл и тесты.
+Код маршрутов: `server/bad_server/api.py`. При изменении контракта обновляйте этот документ и тесты.
