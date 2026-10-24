@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros/icons.html" import icon, freshness_label %}
+{% from "macros/icons.html" import icon, freshness_label, chassis_icon_name %}
 {% from "macros/ui.html" import local_time, device_link %}
 {% from "macros/pager.html" import table_pager %}
 {% from "macros/chips.html" import filter_chip %}
@@ -32,12 +32,14 @@
         <div class="search-input-wrap filter-search-grow card-surface filter-search-surface">
           <span class="search-input-icon" aria-hidden="true">{{ icon('search') }}</span>
           <input id="q" name="q" class="panel-search-input" type="search" value="{{ q }}"
-            placeholder="hostname, device_id, serial, UUID…" maxlength="128" autocomplete="off">
+            placeholder="hostname, device_id, serial, UUID…" maxlength="128" autocomplete="off"
+            data-devices-search>
         </div>
         {% if filters_active %}
         <a class="filter-reset-link" href="/devices">Сбросить</a>
         {% endif %}
       </div>
+      <div id="devices-search-results" class="card-surface devices-search-hits" hidden></div>
       {% if fleet_stats %}
       <div class="filter-card-row filter-card-row-2">
         <div class="filter-chips devices-fleet-chips" role="group" aria-label="Состояние парка">
@@ -48,11 +50,6 @@
       </div>
       {% endif %}
       <div class="filter-card-row filter-card-row-3 devices-filter-extra">
-        <div class="live-search-wrap" data-live-skip>
-          <label class="sr-only" for="device-live-q">Быстрый переход</label>
-          <input id="device-live-q" class="panel-search-input" type="search" placeholder="Быстрый переход по имени…" maxlength="128" autocomplete="off">
-          <div id="device-live-results" class="live-search-results" hidden></div>
-        </div>
         <label class="sr-only" for="tag">Тег</label>
         <select id="tag" name="tag" class="filter-select-inline">
           <option value="">Все теги</option>
@@ -114,7 +111,7 @@
     <thead>
       <tr>
         <th class="bulk-check-col" aria-label="Выбор"></th>
-        <th class="col-status-dot" aria-hidden="true"></th>
+        <th class="col-device-state">Состояние</th>
         <th>Устройство</th>
         <th>Пользователь</th>
         <th>ОС</th>
@@ -136,8 +133,9 @@
         <td class="bulk-check-col" onclick="event.stopPropagation()">
           <input type="checkbox" name="device_id" value="{{ d.device_id }}" class="bulk-device-cb">
         </td>
-        <td class="col-status-dot">
-          <span class="device-status-dot device-status-{{ fresh }}" title="{{ freshness_label(fresh) }}"></span>
+        <td class="col-device-state">
+          <span class="device-chassis-mini" aria-hidden="true">{{ icon(chassis_icon_name(d.chassis_type)) }}</span>
+          <span class="badge badge-fresh-{{ d.freshness or d.silence.status }}">{{ freshness_label(fresh) }}</span>
         </td>
         <td>
           <a class="device-cell-link" href="/devices/{{ d.device_id }}">
@@ -207,4 +205,5 @@
   </script>
   {% endif %}
 </section>
+<script src="/static/devices-search.js" defer></script>
 {% endblock %}

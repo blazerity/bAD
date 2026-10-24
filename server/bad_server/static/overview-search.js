@@ -1,4 +1,4 @@
-/** Поиск на Обзоре → /overview/search.json + чипы категорий */
+/** Поиск на Обзоре → /overview/search.json (Bolt-строки выдачи) */
 (function () {
   function debounce(fn, ms) {
     var t;
@@ -9,6 +9,30 @@
         fn.apply(null, args);
       }, ms);
     };
+  }
+
+  function hitRow(href, titleHtml, metaHtml, typeLabel) {
+    var a = document.createElement("a");
+    a.href = href;
+    a.className = "search-hit-row";
+    a.innerHTML =
+      '<span class="search-hit-icon" aria-hidden="true"></span>' +
+      '<span class="search-hit-text">' +
+      '<span class="search-hit-title"></span>' +
+      '<span class="search-hit-meta muted"></span>' +
+      "</span>" +
+      '<span class="search-hit-type">' +
+      (typeLabel || "") +
+      "</span>" +
+      '<span class="search-hit-arrow" aria-hidden="true">↗</span>';
+    a.querySelector(".search-hit-title").innerHTML = titleHtml || "";
+    var meta = a.querySelector(".search-hit-meta");
+    if (metaHtml) {
+      meta.innerHTML = metaHtml;
+    } else {
+      meta.remove();
+    }
+    return a;
   }
 
   function init() {
@@ -29,16 +53,11 @@
         var any = Object.keys(cats).some(function (k) {
           return cats[k];
         });
-        if (!any) {
-          cats[key] = true;
-        }
+        if (!any) cats[key] = true;
         catRoot.querySelectorAll("[data-cat]").forEach(function (b) {
-          var k = b.getAttribute("data-cat");
-          b.classList.toggle("is-active", !!cats[k]);
+          b.classList.toggle("is-active", !!cats[b.getAttribute("data-cat")]);
         });
-        if ((input.value || "").trim().length >= 2) {
-          runSearch();
-        }
+        if ((input.value || "").trim().length >= 2) runSearch();
       });
     }
 
@@ -47,33 +66,21 @@
       box.hidden = true;
     }
 
-    function section(title, items, renderItem) {
-      if (!items.length) return;
-      var h = document.createElement("h3");
-      h.className = "panel-search-section-title";
-      h.textContent = title;
-      box.appendChild(h);
-      items.forEach(function (item) {
-        box.appendChild(renderItem(item));
-      });
-    }
-
     function render(data, q) {
       box.innerHTML = "";
       var allDevs = data.devices || [];
-      var devs = [];
-      if (cats.devices) {
-        devs = allDevs;
-      } else if (cats.serial) {
-        devs = allDevs.filter(function (d) {
-          var r = (d.match_reason || "").toLowerCase();
-          return (
-            r.indexOf("serial") >= 0 ||
-            r.indexOf("серий") >= 0 ||
-            r.indexOf("uuid") >= 0
-          );
-        });
-      }
+      var devs = cats.devices
+        ? allDevs
+        : cats.serial
+          ? allDevs.filter(function (d) {
+              var r = (d.match_reason || "").toLowerCase();
+              return (
+                r.indexOf("serial") >= 0 ||
+                r.indexOf("серий") >= 0 ||
+                r.indexOf("uuid") >= 0
+              );
+            })
+          : [];
       var evts = cats.events ? data.events || [] : [];
       var sets =
         cats.settings && typeof window.badPanelSettingsHits === "function"
@@ -81,68 +88,36 @@
           : [];
       if (!devs.length && !evts.length && !sets.length) {
         var p = document.createElement("p");
-        p.className = "muted";
+        p.className = "muted search-hit-empty";
         p.textContent = "Ничего не найдено.";
         box.appendChild(p);
         box.hidden = false;
         return;
       }
-      section("Устройства", devs, function (d) {
-        var a = document.createElement("a");
-        a.href = d.href;
-        a.className =
-          "panel-search-item live-search-item device-link chassis-" +
-          (d.chassis_type || "other");
-        var body = document.createElement("span");
-        body.className = "live-search-body";
-        var title = document.createElement("span");
-        title.className = "device-link__label";
-        if (d.title_html) {
-          title.innerHTML = d.title_html;
-        } else {
-          title.textContent = d.hostname || d.device_id || "";
-        }
-        var reason = document.createElement("span");
-        reason.className = "live-search-reason muted";
-        var bits = [];
-        if (d.match_reason) bits.push(d.match_reason);
-        if (d.archived) bits.push("архив");
-        reason.textContent = bits.join(" · ");
-        body.appendChild(title);
-        if (bits.length) body.appendChild(reason);
-        a.appendChild(body);
-        return a;
+      devs.forEach(function (d) {
+        box.appendChild(
+          hitRow(
+            d.href,
+            d.title_html || d.hostname || "",
+            d.subtitle_html || d.match_reason || "",
+            "Устройства"
+          )
+        );
       });
-      section("События", evts, function (e) {
-        var a = document.createElement("a");
-        a.href = e.href;
-        a.className = "panel-search-item live-search-item";
-        var body = document.createElement("span");
-        body.className = "live-search-body";
-        var title = document.createElement("span");
-        title.className = "device-link__label";
-        if (e.title_html) {
-          title.innerHTML = e.title_html;
-        } else {
-          title.textContent = e.summary || "";
-        }
-        var reason = document.createElement("span");
-        reason.className = "live-search-reason muted";
-        reason.textContent = [e.match_reason, e.hostname].filter(Boolean).join(" · ");
-        body.appendChild(title);
-        body.appendChild(reason);
-        a.appendChild(body);
-        return a;
+      evts.forEach(function (e) {
+        box.appendChild(
+          hitRow(
+            e.href,
+            e.title_html || e.summary || "",
+            e.subtitle_html || e.hostname || "",
+            "События"
+          )
+        );
       });
-      section("Параметры", sets, function (s) {
-        var a = document.createElement("a");
-        a.href = s.href;
-        a.className = "panel-search-item";
-        a.innerHTML =
-          '<span class="search-hit-body"><span class="search-hit-title">' +
-          s.label +
-          '</span><span class="muted search-hit-sub">раздел параметров</span></span>';
-        return a;
+      sets.forEach(function (s) {
+        box.appendChild(
+          hitRow(s.href, s.label, "раздел параметров", "Параметры")
+        );
       });
       box.hidden = false;
     }
@@ -165,8 +140,10 @@
         .catch(clear);
     }
 
+    input.addEventListener("keydown", function (ev) {
+      if (ev.key === "Enter") ev.preventDefault();
+    });
     input.addEventListener("input", debounce(runSearch, 300));
-
     document.addEventListener("click", function (ev) {
       if (!box.contains(ev.target) && ev.target !== input) clear();
     });

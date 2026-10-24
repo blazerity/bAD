@@ -784,6 +784,26 @@ class Database:
                 [mailed_at, *ids],
             )
 
+    def count_events_by_utc_day(self, days: int = 14) -> list[dict[str, Any]]:
+        """Число событий по UTC-дате (YYYY-MM-DD) за последние days суток."""
+        span = max(1, min(int(days or 14), 60))
+        with self.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS count
+                FROM device_events
+                WHERE created_at >= datetime('now', '-' || ? || ' days')
+                GROUP BY day
+                ORDER BY day ASC
+                """,
+                (span,),
+            ).fetchall()
+        return [
+            {"day": str(r["day"]), "count": int(r["count"] or 0)}
+            for r in rows
+            if r and r["day"]
+        ]
+
     def count_device_events(
         self,
         *,

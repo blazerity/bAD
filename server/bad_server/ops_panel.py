@@ -7,6 +7,7 @@ meta.config_local / sources). Без новых таблиц БД.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 
 from .agent_config import ALLOWED_SETTING_KEYS, compute_setting_sources
@@ -506,6 +507,106 @@ def _storage_tier_label(total_bytes: int) -> Optional[str]:
     return "1 ТБ+"
 
 
+def cpu_vendor_bucket(cpu_name: object) -> str:
+    text = str(cpu_name or "").casefold()
+    if "intel" in text or "xeon" in text or "core i" in text:
+        return "Intel"
+    if "amd" in text or "ryzen" in text or "epyc" in text:
+        return "AMD"
+    return "other"
+
+
+def cpu_family_bucket(cpu_name: object) -> str:
+    text = str(cpu_name or "")
+    low = text.casefold()
+    for pat, label in (
+        (r"ryzen\s*9", "Ryzen 9"),
+        (r"ryzen\s*7", "Ryzen 7"),
+        (r"ryzen\s*5", "Ryzen 5"),
+        (r"ryzen\s*3", "Ryzen 3"),
+        (r"core\s*i9", "Core i9"),
+        (r"core\s*i7", "Core i7"),
+        (r"core\s*i5", "Core i5"),
+        (r"core\s*i3", "Core i3"),
+        (r"xeon", "Xeon"),
+    ):
+        if re.search(pat, low):
+            return label
+    return "Прочее"
+
+
+def device_chart_facets(
+    device: dict[str, Any],
+    payload: Optional[dict[str, Any]] = None,
+) -> dict[str, Optional[str]]:
+    meta = device.get("meta") if isinstance(device.get("meta"), dict) else {}
+    os_caption = str(meta.get("os_caption") or meta.get("os") or "").strip() or None
+    cpu_name = str(meta.get("cpu_name") or "").strip()
+    hw: dict[str, Any] = {}
+    if isinstance(payload, dict):
+        raw = payload.get("hardware")
+        if isinstance(raw, dict):
+            hw = raw
+        if not os_caption:
+            host = payload.get("host")
+            if isinstance(host, dict):
+                os_raw = host.get("os")
+                if isinstance(os_raw, dict):
+                    os_caption = str(os_raw.get("caption") or "").strip() or None
+        if not cpu_name:
+            cpu = hw.get("cpu") if hw else None
+            if isinstance(cpu, dict):
+                cpu_name = str(cpu.get("name") or "").strip()
+    ram_label = _ram_tier_label(hw.get("ram_bytes") if hw else None)
+    total_disk = 0
+    for disk in (hw.get("disks") or []) if hw else []:
+        if isinstance(disk, dict):
+            try:
+                total_disk += int(disk.get("size_bytes") or 0)
+            except (TypeError, ValueError):
+                continue
+    disk_label = _storage_tier_label(total_disk) if total_disk else None
+    family = cpu_family_bucket(cpu_name) if cpu_name else None
+    vendor = cpu_vendor_bucket(cpu_name) if cpu_name else None
+    return {
+        "os": os_caption,
+        "ram": ram_label,
+        "disk": disk_label,
+        "cpu": family,
+        "cpu_vendor": vendor if vendor != "other" else None,
+    }
+
+
+def device_matches_chart_filters(
+    facets: dict[str, Optional[str]],
+    *,
+    os_filter: Optional[str],
+    ram_filter: Optional[str],
+    disk_filter: Optional[str],
+    cpu_filter: Optional[str],
+    cpu_vendor_filter: Optional[str],
+) -> bool:
+    checks = (
+        (os_filter, facets.get("os")),
+        (ram_filter, facets.get("ram")),
+        (disk_filter, facets.get("disk")),
+        (cpu_filter, facets.get("cpu")),
+        (cpu_vendor_filter, facets.get("cpu_vendor")),
+    )
+    for want, have in checks:
+        if not want:
+            continue
+        if not have or str(have) != str(want):
+            return False
+    return True
+
+
+def chart_filter_href(param: str, value: str) -> str:
+    from urllib.parse import urlencode
+
+    return "/devices?" + urlencode({param: value})
+
+
 def _accumulate_hw_bars(hw: dict[str, Any], ram_counts: dict[str, int], storage_counts: dict[str, int]) -> None:
     if not isinstance(hw, dict):
         return
@@ -730,6 +831,57 @@ def build_dashboard_stats(
         "href": "/settings/updates",
     }
 
+    cpu_family_counts: dict[str, int] = {}
+    for d in active[:scan_cap]:
+        facets = device_chart_facets(d, payloads.get(d["device_id"]))
+        fam = facets.get("cpu") or "Прочее"
+        cpu_family_counts[fam] = cpu_family_counts.get(fam, 0) + 1
+    cpu_treemap_items = []
+    for label, count in sorted(
+        cpu_family_counts.items(), key=lambda x: (-x[1], x[0])
+    ):
+        if count <= 0:
+            continue
+        vendor = "amd" if label.startswith("Ryzen") else (
+            "intel" if label.startswith("Core") or label == "Xeon" else "neutral"
+        )
+        cpu_treemap_items.append(
+            {
+                "label": label,
+                "count": count,
+                "vendor": vendor,
+                "href": chart_filter_href("cpu", label),
+            }
+        )
+    cpu_family_treemap = {"items": cpu_treemap_items}
+
+    def _href_items(items: list[dict[str, Any]], param: str) -> list[dict[str, Any]]:
+        out = []
+        for row in items:
+            row = dict(row)
+            if int(row.get("count") or 0) > 0:
+                row["href"] = chart_filter_href(param, str(row.get("label") or ""))
+            out.append(row)
+        return out
+
+    os_bars["items"] = _href_items(os_bars["items"], "os")
+    if ram_bars:
+        ram_bars["items"] = _href_items(ram_bars["items"], "ram")
+    if storage_bars:
+        storage_bars["items"] = _href_items(storage_bars["items"], "disk")
+
+    event_sparkline = {
+        "items": db.count_events_by_utc_day(14),
+        "label": "События по дням",
+    }
+
+    online_pct = _pct(online, total_active) if total_active else 0
+    stale_pct = _pct(stale_n, total_active) if total_active else 0
+    gauges = {
+        "online_pct": online_pct,
+        "stale_pct": stale_pct,
+    }
+
     return {
         "park_bar": park_bar,
         "agent_version_bars": agent_version_bars,
@@ -747,6 +899,9 @@ def build_dashboard_stats(
         "storage_bars": storage_bars,
         "hardware_feed": hardware_feed,
         "mirror": mirror,
+        "cpu_family_treemap": cpu_family_treemap,
+        "event_sparkline": event_sparkline,
+        "gauges": gauges,
     }
 
 

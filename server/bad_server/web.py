@@ -74,8 +74,10 @@ from .device_meta import (
     normalize_logged_on_list,
     normalize_logged_on_user,
 )
+from .server_runtime import build_server_runtime
 from .panel_search import (
     device_match_label,
+    device_search_meta_line,
     event_match_label,
     highlight_match,
 )
@@ -85,6 +87,9 @@ from .ops_panel import (
     build_bootstrap_progress,
     build_config_winner,
     build_dashboard_stats,
+    device_chart_facets,
+    device_matches_chart_filters,
+    INVENTORY_SCAN_CAP,
     build_wave_counts,
     device_has_agent_local,
     enrich_overview_ops_signals,
@@ -829,10 +834,12 @@ def _overview_page_context(
     server_current = server_read_current(releases_dir(settings))
     versions = list(stats.get("agent_versions") or [])
     events_total = db.count_device_events(importance="all")
+    server_runtime = build_server_runtime(db)
     return {
         "user": user,
         "stats": stats,
         "events_total": events_total,
+        "server_runtime": server_runtime,
         "ops": ops,
         "security": security,
         "bootstrap": bootstrap,
@@ -905,7 +912,10 @@ def overview_search_json(
                 "chassis_type": _chassis_type_from_device(d),
                 "match_reason": device_match_label(d, query),
                 "title_html": highlight_match(label, query),
-                "subtitle_html": highlight_match(did, query),
+                "subtitle_html": highlight_match(
+                    device_search_meta_line(d) or device_match_label(d, query),
+                    query,
+                ),
                 "archived": bool(d.get("archived")),
             }
         )
@@ -951,8 +961,9 @@ def dashboard_page(
         active=active,
     )
     critical_events = db.list_device_events(
-        importance="critical", limit=5, include_detail=False
+        importance="critical", limit=8, include_detail=False
     )
+    critical_event_count = db.count_device_events(importance="critical")
     chassis_by_id = _chassis_map_for_devices(active)
     for e in critical_events:
         e["chassis_type"] = chassis_by_id.get(str(e.get("device_id") or ""), "other")
@@ -966,6 +977,7 @@ def dashboard_page(
             "security": security,
             "dashboard": dashboard,
             "critical_events": critical_events,
+            "critical_event_count": critical_event_count,
             "stale_after_seconds": effective_stale_after_seconds(db, settings),
         },
     )
@@ -1077,6 +1089,11 @@ def _devices_query_params(
     archive: bool,
     page: int,
     wave: Optional[str] = None,
+    os_filter: Optional[str] = None,
+    ram_filter: Optional[str] = None,
+    disk_filter: Optional[str] = None,
+    cpu_filter: Optional[str] = None,
+    cpu_vendor_filter: Optional[str] = None,
 ) -> str:
     params: dict[str, str] = {}
     if tag:
@@ -1087,6 +1104,16 @@ def _devices_query_params(
         params["archive"] = "1"
     if wave:
         params["wave"] = wave
+    if os_filter:
+        params["os"] = os_filter
+    if ram_filter:
+        params["ram"] = ram_filter
+    if disk_filter:
+        params["disk"] = disk_filter
+    if cpu_filter:
+        params["cpu"] = cpu_filter
+    if cpu_vendor_filter:
+        params["cpu_vendor"] = cpu_vendor_filter
     if page > 1:
         params["page"] = str(page)
     return urlencode(params)
@@ -1113,6 +1140,11 @@ def _devices_wave_context(
     show_archive: bool,
     wave: Optional[str],
     page_i: int,
+    os_filter: Optional[str] = None,
+    ram_filter: Optional[str] = None,
+    disk_filter: Optional[str] = None,
+    cpu_filter: Optional[str] = None,
+    cpu_vendor_filter: Optional[str] = None,
 ) -> tuple[list[dict], int, int, int]:
     # Индекс дублей всегда по всему парку (meta), иначе поиск/тег ломают бейджи.
     fleet = db.list_devices(archived=None)
@@ -1156,6 +1188,33 @@ def _devices_wave_context(
         drift_ids=drift_ids,
         stale_after_seconds=stale_sec,
     )
+    chart_active = any(
+        (
+            os_filter,
+            ram_filter,
+            disk_filter,
+            cpu_filter,
+            cpu_vendor_filter,
+        )
+    )
+    if chart_active:
+        ids = [d["device_id"] for d in filtered[:INVENTORY_SCAN_CAP]]
+        payloads = (
+            db.latest_inventory_payloads(ids, cap=INVENTORY_SCAN_CAP) if ids else {}
+        )
+        narrowed = []
+        for d in filtered:
+            facets = device_chart_facets(d, payloads.get(d["device_id"]))
+            if device_matches_chart_filters(
+                facets,
+                os_filter=os_filter,
+                ram_filter=ram_filter,
+                disk_filter=disk_filter,
+                cpu_filter=cpu_filter,
+                cpu_vendor_filter=cpu_vendor_filter,
+            ):
+                narrowed.append(d)
+        filtered = narrowed
     total = len(filtered)
     page_size = DEVICES_PAGE_SIZE
     pages = max(1, (total + page_size - 1) // page_size) if total else 1
@@ -1223,6 +1282,11 @@ def devices_page(
     q: Optional[str] = None,
     archive: Optional[str] = None,
     wave: Optional[str] = None,
+    os: Optional[str] = None,
+    ram: Optional[str] = None,
+    disk: Optional[str] = None,
+    cpu: Optional[str] = None,
+    cpu_vendor: Optional[str] = None,
     page: int = 1,
     flash: Optional[str] = None,
     user: WebUser = Depends(require_web_user),
@@ -1233,6 +1297,11 @@ def devices_page(
     query = (q or "").strip() or None
     show_archive = (archive or "").strip() in {"1", "true", "yes"}
     wave_filter = normalize_wave_filter(wave)
+    os_filter = (os or "").strip() or None
+    ram_filter = (ram or "").strip() or None
+    disk_filter = (disk or "").strip() or None
+    cpu_filter = (cpu or "").strip() or None
+    cpu_vendor_filter = (cpu_vendor or "").strip() or None
     page_i = max(1, int(page or 1))
     devices, total, pages, page_i = _devices_wave_context(
         db,
@@ -1242,6 +1311,11 @@ def devices_page(
         show_archive=show_archive,
         wave=wave_filter,
         page_i=page_i,
+        os_filter=os_filter,
+        ram_filter=ram_filter,
+        disk_filter=disk_filter,
+        cpu_filter=cpu_filter,
+        cpu_vendor_filter=cpu_vendor_filter,
     )
 
     agent_update = db.get_agent_update()
@@ -1251,6 +1325,11 @@ def devices_page(
         archive=show_archive,
         page=page_i,
         wave=wave_filter,
+        os_filter=os_filter,
+        ram_filter=ram_filter,
+        disk_filter=disk_filter,
+        cpu_filter=cpu_filter,
+        cpu_vendor_filter=cpu_vendor_filter,
     )
     flash_msg = (flash or "").strip() or None
     if flash_msg and len(flash_msg) > 200:
@@ -1280,7 +1359,15 @@ def devices_page(
             "park_empty": total == 0
             and not (tag_filter or query or wave_filter or show_archive),
             "filters_active": bool(
-                tag_filter or query or wave_filter or show_archive
+                tag_filter
+                or query
+                or wave_filter
+                or show_archive
+                or os_filter
+                or ram_filter
+                or disk_filter
+                or cpu_filter
+                or cpu_vendor_filter
             ),
         },
     )
@@ -1386,21 +1473,23 @@ def devices_search_json(
         if len(query) >= 2
         else db.list_devices(archived=False, q=query, limit=cap)
     )
-    return JSONResponse(
-        {
-            "devices": [
-                {
-                    "device_id": d["device_id"],
-                    "hostname": d.get("hostname") or d["device_id"],
-                    "href": f"/devices/{d['device_id']}",
-                    "chassis_type": _chassis_type_from_device(d),
-                    "chassis_label": _format_chassis(_chassis_type_from_device(d)),
-                    "match_reason": _search_match_reason(d, query),
-                }
-                for d in rows
-            ]
-        }
-    )
+    out = []
+    for d in rows:
+        label = d.get("hostname") or d["device_id"]
+        meta_line = device_search_meta_line(d) or _search_match_reason(d, query)
+        out.append(
+            {
+                "device_id": d["device_id"],
+                "hostname": label,
+                "href": f"/devices/{d['device_id']}",
+                "chassis_type": _chassis_type_from_device(d),
+                "chassis_label": _format_chassis(_chassis_type_from_device(d)),
+                "match_reason": _search_match_reason(d, query),
+                "title_html": highlight_match(label, query),
+                "subtitle_html": highlight_match(meta_line, query),
+            }
+        )
+    return JSONResponse({"devices": out})
 
 
 @router.post("/devices/bulk")

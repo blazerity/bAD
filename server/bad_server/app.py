@@ -186,6 +186,9 @@ async def _stale_alert_loop(app: FastAPI) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from .server_runtime import reset_process_start
+
+    reset_process_start()
     settings = get_settings()
     db = open_database(database_url=settings.database_url)
     settings.agent_updates_dir = resolve_agent_updates_dir(settings)
