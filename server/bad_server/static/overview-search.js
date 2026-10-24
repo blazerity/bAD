@@ -82,23 +82,22 @@
 
     function render(data, q) {
       box.innerHTML = "";
-      var devs = cats.devices ? data.devices || [] : [];
-      var evts = cats.events ? data.events || [] : [];
-      if (cats.serial && devs.length) {
-        devs = devs.filter(function (d) {
+      var allDevs = data.devices || [];
+      var devs = [];
+      if (cats.devices) {
+        devs = allDevs;
+      } else if (cats.serial) {
+        devs = allDevs.filter(function (d) {
           var r = (d.match_reason || "").toLowerCase();
           return (
             r.indexOf("serial") >= 0 ||
             r.indexOf("серий") >= 0 ||
-            r.indexOf("uuid") >= 0 ||
-            (d.subtitle_html && String(d.subtitle_html).length > 0)
+            r.indexOf("uuid") >= 0
           );
         });
-        if (!devs.length && (data.devices || []).length) {
-          devs = data.devices;
-        }
       }
-      var sets = settingsSection(q, cats.settings);
+      var evts = cats.events ? data.events || [] : [];
+      var sets = cats.settings ? settingsSection(q, true) : [];
       if (!devs.length && !evts.length && !sets.length) {
         var p = document.createElement("p");
         p.className = "muted";

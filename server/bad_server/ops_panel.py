@@ -474,6 +474,57 @@ def build_wave_counts(
     }
 
 
+def _ram_tier_label(ram_bytes: object) -> Optional[str]:
+    try:
+        n = int(ram_bytes)
+    except (TypeError, ValueError):
+        return None
+    if n <= 0:
+        return None
+    gb = n / (1024**3)
+    if gb < 8:
+        return "< 8 ГБ"
+    if gb < 16:
+        return "8–16 ГБ"
+    if gb < 32:
+        return "16–32 ГБ"
+    if gb < 64:
+        return "32–64 ГБ"
+    return "64+ ГБ"
+
+
+def _storage_tier_label(total_bytes: int) -> Optional[str]:
+    if total_bytes <= 0:
+        return None
+    gb = total_bytes / (1024**3)
+    if gb < 256:
+        return "< 256 ГБ"
+    if gb < 512:
+        return "256–512 ГБ"
+    if gb < 1024:
+        return "512 ГБ – 1 ТБ"
+    return "1 ТБ+"
+
+
+def _accumulate_hw_bars(hw: dict[str, Any], ram_counts: dict[str, int], storage_counts: dict[str, int]) -> None:
+    if not isinstance(hw, dict):
+        return
+    ram_label = _ram_tier_label(hw.get("ram_bytes"))
+    if ram_label:
+        ram_counts[ram_label] = ram_counts.get(ram_label, 0) + 1
+    total_disk = 0
+    for disk in hw.get("disks") or []:
+        if not isinstance(disk, dict):
+            continue
+        try:
+            total_disk += int(disk.get("size_bytes") or 0)
+        except (TypeError, ValueError):
+            continue
+    storage_label = _storage_tier_label(total_disk)
+    if storage_label:
+        storage_counts[storage_label] = storage_counts.get(storage_label, 0) + 1
+
+
 def _facet_from_device_meta(device: dict[str, Any]) -> tuple[str, str, str] | None:
     """OS / domain / model из meta_json (без inventory), если поля есть."""
     meta = device.get("meta") if isinstance(device.get("meta"), dict) else {}
@@ -567,11 +618,23 @@ def build_dashboard_stats(
     os_counts: dict[str, int] = {}
     domain_counts: dict[str, int] = {}
     model_counts: dict[str, int] = {}
+    ram_counts: dict[str, int] = {}
+    storage_counts: dict[str, int] = {}
     scan_cap = min(len(active), INVENTORY_SCAN_CAP)
+    scan_ids = [d["device_id"] for d in active[:scan_cap]]
+    payloads = db.latest_inventory_payloads(scan_ids, cap=INVENTORY_SCAN_CAP) if scan_ids else {}
     need_payload: list[str] = []
     scanned = 0
     for d in active[:scan_cap]:
         facets = _facet_from_device_meta(d)
+        payload = payloads.get(d["device_id"])
+        hw: dict[str, Any] = {}
+        if isinstance(payload, dict):
+            raw_hw = payload.get("hardware")
+            if isinstance(raw_hw, dict):
+                hw = raw_hw
+        if hw:
+            _accumulate_hw_bars(hw, ram_counts, storage_counts)
         if facets:
             caption, domain, model_label = facets
             scanned += 1
@@ -580,12 +643,9 @@ def build_dashboard_stats(
             model_counts[model_label] = model_counts.get(model_label, 0) + 1
         else:
             need_payload.append(d["device_id"])
-    payloads = (
-        db.latest_inventory_payloads(need_payload, cap=INVENTORY_SCAN_CAP)
-        if need_payload
-        else {}
-    )
     for device_id, payload in payloads.items():
+        if device_id not in need_payload:
+            continue
         scanned += 1
         host = payload.get("host") if isinstance(payload, dict) else None
         if not isinstance(host, dict):
@@ -609,7 +669,6 @@ def build_dashboard_stats(
         os_counts[caption] = os_counts.get(caption, 0) + 1
         domain_counts[domain] = domain_counts.get(domain, 0) + 1
         model_counts[model_label] = model_counts.get(model_label, 0) + 1
-    scan_ids = [d["device_id"] for d in active[:INVENTORY_SCAN_CAP]]
     missing = max(0, len(scan_ids) - scanned)
     if missing:
         os_counts["—"] = os_counts.get("—", 0) + missing
@@ -637,6 +696,24 @@ def build_dashboard_stats(
         "capped": capped,
         "href": "/devices",
     }
+    ram_bars = None
+    if ram_counts:
+        ram_total = sum(ram_counts.values())
+        ram_bars = {
+            "items": _top_bars(ram_counts, top=OS_DOMAIN_BAR_TOP, total=max(ram_total, 1)),
+            "scanned": ram_total,
+            "capped": capped,
+            "href": "/devices",
+        }
+    storage_bars = None
+    if storage_counts:
+        storage_total = sum(storage_counts.values())
+        storage_bars = {
+            "items": _top_bars(storage_counts, top=OS_DOMAIN_BAR_TOP, total=max(storage_total, 1)),
+            "scanned": storage_total,
+            "capped": capped,
+            "href": "/devices",
+        }
 
     # hardware feed (на Дашборде — опц.; Обзор держит список O7)
     hw_items = list(stats.get("recent_hardware_events") or [])[:8]
@@ -667,6 +744,8 @@ def build_dashboard_stats(
         "os_bars": os_bars,
         "domain_bars": domain_bars,
         "model_bars": model_bars,
+        "ram_bars": ram_bars,
+        "storage_bars": storage_bars,
         "hardware_feed": hardware_feed,
         "mirror": mirror,
     }

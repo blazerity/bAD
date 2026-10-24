@@ -120,6 +120,55 @@
     </div>
   </article>
 
+  {% if dashboard.ram_bars or dashboard.storage_bars %}
+  <div class="dash-grid dash-reveal" style="--dash-delay:180ms">
+    {% if dashboard.ram_bars %}
+    <article class="dash-widget dash-card" data-widget="ram">
+      <h2>ОЗУ в парке</h2>
+      {% set rb = dashboard.ram_bars %}
+      {% if rb['items'] %}
+      <ul class="hbar-list">
+        {% for row in rb['items'] %}
+        <li class="hbar-row">
+          <div class="hbar-meta">
+            <span>{{ row.label }}</span>
+            <span class="muted tnum">{{ row.count }} · {{ row.pct }}%</span>
+          </div>
+          <div class="hbar-track" aria-hidden="true">
+            <span class="hbar-fill" style="width: {{ row.pct }}%; --bar-delay: {{ loop.index0 * 45 }}ms"></span>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      <p class="hint">Устройств с данными ОЗУ: <span class="mono">{{ rb.scanned }}</span></p>
+      {% endif %}
+    </article>
+    {% endif %}
+    {% if dashboard.storage_bars %}
+    <article class="dash-widget dash-card" data-widget="storage">
+      <h2>Ёмкость дисков</h2>
+      {% set sb = dashboard.storage_bars %}
+      {% if sb['items'] %}
+      <ul class="hbar-list">
+        {% for row in sb['items'] %}
+        <li class="hbar-row">
+          <div class="hbar-meta">
+            <span>{{ row.label }}</span>
+            <span class="muted tnum">{{ row.count }} · {{ row.pct }}%</span>
+          </div>
+          <div class="hbar-track" aria-hidden="true">
+            <span class="hbar-fill" style="width: {{ row.pct }}%; --bar-delay: {{ loop.index0 * 45 }}ms"></span>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      <p class="hint">Устройств с данными дисков: <span class="mono">{{ sb.scanned }}</span></p>
+      {% endif %}
+    </article>
+    {% endif %}
+  </div>
+  {% endif %}
+
   <div class="dash-grid dash-reveal" style="--dash-delay:200ms">
     <article class="dash-widget dash-card" data-widget="domain">
       <h2>Домен</h2>
@@ -169,9 +218,9 @@
     <article class="card-surface stack-card">
       <h2>Недавнее железо</h2>
       {% set feed = dashboard.hardware_feed %}
-      {% if feed.items %}
+      {% if feed['items'] %}
       <ul class="hit-list">
-        {% for e in feed.items %}
+        {% for e in feed['items'] %}
         <li>
           <a class="hit-row" href="/events/{{ e.id }}">
             <span class="hit-row-title">{{ e.summary or e.type }}</span>
@@ -180,7 +229,7 @@
         </li>
         {% endfor %}
       </ul>
-      <p class="muted"><a href="{{ feed.href }}">Все события</a></p>
+      <p class="muted"><a href="{{ feed['href'] }}">Все события</a></p>
       {% else %}
       <p class="muted">Пока пусто.</p>
       {% endif %}

@@ -300,6 +300,9 @@ def _pager_url(
     archive: bool = False,
     device_id: str = "",
     importance: str = "",
+    event_type: str = "",
+    date_from: str = "",
+    date_to: str = "",
 ) -> str:
     """URL списка с сохранением фильтров (серверная пагинация ?page=)."""
     params: dict[str, str] = {}
@@ -315,6 +318,12 @@ def _pager_url(
         params["archive"] = "1"
     if importance:
         params["importance"] = importance
+    if event_type:
+        params["type"] = event_type
+    if date_from:
+        params["date_from"] = date_from
+    if date_to:
+        params["date_to"] = date_to
     if page > 1:
         params["page"] = str(page)
     qs = urlencode(params)
@@ -325,6 +334,7 @@ templates.env.filters["pager_items"] = _pager_items
 templates.env.filters["pager_url"] = _pager_url
 templates.env.globals["event_importance"] = event_importance
 templates.env.globals["importance_filter_labels"] = FILTER_PRESET_LABELS_RU
+templates.env.globals["event_type_filter_labels"] = _EVENT_TYPE_LABELS_RU
 
 router = APIRouter(tags=["web"], dependencies=[Depends(ensure_csrf)])
 
@@ -1546,6 +1556,9 @@ def events_page(
     device_id: Optional[str] = None,
     q: Optional[str] = None,
     importance: Optional[str] = None,
+    type: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     page: int = 1,
     user: WebUser = Depends(require_web_user),
     db: Database = Depends(get_db),
@@ -1555,11 +1568,20 @@ def events_page(
     imp = (importance or "").strip().casefold() or None
     if imp == "default":
         imp = None
+    type_filter = (type or "").strip() or None
+    date_from_f = (date_from or "").strip() or None
+    date_to_f = (date_to or "").strip() or None
     page_i = max(1, int(page or 1))
     page_size = EVENTS_PAGE_SIZE
-    total = db.count_device_events(
-        device_id=device_filter, q=q_filter, importance=imp
-    )
+    count_kw = {
+        "device_id": device_filter,
+        "q": q_filter,
+        "importance": imp,
+        "event_type": type_filter,
+        "date_from": date_from_f,
+        "date_to": date_to_f,
+    }
+    total = db.count_device_events(**count_kw)
     pages = max(1, (total + page_size - 1) // page_size)
     if page_i > pages:
         page_i = pages
@@ -1570,6 +1592,9 @@ def events_page(
         offset=offset,
         q=q_filter,
         importance=imp,
+        event_type=type_filter,
+        date_from=date_from_f,
+        date_to=date_to_f,
         include_detail=False,
     )
     chassis_by_id = _chassis_map_for_devices(db.list_devices(archived=None))
@@ -1577,19 +1602,18 @@ def events_page(
         e["chassis_type"] = chassis_by_id.get(str(e.get("device_id") or ""), "other")
     today_d = datetime.now(timezone.utc).date()
     yesterday_d = today_d - timedelta(days=1)
+    chip_kw = {
+        "device_id": device_filter,
+        "q": q_filter,
+        "event_type": type_filter,
+        "date_from": date_from_f,
+        "date_to": date_to_f,
+    }
     event_filter_counts = {
-        "default": db.count_device_events(
-            device_id=device_filter, q=q_filter, importance=None
-        ),
-        "all": db.count_device_events(
-            device_id=device_filter, q=q_filter, importance="all"
-        ),
-        "high": db.count_device_events(
-            device_id=device_filter, q=q_filter, importance="high"
-        ),
-        "critical": db.count_device_events(
-            device_id=device_filter, q=q_filter, importance="critical"
-        ),
+        "default": db.count_device_events(**chip_kw, importance=None),
+        "all": db.count_device_events(**chip_kw, importance="all"),
+        "high": db.count_device_events(**chip_kw, importance="high"),
+        "critical": db.count_device_events(**chip_kw, importance="critical"),
     }
     return _html(
         request,
@@ -1600,6 +1624,9 @@ def events_page(
             "device_filter": device_filter or "",
             "q": q_filter or "",
             "importance": imp if imp else "",
+            "event_type": type_filter or "",
+            "date_from": date_from_f or "",
+            "date_to": date_to_f or "",
             "page": page_i,
             "pages": pages,
             "total": total,

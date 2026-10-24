@@ -619,6 +619,9 @@ class Database:
         device_id: Optional[str],
         q: Optional[str],
         importance: Optional[str],
+        event_type: Optional[str] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
     ) -> tuple[str, list[Any]]:
         from .event_importance import types_at_least
 
@@ -649,6 +652,18 @@ class Database:
                 "OR e.device_id ILIKE ?)"
             )
             params.extend([like, like, like, like])
+        et = (event_type or "").strip()
+        if et:
+            clauses.append("e.type = ?")
+            params.append(et)
+        d_from = (date_from or "").strip()
+        if d_from:
+            clauses.append("e.created_at >= ?")
+            params.append(f"{d_from}T00:00:00Z")
+        d_to = (date_to or "").strip()
+        if d_to:
+            clauses.append("e.created_at <= ?")
+            params.append(f"{d_to}T23:59:59Z")
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         return where, params
 
@@ -660,6 +675,9 @@ class Database:
         offset: int = 0,
         q: Optional[str] = None,
         importance: Optional[str] = None,
+        event_type: Optional[str] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
         include_detail: bool = False,
     ) -> list[dict[str, Any]]:
         limit = max(1, min(int(limit), 500))
@@ -672,7 +690,12 @@ class Database:
             LEFT JOIN devices d ON d.device_id = e.device_id
         """
         where, params = self._event_list_filters(
-            device_id=device_id, q=q, importance=importance
+            device_id=device_id,
+            q=q,
+            importance=importance,
+            event_type=event_type,
+            date_from=date_from,
+            date_to=date_to,
         )
         sql += where
         sql += " ORDER BY e.created_at DESC, e.id DESC LIMIT ? OFFSET ?"
@@ -767,6 +790,9 @@ class Database:
         device_id: Optional[str] = None,
         q: Optional[str] = None,
         importance: Optional[str] = None,
+        event_type: Optional[str] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
     ) -> int:
         sql = """
             SELECT COUNT(*) AS c
@@ -774,7 +800,12 @@ class Database:
             LEFT JOIN devices d ON d.device_id = e.device_id
         """
         where, params = self._event_list_filters(
-            device_id=device_id, q=q, importance=importance
+            device_id=device_id,
+            q=q,
+            importance=importance,
+            event_type=event_type,
+            date_from=date_from,
+            date_to=date_to,
         )
         sql += where
         with self.connection() as conn:

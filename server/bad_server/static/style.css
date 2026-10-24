@@ -2848,6 +2848,28 @@ body.global-search-open { overflow: hidden; }
 .event-imp-high { background: var(--warn-bg); color: var(--warn); }
 .col-icon { width: 2.5rem; }
 
+.filter-date-input {
+  padding: 0.45rem 0.55rem;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--control-stroke);
+  background: var(--control-bg);
+  font: inherit;
+  font-size: 0.85rem;
+}
+.event-inline-detail {
+  margin: 0;
+  font-size: 0.9rem;
+}
+.event-inline-detail summary {
+  cursor: pointer;
+  list-style: none;
+}
+.event-inline-detail summary::-webkit-details-marker { display: none; }
+.event-inline-body {
+  margin: 0.35rem 0 0.25rem;
+  font-size: 0.85rem;
+}
+
 .settings-page-header { margin-bottom: 0.5rem; }
 .settings-page .settings-shell { margin-top: 0.35rem; }
 

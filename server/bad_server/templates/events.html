@@ -12,7 +12,7 @@
   </header>
 
   <div class="card-surface filter-card">
-  <form method="get" action="/events" class="filter-bar filter-bar-flat" data-live-submit data-live-delay="350">
+  <form method="get" action="/events" class="filter-bar filter-bar-flat events-filter-form" data-live-submit data-live-delay="350">
     {% if device_filter %}
     <input type="hidden" name="device_id" value="{{ device_filter }}">
     {% endif %}
@@ -21,14 +21,25 @@
       <input id="q" class="panel-search-input" name="q" type="search" value="{{ q }}"
         placeholder="текст, hostname, тип" maxlength="128" autocomplete="off">
     </div>
+    <label class="sr-only" for="event-type">Тип</label>
+    <select id="event-type" name="type" class="filter-select-compact">
+      <option value="">Все типы</option>
+      {% for key, label in event_type_filter_labels|dictsort %}
+      <option value="{{ key }}" {% if event_type == key %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
     <label class="sr-only" for="importance">Важность</label>
     <select id="importance" name="importance" class="filter-select-compact">
       {% for key, label in importance_filter_labels.items() %}
       <option value="{{ key }}" {% if importance == key %}selected{% endif %}>{{ label }}</option>
       {% endfor %}
     </select>
+    <label class="lbl-icon" for="date-from">{{ icon('events') }}<span>с</span></label>
+    <input id="date-from" name="date_from" type="date" value="{{ date_from }}" class="filter-date-input">
+    <label class="lbl-icon" for="date-to"><span>по</span></label>
+    <input id="date-to" name="date_to" type="date" value="{{ date_to }}" class="filter-date-input">
     <button type="submit">Применить</button>
-    {% if device_filter or q or importance %}
+    {% if device_filter or q or importance or event_type or date_from or date_to %}
     <a class="btn secondary" href="/events">Сбросить</a>
     {% endif %}
   </form>
@@ -37,6 +48,9 @@
     {% set chip_qs = '' %}
     {% if device_filter %}{% set chip_qs = chip_qs ~ 'device_id=' ~ device_filter|urlencode ~ '&' %}{% endif %}
     {% if q %}{% set chip_qs = chip_qs ~ 'q=' ~ q|urlencode ~ '&' %}{% endif %}
+    {% if event_type %}{% set chip_qs = chip_qs ~ 'type=' ~ event_type|urlencode ~ '&' %}{% endif %}
+    {% if date_from %}{% set chip_qs = chip_qs ~ 'date_from=' ~ date_from|urlencode ~ '&' %}{% endif %}
+    {% if date_to %}{% set chip_qs = chip_qs ~ 'date_to=' ~ date_to|urlencode ~ '&' %}{% endif %}
     {% set chip_root = '/events' ~ ('?' ~ chip_qs if chip_qs else '') %}
     {% set chip_sep = '&' if chip_qs else '?' %}
     {{ filter_chip(chip_root, 'Без шума', event_filter_counts.default, not importance) }}
@@ -49,7 +63,7 @@
 
   {% if device_filter %}
   <p class="muted">Фильтр устройства: <span class="mono">{{ device_filter }}</span>
-    <a href="/events?q={{ q|urlencode }}&importance={{ importance }}">убрать</a></p>
+    <a href="/events">убрать</a></p>
   {% endif %}
 
   {% if not events %}
@@ -85,18 +99,24 @@
       {% endif %}
       <tr class="events-row-link">
         <td class="col-icon"><span class="event-type-icon event-imp-{{ imp }}">{{ icon('events') }}</span></td>
-        <td><a href="/events/{{ e.id }}">{{ e.summary }}</a></td>
+        <td>
+          <details class="event-inline-detail">
+            <summary><a href="/events/{{ e.id }}">{{ e.summary }}</a></summary>
+            <p class="muted event-inline-body">{{ e.summary }}</p>
+            <p><a href="/events/{{ e.id }}">Карточка события #{{ e.id }}</a></p>
+          </details>
+        </td>
         <td>{{ device_link(e.device_id, e.hostname or e.device_id, e.chassis_type) }}</td>
-        <td title="{{ e.type }}"><a href="/events/{{ e.id }}">{{ e.type|format_event_type }}</a></td>
+        <td title="{{ e.type }}">{{ e.type|format_event_type }}</td>
         <td><span class="badge badge-importance badge-importance-{{ imp }}">{{ imp|importance_label_ru }}</span></td>
-        <td class="mono muted"><a href="/events/{{ e.id }}">{{ local_time(e.created_at) }}</a></td>
+        <td class="mono muted">{{ local_time(e.created_at) }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
   </div>
   </div>
-  {{ table_pager('/events', page, pages, total, page_size, q=q, device_id=device_filter, importance=importance) }}
+  {{ table_pager('/events', page, pages, total, page_size, q=q, device_id=device_filter, importance=importance, event_type=event_type, date_from=date_from, date_to=date_to) }}
   {% endif %}
 </section>
 {% endblock %}
