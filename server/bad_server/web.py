@@ -69,6 +69,11 @@ from .enrollment_ops import (
 )
 from .http_bootstrap import HTTP_SENSITIVE_MSG, client_ip, sensitive_over_http_blocked
 from .device_meta import meta_search_haystack
+from .panel_search import (
+    device_match_label,
+    event_match_label,
+    highlight_match,
+)
 from .ops_panel import (
     build_attention_queue,
     build_bootstrap_checklist,
@@ -231,25 +236,7 @@ def _device_freshness_tier(
 
 
 def _search_match_reason(device: dict, query: str) -> str:
-    q = (query or "").strip().casefold()
-    if not q:
-        return ""
-    host = (device.get("hostname") or "").casefold()
-    did = str(device.get("device_id") or "").casefold()
-    if q in host:
-        return "имя"
-    if q in did:
-        return "идентификатор"
-    meta = device.get("meta") if isinstance(device.get("meta"), dict) else {}
-    for label, key in (
-        ("серийный номер", "serial_number"),
-        ("UUID", "smbios_uuid"),
-        ("BIOS", "bios_serial"),
-    ):
-        val = str(meta.get(key) or "").casefold()
-        if val and q in val:
-            return label
-    return "совпадение"
+    return device_match_label(device, query)
 
 
 def _chassis_map_for_devices(devices: list[dict]) -> dict[str, str]:
@@ -862,6 +849,69 @@ def overview_alias(
     return home(request, user=user, db=db, settings=settings)
 
 
+@router.get("/overview/search.json")
+def overview_search_json(
+    q: str = Query(default="", max_length=128),
+    limit: int = Query(default=30, ge=1, le=50),
+    user: WebUser = Depends(require_web_user),
+    db: Database = Depends(get_db),
+):
+    """Глобальный поиск Обзора: устройства + события (сессия)."""
+    del user
+    query = (q or "").strip()
+    if len(query) < 2:
+        return JSONResponse({"devices": [], "events": []})
+    dev_cap = max(1, min(int(limit), 40))
+    evt_cap = max(1, min(20, dev_cap))
+    devices = db.search_devices_global(query, limit=dev_cap)
+    events = db.list_device_events(
+        q=query,
+        importance="all",
+        limit=evt_cap,
+        offset=0,
+        include_detail=False,
+    )
+    chassis_by_id = _chassis_map_for_devices(devices)
+    dev_out = []
+    for d in devices:
+        did = d["device_id"]
+        label = d.get("hostname") or did
+        dev_out.append(
+            {
+                "kind": "device",
+                "device_id": did,
+                "hostname": label,
+                "href": f"/devices/{did}",
+                "chassis_type": _chassis_type_from_device(d),
+                "match_reason": device_match_label(d, query),
+                "title_html": highlight_match(label, query),
+                "subtitle_html": highlight_match(did, query),
+                "archived": bool(d.get("archived")),
+            }
+        )
+    evt_out = []
+    for e in events:
+        eid = int(e["id"])
+        evt_out.append(
+            {
+                "kind": "event",
+                "id": eid,
+                "href": f"/events/{eid}",
+                "device_id": e.get("device_id"),
+                "hostname": e.get("hostname") or e.get("device_id"),
+                "type": e.get("type"),
+                "summary": e.get("summary"),
+                "match_reason": event_match_label(e, query),
+                "title_html": highlight_match(e.get("summary") or "", query),
+                "subtitle_html": highlight_match(
+                    e.get("hostname") or e.get("device_id") or "", query
+                ),
+                "created_at": e.get("created_at"),
+            }
+        )
+    return JSONResponse({"devices": dev_out, "events": evt_out, "q": query})
+
+
 @router.get("/dashboard", response_class=HTMLResponse)
 def dashboard_page(
     request: Request,
@@ -1302,7 +1352,11 @@ def devices_search_json(
     if len(query) < 1:
         return JSONResponse({"devices": []})
     cap = max(1, min(int(limit or 25), 50))
-    rows = db.list_devices(archived=False, q=query, limit=cap)
+    rows = (
+        db.search_devices_global(query, limit=cap)
+        if len(query) >= 2
+        else db.list_devices(archived=False, q=query, limit=cap)
+    )
     return JSONResponse(
         {
             "devices": [
@@ -1426,6 +1480,53 @@ def setup_progress_json(
         security=security,
     )
     return JSONResponse({"progress": progress})
+
+
+@router.get("/events/{event_id}", response_class=HTMLResponse)
+def event_detail_page(
+    request: Request,
+    event_id: int,
+    user: WebUser = Depends(require_web_user),
+    db: Database = Depends(get_db),
+):
+    event = db.get_device_event(event_id)
+    if not event:
+        return _html(
+            request,
+            "event_missing.html",
+            {"user": user, "event_id": event_id},
+            status_code=404,
+        )
+    from .smtp_mail import event_visual
+
+    device_id = str(event.get("device_id") or "")
+    chassis = "other"
+    if device_id:
+        detail = db.get_device_detail(device_id)
+        if detail:
+            chassis = _chassis_type_from_device(detail)
+    visual = event_visual(str(event.get("type") or ""))
+    if visual.get("icon") == "host":
+        visual = {**visual, "icon": "devices"}
+    permalink = f"/events/{event_id}"
+    detail = event.get("detail")
+    detail_pretty = (
+        json.dumps(detail, ensure_ascii=False, indent=2)
+        if detail
+        else None
+    )
+    return _html(
+        request,
+        "event_detail.html",
+        {
+            "user": user,
+            "event": event,
+            "visual": visual,
+            "chassis_type": chassis,
+            "permalink": permalink,
+            "detail_pretty": detail_pretty,
+        },
+    )
 
 
 @router.get("/events", response_class=HTMLResponse)

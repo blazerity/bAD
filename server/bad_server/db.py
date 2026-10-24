@@ -68,6 +68,12 @@ class Database:
                 conn.execute(
                     f"INSERT INTO {table}(id) VALUES (1) ON CONFLICT DO NOTHING"
                 )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_devices_last_seen
+                ON devices (last_seen_at DESC NULLS LAST)
+                """
+            )
             conn.commit()
 
     @contextmanager
@@ -485,6 +491,59 @@ class Database:
         q: Optional[str] = None,
     ) -> int:
         return len(self.list_devices(tag=tag, archived=archived, q=q))
+
+    def search_devices_global(
+        self, q: str, *, limit: int = 25
+    ) -> list[dict[str, Any]]:
+        """ILIKE по hostname, id, meta/tags (Postgres)."""
+        query = (q or "").strip()
+        if not query:
+            return []
+        cap = max(1, min(int(limit), 50))
+        like = f"%{query}%"
+        sql = """
+            SELECT device_id, hostname, enrolled_at, last_seen_at,
+                   agent_version, meta_json, tags_json, revoked, archived
+            FROM devices
+            WHERE hostname ILIKE ?
+               OR device_id ILIKE ?
+               OR COALESCE(meta_json, '') ILIKE ?
+               OR COALESCE(tags_json, '') ILIKE ?
+            ORDER BY COALESCE(last_seen_at, enrolled_at) DESC NULLS LAST
+            LIMIT ?
+        """
+        with self.connection() as conn:
+            rows = conn.execute(sql, (like, like, like, like, cap)).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            out.append(
+                {
+                    "device_id": row["device_id"],
+                    "hostname": row["hostname"],
+                    "enrolled_at": row["enrolled_at"],
+                    "last_seen_at": row["last_seen_at"],
+                    "agent_version": row["agent_version"],
+                    "meta": self._parse_meta(row["meta_json"]),
+                    "tags": self._parse_tags(row["tags_json"]),
+                    "revoked": bool(row["revoked"]),
+                    "archived": bool(row["archived"]),
+                }
+            )
+        return out
+
+    def get_device_event(self, event_id: int) -> Optional[dict[str, Any]]:
+        sql = """
+            SELECT e.id, e.device_id, e.type, e.summary, e.detail_json,
+                   e.created_at, d.hostname
+            FROM device_events e
+            LEFT JOIN devices d ON d.device_id = e.device_id
+            WHERE e.id = ?
+        """
+        with self.connection() as conn:
+            row = conn.execute(sql, (int(event_id),)).fetchone()
+        if not row:
+            return None
+        return self._device_event_rows([row], include_detail=True)[0]
 
     def list_all_tags(self) -> list[str]:
         seen: dict[str, str] = {}

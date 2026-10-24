@@ -62,14 +62,14 @@
         </td>
       </tr>
       {% endif %}
-      <tr>
-        <td>{{ local_time(e.created_at) }}</td>
+      <tr class="events-row-link">
+        <td><a href="/events/{{ e.id }}">{{ local_time(e.created_at) }}</a></td>
         <td><span class="badge badge-importance badge-importance-{{ imp }}">{{ imp|importance_label_ru }}</span></td>
         <td>
           {{ device_link(e.device_id, e.hostname or e.device_id, e.chassis_type) }}
         </td>
-        <td title="{{ e.type }}">{{ e.type|format_event_type }}</td>
-        <td>{{ e.summary }}</td>
+        <td title="{{ e.type }}"><a href="/events/{{ e.id }}">{{ e.type|format_event_type }}</a></td>
+        <td><a href="/events/{{ e.id }}">{{ e.summary }}</a></td>
       </tr>
       {% endfor %}
     </tbody>

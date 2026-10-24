@@ -22,6 +22,8 @@ def inventory_meta_cache(
     *,
     host: Optional[dict[str, Any]],
     hardware: Optional[dict[str, Any]],
+    users: Optional[dict[str, Any]] = None,
+    network: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Поля для devices.meta после POST /v1/inventory (фильтры и списки)."""
     out: dict[str, Any] = {}
@@ -49,6 +51,33 @@ def inventory_meta_cache(
         serial = hardware.get("serial_number")
         if serial is not None and str(serial).strip():
             out["serial_number"] = str(serial).strip()
+        cpu = hardware.get("cpu")
+        if isinstance(cpu, dict):
+            cpu_name = cpu.get("name")
+            if cpu_name is not None and str(cpu_name).strip():
+                out["cpu_name"] = str(cpu_name).strip()
+    if users and isinstance(users, dict):
+        logged = users.get("logged_on") or []
+        clean = [str(u).strip() for u in logged if u and str(u).strip()]
+        if clean:
+            out["logged_on"] = clean
+    if network and isinstance(network, dict):
+        ips: list[str] = []
+        macs: list[str] = []
+        for nic in network.get("nics") or []:
+            if not isinstance(nic, dict):
+                continue
+            for ip in nic.get("ipv4") or []:
+                s = str(ip).strip()
+                if s:
+                    ips.append(s)
+            mac = nic.get("mac")
+            if mac is not None and str(mac).strip():
+                macs.append(str(mac).strip())
+        if ips:
+            out["ipv4_addresses"] = ips
+        if macs:
+            out["mac_addresses"] = macs
     return out
 
 
@@ -65,7 +94,14 @@ def meta_search_haystack(meta: dict[str, Any]) -> str:
         str(meta.get("hardware_manufacturer") or ""),
         str(meta.get("hardware_model") or ""),
         str(meta.get("chassis_type") or ""),
+        str(meta.get("cpu_name") or ""),
     ]
+    for user in meta.get("logged_on") or []:
+        bits.append(str(user or ""))
+    for ip in meta.get("ipv4_addresses") or []:
+        bits.append(str(ip or ""))
+    for mac in meta.get("mac_addresses") or []:
+        bits.append(str(mac or ""))
     for disk in meta.get("disk_serials") or []:
         bits.append(str(disk or ""))
     return " ".join(bits).casefold()

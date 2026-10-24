@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Событие не найдено — bAD{% endblock %}
+{% block content %}
+<section>
+  <h1>Событие не найдено</h1>
+  <p class="muted">Нет события с id <span class="mono">{{ event_id }}</span>.</p>
+  <p><a href="/events">К списку событий</a></p>
+</section>
+{% endblock %}

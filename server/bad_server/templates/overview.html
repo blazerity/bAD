@@ -5,18 +5,19 @@
 {% block content %}
 <section class="overview-admin">
   <h1 class="with-icon">{{ icon('overview') }}Обзор</h1>
-  <p class="muted">
-    Командный пункт оператора. Устарел — нет контакта дольше {{ stale_after_seconds }} с.
-    Графики парка — <a href="/dashboard">Дашборд</a>.
+  <p class="muted overview-lead">
+    Сервер <span class="mono">{{ (server_current.version if server_current else None) or app_version }}</span>
+    · <a href="/dashboard">Дашборд</a>
   </p>
-  <p class="muted">
-    Версия сервера:
-    <span class="mono">{{ (server_current.version if server_current else None) or app_version }}</span>
-    {% if server_current and (server_current.branch or server_current.sha) %}
-    ·
-    <span class="mono">{{ server_current.branch or "—" }} @ {{ (server_current.sha or "")[:12] or "—" }}</span>
-    {% endif %}
-  </p>
+
+  <div class="overview-search-wrap live-search-wrap">
+    <label for="overview-search-q">Поиск по парку</label>
+    <input id="overview-search-q" type="search"
+      placeholder="имя, пользователь, CPU, serial, IP, MAC, событие…"
+      maxlength="128" autocomplete="off" data-overview-search>
+    <p class="muted overview-search-hint">от 2 символов · устройства и события</p>
+    <div id="overview-search-results" class="overview-search-results" hidden></div>
+  </div>
 
   {% if bootstrap_progress and not bootstrap_progress.complete %}
   <div class="install-wizard" role="status" aria-label="Первый запуск">
@@ -53,70 +54,46 @@
       </li>
       {% endfor %}
     </ol>
-    <p class="hint">Чеклист скроется после смены пароля и включения защищённого соединения.</p>
   </div>
   {% endif %}
 
   {% if security and security.https_first %}
   <p class="muted security-strip">
     {% if security.https_first.tls_mode == 'https' %}
-    Защищённое соединение включено
+    HTTPS
     {% else %}
-    Без защищённого соединения —
-    <a href="/settings/tls">Параметры → Сертификат</a>
+    <a href="/settings/tls">Нужен сертификат</a>
     {% endif %}
     {% if security.secrets and (security.secrets.legacy_keys_in_db or security.secrets.legacy_keys_in_sqlite) %}
-    · <a href="/settings/backups">ключи ещё в базе</a>
-    {% elif security.secrets and security.secrets.ok %}
-    · ключи вне базы
+    · <a href="/settings/backups">ключи в БД</a>
     {% endif %}
     {% if ops.enrollment_rotation_due %}
-    · <a href="/settings/updates#enrollment">смена токена подключения</a>
+    · <a href="/settings/updates#enrollment">токен подключения</a>
     {% endif %}
   </p>
   {% endif %}
 
   {% if attention %}
-  <div class="attention-queue" aria-label="Требует действия">
-    <h2>Требует действия</h2>
+  <details class="attention-queue attention-queue--fold" {% if attention|length <= 2 %}open{% endif %}>
+    <summary class="attention-queue__summary">
+      Требует действия <span class="mono">({{ attention|length }})</span>
+    </summary>
     <ul class="attention-list">
       {% for item in attention %}
       <li class="attention-item severity-{{ item.severity }}">
         <div class="attention-body">
           <strong>{{ item.title }}</strong>
-          <span class="muted">{{ item.detail }}</span>
+          <span class="muted attention-detail-short">{{ item.detail }}</span>
         </div>
         <a class="btn secondary" href="{{ item.href }}">{{ item.cta }}</a>
       </li>
       {% endfor %}
     </ul>
-  </div>
+  </details>
   {% else %}
-  <p class="ok attention-empty">Сейчас нет срочных действий по парку.</p>
+  <p class="ok attention-empty">Нет срочных действий.</p>
   {% endif %}
 
-  <h2>Парк устройств</h2>
-  <p class="muted">Цифры для решения — без bar-chart. <a href="/dashboard">Подробнее на Дашборде</a>.</p>
-  <div class="stat-row">
-    <div class="stat">
-      <div class="stat-value">{{ stats.total_active }}</div>
-      <div class="stat-label">Активных</div>
-    </div>
-    <div class="stat">
-      <div class="stat-value">{{ stats.online }}</div>
-      <div class="stat-label">Онлайн</div>
-    </div>
-    <div class="stat">
-      <div class="stat-value">{{ stats.stale }}</div>
-      <div class="stat-label">Устарели</div>
-    </div>
-    <div class="stat">
-      <div class="stat-value">{{ stats.archived }}</div>
-      <div class="stat-label">В архиве</div>
-    </div>
-  </div>
-
-  {# O8 — риски волны: числа-ссылки, не график #}
   {% if wave_chips or ops.wave_chips %}
   <h2>Риски волны</h2>
   <p class="wave-links">
@@ -145,12 +122,7 @@
   </table>
   </div>
   {% if agent_version_summary and agent_version_summary.total_versions > 6 %}
-  <p class="muted">
-    {{ agent_version_summary.total_versions }} версий —
-    <a href="{{ agent_version_summary.dashboard_href }}">на Дашборде</a>.
-  </p>
-  {% elif agent_version_summary %}
-  <p class="muted"><a href="{{ agent_version_summary.dashboard_href }}">Распределение на Дашборде</a></p>
+  <p class="muted"><a href="{{ agent_version_summary.dashboard_href }}">все версии на Дашборде</a></p>
   {% endif %}
   {% else %}
   <p class="muted">Пока нет активных устройств.</p>
@@ -159,38 +131,34 @@
   <h2>Каталог установщиков</h2>
   {% if ops.mirror_empty %}
   <div class="warn-box" role="status">
-    <strong>Каталог установщиков пуст</strong>
+    <strong>Каталог пуст</strong>
     <p class="muted" style="margin:0.35rem 0 0">
-      Агенты не получат обновления —
       <a href="/settings/updates">Параметры → Обновления агента</a>.
     </p>
   </div>
   {% else %}
-  <dl class="meta">
-    <div><dt>Основная версия</dt><dd class="mono">{{ ops.latest_version or "—" }}</dd></div>
-    <div><dt>Версий в каталоге</dt><dd class="mono">{{ ops.mirror_count }}</dd></div>
-    <div><dt>Последняя синхронизация</dt><dd class="mono">{{ local_time(ops.latest_synced_at) }}</dd></div>
+  <dl class="meta meta-compact">
+    <div><dt>Версия</dt><dd class="mono">{{ ops.latest_version or "—" }}</dd></div>
+    <div><dt>В каталоге</dt><dd class="mono">{{ ops.mirror_count }}</dd></div>
+    <div><dt>Синхр.</dt><dd class="mono">{{ local_time(ops.latest_synced_at) }}</dd></div>
   </dl>
-  <p class="hint"><a href="/settings/updates">Управление каталогом</a></p>
   {% endif %}
 
   {% if ops.version_drift_count %}
-  <h2>Отстающие по версии агента</h2>
+  <h2>Отстающие</h2>
   <p class="muted">
-    Версия агента на устройстве и целевая из каталога (не версия сервера).
     {{ ops.version_drift_count }} —
-    <a href="/devices?wave=drift">открыть фильтр волны</a>.
+    <a href="/devices?wave=drift">волна drift</a>
   </p>
   <div class="table-scroll">
   <table class="devices">
-    <thead><tr><th>Устройство</th><th>Версия агента</th><th>Целевая версия</th><th>Запрошена</th></tr></thead>
+    <thead><tr><th>Устройство</th><th>Агент</th><th>Цель</th></tr></thead>
     <tbody>
-    {% for d in ops.version_drift[:8] %}
+    {% for d in ops.version_drift[:6] %}
       <tr>
         <td>{{ device_link(d.device_id, d.hostname or d.device_id, d.chassis_type) }}</td>
         <td class="mono">{{ d.agent_version }}</td>
         <td class="mono">{{ d.target }}</td>
-        <td class="mono">{{ d.want_version }}</td>
       </tr>
     {% endfor %}
     </tbody>
@@ -198,27 +166,25 @@
   </div>
   {% endif %}
 
-  <h2 class="with-icon">{{ icon('events') }}Недавние изменения железа</h2>
+  <h2 class="with-icon">{{ icon('events') }}Недавнее железо</h2>
   {% if stats.recent_hardware_events %}
   <ul class="overview-hw-list">
-    {% for e in stats.recent_hardware_events[:8] %}
+    {% for e in stats.recent_hardware_events[:6] %}
     <li>
-      {{ local_time(e.created_at, extra_class='mono muted') }}
+      <a href="/events/{{ e.id }}">{{ local_time(e.created_at, extra_class='mono muted') }}</a>
       · {{ device_link(e.device_id, e.hostname or e.device_id, e.chassis_type) }}
       · <span title="{{ e.type }}">{{ e.type|format_event_type }}</span>
-      {% if e.summary %}<span class="muted">— {{ e.summary }}</span>{% endif %}
     </li>
     {% endfor %}
   </ul>
   <p class="muted"><a href="/events">Все события</a></p>
   {% else %}
-  <p class="muted">Событий изменения железа пока нет. <a href="/events">Все события</a></p>
+  <p class="muted"><a href="/events">События</a></p>
   {% endif %}
 
   <p class="muted">
-    <a href="/dashboard">Дашборд</a> ·
-    <a href="/devices">К списку устройств</a> ·
-    <a href="/events">Все события</a>
+    <a href="/devices">Устройства</a>
   </p>
 </section>
+<script src="/static/overview-search.js" defer></script>
 {% endblock %}

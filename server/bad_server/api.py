@@ -257,9 +257,15 @@ def inventory(
         if isinstance(payload.get("hardware"), dict)
         else None
     )
+    users = payload.get("users") if isinstance(payload.get("users"), dict) else None
+    network = (
+        payload.get("network") if isinstance(payload.get("network"), dict) else None
+    )
     cached = inventory_meta_cache(
         host=host if isinstance(host, dict) else None,
         hardware=hardware,
+        users=users,
+        network=network,
     )
     identity = db.extract_identity_signals(hardware=hardware or {})
     meta = {

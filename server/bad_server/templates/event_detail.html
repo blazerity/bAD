@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% from "macros/icons.html" import icon %}
+{% from "macros/ui.html" import local_time, device_link, copyable %}
+{% block title %}Событие #{{ event.id }} — bAD{% endblock %}
+{% block content %}
+<section class="event-detail-page">
+  <p class="crumb"><a href="/events">События</a> / #{{ event.id }}</p>
+  <h1 class="with-icon">{{ icon('events') }}Событие <span class="mono">#{{ event.id }}</span></h1>
+
+  <p class="event-permalink muted">
+    Ссылка: {{ copyable(permalink, display=permalink) }}
+  </p>
+
+  <article class="event-digest-card polarity-{{ visual.polarity }}">
+    <header class="event-digest-card__device">
+      {{ device_link(event.device_id, event.hostname or event.device_id, chassis_type) }}
+      <span class="mono muted">{{ event.device_id }}</span>
+    </header>
+    <div class="event-digest-card__row">
+      <span class="event-digest-card__icon" aria-hidden="true">{{ icon(visual.icon) }}</span>
+      <div class="event-digest-card__body">
+        <span class="badge badge-polarity badge-polarity-{{ visual.polarity }}">
+          {% if visual.polarity == 'added' %}Добавлено
+          {% elif visual.polarity == 'removed' %}Удалено
+          {% else %}Изменено{% endif %}
+        </span>
+        <p class="event-digest-card__summary">{{ event.summary }}</p>
+        <p class="muted">
+          {{ local_time(event.created_at) }}
+          · <span title="{{ event.type }}">{{ event.type|format_event_type }}</span>
+          · <span class="badge badge-importance badge-importance-{{ event.importance }}">{{ event.importance|importance_label_ru }}</span>
+        </p>
+      </div>
+    </div>
+    {% if detail_pretty %}
+    <details class="event-digest-card__detail">
+      <summary>Детали (JSON)</summary>
+      <pre class="mono">{{ detail_pretty }}</pre>
+    </details>
+    {% endif %}
+  </article>
+
+  <p class="muted">
+    <a href="/devices/{{ event.device_id }}">Карточка устройства</a>
+    · <a href="/events?device_id={{ event.device_id }}">Все события устройства</a>
+  </p>
+</section>
+{% endblock %}

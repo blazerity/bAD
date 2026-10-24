@@ -5,11 +5,27 @@
 <section class="dashboard-page" data-dashboard>
   <h1 class="with-icon dash-reveal">{{ icon('dashboard') }}Дашборд</h1>
   <p class="muted dash-reveal" style="--dash-delay:40ms">
-    Визуальная картина парка. Операционные списки —
-    <a href="/">Обзор</a>.
-    Устарел — нет контакта дольше {{ stale_after_seconds }} с.
-    Подписи: <strong>версия агента</strong> (не версия сервера в footer).
+    Парк и графики · <a href="/">Обзор</a>
   </p>
+
+  <div class="stat-row dash-park-compact dash-reveal" style="--dash-delay:60ms">
+    <div class="stat">
+      <div class="stat-value">{{ stats.total_active }}</div>
+      <div class="stat-label">Активных</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">{{ stats.online }}</div>
+      <div class="stat-label">Онлайн</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">{{ stats.stale }}</div>
+      <div class="stat-label">Устарели</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">{{ stats.archived }}</div>
+      <div class="stat-label">Архив</div>
+    </div>
+  </div>
 
   {# D1 — парк #}
   <article class="dash-widget dash-card dash-reveal" style="--dash-delay:80ms" data-widget="park">
