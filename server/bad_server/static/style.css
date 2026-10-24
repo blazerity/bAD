@@ -2973,12 +2973,62 @@ body.global-search-open { overflow: hidden; }
   align-items: center;
   gap: 1rem 1.25rem;
 }
-.chart-donut__ring {
+.chart-donut__ring-wrap {
+  position: relative;
   width: 7.5rem;
   height: 7.5rem;
+  flex-shrink: 0;
+}
+.chart-donut__ring {
+  width: 100%;
+  height: 100%;
   border-radius: 50%;
   position: relative;
-  flex-shrink: 0;
+}
+.chart-donut__slice-hit {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  z-index: 1;
+  text-indent: -9999px;
+  overflow: hidden;
+  -webkit-mask-image: conic-gradient(
+    from calc(var(--slice-start) * 3.6deg),
+    #000 0deg,
+    #000 calc(var(--slice-size) * 3.6deg),
+    transparent 0deg
+  );
+  mask-image: conic-gradient(
+    from calc(var(--slice-start) * 3.6deg),
+    #000 0deg,
+    #000 calc(var(--slice-size) * 3.6deg),
+    transparent 0deg
+  );
+}
+.chart-donut__slice-hit:hover,
+.chart-donut__slice-hit:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--accent, #0067c0);
+  border-radius: 50%;
+}
+.chart-donut__ring-hole {
+  position: absolute;
+  inset: 22%;
+  border-radius: 50%;
+  z-index: 2;
+  pointer-events: auto;
+}
+.chart-donut__legend-link {
+  color: inherit;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex: 1;
+  flex-wrap: wrap;
+}
+.chart-donut__legend-link:hover .chart-donut__label {
+  text-decoration: underline;
 }
 .chart-donut__ring::after {
   content: "";

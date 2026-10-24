@@ -95,7 +95,11 @@
     document.querySelectorAll("form[data-live-submit]").forEach(function (form) {
       var delay = parseInt(form.getAttribute("data-live-delay") || "350", 10);
       form.querySelectorAll("input[type=search][name], select").forEach(function (el) {
-        if (el.id === "device-live-q" || el.hasAttribute("data-live-skip")) {
+        if (
+          el.id === "device-live-q" ||
+          el.hasAttribute("data-live-skip") ||
+          el.hasAttribute("data-devices-search")
+        ) {
           return;
         }
         if (el.tagName === "SELECT") {

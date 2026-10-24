@@ -33,7 +33,7 @@
           <span class="search-input-icon" aria-hidden="true">{{ icon('search') }}</span>
           <input id="q" name="q" class="panel-search-input" type="search" value="{{ q }}"
             placeholder="hostname, device_id, serial, UUID…" maxlength="128" autocomplete="off"
-            data-devices-search>
+            data-live-skip data-devices-search>
         </div>
         {% if filters_active %}
         <a class="filter-reset-link" href="/devices">Сбросить</a>
