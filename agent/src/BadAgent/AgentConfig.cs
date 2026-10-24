@@ -150,6 +150,9 @@ public sealed class HeartbeatActions
 
     [JsonPropertyName("update_check")]
     public bool UpdateCheck { get; set; }
+
+    [JsonPropertyName("uninstall")]
+    public bool Uninstall { get; set; }
 }
 
 public sealed class HeartbeatServerResponse

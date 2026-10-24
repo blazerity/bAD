@@ -332,6 +332,18 @@ public sealed class Worker : BackgroundService
 
             config = ConfigStore.LoadOrCreate();
 
+            if (response?.Actions?.Uninstall == true)
+            {
+                if (AgentUninstaller.TryStartSilentUninstall(_logger))
+                {
+                    _logger.LogInformation("Выход после запуска msiexec uninstall");
+                    _lifetime.StopApplication();
+                    return;
+                }
+
+                return;
+            }
+
             if (response?.Actions?.Inventory == true)
             {
                 await RunInventoryAsync(client, config, ct);
