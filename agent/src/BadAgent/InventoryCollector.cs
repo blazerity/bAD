@@ -139,7 +139,9 @@ public sealed class InventoryCollector : IInventoryCollector
                     // soft-fail timezone
                 }
 
-                host.PendingReboot = TryDetectPendingReboot(errors);
+                var (pendingReboot, pendingReasons) = TryDetectPendingReboot(errors);
+                host.PendingReboot = pendingReboot;
+                host.PendingRebootReasons = pendingReasons;
                 WmiHelper.YieldBriefly();
 
                 string? dnsDomain = null;
@@ -872,14 +874,17 @@ public sealed class InventoryCollector : IInventoryCollector
             hw.Disks = new List<DiskInfo>();
             var mediaSerialByTag = TryLoadPhysicalMediaSerialsByTag();
             var storageDiskByIndex = TryLoadMsftPhysicalDiskByIndex();
+            var removableDiskIndices = TryLoadDiskIndicesWithRemovableLogicalVolume();
             using var disks = new ManagementObjectSearcher(
-                "SELECT Model, Size, MediaType, SerialNumber, InterfaceType, DeviceID, Index FROM Win32_DiskDrive");
+                "SELECT Model, Size, MediaType, SerialNumber, InterfaceType, DeviceID, Index, PNPDeviceID " +
+                "FROM Win32_DiskDrive");
             foreach (ManagementObject obj in disks.Get())
             {
                 using (obj)
                 {
                     var deviceId = obj["DeviceID"]?.ToString();
                     var diskIndex = ToInt(obj["Index"]);
+                    var mediaType = HardwareMaps.CleanWmiString(obj["MediaType"]?.ToString());
                     var serial = HardwareMaps.CleanHardwareSerial(obj["SerialNumber"]?.ToString());
                     if (serial is null)
                     {
@@ -890,14 +895,19 @@ public sealed class InventoryCollector : IInventoryCollector
                             storageDiskByIndex);
                     }
 
+                    var removable = IsRemovableDiskMediaType(mediaType)
+                        || (diskIndex is int idx && removableDiskIndices.Contains(idx));
+
                     hw.Disks.Add(new DiskInfo
                     {
                         Model = HardwareMaps.CleanWmiString(obj["Model"]?.ToString()),
                         SizeBytes = ToLong(obj["Size"]),
-                        MediaType = HardwareMaps.CleanWmiString(obj["MediaType"]?.ToString()),
+                        MediaType = mediaType,
                         // Уже disks[].serial_number (inventory-plus); не дублировать top-level.
                         SerialNumber = serial,
-                        InterfaceType = HardwareMaps.CleanWmiString(obj["InterfaceType"]?.ToString())
+                        InterfaceType = HardwareMaps.CleanWmiString(obj["InterfaceType"]?.ToString()),
+                        Removable = removable,
+                        PnpDeviceId = HardwareMaps.CleanWmiString(obj["PNPDeviceID"]?.ToString())
                     });
                 }
             }
@@ -1109,7 +1119,7 @@ public sealed class InventoryCollector : IInventoryCollector
 
     private static UsersInfo CollectUsers(List<CollectorError> errors)
     {
-        var users = new UsersInfo();
+        var users = new UsersInfo { LoggedOn = new List<string>() };
         try
         {
             if (OperatingSystem.IsWindows())
@@ -1118,20 +1128,27 @@ public sealed class InventoryCollector : IInventoryCollector
                     "SELECT UserName FROM Win32_ComputerSystem", "UserName");
                 if (!string.IsNullOrWhiteSpace(user))
                 {
-                    users.LastInteractive = user;
-                    users.LoggedOn = new List<string> { user };
+                    users.LoggedOn.Add(user.Trim());
                 }
-                else
+
+                var lastFromReg = ReadLastLoggedOnUserFromRegistry();
+                if (!string.IsNullOrWhiteSpace(lastFromReg))
                 {
-                    users.LoggedOn = null;
-                    users.LastInteractive = null;
+                    users.LastInteractive = lastFromReg;
+                }
+                else if (!string.IsNullOrWhiteSpace(user))
+                {
+                    users.LastInteractive = user.Trim();
                 }
             }
             else
             {
                 var name = Environment.UserName;
-                users.LoggedOn = string.IsNullOrWhiteSpace(name) ? null : new List<string> { name };
-                users.LastInteractive = name;
+                if (!string.IsNullOrWhiteSpace(name))
+                {
+                    users.LoggedOn.Add(name);
+                    users.LastInteractive = name;
+                }
             }
         }
         catch (Exception ex)
@@ -1142,6 +1159,15 @@ public sealed class InventoryCollector : IInventoryCollector
         }
 
         return users;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static string? ReadLastLoggedOnUserFromRegistry()
+    {
+        using var key = Registry.LocalMachine.OpenSubKey(
+            @"SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI");
+        var raw = key?.GetValue("LastLoggedOnUser") as string;
+        return string.IsNullOrWhiteSpace(raw) ? null : raw.Trim();
     }
 
     /// <summary>
@@ -1425,22 +1451,23 @@ public sealed class InventoryCollector : IInventoryCollector
     }
 
     [SupportedOSPlatform("windows")]
-    private static bool? TryDetectPendingReboot(List<CollectorError> errors)
+    private static (bool? Pending, List<string>? Reasons) TryDetectPendingReboot(List<CollectorError> errors)
     {
         try
         {
+            var reasons = new List<string>();
             if (RegistryKeyExists(
-                    @"SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending")
-                || RegistryKeyExists(
-                    @"SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootInProgress")
-                || RegistryKeyExists(
-                    @"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired")
-                || HasMeaningfulPendingFileRenameOperations())
+                    @"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired"))
             {
-                return true;
+                reasons.Add("windows_update");
             }
 
-            return false;
+            if (CbsRebootPendingHasAtLeastOneValue())
+            {
+                reasons.Add("cbs");
+            }
+
+            return (reasons.Count > 0, reasons);
         }
         catch (Exception ex)
         {
@@ -1449,7 +1476,7 @@ public sealed class InventoryCollector : IInventoryCollector
                 Section = "host.pending_reboot",
                 Error = Truncate(ex.Message, 200)
             });
-            return null;
+            return (null, null);
         }
     }
 
@@ -1461,17 +1488,18 @@ public sealed class InventoryCollector : IInventoryCollector
     }
 
     [SupportedOSPlatform("windows")]
-    private static bool HasMeaningfulPendingFileRenameOperations()
+    private static bool CbsRebootPendingHasAtLeastOneValue()
     {
-        using var key = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\Session Manager");
+        using var key = Registry.LocalMachine.OpenSubKey(
+            @"SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending");
         if (key is null)
         {
             return false;
         }
 
-        foreach (var (src, dst) in EnumeratePfroOperations(key.GetValue("PendingFileRenameOperations")))
+        foreach (var name in key.GetValueNames())
         {
-            if (PfroPairImpliesReboot(src, dst))
+            if (key.GetValue(name) is not null)
             {
                 return true;
             }
@@ -1480,86 +1508,52 @@ public sealed class InventoryCollector : IInventoryCollector
         return false;
     }
 
-    /// <summary>PFRO — пары (источник, назначение); пустое назначение = удаление при reboot.</summary>
-    private static IEnumerable<(string Src, string? Dst)> EnumeratePfroOperations(object? value)
+    private static bool IsRemovableDiskMediaType(string? mediaType)
     {
-        if (value is string[] lines)
+        return !string.IsNullOrWhiteSpace(mediaType)
+               && mediaType.Contains("removable", StringComparison.OrdinalIgnoreCase);
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static HashSet<int> TryLoadDiskIndicesWithRemovableLogicalVolume()
+    {
+        var indices = new HashSet<int>();
+        try
         {
-            for (var i = 0; i < lines.Length; i += 2)
+            using var logical = new ManagementObjectSearcher(
+                "SELECT DeviceID FROM Win32_LogicalDisk WHERE DriveType=2");
+            foreach (ManagementObject logDisk in logical.Get())
             {
-                yield return (lines[i], i + 1 < lines.Length ? lines[i + 1] : null);
+                using (logDisk)
+                {
+                    foreach (ManagementObject partition in logDisk.GetRelated(
+                                 "Win32_DiskPartition", "Win32_LogicalDiskToPartition"))
+                    {
+                        using (partition)
+                        {
+                            foreach (ManagementObject disk in partition.GetRelated(
+                                         "Win32_DiskDrive", "Win32_DiskDriveToDiskPartition"))
+                            {
+                                using (disk)
+                                {
+                                    var index = ToInt(disk["Index"]);
+                                    if (index is int i)
+                                    {
+                                        indices.Add(i);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
-
-            yield break;
         }
-
-        if (value is string single && !string.IsNullOrWhiteSpace(single))
+        catch
         {
-            var parts = single.Split('\0', StringSplitOptions.RemoveEmptyEntries);
-            for (var i = 0; i < parts.Length; i += 2)
-            {
-                yield return (parts[i], i + 1 < parts.Length ? parts[i + 1] : null);
-            }
-        }
-    }
-
-    private static bool PfroPairImpliesReboot(string? src, string? dst)
-    {
-        if (string.IsNullOrWhiteSpace(src))
-        {
-            return false;
+            // soft-fail: removable остаётся только по MediaType
         }
 
-        if (!string.IsNullOrWhiteSpace(dst))
-        {
-            return !IsIgnorablePfroPath(dst);
-        }
-
-        return !IsIgnorablePfroPath(src);
-    }
-
-    private static bool IsIgnorablePfroPath(string? path)
-    {
-        var p = NormalizePfroPath(path);
-        if (p.Length == 0)
-        {
-            return true;
-        }
-
-        if (p.Contains(@"\Temp\", StringComparison.OrdinalIgnoreCase)
-            || p.Contains(@"\TMP\", StringComparison.OrdinalIgnoreCase)
-            || p.Contains(@"\AppData\Local\Temp\", StringComparison.OrdinalIgnoreCase)
-            || p.Contains(@"\Windows\Temp\", StringComparison.OrdinalIgnoreCase)
-            || p.Contains(@"\INetCache\", StringComparison.OrdinalIgnoreCase)
-            || p.Contains(@"\Config.Msi\", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        if (p.Contains('~', StringComparison.Ordinal)
-            && (p.Contains(@"\Temp\", StringComparison.OrdinalIgnoreCase)
-                || p.Contains(@"\TMP\", StringComparison.OrdinalIgnoreCase)))
-        {
-            return true;
-        }
-
-        return false;
-    }
-
-    private static string NormalizePfroPath(string? path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return string.Empty;
-        }
-
-        var p = path.Trim();
-        if (p.StartsWith(@"\??\", StringComparison.Ordinal))
-        {
-            p = p[4..];
-        }
-
-        return p.Replace('/', '\\');
+        return indices;
     }
 
     [SupportedOSPlatform("windows")]

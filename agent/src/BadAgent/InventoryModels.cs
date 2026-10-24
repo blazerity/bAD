@@ -80,9 +80,13 @@ public sealed class HostInfo
     [JsonPropertyName("timezone")]
     public string? Timezone { get; set; }
 
-    /// <summary>Ожидает перезагрузку (CBS / WindowsUpdate / PendingFileRename).</summary>
+    /// <summary>Ожидает перезагрузку (есть хотя бы одна причина в <see cref="PendingRebootReasons"/>).</summary>
     [JsonPropertyName("pending_reboot")]
     public bool? PendingReboot { get; set; }
+
+    /// <summary>Причины: <c>windows_update</c>, <c>cbs</c>. При успехе и <c>false</c> — пустой список.</summary>
+    [JsonPropertyName("pending_reboot_reasons")]
+    public List<string>? PendingRebootReasons { get; set; }
 }
 
 public sealed class OsInfo
@@ -382,6 +386,13 @@ public sealed class DiskInfo
 
     [JsonPropertyName("interface_type")]
     public string? InterfaceType { get; set; }
+
+    /// <summary>Съёмный носитель (MediaType) или связанный том DriveType=2.</summary>
+    [JsonPropertyName("removable")]
+    public bool? Removable { get; set; }
+
+    [JsonPropertyName("pnp_device_id")]
+    public string? PnpDeviceId { get; set; }
 }
 
 public sealed class VolumeInfo
