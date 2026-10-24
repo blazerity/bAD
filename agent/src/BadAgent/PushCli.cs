@@ -1,15 +1,12 @@
-using Microsoft.Extensions.Logging.Abstractions;
-
 namespace BadAgent;
 
 /// <summary>
-/// Принудительная отправка на сервер: очередь → inventory → heartbeat (и опционально проверка обновлений).
+/// Принудительная отправка на сервер: очередь → inventory → heartbeat.
 /// </summary>
 public static class PushCli
 {
     public static int Run(string[] args)
     {
-        var runUpdate = false;
         foreach (var arg in args)
         {
             if (IsHelpToken(arg))
@@ -20,19 +17,20 @@ public static class PushCli
 
             if (string.Equals(arg, "--update", StringComparison.Ordinal))
             {
-                runUpdate = true;
-                continue;
+                Console.Error.WriteLine(
+                    "error: флаг --update снят; для обновления агента используйте: bad update");
+                return 2;
             }
 
-            Console.Error.WriteLine($"error: неизвестный аргумент '{arg}' (допустимо: --update)");
+            Console.Error.WriteLine($"error: неизвестный аргумент '{arg}'");
             PrintHelp();
             return 2;
         }
 
-        return RunPush(runUpdate);
+        return RunPush();
     }
 
-    private static int RunPush(bool runUpdate)
+    private static int RunPush()
     {
         try
         {
@@ -187,42 +185,6 @@ public static class PushCli
                 Console.WriteLine("      Применена удалённая конфигурация агента.");
             }
 
-            // --update или actions.update_check с панели (request-refresh).
-            var wantUpdate = runUpdate || response?.Actions?.UpdateCheck == true;
-            if (wantUpdate)
-            {
-                Console.WriteLine(
-                    runUpdate
-                        ? "[+] Проверка обновлений (--update)…"
-                        : "[+] Проверка обновлений (запрос с панели)…");
-                config = ConfigStore.LoadOrCreate();
-                var logger = NullLogger.Instance;
-                var updater = new AgentUpdater(logger, agentVersion);
-                try
-                {
-                    var applying = updater.CheckAndApplyAsync(client, config, token).GetAwaiter().GetResult();
-                    if (applying)
-                    {
-                        Console.WriteLine(
-                            "      Запущена установка MSI — завершите push и дождитесь перезапуска службы.");
-                    }
-                    else
-                    {
-                        Console.WriteLine("      Обновление не требуется или отключено в конфиге.");
-                    }
-                }
-                catch (AgentApiException ex) when (ex.IsAuthFailure)
-                {
-                    Console.Error.WriteLine("error: API key отклонён (401/403) при проверке обновлений");
-                    return 1;
-                }
-                catch (Exception ex)
-                {
-                    Console.Error.WriteLine($"error: проверка обновлений не удалась: {ex.Message}");
-                    return 1;
-                }
-            }
-
             Console.WriteLine("Готово.");
             return 0;
         }
@@ -277,7 +239,8 @@ public static class PushCli
         Console.WriteLine("""
 Принудительная синхронизация с сервером bAD:
   bad push                 Очередь → inventory → heartbeat (config с сервера)
-  bad push --update        То же + проверка и установка обновления агента
+
+Обновление MSI: bad update (флаг push --update снят).
 
 Нужны server_url и api_key в config.json (см. bad -c).
 """);

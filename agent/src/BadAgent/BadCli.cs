@@ -36,6 +36,11 @@ public static class BadCli
                 return PushCli.Run(pushRest);
             }
 
+            if (IsUpdateCommand(args, out var updateRest))
+            {
+                return UpdateCli.Run(updateRest);
+            }
+
             if (args.Length == 0 || IsAsciiCommand(args[0]))
             {
                 return RunAscii(collector);
@@ -59,7 +64,8 @@ public static class BadCli
             or "-r" or "--report" or "--html" or "html"
             or "report" or "info" or "ascii"
             or "config" or "settings"
-            or "push";
+            or "push"
+            or "update";
 
     private static bool IsHelp(string[] args) =>
         args.Length > 0 && args[0] is "-?" or "--help" or "help" or "/?" or "-h";
@@ -85,6 +91,18 @@ public static class BadCli
     private static bool IsPushCommand(string[] args, out string[] rest)
     {
         if (args.Length > 0 && string.Equals(args[0], "push", StringComparison.OrdinalIgnoreCase))
+        {
+            rest = args.AsSpan(1).ToArray();
+            return true;
+        }
+
+        rest = [];
+        return false;
+    }
+
+    private static bool IsUpdateCommand(string[] args, out string[] rest)
+    {
+        if (args.Length > 0 && string.Equals(args[0], "update", StringComparison.OrdinalIgnoreCase))
         {
             rest = args.AsSpan(1).ToArray();
             return true;
@@ -156,7 +174,7 @@ public static class BadCli
   bad config               Показать настройки (значения api_key / enrollment_token не печатаются)
   bad config set <k> <v>   Power-user: один параметр (server_url в бою — https://)
   bad push                 Синхронизация с сервером: очередь → inventory → heartbeat
-  bad push --update        То же + проверка обновления агента
+  bad update               Проверка версии на сервере и установка MSI при необходимости
 
 Путь для HTML (-r):
   без path                 Рабочий стол: bad_report_yyyyMMdd_HHmmss.html
