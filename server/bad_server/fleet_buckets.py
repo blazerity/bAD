@@ -143,6 +143,77 @@ def cpu_family_label(cpu_name: str) -> Optional[str]:
     return "Другое"
 
 
+# ---------------------------------------------------------------------------
+# Intel Core i: поколение, кодовое имя, сегмент (Mobile/Desktop)
+# ---------------------------------------------------------------------------
+
+_CORE_I_RE = re.compile(
+    r"\bi([3579])[\s-]+(?:cpu\s+)?(\d{3,5})([a-z]*)",
+    re.IGNORECASE,
+)
+
+_CORE_I_CODENAMES: dict[int, str] = {
+    1: "Nehalem",
+    2: "Sandy Bridge",
+    3: "Ivy Bridge",
+    4: "Haswell",
+    5: "Broadwell",
+    6: "Skylake",
+    7: "Kaby Lake",
+    8: "Coffee Lake",
+    9: "Coffee Lake Refresh",
+    10: "Comet Lake",
+    11: "Rocket Lake",
+    12: "Alder Lake",
+    13: "Raptor Lake",
+    14: "Raptor Lake Refresh",
+}
+
+# Суффиксы мобильных процессоров: U, Y, H, HX, G (Iris), P, B, M, Q
+_MOBILE_SUFFIXES = frozenset("UHGYPBMQ")
+
+
+def _core_i_generation(digits: str) -> int:
+    if len(digits) == 3:       # i7-920, i5-750 → 1-е поколение
+        return 1
+    if len(digits) == 5:       # i7-10700K, i9-14900K → первые 2 цифры
+        return int(digits[:2])
+    if digits[0] == "1":       # 4 цифры с «1»: i5-1135G7 (11), i7-1065G7 (10)
+        return int(digits[:2])
+    return int(digits[0])      # i7-8700, i5-2500, i9-9900K → первая цифра
+
+
+def _ordinal_en(n: int) -> str:
+    if 11 <= n % 100 <= 13:
+        return f"{n}th"
+    suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+def _intel_core_i_family(name: str) -> Optional[str]:
+    m = _CORE_I_RE.search(name)
+    if not m:
+        return None
+    series, digits, suffix = m.group(1), m.group(2), m.group(3).upper()
+    gen = _core_i_generation(digits)
+
+    # 4-значные модели с «1» в начале (1035G1, 1165G7, 1235U) — мобильные;
+    # дополнительно учитываем буквенные суффиксы (U, H, G, P, M, ...)
+    mobile = bool(set(suffix) & _MOBILE_SUFFIXES) or (len(digits) == 4 and digits[0] == "1")
+    segment = "Mobile" if mobile else "Desktop"
+
+    if gen == 10:
+        codename = "Ice Lake" if len(digits) == 4 else "Comet Lake"
+    elif gen == 11:
+        codename = "Tiger Lake" if (mobile or len(digits) == 4) else "Rocket Lake"
+    else:
+        codename = _CORE_I_CODENAMES.get(gen)
+
+    if codename is None:
+        return f"Intel Core i{series}"
+    return f"Intel {codename} ({segment} {_ordinal_en(gen)} Gen)"
+
+
 def _intel_family(name: str, low: str) -> str:
     if "core ultra" in low:
         m = re.search(r"(\d{3})", name)
@@ -155,27 +226,13 @@ def _intel_family(name: str, low: str) -> str:
             if 100 <= n < 200:
                 return "Intel · Core Ultra · Meteor Lake"
         return "Intel · Core Ultra"
-    m = re.search(r"i([3579])-(\d{2})(\d{3})", low)
-    if m:
-        gen = int(m.group(2))
-        suffix = name.split()[-1].upper() if name.split() else ""
-        if gen == 14:
-            return "Intel · 14 · Raptor Lake"
-        if gen == 13:
-            return "Intel · 13 · Raptor Lake"
-        if gen == 12:
-            return "Intel · 12 · Alder Lake"
-        if gen == 11:
-            if any(x in suffix for x in ("U", "H", "G")):
-                return "Intel · 11 · Tiger Lake"
-            return "Intel · 11 · Rocket Lake"
-        if gen == 10:
-            return "Intel · 10 · Comet Lake"
+
+    core_i = _intel_core_i_family(name)
+    if core_i:
+        return core_i
+
     if re.search(r"\bn100\b|\bn200\b|\bn95\b", low):
         return "Intel · N · Alder Lake-N"
-    m_old = re.search(r"i([3579])-(\d{4})", low)
-    if m_old and int(m_old.group(2)[:2]) < 10:
-        return f"Intel · Core i{m_old.group(1)}"
     if "xeon" in low:
         if re.search(r"silver\s*43|gold\s*53|platinum\s*83", low):
             return "Intel · Xeon · Ice Lake"
