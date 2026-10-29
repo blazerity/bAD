@@ -2360,7 +2360,7 @@ class Database:
                 LEFT JOIN devices d ON d.device_id = e.device_id
                 WHERE e.type IN ({placeholders})
                 ORDER BY e.created_at DESC, e.id DESC
-                LIMIT 8
+                LIMIT 16
                 """,
                 tuple(hw_types),
             ).fetchall()

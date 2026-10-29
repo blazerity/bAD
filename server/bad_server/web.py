@@ -195,6 +195,7 @@ _EVENT_TYPE_LABELS_RU = {
     "minidump_bugcheck": "BSOD / bugcheck",
     "disk_added": "Диск добавлен",
     "disk_removed": "Диск удалён",
+    "disk_change": "Изменение диска",
     "hostname_change": "Hostname",
     "domain_change": "Домен",
     "serial_change": "Серийный номер",
@@ -855,17 +856,80 @@ def _fleet_snapshot(
     return result
 
 
+def _parse_event_ts(raw: object) -> Optional[datetime]:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _normalize_overview_priority_feed(
+    events: list[dict[str, Any]],
+    *,
+    limit: int = 7,
+) -> list[dict[str, Any]]:
+    """Схлопнуть disk_added+disk_removed на одном ПК (~5 мин) → «Изменение диска»."""
+    disk_pair = {"disk_added", "disk_removed"}
+    window = 300  # секунд
+    used: set[int] = set()
+    out: list[dict[str, Any]] = []
+    indexed = list(enumerate(events))
+    for i, ev in indexed:
+        if i in used or not isinstance(ev, dict):
+            continue
+        etype = str(ev.get("type") or "")
+        did = str(ev.get("device_id") or "")
+        ts = _parse_event_ts(ev.get("created_at"))
+        merged = dict(ev)
+        if etype in disk_pair and did and ts is not None:
+            partner_idx = None
+            want = "disk_added" if etype == "disk_removed" else "disk_removed"
+            for j, other in indexed:
+                if j <= i or j in used or not isinstance(other, dict):
+                    continue
+                if str(other.get("device_id") or "") != did:
+                    continue
+                if str(other.get("type") or "") != want:
+                    continue
+                ots = _parse_event_ts(other.get("created_at"))
+                if ots is None:
+                    continue
+                if abs((ts - ots).total_seconds()) <= window:
+                    partner_idx = j
+                    break
+            if partner_idx is not None:
+                used.add(partner_idx)
+                partner = events[partner_idx]
+                merged["type"] = "disk_change"
+                merged["importance"] = "medium"
+                bits = [
+                    str(x.get("summary") or "").strip()
+                    for x in (ev, partner)
+                    if str(x.get("summary") or "").strip()
+                ]
+                merged["summary"] = " · ".join(bits) if bits else "Изменение конфигурации диска"
+        used.add(i)
+        if "importance" not in merged or not merged.get("importance"):
+            merged["importance"] = event_importance(str(merged.get("type") or ""))
+        out.append(merged)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def _overview_page_context(
     *,
     user: WebUser,
     db: Database,
     settings: Settings,
 ) -> dict[str, Any]:
-    """SSR context Обзора (O*): admin/ops, без склада графиков Дашборда."""
+    """SSR context Обзора — Command Center (оперативный пульт)."""
     active, _archived, stats, ops = _fleet_snapshot(db, settings)
     security = patch_security_for_qa(security_status(db, settings), settings)
     ops = merge_security_into_ops(ops, security)
-    # O8: числа волны (не bar-chart)
     wave = build_wave_counts(
         active, ops=ops, stale_n=int(stats.get("stale") or 0)
     )
@@ -900,14 +964,43 @@ def _overview_page_context(
     for d in ops.get("version_drift") or []:
         if isinstance(d, dict):
             d["chassis_type"] = chassis_by_id.get(str(d.get("device_id") or ""), "other")
+    raw_feed: list[dict[str, Any]] = []
     for e in stats.get("recent_hardware_events") or []:
-        if isinstance(e, dict):
+        if not isinstance(e, dict):
+            continue
+        did = str(e.get("device_id") or "")
+        e = dict(e)
+        e["chassis_type"] = chassis_by_id.get(did, "other")
+        dev = fleet_by_id.get(did) or {}
+        e["bad_id"] = dev.get("bad_id")
+        e["device_href"] = device_panel_href(dev.get("bad_id"), did)
+        e["importance"] = event_importance(str(e.get("type") or ""))
+        raw_feed.append(e)
+    # Берём больше сырых строк, чтобы после схлопывания осталось 7
+    if len(raw_feed) < 16:
+        extra = db.list_device_events(importance="high", limit=24, include_detail=False)
+        seen_ids = {int(x.get("id") or 0) for x in raw_feed}
+        for e in extra:
+            eid = int(e.get("id") or 0)
+            if eid in seen_ids:
+                continue
             did = str(e.get("device_id") or "")
+            e = dict(e)
             e["chassis_type"] = chassis_by_id.get(did, "other")
             dev = fleet_by_id.get(did) or {}
             e["bad_id"] = dev.get("bad_id")
             e["device_href"] = device_panel_href(dev.get("bad_id"), did)
             e["importance"] = event_importance(str(e.get("type") or ""))
+            raw_feed.append(e)
+            seen_ids.add(eid)
+        raw_feed.sort(
+            key=lambda x: (str(x.get("created_at") or ""), int(x.get("id") or 0)),
+            reverse=True,
+        )
+    priority_feed = _normalize_overview_priority_feed(raw_feed, limit=7)
+    feed_has_critical = any(
+        str(e.get("importance") or "") == "critical" for e in priority_feed
+    )
     attention = build_attention_queue(
         user=user,
         ops=ops,
@@ -918,11 +1011,19 @@ def _overview_page_context(
     )
     server_current = server_read_current(releases_dir(settings))
     events_total = db.count_device_events(importance="all")
+    critical_event_count = db.count_device_events(importance="critical")
     server_runtime = build_server_runtime(db)
+    total_active = int(stats.get("total_active") or 0)
+    drift_n = int(ops.get("version_drift_count") or 0)
+    current_n = max(0, total_active - drift_n)
+    update_progress_pct = (
+        round(100.0 * current_n / total_active, 1) if total_active else 100.0
+    )
     return {
         "user": user,
         "stats": stats,
         "events_total": events_total,
+        "critical_event_count": critical_event_count,
         "server_runtime": server_runtime,
         "ops": ops,
         "security": security,
@@ -932,6 +1033,15 @@ def _overview_page_context(
         "stale_after_seconds": effective_stale_after_seconds(db, settings),
         "server_current": server_current,
         "wave_chips": wave["chips"],
+        "priority_feed": priority_feed,
+        "feed_has_critical": feed_has_critical,
+        "update_progress": {
+            "current": current_n,
+            "drift": drift_n,
+            "total": total_active,
+            "pct": update_progress_pct,
+            "target_version": ops.get("latest_version") or "—",
+        },
     }
 
 
