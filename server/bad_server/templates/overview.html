@@ -170,19 +170,25 @@
         ></div>
       </article>
 
-      <article class="dash-card card-surface overview-priority-feed">
-        <div class="dash-card-head">
+      <article class="dash-card card-surface overview-priority-feed" data-overview-feed>
+        <div class="dash-card-head dash-card-head--feed">
           <h2 class="with-icon">{{ icon('events') }}Лента событий</h2>
+          {% if priority_feed %}
+          <div class="feed-imp-toggle" role="group" aria-label="Фильтр ленты" data-feed-imp-toggle>
+            <button type="button" data-feed-imp="critical">Критичные</button>
+            <button type="button" data-feed-imp="all" class="is-active">Все</button>
+          </div>
+          {% endif %}
         </div>
         {% if priority_feed %}
-        <ul class="dash-incident-list">
+        <ul class="dash-incident-list" data-feed-list>
           {% for e in priority_feed %}
           {% set imp = e.importance or 'low' %}
-          <li class="event-feed-row dash-incident-row">
+          <li class="event-feed-row dash-incident-row" data-importance="{{ imp }}">
             <span class="badge badge-importance badge-importance-{{ imp }}">{{ imp|importance_label_ru }}</span>
-            <a href="{{ e.device_href }}" class="event-feed-host dash-incident-host">{{ e.hostname }}</a>
-            <span class="event-feed-user muted">{% if e.user %}{{ e.user }}{% else %}—{% endif %}</span>
-            <a href="{{ e.href }}" class="event-feed-summary dash-incident-summary">
+            <a href="{{ e.device_href }}" class="event-feed-host dash-incident-host" title="{{ e.hostname }}">{{ e.hostname }}</a>
+            <span class="event-feed-user muted" {% if e.user %}title="{{ e.user }}"{% endif %}>{% if e.user %}{{ e.user }}{% else %}—{% endif %}</span>
+            <a href="{{ e.href }}" class="event-feed-summary dash-incident-summary" title="{{ e.summary or (e.type|format_event_type) }}">
               {{ e.summary or (e.type|format_event_type) }}
               {% if e.count and e.count > 1 %}<span class="dash-agg-count">×{{ e.count }}</span>{% endif %}
             </a>
@@ -190,8 +196,11 @@
           </li>
           {% endfor %}
         </ul>
+        <p class="overview-ok-banner" data-feed-empty-critical hidden>
+          <span class="overview-ok-ico" aria-hidden="true">✓</span> Нет критичных в этой ленте
+        </p>
         {% if not feed_has_critical and critical_event_count == 0 %}
-        <p class="overview-ok-banner"><span class="overview-ok-ico" aria-hidden="true">✓</span> Система в норме — критических инцидентов нет</p>
+        <p class="overview-ok-banner" data-feed-all-ok><span class="overview-ok-ico" aria-hidden="true">✓</span> Система в норме — критических инцидентов нет</p>
         {% endif %}
         {% else %}
         <p class="overview-ok-banner"><span class="overview-ok-ico" aria-hidden="true">✓</span> Система в норме</p>
@@ -266,5 +275,6 @@
   </div>
 </section>
 <script src="/static/overview-search.js" defer></script>
+<script src="/static/overview-feed.js" defer></script>
 <script src="/static/dashboard-charts.js" defer></script>
 {% endblock %}

@@ -180,14 +180,14 @@
     <thead>
       <tr>
         <th class="col-device-state">Состояние</th>
-        <th>Устройство</th>
-        <th>Пользователь</th>
-        <th>Модель</th>
-        <th>CPU</th>
-        <th>ОЗУ</th>
-        <th>ОС</th>
-        <th>IP</th>
-        <th>Контакт</th>
+        <th class="col-device-host">Устройство</th>
+        <th class="col-device-user">Пользователь</th>
+        <th class="col-device-model">Модель</th>
+        <th class="col-device-cpu">CPU</th>
+        <th class="col-device-ram">ОЗУ</th>
+        <th class="col-device-os">ОС</th>
+        <th class="col-device-ip">IP</th>
+        <th class="col-device-seen">Контакт</th>
         <th class="col-chevron" aria-hidden="true"></th>
       </tr>
     </thead>
@@ -219,18 +219,18 @@
           {% if d.revoked %}<span class="badge badge-stale">отозван</span>{% endif %}
           {% if d.has_agent_local %}<span class="badge badge-agent-local">на ПК</span>{% endif %}
         </td>
-        <td class="device-col-user">
+        <td class="device-col-user" {% if d.user_display_name %}title="{{ d.user_display_name }}"{% endif %}>
           {% if d.user_display_name %}
           <span class="user-presence-{{ d.user_presence }}">{{ d.user_display_name }}</span>
           {% else %}
           <span class="muted">нет данных</span>
           {% endif %}
         </td>
-        <td class="device-col-model muted">{% if meta.hardware_model %}{{ meta.hardware_model }}{% else %}—{% endif %}</td>
-        <td class="device-col-cpu muted">{% if meta.cpu_name %}{{ meta.cpu_name }}{% else %}—{% endif %}</td>
+        <td class="device-col-model muted" title="{{ meta.hardware_model or '' }}">{% if meta.hardware_model %}{{ meta.hardware_model }}{% else %}—{% endif %}</td>
+        <td class="device-col-cpu muted" title="{{ meta.cpu_name or '' }}">{% if meta.cpu_name %}{{ meta.cpu_name }}{% else %}—{% endif %}</td>
         <td class="muted">{{ d.ram_display }}</td>
-        <td>
-          <span>{{ os_line }}</span>
+        <td class="device-col-os-cell">
+          <span title="{{ os_line }}">{{ os_line }}</span>
           <span class="mono muted device-col-sub">bAD Agent {{ d.agent_version or '—' }}</span>
         </td>
         <td class="mono device-col-ip device-col-ip-nowrap" title="{{ d.ip_title }}">
