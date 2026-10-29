@@ -17,6 +17,7 @@
         row.hidden = !show;
         if (show) visible += 1;
       });
+      // Баннер только при фильтре «Критичные», если в ленте их нет
       if (emptyCrit) {
         emptyCrit.hidden = !(mode === "critical" && visible === 0);
       }

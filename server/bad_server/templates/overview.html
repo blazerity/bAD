@@ -18,13 +18,14 @@
         <span class="badge-pill badge-pill-warn"><span class="badge-pill-dot" aria-hidden="true"></span>HTTP</span>
         {% endif %}
         <span class="muted mono server-status-ver">{{ (server_current.version if server_current else None) or app_version }}</span>
-        <span class="muted server-status-hint">о системе</span>
+        <span class="muted tnum">{{ stats.online }}/{{ stats.total_active }}</span>
+        <span class="muted server-status-hint">подробнее</span>
       </summary>
       <div class="server-status-body">
         <dl class="server-info-grid server-info-grid--compact">
           <div class="server-metric">
             <div class="server-metric-body">
-              <dt>Агенты</dt>
+              <dt>Агенты онлайн</dt>
               <dd class="tnum">{{ stats.online }} / {{ stats.total_active }}</dd>
             </div>
           </div>
@@ -36,27 +37,51 @@
           </div>
           <div class="server-metric">
             <div class="server-metric-body">
-              <dt>Каталог</dt>
-              <dd class="mono">{{ ops.latest_version or "—" }}</dd>
+              <dt>MSI каталог</dt>
+              <dd class="mono">{{ ops.latest_version or "—" }}{% if ops.mirror_count %} · {{ ops.mirror_count }}{% endif %}</dd>
             </div>
           </div>
           <div class="server-metric">
             <div class="server-metric-body">
-              <dt>Сборка</dt>
-              <dd class="mono">{{ (server_current.version if server_current else None) or app_version }}</dd>
+              <dt>Обновление парка</dt>
+              <dd class="tnum">{{ update_progress.current }} / {{ update_progress.total }}
+                <span class="muted">({{ update_progress.pct }}%)</span>
+              </dd>
             </div>
           </div>
         </dl>
+
+        {% if wave_chips or ops.wave_chips %}
+        <div class="server-status-waves" role="group" aria-label="Риски волны">
+          {% for chip in (wave_chips or ops.wave_chips) %}
+          <a class="server-status-wave{% if chip.count %} has-count{% endif %}" href="{{ chip.href }}">
+            <span>{{ chip.label }}</span>
+            <strong class="tnum">{{ chip.count }}</strong>
+          </a>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        <div class="server-status-actions">
+          {% if update_progress.drift %}
+          <a class="btn btn-compact" href="/devices?wave=drift">Обновить агенты ({{ update_progress.drift }})</a>
+          {% endif %}
+          <a class="btn secondary btn-compact" href="/settings/updates">Каталог MSI</a>
+        </div>
+
         {% if server_runtime %}
         <p class="muted server-runtime-row">
           {% if server_runtime.uptime_seconds %}
-          Время работы <span class="tnum">{{ server_runtime.uptime_seconds // 3600 }}ч {{ (server_runtime.uptime_seconds % 3600) // 60 }}м</span>
+          Аптайм <span class="tnum">{{ server_runtime.uptime_seconds // 3600 }}ч {{ (server_runtime.uptime_seconds % 3600) // 60 }}м</span>
           {% endif %}
           {% if server_runtime.db_ok is not none %}
-          · База: {% if server_runtime.db_ok %}есть связь{% if server_runtime.db_latency_ms %} · <span class="tnum">{{ server_runtime.db_latency_ms }}</span> мс{% endif %}{% else %}нет связи{% endif %}
+          · БД: {% if server_runtime.db_ok %}ок{% if server_runtime.db_latency_ms %} · <span class="tnum">{{ server_runtime.db_latency_ms }}</span> мс{% endif %}{% else %}нет связи{% endif %}
           {% endif %}
           {% if server_runtime.process_memory_bytes %}
           · Память <span class="mono tnum">{{ server_runtime.process_memory_bytes|format_bytes }}</span>
+          {% endif %}
+          {% if ops.latest_synced_at %}
+          · Синхр. MSI {{ local_time(ops.latest_synced_at) }}
           {% endif %}
         </p>
         {% endif %}
@@ -151,127 +176,69 @@
   </details>
   {% endif %}
 
-  <div class="overview-ops-grid">
-    <div class="overview-ops-main">
-      <article class="dash-card card-surface">
-        <div class="dash-card-head">
-          <h2>Динамика событий</h2>
-          <div class="dash-range-tabs" role="tablist" aria-label="Интервал">
-            <button type="button" class="dash-range-tab" data-days="7">7 д</button>
-            <button type="button" class="dash-range-tab is-active" data-days="14">14 д</button>
-            <button type="button" class="dash-range-tab" data-days="30">30 д</button>
-          </div>
+  <div class="overview-ops-full">
+    <article class="dash-card card-surface">
+      <div class="dash-card-head">
+        <h2>Динамика событий</h2>
+        <div class="dash-range-tabs" role="tablist" aria-label="Интервал">
+          <button type="button" class="dash-range-tab" data-days="7">7 д</button>
+          <button type="button" class="dash-range-tab is-active" data-days="14">14 д</button>
+          <button type="button" class="dash-range-tab" data-days="30">30 д</button>
         </div>
-        <div
-          id="dash-event-chart"
-          class="dash-event-chart"
-          data-series='{{ event_series.series|tojson }}'
-          data-days="{{ event_series.days_default }}"
-        ></div>
-      </article>
+      </div>
+      <div
+        id="dash-event-chart"
+        class="dash-event-chart"
+        data-series='{{ event_series.series|tojson }}'
+        data-days="{{ event_series.days_default }}"
+      ></div>
+    </article>
 
-      <article class="dash-card card-surface overview-priority-feed" data-overview-feed>
-        <div class="dash-card-head dash-card-head--feed">
-          <h2 class="with-icon">{{ icon('events') }}Лента событий</h2>
-          {% if priority_feed %}
-          <div class="feed-imp-toggle" role="group" aria-label="Фильтр ленты" data-feed-imp-toggle>
-            <button type="button" data-feed-imp="critical">Критичные</button>
-            <button type="button" data-feed-imp="all" class="is-active">Все</button>
-          </div>
-          {% endif %}
-        </div>
+    <article class="dash-card card-surface overview-priority-feed" data-overview-feed>
+      <div class="dash-card-head dash-card-head--feed">
+        <h2 class="with-icon">{{ icon('events') }}Лента событий</h2>
         {% if priority_feed %}
-        <ul class="dash-incident-list" data-feed-list>
-          {% for e in priority_feed %}
-          {% set imp = e.importance or 'low' %}
-          <li class="event-feed-row dash-incident-row" data-importance="{{ imp }}">
-            <span class="badge badge-importance badge-importance-{{ imp }}">{{ imp|importance_label_ru }}</span>
-            <a href="{{ e.device_href }}" class="event-feed-host dash-incident-host" title="{{ e.hostname }}">{{ e.hostname }}</a>
-            <span class="event-feed-user muted" {% if e.user %}title="{{ e.user }}"{% endif %}>{% if e.user %}{{ e.user }}{% else %}—{% endif %}</span>
-            <a href="{{ e.href }}" class="event-feed-summary dash-incident-summary" title="{{ e.summary or (e.type|format_event_type) }}">
-              {{ e.summary or (e.type|format_event_type) }}
-              {% if e.count and e.count > 1 %}<span class="dash-agg-count">×{{ e.count }}</span>{% endif %}
-            </a>
-            <span class="event-feed-time mono muted">{{ local_time(e.created_at) }}</span>
-          </li>
-          {% endfor %}
-        </ul>
-        <p class="overview-ok-banner" data-feed-empty-critical hidden>
-          <span class="overview-ok-ico" aria-hidden="true">✓</span> Нет критичных в этой ленте
-        </p>
-        {% if not feed_has_critical and critical_event_count == 0 %}
-        <p class="overview-ok-banner" data-feed-all-ok><span class="overview-ok-ico" aria-hidden="true">✓</span> Система в норме — критических инцидентов нет</p>
-        {% endif %}
-        {% else %}
-        <p class="overview-ok-banner"><span class="overview-ok-ico" aria-hidden="true">✓</span> Система в норме</p>
-        {% endif %}
-        <p class="dash-card-actions overview-feed-more">
-          <a href="/events?importance=critical">Все критичные ({{ critical_event_count }})</a>
-          {% if high_event_count and high_event_count != critical_event_count %}
-          · <a href="/events?importance=high">высокая и выше ({{ high_event_count }})</a>
-          {% endif %}
-          · <a href="/events">все события</a>
-        </p>
-      </article>
-    </div>
-
-    <aside class="overview-action-center">
-      <article class="card-surface stack-card">
-        <h2>Зона действий</h2>
-        <p class="muted overview-action-lead">
-          Актуальная версия агента: <strong class="mono">{{ update_progress.target_version }}</strong>
-        </p>
-        <div class="overview-update-progress" role="status" aria-label="Прогресс обновлений">
-          <div class="overview-update-meta">
-            <span>Обновлены <span class="tnum">{{ update_progress.current }}</span> / <span class="tnum">{{ update_progress.total }}</span></span>
-            <span class="tnum muted">{{ update_progress.pct }}%</span>
-          </div>
-          <div class="park-bar park-bar-stacked overview-progress-bar">
-            {% if update_progress.current %}
-            <span class="park-seg park-seg-online" style="width: {{ update_progress.pct }}%" title="На целевой версии"></span>
-            {% endif %}
-            {% if update_progress.drift %}
-            <span class="park-seg park-seg-drift" style="width: {{ 100 - update_progress.pct }}%" title="В дрейфе: {{ update_progress.drift }}"></span>
-            {% endif %}
-          </div>
+        <div class="feed-imp-toggle" role="group" aria-label="Фильтр ленты" data-feed-imp-toggle>
+          <button type="button" data-feed-imp="critical">Критичные</button>
+          <button type="button" data-feed-imp="all" class="is-active">Все</button>
         </div>
-        <div class="dash-card-actions overview-action-ctas">
-          {% if update_progress.drift %}
-          <a class="btn btn-compact" href="/devices?wave=drift">Запустить обновление ({{ update_progress.drift }})</a>
-          {% else %}
-          <span class="btn disabled btn-compact" aria-disabled="true">Парк на целевой версии</span>
-          {% endif %}
-          <a class="btn secondary btn-compact" href="/settings/updates">Каталог MSI</a>
-        </div>
-      </article>
+        {% endif %}
+      </div>
 
-      {% if wave_chips or ops.wave_chips %}
-      <article class="card-surface stack-card">
-        <h2>Риски волны</h2>
-        <div class="wave-chips">
-          {% for chip in (wave_chips or ops.wave_chips) %}
-          <a class="wave-chip{% if chip.count %} has-count{% endif %}" href="{{ chip.href }}">
-            <span class="wave-chip-label">{{ chip.label }}</span>
-            <span class="wave-chip-count mono">{{ chip.count }}</span>
+      {% if priority_feed %}
+      <p class="overview-ok-banner" data-feed-empty-critical hidden>
+        <span class="overview-ok-ico" aria-hidden="true">✓</span>
+        Нет критичных событий в ленте
+      </p>
+      <ul class="dash-incident-list" data-feed-list>
+        {% for e in priority_feed %}
+        {% set imp = e.importance or 'low' %}
+        <li class="event-feed-row dash-incident-row" data-importance="{{ imp }}">
+          <span class="badge badge-importance badge-importance-{{ imp }}">{{ imp|importance_label_ru }}</span>
+          <a href="{{ e.device_href }}" class="event-feed-host dash-incident-host" title="{{ e.hostname }}">{{ e.hostname }}</a>
+          <span class="event-feed-user muted" {% if e.user %}title="{{ e.user }}"{% endif %}>{% if e.user %}{{ e.user }}{% else %}—{% endif %}</span>
+          <a href="{{ e.href }}" class="event-feed-summary dash-incident-summary" title="{{ e.summary or (e.type|format_event_type) }}">
+            {{ e.summary or (e.type|format_event_type) }}
+            {% if e.count and e.count > 1 %}<span class="dash-agg-count">×{{ e.count }}</span>{% endif %}
           </a>
-          {% endfor %}
-        </div>
-      </article>
+          <span class="event-feed-time mono muted">{{ local_time(e.created_at) }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="overview-ok-banner">
+        <span class="overview-ok-ico" aria-hidden="true">✓</span> Система в норме — событий в ленте нет
+      </p>
       {% endif %}
 
-      <article class="card-surface stack-card">
-        <h2>Каталог установщиков</h2>
-        {% if ops.mirror_empty %}
-        <p class="muted"><a href="/settings/updates">Загрузить MSI</a></p>
-        {% else %}
-        <dl class="meta meta-compact">
-          <div><dt>Версия</dt><dd class="mono">{{ ops.latest_version or "—" }}</dd></div>
-          <div><dt>В каталоге</dt><dd class="mono">{{ ops.mirror_count }}</dd></div>
-          <div><dt>Синхр.</dt><dd class="mono">{{ local_time(ops.latest_synced_at) }}</dd></div>
-        </dl>
+      <p class="dash-card-actions overview-feed-more">
+        <a href="/events?importance=critical">Все критичные ({{ critical_event_count }})</a>
+        {% if high_event_count and high_event_count != critical_event_count %}
+        · <a href="/events?importance=high">высокая и выше ({{ high_event_count }})</a>
         {% endif %}
-      </article>
-    </aside>
+        · <a href="/events">все события</a>
+      </p>
+    </article>
   </div>
 </section>
 <script src="/static/overview-search.js" defer></script>

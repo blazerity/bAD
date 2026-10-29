@@ -200,9 +200,8 @@ def digest_send_due(
     slot_key = now.strftime("%Y-%m-%dT%H")
     if (last_slot_key or "").strip() == slot_key:
         return False, "", "digest_slot_sent"
-    lookback = max(1, int(smtp_row.get("digest_lookback_hours") or 3))
     window_label = (
-        f"{digest_schedule_preview_ru(smtp_row)} · события за последние {lookback} ч"
+        f"{digest_schedule_preview_ru(smtp_row)} · все неотправленные события"
     )
     return True, slot_key, window_label
 
@@ -349,7 +348,9 @@ def build_inventory_digest_email(
     """Сводка inventory-событий: plain + HTML, группировка по устройствам."""
     n_devices = len(devices_groups)
     n_events = sum(len(g.get("events") or []) for g in devices_groups)
-    subject = f"bAD: сводка уведомлений ({n_devices} устр., {n_events} событ.)"
+    # Локальное время сервера — коротко в теме (удобно в Outlook).
+    ts = datetime.now().strftime("%d.%m %H:%M")
+    subject = f"bAD: сводка {ts} · {n_devices} устр., {n_events} событ."
     plain_lines = [
         f"Сводка уведомлений ({window_label}).",
         "",
@@ -606,22 +607,7 @@ def flush_inventory_mail_digest(
         result["reason"] = "filtered_empty"
         return result
 
-    lookback_h = max(1, min(int(smtp_row.get("digest_lookback_hours") or 3), 168))
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=lookback_h)
-
-    def _event_in_lookback(ev: dict[str, Any]) -> bool:
-        dt = _parse_utc_iso(str(ev.get("created_at") or ""))
-        return dt is None or dt >= cutoff
-
-    # В письмо — только окно lookback; в mailed помечаем все отфильтрованные
-    # типы, чтобы старый хвост не копился вечно.
-    in_window = [e for e in filtered if _event_in_lookback(e)]
-    if not in_window:
-        _finalize_digest_send(db, [int(e["id"]) for e in filtered], slot_key)
-        result["reason"] = "lookback_empty"
-        result["skipped"] = True
-        return result
-
+    # Все неотправленные (накопленные вне слота тоже уйдут в ближайший слот).
     from .config import get_settings
     from .device_health import effective_stale_after_seconds
 
@@ -637,7 +623,7 @@ def flush_inventory_mail_digest(
     }
 
     groups_map: dict[str, dict[str, Any]] = {}
-    for ev in in_window:
+    for ev in filtered:
         did = str(ev.get("device_id") or "")
         if did not in groups_map:
             detail = db.get_device_detail(did) if did else None
@@ -680,7 +666,7 @@ def flush_inventory_mail_digest(
     logger.info(
         "Mail digest emailed: devices=%s events=%s marked=%s",
         len(devices_groups),
-        len(in_window),
+        len(filtered),
         len(sent_ids),
     )
     result["sent"] = True

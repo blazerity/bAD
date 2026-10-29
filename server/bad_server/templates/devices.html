@@ -203,9 +203,9 @@
             <span class="badge badge-fresh-{{ d.freshness or d.silence.status }}">{{ freshness_label(fresh) }}</span>
           </span>
         </td>
-        <td>
+        <td class="col-device-host">
           <a class="device-cell-link" href="{{ d.device_href }}">
-            <span class="device-cell-host">{{ d.hostname or '(неизвестно)' }}</span>
+            <span class="device-cell-host" title="{{ d.hostname or '' }}">{{ d.hostname or '(неизвестно)' }}</span>
           </a>
           {% if d.bad_id %}
           <span class="mono device-cell-id">{{ d.bad_id }}</span>
