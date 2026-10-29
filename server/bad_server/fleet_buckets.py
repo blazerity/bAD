@@ -96,6 +96,64 @@ def format_ram_list_cell(ram_bytes: object, memory_type: object = None) -> str:
     return bucket
 
 
+def _normalize_core_i_model(raw: str) -> str:
+    """Один префикс i + SKU: ii5-… / I5-… → i5-…"""
+    m = re.match(r"^i+([3579][\w-]*)$", raw.strip(), flags=re.IGNORECASE)
+    if m:
+        return f"i{m.group(1)}"
+    return raw.strip()
+
+
+def format_cpu_short(name: object) -> str:
+    """Короткая подпись CPU для списка устройств (без ®, частоты @ GHz)."""
+    text = str(name or "").strip()
+    if not text or text in {"—", "-", "?"}:
+        return "—"
+    text = re.sub(r"\(R\)|\(TM\)|®|™", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s*@\s*[\d.,]+\s*GHz\s*", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+", " ", text).strip()
+    gen_m = re.search(r"(\d+(?:st|nd|rd|th)\s+Gen)\b", text, flags=re.IGNORECASE)
+    gen = gen_m.group(1) if gen_m else None
+    core_i = re.search(
+        r"(?:Intel\s+)?Core\s+(i+[3579][\w-]*)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if core_i:
+        model = _normalize_core_i_model(core_i.group(1))
+        if gen:
+            return f"Core {model} ({gen})"
+        return f"Core {model}"
+    ultra = re.search(
+        r"(?:Intel\s+)?Core\s+Ultra\s+(\d+)\s+([\w-]+)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if ultra:
+        label = f"Core Ultra {ultra.group(1)} {ultra.group(2)}"
+        return f"{label} ({gen})" if gen else label
+    ryzen = re.search(
+        r"(?:AMD\s+)?Ryzen\s+(\d+)\s+([\w-]+)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if ryzen:
+        return f"Ryzen {ryzen.group(1)} {ryzen.group(2)}"
+    cleaned = re.sub(r"\bIntel\b|\bAMD\b", "", text, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"\bwith\s+Radeon(?:\s+Graphics)?\b|\bCPU\b",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,")
+    if not cleaned:
+        cleaned = text
+    if len(cleaned) > 56:
+        return cleaned[:53].rstrip() + "…"
+    return cleaned
+
+
 def ram_bucket(ram_bytes: object) -> Optional[str]:
     try:
         n = int(ram_bytes or 0)

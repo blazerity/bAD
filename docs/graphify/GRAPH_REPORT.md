@@ -1,17 +1,30 @@
-# Graph Report - workspace  (2026-10-24)
+# Graph Report - workspace  (2026-10-29)
 
 ## Corpus Check
 - cluster-only mode — file stats not available
 
 ## Summary
-- 1802 nodes · 5130 edges · 95 communities (66 shown, 29 thin omitted)
+- 1809 nodes · 5138 edges · 95 communities (66 shown, 29 thin omitted)
 - Extraction: 88% EXTRACTED · 12% INFERRED · 0% AMBIGUOUS · INFERRED: 593 edges (avg confidence: 0.91)
 - Token cost: 0 input · 0 output
+- Light manual refresh after UI 2.3.4 / patch 2.3.5 (devices toolbar + list formatters).
 
 ## Graph Freshness
-- Built from commit: `991830c0`
+- Base extract commit: `991830c0`; UI annotation commit: `8cbfadb`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
+
+## Web UI layout modules (2.3.4+)
+Краткая карта экранов/хелперов после рефактора таблицы устройств (не полный re-extract):
+
+| Модуль | Где | Связь в графе |
+|--------|-----|----------------|
+| Devices toolbar | `templates/devices.html` → `.devices-toolbar` (+ «Ещё фильтры», CSV) | concept `devices-toolbar` → `_enrich_device_row()` |
+| Table formatters | `fleet_buckets.py`: `format_cpu_short`, `format_ram_list_cell`, `normalize_os_caption` | Community 28; вызываются из `_enrich_device_row()` (web) |
+| Event feed | `style.css` `.event-feed-row` + overview | concept `event-feed` ↔ `smtp_mail` (визуалы) |
+| SMTP digest | `smtp_settings` + `digest-schedule-*` CSS | concept `smtp-digest-ui` → `_smtp_form_context()` |
+
+Ширина контента UI: `main` / `.foot` = **1760px**. Класс `.devices-catalog-filters` снят (стили селектов — `.devices-facet-select`).
 
 ## Community Hubs (Navigation)
 - Community 0

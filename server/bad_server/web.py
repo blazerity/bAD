@@ -86,6 +86,7 @@ from .panel_search import (
 from .bad_id import device_panel_href
 from .fleet_buckets import (
     disk_role,
+    format_cpu_short,
     format_ram_list_cell,
     meta_facet_matches,
     normalize_os_caption,
@@ -1337,6 +1338,8 @@ def _enrich_device_row(device: dict, *, stale_after_seconds: int) -> dict:
     device["ram_display"] = ram_list
     raw_os = meta.get("os_caption") or meta.get("os") or ""
     device["os_display"] = normalize_os_caption(raw_os) if raw_os else "—"
+    cpu_raw = meta.get("cpu_name")
+    device["cpu_display"] = format_cpu_short(cpu_raw) if cpu_raw else "—"
     presence = str(meta.get("user_presence") or "")
     if presence == "online":
         names = normalize_logged_on_list(meta.get("logged_on"))
@@ -1349,9 +1352,17 @@ def _enrich_device_row(device: dict, *, stale_after_seconds: int) -> dict:
         device["user_presence_caption"] = "последний" if device["user_display_name"] else ""
     ips = meta.get("ipv4_addresses")
     if isinstance(ips, list) and ips:
-        device["ip_display"] = " · ".join(str(x) for x in ips if x)
-        device["ip_copy"] = ", ".join(str(x) for x in ips if x)
-        device["ip_title"] = device["ip_display"]
+        ip_list = [str(x).strip() for x in ips if x and str(x).strip()]
+    else:
+        ip_list = []
+    if ip_list:
+        first = ip_list[0]
+        if len(ip_list) == 1:
+            device["ip_display"] = first
+        else:
+            device["ip_display"] = f"{first} +{len(ip_list) - 1}"
+        device["ip_copy"] = ", ".join(ip_list)
+        device["ip_title"] = " · ".join(ip_list)
     else:
         device["ip_display"] = "—"
         device["ip_copy"] = ""
