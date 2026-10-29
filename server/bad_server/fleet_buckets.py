@@ -71,6 +71,31 @@ def format_ram_gib(ram_bytes: object) -> str:
     return f"{gib:.1f} ГБ"
 
 
+def format_ram_ddr(value: object) -> str:
+    """Короткий тип ОЗУ для списка: DDR4 / DDR5."""
+    text = str(value or "").strip()
+    if not text or text in {"—", "-", "?", "Unknown", "unknown"}:
+        return ""
+    m = re.search(r"DDR\s*([345])", text, flags=re.IGNORECASE)
+    if m:
+        return f"DDR{m.group(1)}"
+    m2 = re.search(r"\bLPDDR\s*([345])", text, flags=re.IGNORECASE)
+    if m2:
+        return f"LPDDR{m2.group(1)}"
+    return ""
+
+
+def format_ram_list_cell(ram_bytes: object, memory_type: object = None) -> str:
+    """Ячейка ОЗУ в таблице устройств: «32 ГБ · DDR5»."""
+    bucket = ram_bucket(ram_bytes) or format_ram_gib(ram_bytes)
+    if not bucket or bucket == "—":
+        return "—"
+    ddr = format_ram_ddr(memory_type)
+    if ddr:
+        return f"{bucket} · {ddr}"
+    return bucket
+
+
 def ram_bucket(ram_bytes: object) -> Optional[str]:
     try:
         n = int(ram_bytes or 0)

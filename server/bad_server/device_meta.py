@@ -8,7 +8,9 @@ from .fleet_buckets import (
     cpu_family_label,
     cpu_vendor_label,
     disk_bucket_from_fixed_bytes,
+    format_ram_ddr,
     format_ram_gib,
+    format_ram_list_cell,
     ram_bucket,
     sort_ipv4_addresses,
     sum_fixed_disk_bytes,
@@ -235,6 +237,19 @@ def enrich_hardware_meta(
             bucket = ram_bucket(ram_b)
             if bucket:
                 meta["ram_bucket"] = bucket
+        ram_type_raw = hardware.get("ram_memory_type")
+        if not ram_type_raw:
+            for mod in hardware.get("ram_modules") or []:
+                if isinstance(mod, dict) and mod.get("memory_type"):
+                    ram_type_raw = mod.get("memory_type")
+                    break
+        ddr = format_ram_ddr(ram_type_raw)
+        if ddr:
+            meta["ram_ddr"] = ddr
+        if ram_type_raw and str(ram_type_raw).strip():
+            meta["ram_memory_type"] = str(ram_type_raw).strip()
+        if ram_b > 0:
+            meta["ram_list_display"] = format_ram_list_cell(ram_b, ddr or ram_type_raw)
         cpu = hardware.get("cpu")
         if isinstance(cpu, dict):
             cpu_name = str(cpu.get("name") or "").strip()

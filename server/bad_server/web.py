@@ -84,7 +84,12 @@ from .panel_search import (
     matched_serial_subtitle,
 )
 from .bad_id import device_panel_href
-from .fleet_buckets import disk_role, meta_facet_matches
+from .fleet_buckets import (
+    disk_role,
+    format_ram_list_cell,
+    meta_facet_matches,
+    normalize_os_caption,
+)
 from .wave_21_migration import resolve_device_ref
 from .device_uninstall import (
     cancel_device_uninstall,
@@ -1320,7 +1325,18 @@ def _enrich_device_row(device: dict, *, stale_after_seconds: int) -> dict:
     device["bad_id"] = device.get("bad_id") or meta.get("bad_id")
     did = str(device.get("device_id") or "")
     device["device_href"] = device_panel_href(device.get("bad_id"), did)
-    device["ram_display"] = meta.get("ram_display") or "—"
+    # Список: номинал ОЗУ (8/16/32…) + DDR; без «Майкрософт» в ОС.
+    ram_list = meta.get("ram_list_display")
+    if not ram_list:
+        ram_list = format_ram_list_cell(
+            meta.get("ram_bytes"),
+            meta.get("ram_ddr") or meta.get("ram_memory_type"),
+        )
+    if not ram_list or ram_list == "—":
+        ram_list = meta.get("ram_bucket") or meta.get("ram_display") or "—"
+    device["ram_display"] = ram_list
+    raw_os = meta.get("os_caption") or meta.get("os") or ""
+    device["os_display"] = normalize_os_caption(raw_os) if raw_os else "—"
     presence = str(meta.get("user_presence") or "")
     if presence == "online":
         names = normalize_logged_on_list(meta.get("logged_on"))

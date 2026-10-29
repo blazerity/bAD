@@ -195,7 +195,7 @@
       {% for d in devices %}
       {% set meta = d.meta if d.meta is mapping else {} %}
       {% set fresh = d.freshness or d.silence.status %}
-      {% set os_line = meta.os_caption or meta.os or '—' %}
+      {% set os_line = d.os_display or meta.os_caption or meta.os or '—' %}
       <tr class="table-row-link">
         <td class="col-device-state">
           <span class="devices-state-inline">
@@ -228,12 +228,12 @@
         </td>
         <td class="device-col-model muted" title="{{ meta.hardware_model or '' }}">{% if meta.hardware_model %}{{ meta.hardware_model }}{% else %}—{% endif %}</td>
         <td class="device-col-cpu muted" title="{{ meta.cpu_name or '' }}">{% if meta.cpu_name %}{{ meta.cpu_name }}{% else %}—{% endif %}</td>
-        <td class="muted">{{ d.ram_display }}</td>
-        <td class="device-col-os-cell">
-          <span title="{{ os_line }}">{{ os_line }}</span>
+        <td class="device-col-ram muted" title="{{ d.ram_display }}">{{ d.ram_display }}</td>
+        <td class="device-col-os-cell" title="{{ meta.os_caption or meta.os or os_line }}">
+          <span>{{ os_line }}</span>
           <span class="mono muted device-col-sub">bAD Agent {{ d.agent_version or '—' }}</span>
         </td>
-        <td class="mono device-col-ip device-col-ip-nowrap" title="{{ d.ip_title }}">
+        <td class="mono device-col-ip" title="{{ d.ip_title }}">
           {% if d.ip_copy %}{{ copyable(d.ip_copy, display=d.ip_display) }}{% else %}—{% endif %}
         </td>
         <td class="muted">{{ local_time(d.last_seen_at) }}</td>

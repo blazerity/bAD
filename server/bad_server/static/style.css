@@ -3239,28 +3239,43 @@ body.global-search-open { overflow: hidden; }
   width: 100%;
 }
 .devices-table-modern .col-device-state { width: 7.5rem; }
-.devices-table-modern .col-device-host { width: 11%; }
-.devices-table-modern .col-device-user { width: 12%; }
-.devices-table-modern .col-device-model { width: 12%; }
-.devices-table-modern .col-device-cpu { width: 14%; }
-.devices-table-modern .col-device-ram { width: 6%; }
-.devices-table-modern .col-device-os { width: 14%; }
-.devices-table-modern .col-device-ip { width: 9%; }
-.devices-table-modern .col-device-seen { width: 8%; }
+.devices-table-modern .col-device-host { width: 10%; }
+.devices-table-modern .col-device-user { width: 11%; }
+.devices-table-modern .col-device-model { width: 11%; }
+.devices-table-modern .col-device-cpu { width: 15%; }
+.devices-table-modern .col-device-ram { width: 8%; }
+.devices-table-modern .col-device-os { width: 11%; }
+.devices-table-modern .col-device-ip { width: 10%; }
+.devices-table-modern .col-device-seen { width: 7%; }
 .devices-table-modern .col-chevron { width: 2.25rem; }
 .devices-table-modern td.col-device-host,
 .devices-table-modern td.device-col-user,
 .devices-table-modern td.device-col-model,
-.devices-table-modern td.device-col-cpu,
 .devices-table-modern td.device-col-os-cell {
   overflow: hidden;
   vertical-align: middle;
+}
+.devices-table-modern td.device-col-cpu {
+  vertical-align: middle;
+  overflow: visible;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.3;
+  font-size: 0.78rem;
+}
+.devices-table-modern td.device-col-ram {
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.devices-table-modern td.device-col-ip {
+  white-space: nowrap;
+  vertical-align: middle;
+  overflow: visible;
 }
 .devices-table-modern .device-cell-host,
 .devices-table-modern .device-col-user .user-presence-online,
 .devices-table-modern .device-col-user .user-presence-last,
 .devices-table-modern .device-col-model,
-.devices-table-modern .device-col-cpu,
 .devices-table-modern td.device-col-os-cell > span:first-child {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3652,7 +3667,6 @@ body.global-search-open { overflow: hidden; }
   color: var(--muted);
 }
 .device-col-ip.device-col-ip-nowrap {
-  max-width: 11rem;
   white-space: nowrap;
 }
 .device-col-ip .copyable-value {
