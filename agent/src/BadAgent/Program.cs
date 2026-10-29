@@ -2,6 +2,9 @@ using BadAgent;
 using Microsoft.Extensions.Hosting.WindowsServices;
 using Serilog;
 
+// DLL из bin\ms\ и bin\lib\ — до любых других using-типов из пакетов (кроме уже загруженных).
+AssemblyProbe.Register();
+
 // Elevated управление службой: BadAgent.exe service status|start|stop|restart
 if (args.Length > 0 && string.Equals(args[0], "service", StringComparison.OrdinalIgnoreCase))
 {

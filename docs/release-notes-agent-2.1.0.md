@@ -4,8 +4,8 @@
 
 ## Каталог `bin`
 
-- Self-contained publish собран **в один файл** (`PublishSingleFile`): в `%ProgramFiles%\blazerity\bad agent\bin\` остаётся `BadAgent.exe`, без россыпи DLL рядом.
 - Добавлен **`bin\uninstall.cmd`** — запуск снятия из папки установки.
+- Упаковка `bin\` (single-file) в 2.1.0 заменена в **2.1.1** на framework-dependent + папки `ms\` / `lib\` — см. [release-notes-agent-2.1.1.md](release-notes-agent-2.1.1.md).
 
 ## CLI
 

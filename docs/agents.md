@@ -93,7 +93,7 @@ bad uninstall [-y]      # снять агент (msiexec) — elevated; такж
 bad service status|start|stop|restart   # служба badagent — elevated
 ```
 
-MSI **2.1+:** `%ProgramFiles%\blazerity\bad agent\`; служба **`badagent`**; `bin\` — single-file `BadAgent.exe` + `uninstall.cmd`. Апгрейд с 1.x: MajorUpgrade + `migrate-legacy-install.ps1` (см. `installer/msi/README.md`).
+MSI **2.1.1+:** `%ProgramFiles%\blazerity\bad agent\`; служба **`badagent`**; `bin\` — `BadAgent.exe` + `ms\` / `lib\` + `uninstall.cmd`; на ПК нужен **.NET 8 Runtime x64**. Апгрейд: `msiexec /i bad-agent-<ver>.msi /qn` (тот же UpgradeCode / MajorUpgrade). С 1.x: + `migrate-legacy-install.ps1` (см. `installer/msi/README.md`).
 
 > Обычный пользователь: **`bad`**, **`bad -r`**, **`-h`**. Настройка / снятие: **`bad -c`** / **`config set|unset`** / **`uninstall`** — запуск от администратора.
 

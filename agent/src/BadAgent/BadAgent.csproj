@@ -10,10 +10,8 @@
     <OutputType>Exe</OutputType>
     <!-- Win11-family mark; shown in Task Manager / Start for the agent process -->
     <ApplicationIcon>..\..\assets\bad.ico</ApplicationIcon>
-    <!-- Publish win-x64: один exe в bin\ без россыпи DLL рядом -->
-    <PublishSingleFile Condition="'$(RuntimeIdentifier)' != ''">true</PublishSingleFile>
-    <IncludeNativeLibrariesForSelfExtract Condition="'$(RuntimeIdentifier)' != ''">true</IncludeNativeLibrariesForSelfExtract>
-    <EnableCompressionInSingleFile Condition="'$(RuntimeIdentifier)' != ''">true</EnableCompressionInSingleFile>
+    <!-- Framework-dependent: MSI ~несколько МБ; нужен .NET 8 Runtime x64 на ПК -->
+    <SelfContained>false</SelfContained>
   </PropertyGroup>
 
   <ItemGroup>
