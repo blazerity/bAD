@@ -4,7 +4,8 @@
   /* Surfaces (light layered / mica-like) */
   --bg: #f3f3f3;
   --bg-tint: #e8f1fb;
-  --bg-elev: rgba(255, 255, 255, 0.72);
+  /* Чуть плотнее: «стекло» без live backdrop-filter на больших блоках (GPU при скролле) */
+  --bg-elev: rgba(255, 255, 255, 0.94);
   --bg-solid: #ffffff;
   --bg-subtle: #f9f9f9;
   --smoke: rgba(0, 0, 0, 0.04);
@@ -65,13 +66,16 @@
   --polarity-changed-fg: var(--accent);
 
   /* Prototype-aligned aliases (light only) */
-  --card-bg: rgba(255, 255, 255, 0.72);
+  --card-bg: rgba(255, 255, 255, 0.94);
   --stroke-default: rgba(0, 0, 0, 0.06);
   --control-bg: rgba(255, 255, 255, 0.85);
   --control-stroke: rgba(0, 0, 0, 0.08);
   --subtle-bg-hover: rgba(0, 0, 0, 0.04);
   --subtle-bg: rgba(255, 255, 255, 0.5);
-  --mica-bg: linear-gradient(135deg, #eef2f6 0%, #dde6ef 45%, #d9e4f0 100%);
+  --mica-bg:
+    radial-gradient(circle at 18% 8%, rgba(0, 103, 192, 0.07), transparent 42%),
+    radial-gradient(circle at 82% 92%, rgba(0, 103, 192, 0.05), transparent 38%),
+    linear-gradient(135deg, #eef2f6 0%, #dde6ef 45%, #d9e4f0 100%);
   --divider: rgba(0, 0, 0, 0.06);
 }
 
@@ -86,26 +90,25 @@ html, body {
   font-size: 14px;
   line-height: 1.45;
   background: var(--mica-bg);
-  background-attachment: fixed;
+  /* Не fixed: в Chrome перерисовка фона при скролле сильно грузит iGPU */
 }
 
-body.mica-noise::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  background-image:
-    radial-gradient(circle at 18% 8%, rgba(0, 103, 192, 0.07), transparent 42%),
-    radial-gradient(circle at 82% 92%, rgba(0, 103, 192, 0.05), transparent 38%);
-}
-
+/* Ambient пятна теперь в --mica-bg (без fixed ::before — меньше слоёв при скролле) */
 body.mica-noise > header,
 body.mica-noise > main,
 body.mica-noise > footer,
 body.mica-noise > .banner {
   position: relative;
   z-index: 1;
+}
+
+/* Если ОС просит меньше прозрачности — шапка без blur */
+@media (prefers-reduced-transparency: reduce) {
+  .top.acrylic-bar {
+    background: var(--bg-solid);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
 }
 
 .sr-only {
@@ -138,9 +141,10 @@ select:focus-visible {
 .top.acrylic-bar {
   padding: 0;
   border-bottom: 1px solid var(--stroke-default);
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(30px) saturate(1.5);
-  -webkit-backdrop-filter: blur(30px) saturate(1.5);
+  /* Единственный постоянный acrylic: лёгкий blur + плотнее фон (меньше пересчёта за кадр) */
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(12px) saturate(1.25);
+  -webkit-backdrop-filter: blur(12px) saturate(1.25);
   box-shadow: none;
   position: sticky;
   top: 0;
@@ -470,8 +474,6 @@ main {
 
 .card-surface {
   background: var(--card-bg);
-  backdrop-filter: blur(20px) saturate(1.3);
-  -webkit-backdrop-filter: blur(20px) saturate(1.3);
   border: 1px solid var(--stroke-default);
   border-radius: var(--radius-surface);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.03);
@@ -571,8 +573,6 @@ table.devices {
   background: var(--bg-elev);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-sm);
-  backdrop-filter: blur(16px) saturate(1.2);
-  -webkit-backdrop-filter: blur(16px) saturate(1.2);
 }
 
 .settings {
@@ -583,7 +583,9 @@ table.devices {
   border-radius: var(--radius-surface);
   padding: 1.25rem 1.5rem 1.5rem;
   margin-top: 0.75rem;
-  max-width: min(100%, 56rem);
+  /* Ширина как у соседних meta/таблиц в том же подпункте (не уже колонки) */
+  max-width: none;
+  width: 100%;
 }
 .settings-form label:not(.check) {
   display: block;
@@ -830,8 +832,6 @@ dl.meta {
   border: 1px solid var(--border);
   border-radius: var(--radius-surface);
   box-shadow: var(--shadow-sm);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
 }
 
 dl.meta dt {
@@ -1085,8 +1085,6 @@ pre.inventory {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-surface);
   box-shadow: var(--shadow-md);
-  backdrop-filter: blur(16px) saturate(1.2);
-  -webkit-backdrop-filter: blur(16px) saturate(1.2);
 }
 
 .panel-search-section-title {
@@ -1195,7 +1193,6 @@ details.attention-queue {
   border-radius: var(--radius-surface);
   background: var(--card-bg);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-  backdrop-filter: blur(16px) saturate(1.2);
 }
 details.attention-queue > summary {
   cursor: pointer;
@@ -1284,7 +1281,6 @@ table.config-winner tr.is-conflict td {
   background: var(--card-bg);
   border: 1px solid var(--stroke-default);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-  backdrop-filter: blur(16px) saturate(1.2);
 }
 .stat-value {
   font-size: 1.75rem;
@@ -1490,8 +1486,6 @@ button.subtle-danger:hover,
   border: 1px solid var(--border);
   border-radius: var(--radius-surface);
   box-shadow: var(--shadow-sm);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
   padding: 1rem 1.1rem 1.15rem;
 }
 .device-panel > h2 {
@@ -1689,7 +1683,6 @@ dl.speccy-kv dd {
   background: var(--card-bg);
   border: 1px solid var(--stroke-default);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-  backdrop-filter: blur(20px) saturate(1.3);
 }
 .settings-nav-title {
   font-size: 1.15rem;
@@ -1746,7 +1739,21 @@ dl.speccy-kv dd {
 }
 .settings-pane {
   min-width: 0;
+  width: 100%;
   padding: 0.25rem 0.15rem 1rem;
+}
+/* Один столбец контента во всех подпунктах Параметров */
+.settings-pane > .settings,
+.settings-pane .settings-form,
+.settings-pane dl.meta,
+.settings-pane .warn-box,
+.settings-pane .ok-box,
+.settings-pane .policy-list,
+.settings-pane .table-scroll,
+.settings-pane table.devices {
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
 }
 
 @media (max-width: 900px) {
@@ -1976,16 +1983,14 @@ dl.speccy-kv dd {
   background: var(--card-bg);
   border: 1px solid var(--stroke-default);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-  backdrop-filter: blur(16px) saturate(1.2);
+  /* hover только transform + border — без анимации тени (дешевле для GPU) */
   transition:
     transform var(--dur) var(--ease),
-    box-shadow var(--dur) var(--ease),
     border-color var(--dur) var(--ease);
 }
 .dashboard-page .dash-card:hover {
   transform: translateY(-1px);
   border-color: var(--border-strong);
-  box-shadow: var(--shadow-md);
 }
 .dashboard-page .dash-card h2 {
   margin: 0 0 0.35rem;
@@ -2087,15 +2092,13 @@ dl.speccy-kv dd {
   transition:
     background 160ms var(--ease),
     border-color 160ms var(--ease),
-    transform 160ms var(--ease),
-    box-shadow 160ms var(--ease);
+    transform 160ms var(--ease);
 }
 .wave-chip:hover {
   text-decoration: none;
   transform: translateY(-1px);
   background: var(--bg-elev);
   border-color: var(--accent);
-  box-shadow: var(--shadow-md);
 }
 .wave-chip.has-count {
   border-color: var(--warn-border);
@@ -2211,8 +2214,6 @@ html.dash-reduced-motion {
   max-width: 40rem;
   background: var(--bg-elev);
   box-shadow: var(--shadow-sm);
-  backdrop-filter: blur(12px) saturate(1.15);
-  -webkit-backdrop-filter: blur(12px) saturate(1.15);
 }
 
 .event-digest-card__device {
@@ -2291,8 +2292,6 @@ html.dash-reduced-motion {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-surface);
   box-shadow: var(--shadow-md);
-  backdrop-filter: blur(16px) saturate(1.2);
-  -webkit-backdrop-filter: blur(16px) saturate(1.2);
 }
 .live-search-body {
   display: flex;
@@ -3221,8 +3220,15 @@ body.global-search-open { overflow: hidden; }
   padding: 0;
   overflow: hidden;
   margin-top: 0.5rem;
+  contain: layout paint style;
 }
 .table-card .table-scroll { margin: 0; }
+/* Строки вне viewport почти не красятся — важно при длинных списках */
+.devices-list tbody tr,
+.events-table-modern tbody tr {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 2.85rem;
+}
 .devices-table-modern thead th,
 .events-table-modern thead th {
   font-size: 0.72rem;
@@ -3973,11 +3979,11 @@ body.global-search-open { overflow: hidden; }
 .kpi-tile-link {
   text-decoration: none;
   color: inherit;
-  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+  transition: border-color var(--dur) var(--ease), transform var(--dur) var(--ease);
 }
 .kpi-tile-link:hover {
   border-color: var(--border-strong);
-  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
   text-decoration: none;
 }
 .dash-park-total {
