@@ -1966,12 +1966,6 @@ dl.speccy-kv dd {
 .overview-hw-list li > .muted:not(.mono) {
   font-size: 0.75rem;
 }
-.overview-hw-list .badge-importance {
-  border-radius: 999px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  padding: 0.1rem 0.45rem;
-}
 /* —— Дашборд: Win11-lite motion (UI polish поверх #85) —— */
 .dashboard-page .dash-card {
   margin: 1.1rem 0 1.25rem;
