@@ -46,14 +46,17 @@
     </div>
   </div>
 
-  <div class="dash-grid-2 dash-charts-primary">
-    <article class="dash-card card-surface">
-      <h2>ОС</h2>
-      {% set osb = dashboard.os_bars %}
-      {% if osb and osb['items'] %}
-      {{ conic_donut(osb['items']) }}
-      {% else %}<p class="muted">Нет данных</p>{% endif %}
-    </article>
+  {# ОС — на всю ширину по центру #}
+  <article class="dash-card card-surface dash-card-full dash-os-card">
+    <h2>ОС</h2>
+    {% set osb = dashboard.os_bars %}
+    {% if osb and osb['items'] %}
+    {{ conic_donut(osb['items'], 'chart-donut chart-donut--wide') }}
+    {% else %}<p class="muted">Нет данных</p>{% endif %}
+  </article>
+
+  {# ОЗУ и диски рядом #}
+  <div class="dash-grid-2 dash-bars-row">
     <article class="dash-card card-surface">
       <h2>ОЗУ в парке</h2>
       {% set rb = dashboard.ram_bars %}
@@ -86,58 +89,31 @@
       </ul>
       {% else %}<p class="muted">Нет данных</p>{% endif %}
     </article>
+  </div>
 
-    {% set cpu_items = dashboard.cpu_family_treemap["items"] or [] %}
-    <article class="dash-card card-surface dash-card-wide">
-      <h2>Поколения CPU <span class="muted tnum">({{ cpu_items|length }})</span></h2>
-      {% if cpu_items %}
-      <div id="dash-cpu-treemap" class="dash-treemap" data-treemap='{{ cpu_items|tojson }}'></div>
-      <ul class="hbar-list dash-cpu-list">
-        {% for row in cpu_items %}
-        <li class="hbar-row">
-          <a href="{{ row.href or ('/devices?cpu=' ~ row.label|urlencode) }}" class="hbar-link-row">
-            <div class="hbar-meta"><span>{{ row.label }}</span><span class="muted tnum">{{ row.count }}</span></div>
-            <div class="hbar-track"><span class="hbar-fill" style="width: {{ row.pct or 0 }}%"></span></div>
-          </a>
-        </li>
-        {% endfor %}
-      </ul>
-      {% else %}<p class="muted">Нет данных</p>{% endif %}
-    </article>
+  {# Treemap (мозаика / «кубики»): площадь ∝ числу устройств #}
+  {% set cpu_items = dashboard.cpu_family_treemap["items"] or [] %}
+  <article class="dash-card card-surface dash-card-full dash-treemap-card">
+    <h2>Поколения CPU <span class="muted tnum">({{ cpu_items|length }})</span></h2>
+    {% if cpu_items %}
+    <div id="dash-cpu-treemap" class="dash-treemap dash-treemap--mosaic" data-treemap='{{ cpu_items|tojson }}'></div>
+    {% else %}<p class="muted">Нет данных</p>{% endif %}
+  </article>
 
+  <div class="dash-grid-2 dash-treemap-pair">
     {% set laptop_items = dashboard.laptop_model_treemap["items"] or [] %}
-    <article class="dash-card card-surface dash-card-wide">
+    <article class="dash-card card-surface dash-treemap-card">
       <h2>Модели ноутбуков <span class="muted tnum">({{ laptop_items|length }})</span></h2>
       {% if laptop_items %}
-      <div id="dash-laptop-treemap" class="dash-treemap" data-treemap='{{ laptop_items|tojson }}'></div>
-      <ul class="hbar-list dash-cpu-list">
-        {% for row in laptop_items %}
-        <li class="hbar-row">
-          <a href="{{ row.href }}" class="hbar-link-row">
-            <div class="hbar-meta"><span>{{ row.label }}</span><span class="muted tnum">{{ row.count }}</span></div>
-            <div class="hbar-track"><span class="hbar-fill" style="width: {{ row.pct or 0 }}%"></span></div>
-          </a>
-        </li>
-        {% endfor %}
-      </ul>
+      <div id="dash-laptop-treemap" class="dash-treemap dash-treemap--mosaic" data-treemap='{{ laptop_items|tojson }}'></div>
       {% else %}<p class="muted">Нет данных</p>{% endif %}
     </article>
 
     {% set desktop_items = dashboard.desktop_model_treemap["items"] or [] %}
-    <article class="dash-card card-surface dash-card-wide">
-      <h2>Модели ПК <span class="muted tnum">({{ desktop_items|length }})</span></h2>
+    <article class="dash-card card-surface dash-treemap-card">
+      <h2>Модели СБ <span class="muted tnum">({{ desktop_items|length }})</span></h2>
       {% if desktop_items %}
-      <div id="dash-desktop-treemap" class="dash-treemap" data-treemap='{{ desktop_items|tojson }}'></div>
-      <ul class="hbar-list dash-cpu-list">
-        {% for row in desktop_items %}
-        <li class="hbar-row">
-          <a href="{{ row.href }}" class="hbar-link-row">
-            <div class="hbar-meta"><span>{{ row.label }}</span><span class="muted tnum">{{ row.count }}</span></div>
-            <div class="hbar-track"><span class="hbar-fill" style="width: {{ row.pct or 0 }}%"></span></div>
-          </a>
-        </li>
-        {% endfor %}
-      </ul>
+      <div id="dash-desktop-treemap" class="dash-treemap dash-treemap--mosaic" data-treemap='{{ desktop_items|tojson }}'></div>
       {% else %}<p class="muted">Нет данных</p>{% endif %}
     </article>
   </div>

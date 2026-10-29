@@ -3453,11 +3453,35 @@ body.global-search-open { overflow: hidden; }
 }
 
 .dash-charts-primary,
-.dash-charts-secondary {
+.dash-charts-secondary,
+.dash-bars-row,
+.dash-treemap-pair {
   margin-top: 0.75rem;
 }
 .dash-card.card-surface {
   padding: 1rem 1.05rem;
+}
+.dash-card-full {
+  margin-top: 0.75rem;
+}
+.dash-os-card .chart-donut--wide {
+  justify-content: center;
+  gap: 1.5rem 2.5rem;
+}
+.dash-os-card .chart-donut--wide .chart-donut__ring-wrap {
+  width: 9rem;
+  height: 9rem;
+}
+.dash-os-card .chart-donut--wide .chart-donut__legend {
+  min-width: 14rem;
+  max-width: 28rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 1.25rem;
+  row-gap: 0.35rem;
+}
+.dash-treemap-card .dash-treemap--mosaic {
+  margin-top: 0.5rem;
 }
 
 .overview-search-hits,
@@ -3570,25 +3594,31 @@ table.devices.devices-list td {
   gap: 0.75rem;
   margin-top: 0.75rem;
 }
+/* Treemap / мозаика («кубики»): absolute-ячейки, площадь ∝ count */
 .dash-treemap {
-  display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  gap: 0.4rem;
-  min-height: 7rem;
+  display: block;
+  position: relative;
+  width: 100%;
+  min-height: 12rem;
+  overflow: hidden;
+}
+.dash-treemap--mosaic {
+  min-height: 14rem;
+}
+.dash-treemap-pair .dash-treemap--mosaic {
+  min-height: 12rem;
 }
 .dash-treemap-cell {
+  position: absolute;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-end;
   align-items: flex-start;
   box-sizing: border-box;
-  padding: 0.55rem 0.7rem;
-  border-radius: var(--radius-control);
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
   color: var(--fg);
   text-decoration: none;
-  min-width: 6.5rem;
-  min-height: 3.25rem;
   background: var(--subtle-bg);
   cursor: pointer;
   transition: filter var(--dur) var(--ease);
@@ -3597,6 +3627,7 @@ table.devices.devices-list td {
 .dash-treemap-cell:hover {
   filter: brightness(1.08);
   text-decoration: none;
+  z-index: 1;
 }
 .dash-treemap-cell.vendor-intel {
   background: #5bb0f5;
@@ -3615,24 +3646,31 @@ table.devices.devices-list td {
   color: #fff;
 }
 .dash-treemap-cell.vendor-neutral {
-  background: var(--subtle-bg);
+  background: #d7e3f4;
   border: 1px solid var(--control-stroke);
   color: var(--fg);
 }
+.dash-treemap-cell.vendor-neutral:nth-child(2n) {
+  background: #b8c9e0;
+}
 .dash-treemap-label {
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-weight: 600;
-  line-height: 1.25;
+  line-height: 1.2;
   overflow-wrap: anywhere;
   word-break: break-word;
   max-width: 100%;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .dash-treemap-cell .tnum {
   display: block;
-  margin-top: 0.2rem;
-  font-size: 0.9rem;
-  line-height: 1.2;
-  font-weight: 600;
+  margin-top: 0.15rem;
+  font-size: 0.95rem;
+  line-height: 1.15;
+  font-weight: 700;
 }
 .dash-gauges {
   display: flex;
@@ -3665,8 +3703,13 @@ table.devices.devices-list td {
   .quick-tiles { grid-template-columns: 1fr; }
   .overview-grid-2,
   .dash-grid-2,
-  .dash-grid-3 { grid-template-columns: 1fr; }
+  .dash-grid-3,
+  .dash-treemap-pair { grid-template-columns: 1fr; }
   .server-info-grid { grid-template-columns: 1fr 1fr; }
+  .dash-os-card .chart-donut--wide .chart-donut__legend {
+    grid-template-columns: 1fr;
+    max-width: none;
+  }
 }
 @media (max-width: 520px) {
   .kpi-grid { grid-template-columns: 1fr; }
