@@ -93,6 +93,7 @@ from .device_uninstall import (
     uninstall_ui_context,
 )
 from .ops_panel import (
+    aggregate_incident_feed,
     build_attention_queue,
     build_bootstrap_checklist,
     build_bootstrap_progress,
@@ -995,7 +996,10 @@ def _overview_page_context(
             key=lambda x: (str(x.get("created_at") or ""), int(x.get("id") or 0)),
             reverse=True,
         )
-    priority_feed = _normalize_overview_priority_feed(raw_feed, limit=7)
+    normalized = _normalize_overview_priority_feed(raw_feed, limit=40)
+    priority_feed = aggregate_incident_feed(
+        normalized, fleet_by_id, limit=10
+    )
     feed_has_critical = any(
         str(e.get("importance") or "") == "critical" for e in priority_feed
     )
@@ -1010,6 +1014,7 @@ def _overview_page_context(
     server_current = server_read_current(releases_dir(settings))
     events_total = db.count_device_events(importance="all")
     critical_event_count = db.count_device_events(importance="critical")
+    high_event_count = db.count_device_events(importance="high")
     server_runtime = build_server_runtime(db)
     total_active = int(stats.get("total_active") or 0)
     drift_n = int(ops.get("version_drift_count") or 0)
@@ -1017,11 +1022,21 @@ def _overview_page_context(
     update_progress_pct = (
         round(100.0 * current_n / total_active, 1) if total_active else 100.0
     )
+    event_series = {
+        "days_default": 14,
+        "label": "Динамика событий",
+        "series": {
+            "7": db.count_events_by_utc_day(7),
+            "14": db.count_events_by_utc_day(14),
+            "30": db.count_events_by_utc_day(30),
+        },
+    }
     return {
         "user": user,
         "stats": stats,
         "events_total": events_total,
         "critical_event_count": critical_event_count,
+        "high_event_count": high_event_count,
         "server_runtime": server_runtime,
         "ops": ops,
         "security": security,
@@ -1033,6 +1048,7 @@ def _overview_page_context(
         "wave_chips": wave["chips"],
         "priority_feed": priority_feed,
         "feed_has_critical": feed_has_critical,
+        "event_series": event_series,
         "update_progress": {
             "current": current_n,
             "drift": drift_n,

@@ -73,43 +73,12 @@
     </details>
   </header>
 
-  {# KPI здоровья — над поиском #}
-  <div class="kpi-grid overview-health-kpi">
-    <a class="kpi-tile card-surface kpi-tile-link" href="/devices">
-      <div class="kpi-icon kpi-icon-accent">{{ icon('devices') }}</div>
-      <div>
-        <div class="kpi-label">Всего хостов</div>
-        <div class="kpi-value tnum">{{ stats.total_active }}</div>
-      </div>
-    </a>
-    <a class="kpi-tile card-surface kpi-tile-link" href="/devices?fresh=ok">
-      <div class="kpi-icon kpi-icon-ok">{{ icon('network') }}</div>
-      <div>
-        <div class="kpi-label">Доступность</div>
-        <div class="kpi-value tnum">{{ stats.online }}<span class="kpi-value-sub muted">/{{ stats.total_active }}</span></div>
-      </div>
-    </a>
-    <a class="kpi-tile card-surface kpi-tile-link" href="/events?importance=critical">
-      <div class="kpi-icon kpi-icon-warn">{{ icon('events') }}</div>
-      <div>
-        <div class="kpi-label">Критические инциденты</div>
-        <div class="kpi-value tnum">{{ critical_event_count }}</div>
-      </div>
-    </a>
-    <a class="kpi-tile card-surface kpi-tile-link" href="/devices?wave=drift">
-      <div class="kpi-icon kpi-icon-accent">{{ icon('updates') }}</div>
-      <div>
-        <div class="kpi-label">Устройства в дрейфе</div>
-        <div class="kpi-value tnum">{{ ops.version_drift_count or 0 }}</div>
-      </div>
-    </a>
-  </div>
-
-  <div class="overview-search-hero overview-search-compact">
-    <div class="search-input-wrap card-surface">
+  <div class="overview-search-hero overview-search-spotlight card-surface">
+    <label class="overview-search-label" for="overview-search-q">{{ icon('search') }} Поиск по парку</label>
+    <div class="search-input-wrap overview-search-field">
       <span class="search-input-icon" aria-hidden="true">{{ icon('search') }}</span>
       <input id="overview-search-q" class="panel-search-input overview-search-input" type="search"
-        placeholder="Поиск по всему парку…"
+        placeholder="Хост, пользователь, событие, serial…"
         maxlength="128" autocomplete="off" data-overview-search>
     </div>
     <div class="filter-chips overview-search-chips" data-overview-search-cats role="group" aria-label="Категории поиска">
@@ -119,7 +88,7 @@
       <button type="button" class="filter-chip is-active" data-cat="serial">Serial</button>
     </div>
     <div id="overview-search-results" class="card-surface overview-search-hits" hidden></div>
-    <p class="panel-search-hint sr-only">от 2 символов</p>
+    <p class="panel-search-hint muted">От 2 символов · устройства, события, параметры</p>
   </div>
 
   {% if (bootstrap_progress and not bootstrap_progress.complete) or (bootstrap and bootstrap.visible) %}
@@ -183,33 +152,62 @@
   {% endif %}
 
   <div class="overview-ops-grid">
-    <article class="card-surface stack-card overview-priority-feed">
-      <h2 class="with-icon">{{ icon('events') }}Лента актуальных событий</h2>
-      {% if priority_feed %}
-      <ul class="overview-hw-list overview-feed-list">
-        {% for e in priority_feed %}
-        <li class="overview-feed-row">
-          <span class="muted overview-feed-time">{{ local_time(e.created_at) }}</span>
-          <span class="overview-feed-dot" aria-hidden="true">·</span>
-          <a class="overview-feed-host" href="{{ e.device_href or ('/devices/' ~ e.device_id) }}">{{ e.hostname or e.device_id }}</a>
-          {% if e.bad_id %}<span class="mono muted">{{ e.bad_id }}</span>{% endif %}
-          <span class="overview-feed-dot" aria-hidden="true">·</span>
-          <a class="overview-feed-type" href="/events/{{ e.id }}" title="{{ e.type }}">{{ e.type|format_event_type }}</a>
-          {% if e.importance %}
-          <span class="badge badge-importance badge-importance-{{ e.importance }}">{{ e.importance|importance_label_ru }}</span>
+    <div class="overview-ops-main">
+      <article class="dash-card card-surface">
+        <div class="dash-card-head">
+          <h2>Динамика событий</h2>
+          <div class="dash-range-tabs" role="tablist" aria-label="Интервал">
+            <button type="button" class="dash-range-tab" data-days="7">7 д</button>
+            <button type="button" class="dash-range-tab is-active" data-days="14">14 д</button>
+            <button type="button" class="dash-range-tab" data-days="30">30 д</button>
+          </div>
+        </div>
+        <div
+          id="dash-event-chart"
+          class="dash-event-chart"
+          data-series='{{ event_series.series|tojson }}'
+          data-days="{{ event_series.days_default }}"
+        ></div>
+      </article>
+
+      <article class="dash-card card-surface overview-priority-feed">
+        <div class="dash-card-head">
+          <h2 class="with-icon">{{ icon('events') }}Лента событий</h2>
+        </div>
+        {% if priority_feed %}
+        <ul class="dash-incident-list">
+          {% for e in priority_feed %}
+          <li class="dash-incident-row">
+            {% if e.importance %}
+            <span class="badge badge-importance badge-importance-{{ e.importance }}">{{ e.importance|importance_label_ru }}</span>
+            {% endif %}
+            <div class="dash-incident-body">
+              <div class="dash-incident-top">
+                <a href="{{ e.device_href }}" class="dash-incident-host">{{ e.hostname }}</a>
+                {% if e.count and e.count > 1 %}<span class="dash-agg-count">×{{ e.count }}</span>{% endif %}
+                <span class="muted">{{ local_time(e.created_at) }}</span>
+              </div>
+              {% if e.user %}<div class="muted dash-incident-user">{{ e.user }}</div>{% endif %}
+              <a href="{{ e.href }}" class="dash-incident-summary">{{ e.summary or (e.type|format_event_type) }}</a>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% if not feed_has_critical and critical_event_count == 0 %}
+        <p class="overview-ok-banner"><span class="overview-ok-ico" aria-hidden="true">✓</span> Система в норме — критических инцидентов нет</p>
+        {% endif %}
+        {% else %}
+        <p class="overview-ok-banner"><span class="overview-ok-ico" aria-hidden="true">✓</span> Система в норме</p>
+        {% endif %}
+        <p class="dash-card-actions overview-feed-more">
+          <a href="/events?importance=critical">Все критичные ({{ critical_event_count }})</a>
+          {% if high_event_count and high_event_count != critical_event_count %}
+          · <a href="/events?importance=high">высокая и выше ({{ high_event_count }})</a>
           {% endif %}
-          {% if e.summary %}<span class="muted overview-feed-summary">{{ e.summary }}</span>{% endif %}
-        </li>
-        {% endfor %}
-      </ul>
-      {% if not feed_has_critical and critical_event_count == 0 %}
-      <p class="overview-ok-banner"><span class="overview-ok-ico" aria-hidden="true">✓</span> Система в норме — критических инцидентов нет</p>
-      {% endif %}
-      {% else %}
-      <p class="overview-ok-banner"><span class="overview-ok-ico" aria-hidden="true">✓</span> Система в норме</p>
-      {% endif %}
-      <p class="muted overview-feed-more"><a href="/events">Все события</a></p>
-    </article>
+          · <a href="/events">все события</a>
+        </p>
+      </article>
+    </div>
 
     <aside class="overview-action-center">
       <article class="card-surface stack-card">
@@ -271,4 +269,5 @@
   </div>
 </section>
 <script src="/static/overview-search.js" defer></script>
+<script src="/static/dashboard-charts.js" defer></script>
 {% endblock %}

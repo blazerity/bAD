@@ -13,6 +13,7 @@ from typing import Any, Optional
 from .agent_config import ALLOWED_SETTING_KEYS, compute_setting_sources
 from .device_health import device_silence_status
 from .enrollment_ops import enrollment_status
+from .event_importance import event_importance
 from .fleet_buckets import normalize_os_caption, resolve_cpu_family
 from .tls_ops import tls_panel_mode
 
@@ -21,6 +22,8 @@ WAVE_FILTERS = frozenset({"drift", "revoked", "agent_local", "stale", "dup"})
 # Дашборд: конфиги парка (ОС / ОЗУ / диски / treemap железа)
 OS_DOMAIN_BAR_TOP = 5
 INVENTORY_SCAN_CAP = 500
+# Обзор: лента инцидентов
+OVERVIEW_INCIDENT_SHOW = 10
 
 _SOURCE_LABEL_RU = {
     "default": "по умолчанию",
@@ -676,6 +679,112 @@ def _treemap_items(
             row["href"] = chart_filter_href(href_param, label, **extra)
         items.append(row)
     return items
+
+
+def aggregate_incident_feed(
+    events: list[dict[str, Any]],
+    devices_by_id: dict[str, dict[str, Any]],
+    *,
+    limit: int = OVERVIEW_INCIDENT_SHOW,
+) -> list[dict[str, Any]]:
+    """Схлопнуть однотипные события на одном ПК за 24ч; hostname + пользователь.
+
+    Плашки важности — те же уровни, что везде (critical/high/medium/low), без ENGLISH CRITICAL/WARNING.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    def _parse_ts(raw: object) -> Optional[datetime]:
+        text = str(raw or "").strip()
+        if not text:
+            return None
+        try:
+            return datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+
+    now = datetime.now(timezone.utc)
+    window = now - timedelta(hours=24)
+    groups: dict[tuple[str, str], dict[str, Any]] = {}
+    order: list[tuple[str, str]] = []
+    for ev in events:
+        did = str(ev.get("device_id") or "")
+        etype = str(ev.get("type") or "")
+        key = (did, etype)
+        created = _parse_ts(ev.get("created_at"))
+        if key not in groups:
+            groups[key] = {
+                "id": ev.get("id"),
+                "device_id": did,
+                "type": etype,
+                "summary": ev.get("summary"),
+                "created_at": ev.get("created_at"),
+                "importance": ev.get("importance") or event_importance(etype),
+                "bad_id": ev.get("bad_id"),
+                "device_href": ev.get("device_href"),
+                "count": 1,
+                "_ts": created,
+            }
+            order.append(key)
+            continue
+        g = groups[key]
+        if created and g.get("_ts") and created >= window and g["_ts"] >= window:
+            g["count"] = int(g["count"]) + 1
+            if created > g["_ts"]:
+                g["created_at"] = ev.get("created_at")
+                g["_ts"] = created
+                g["id"] = ev.get("id")
+                g["summary"] = ev.get("summary")
+        else:
+            alt = (did, f"{etype}#{ev.get('id')}")
+            groups[alt] = {
+                "id": ev.get("id"),
+                "device_id": did,
+                "type": etype,
+                "summary": ev.get("summary"),
+                "created_at": ev.get("created_at"),
+                "importance": ev.get("importance") or event_importance(etype),
+                "bad_id": ev.get("bad_id"),
+                "device_href": ev.get("device_href"),
+                "count": 1,
+                "_ts": created,
+            }
+            order.append(alt)
+
+    out: list[dict[str, Any]] = []
+    for key in order:
+        g = groups[key]
+        did = str(g.get("device_id") or "")
+        device = devices_by_id.get(did) or {}
+        meta = device.get("meta") if isinstance(device.get("meta"), dict) else {}
+        user = str(meta.get("last_logged_on") or "").strip()
+        if not user:
+            logged = meta.get("logged_on")
+            if isinstance(logged, list) and logged:
+                user = str(logged[0] or "").strip()
+        imp = str(g.get("importance") or "medium")
+        hostname = str(device.get("hostname") or g.get("hostname") or did or "—")
+        device_href = g.get("device_href") or (
+            f"/devices/{did}" if did else "/devices"
+        )
+        out.append(
+            {
+                "id": g.get("id"),
+                "device_id": did,
+                "bad_id": g.get("bad_id") or device.get("bad_id"),
+                "hostname": hostname,
+                "user": user or None,
+                "summary": g.get("summary"),
+                "type": g.get("type"),
+                "created_at": g.get("created_at"),
+                "importance": imp,
+                "count": int(g.get("count") or 1),
+                "href": f"/events/{g.get('id')}" if g.get("id") else "/events",
+                "device_href": device_href,
+            }
+        )
+        if len(out) >= limit:
+            break
+    return out
 
 
 def _accumulate_hw_bars(hw: dict[str, Any], ram_counts: dict[str, int], storage_counts: dict[str, int]) -> None:
