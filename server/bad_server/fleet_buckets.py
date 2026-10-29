@@ -118,8 +118,18 @@ def sum_fixed_disk_bytes(disks: object) -> int:
     return total
 
 
+def normalize_cpu_name(cpu_name: str) -> str:
+    """Убрать (R)/(TM)/® — иначе «Core(TM) Ultra» не матчится как «core ultra»."""
+    text = (cpu_name or "").strip()
+    if not text:
+        return ""
+    text = re.sub(r"\((?:r|tm|c)\)", " ", text, flags=re.IGNORECASE)
+    text = text.replace("®", " ").replace("™", " ").replace("©", " ")
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def cpu_vendor_label(cpu_name: str) -> Optional[str]:
-    low = cpu_name.casefold()
+    low = normalize_cpu_name(cpu_name).casefold()
     if any(x in low for x in ("intel", "xeon", "core i", "pentium", "celeron", "core ultra")):
         return "Intel"
     if any(x in low for x in ("amd", "ryzen", "epyc")):
@@ -128,7 +138,7 @@ def cpu_vendor_label(cpu_name: str) -> Optional[str]:
 
 
 def cpu_family_label(cpu_name: str) -> Optional[str]:
-    name = (cpu_name or "").strip()
+    name = normalize_cpu_name(cpu_name)
     if not name:
         return None
     low = name.casefold()
@@ -141,6 +151,17 @@ def cpu_family_label(cpu_name: str) -> Optional[str]:
     if vendor:
         return vendor
     return "Другое"
+
+
+def resolve_cpu_family(meta: dict[str, Any]) -> Optional[str]:
+    """Актуальное семейство: сначала из cpu_name (свежий разбор), иначе кэш meta."""
+    name = str(meta.get("cpu_name") or "").strip()
+    if name:
+        fam = cpu_family_label(name)
+        if fam:
+            return fam
+    fam = str(meta.get("cpu_family") or "").strip()
+    return fam or None
 
 
 # ---------------------------------------------------------------------------
@@ -215,69 +236,74 @@ def _intel_core_i_family(name: str) -> Optional[str]:
 
 
 def _intel_family(name: str, low: str) -> str:
-    if "core ultra" in low:
-        m = re.search(r"(\d{3})", name)
+    # После normalize_cpu_name: «Intel Core Ultra 7 265U» без (TM)
+    if "core ultra" in low or re.search(r"\bultra\s*[3579]\b", low):
+        m = re.search(r"(?:ultra\s*[3579]\s*)?(\d{3})\s*([a-z]*)", low)
         if m:
             n = int(m.group(1))
-            if 200 <= n < 300 and name.upper().endswith("V"):
-                return "Intel · Core Ultra · Lunar Lake"
+            suf = (m.group(2) or "").upper()
+            if 200 <= n < 300 and "V" in suf:
+                return "Intel Lunar Lake (Core Ultra)"
             if 200 <= n < 300:
-                return "Intel · Core Ultra · Arrow Lake"
+                return "Intel Arrow Lake (Core Ultra)"
             if 100 <= n < 200:
-                return "Intel · Core Ultra · Meteor Lake"
-        return "Intel · Core Ultra"
+                return "Intel Meteor Lake (Core Ultra)"
+        return "Intel Core Ultra"
 
     core_i = _intel_core_i_family(name)
     if core_i:
         return core_i
 
     if re.search(r"\bn100\b|\bn200\b|\bn95\b", low):
-        return "Intel · N · Alder Lake-N"
+        return "Intel N-series (Alder Lake-N)"
     if "xeon" in low:
         if re.search(r"silver\s*43|gold\s*53|platinum\s*83", low):
-            return "Intel · Xeon · Ice Lake"
+            return "Intel Xeon (Ice Lake)"
+        if re.search(r"silver\s*42|gold\s*62|platinum\s*82|bronze\s*32", low):
+            return "Intel Xeon (Cascade Lake)"
         if re.search(r"gold\s*5[46]|gold\s*6[45]|platinum\s*84|w-24|w-34", low):
-            return "Intel · Xeon · Sapphire Rapids"
+            return "Intel Xeon (Sapphire Rapids)"
         if re.search(r"gold\s*55|gold\s*65|platinum\s*85", low):
-            return "Intel · Xeon · Granite Rapids"
+            return "Intel Xeon (Granite Rapids)"
         if "e-23" in low or "e23" in low:
-            return "Intel · Xeon · Rocket Lake"
+            return "Intel Xeon (Rocket Lake)"
         for tier in ("bronze", "silver", "gold", "platinum"):
             if tier in low:
-                return f"Intel · Xeon · {tier.title()}"
-        return "Intel · Xeon"
+                return f"Intel Xeon ({tier.title()})"
+        return "Intel Xeon"
     if "pentium" in low:
-        return "Intel · Pentium"
+        return "Intel Pentium"
     if "celeron" in low:
-        return "Intel · Celeron"
-    return "Intel"
+        return "Intel Celeron"
+    # Никогда не отдаём голый ярлык «Intel» — он схлопывал Ultra и прочее в один куб
+    return "Intel (другое)"
 
 
 def _amd_family(name: str, low: str) -> str:
     if "ryzen ai" in low:
-        return "AMD · Ryzen AI · Strix Point"
+        return "AMD Ryzen AI (Strix Point)"
     if "ryzen" in low:
-        m = re.search(r"(\d)", name)
+        m = re.search(r"ryzen\s*(\d)", low)
         if m:
             d = int(m.group(1))
             if d >= 9:
-                return "AMD · Ryzen · Zen 5"
+                return "AMD Ryzen (Zen 5)"
             if d >= 7:
-                return "AMD · Ryzen · Zen 4"
+                return "AMD Ryzen (Zen 4)"
             if d >= 5:
-                return "AMD · Ryzen · Zen 3"
+                return "AMD Ryzen (Zen 3)"
             if d >= 3:
-                return "AMD · Ryzen · Zen 2"
-        return "AMD · Ryzen"
+                return "AMD Ryzen (Zen 2)"
+        return "AMD Ryzen"
     if "epyc" in low:
         if "9005" in name:
-            return "AMD · EPYC · Turin"
+            return "AMD EPYC (Turin)"
         if "9004" in name:
-            return "AMD · EPYC · Genoa"
+            return "AMD EPYC (Genoa)"
         if "7003" in name:
-            return "AMD · EPYC · Milan"
-        return "AMD · EPYC"
-    return "AMD"
+            return "AMD EPYC (Milan)"
+        return "AMD EPYC"
+    return "AMD (другое)"
 
 
 def sort_ipv4_addresses(ips: list[str]) -> list[str]:
@@ -312,6 +338,8 @@ def meta_facet_matches(
     cpu_filter: Optional[str] = None,
     cpu_vendor_filter: Optional[str] = None,
     agent_filter: Optional[str] = None,
+    model_filter: Optional[str] = None,
+    chassis_filter: Optional[str] = None,
     fresh_ok: bool = False,
     silence_status: Optional[str] = None,
 ) -> bool:
@@ -321,9 +349,13 @@ def meta_facet_matches(
         return False
     if disk_filter and str(meta.get("disk_bucket") or "") != disk_filter:
         return False
-    if cpu_filter and str(meta.get("cpu_family") or "") != cpu_filter:
+    if cpu_filter and (resolve_cpu_family(meta) or "") != cpu_filter:
         return False
     if cpu_vendor_filter and str(meta.get("cpu_vendor") or "") != cpu_vendor_filter:
+        return False
+    if model_filter and str(meta.get("hardware_model") or "").strip() != model_filter:
+        return False
+    if chassis_filter and str(meta.get("chassis_type") or "").strip() != chassis_filter:
         return False
     if agent_filter and str(device.get("agent_version") or "") != agent_filter:
         return False

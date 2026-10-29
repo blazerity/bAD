@@ -17,18 +17,21 @@
       root.innerHTML = '<p class="muted">Нет данных</p>';
       return;
     }
-    var max = Math.max.apply(
-      null,
-      items.map(function (i) {
-        return i.count;
-      })
-    );
+    // Уже отсортированы на сервере по count desc; площадь ∝ count
+    var total = items.reduce(function (sum, i) {
+      return sum + (i.count || 0);
+    }, 0);
+    if (total < 1) total = 1;
     items.forEach(function (item) {
       var a = document.createElement(item.href ? "a" : "div");
       if (item.href) a.href = item.href;
       a.className = "dash-treemap-cell vendor-" + (item.vendor || "neutral");
-      a.style.flexGrow = String(item.count);
-      a.style.flexBasis = (item.count / max) * 40 + "%";
+      var share = item.share != null ? item.share : item.count / total;
+      // flex-grow пропорционален count — самый частый = самый большой куб
+      a.style.flexGrow = String(Math.max(1, item.count));
+      a.style.flexBasis = Math.max(7, share * 100) + "%";
+      a.style.maxWidth = Math.min(100, Math.max(18, share * 100 + 12)) + "%";
+      a.title = item.label + ": " + item.count;
       a.innerHTML =
         '<span class="dash-treemap-label">' +
         item.label +
@@ -86,8 +89,12 @@
   }
 
   function init() {
-    var treemap = document.getElementById("dash-cpu-treemap");
-    if (treemap) renderTreemap(treemap);
+    ["dash-cpu-treemap", "dash-laptop-treemap", "dash-desktop-treemap"].forEach(
+      function (id) {
+        var el = document.getElementById(id);
+        if (el) renderTreemap(el);
+      }
+    );
     var gauges = document.querySelector(".dash-gauges");
     if (gauges) renderGauges(gauges);
     var spark = document.getElementById("dash-event-sparkline");

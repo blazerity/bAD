@@ -361,6 +361,8 @@ def _pager_url(
     cpu_vendor: str = "",
     agent: str = "",
     fresh: str = "",
+    model: str = "",
+    chassis: str = "",
 ) -> str:
     """URL списка с сохранением фильтров (серверная пагинация ?page=)."""
     params: dict[str, str] = {}
@@ -388,6 +390,10 @@ def _pager_url(
         params["agent"] = agent
     if fresh:
         params["fresh"] = fresh
+    if model:
+        params["model"] = model
+    if chassis:
+        params["chassis"] = chassis
     if importance:
         params["importance"] = importance
     if event_type:
@@ -1305,6 +1311,8 @@ def _devices_query_params(
     cpu_vendor_filter: Optional[str] = None,
     agent_filter: Optional[str] = None,
     fresh: Optional[str] = None,
+    model_filter: Optional[str] = None,
+    chassis_filter: Optional[str] = None,
 ) -> str:
     params: dict[str, str] = {}
     if tag:
@@ -1329,6 +1337,10 @@ def _devices_query_params(
         params["agent"] = agent_filter
     if fresh:
         params["fresh"] = fresh
+    if model_filter:
+        params["model"] = model_filter
+    if chassis_filter:
+        params["chassis"] = chassis_filter
     if page > 1:
         params["page"] = str(page)
     return urlencode(params)
@@ -1347,8 +1359,16 @@ def _devices_filter_chips(
     cpu_vendor_filter: Optional[str],
     agent_filter: Optional[str],
     fresh: Optional[str],
+    model_filter: Optional[str] = None,
+    chassis_filter: Optional[str] = None,
 ) -> list[dict[str, str]]:
     chips: list[dict[str, str]] = []
+    chassis_label = {
+        "laptop": "Ноутбуки",
+        "desktop": "ПК",
+        "server": "Серверы",
+        "vm": "ВМ",
+    }.get(chassis_filter or "", chassis_filter or "")
     specs: list[tuple[str, Optional[str], str]] = [
         ("tag", tag_filter, tag_filter or ""),
         ("q", query, query or ""),
@@ -1360,75 +1380,68 @@ def _devices_filter_chips(
         ("cpu_vendor", cpu_vendor_filter, cpu_vendor_filter or ""),
         ("agent", agent_filter, f"bAD {agent_filter}" if agent_filter else ""),
         ("fresh", fresh, "Онлайн" if fresh == "ok" else (fresh or "")),
+        ("model", model_filter, model_filter or ""),
+        ("chassis", chassis_filter, chassis_label),
     ]
     if show_archive:
         specs.append(("archive", "1", "Архив"))
+
+    def _qs(**overrides: Any) -> str:
+        base: dict[str, Any] = {
+            "tag": tag_filter,
+            "q": query,
+            "archive": show_archive,
+            "page": 1,
+            "wave": wave_filter,
+            "os_filter": os_filter,
+            "ram_filter": ram_filter,
+            "disk_filter": disk_filter,
+            "cpu_filter": cpu_filter,
+            "cpu_vendor_filter": cpu_vendor_filter,
+            "agent_filter": agent_filter,
+            "fresh": fresh,
+            "model_filter": model_filter,
+            "chassis_filter": chassis_filter,
+        }
+        base.update(overrides)
+        return _devices_query_params(
+            tag=base["tag"],
+            q=base["q"],
+            archive=bool(base["archive"]),
+            page=1,
+            wave=base["wave"],
+            os_filter=base["os_filter"],
+            ram_filter=base["ram_filter"],
+            disk_filter=base["disk_filter"],
+            cpu_filter=base["cpu_filter"],
+            cpu_vendor_filter=base["cpu_vendor_filter"],
+            agent_filter=base["agent_filter"],
+            fresh=base["fresh"],
+            model_filter=base["model_filter"],
+            chassis_filter=base["chassis_filter"],
+        )
+
     for param, value, label in specs:
         if not value:
             continue
         if param == "archive":
-            without = _devices_query_params(
-                tag=tag_filter,
-                q=query,
-                archive=False,
-                page=1,
-                wave=wave_filter,
-                os_filter=os_filter,
-                ram_filter=ram_filter,
-                disk_filter=disk_filter,
-                cpu_filter=cpu_filter,
-                cpu_vendor_filter=cpu_vendor_filter,
-                agent_filter=agent_filter,
-                fresh=fresh,
-            )
+            without = _qs(archive=False)
         else:
-            omit: dict[str, Optional[str]] = {
-                "tag": tag_filter,
-                "q": query,
-                "archive": show_archive,
-                "wave": wave_filter,
-                "os_filter": os_filter,
-                "ram_filter": ram_filter,
-                "disk_filter": disk_filter,
-                "cpu_filter": cpu_filter,
-                "cpu_vendor_filter": cpu_vendor_filter,
-                "agent_filter": agent_filter,
-                "fresh": fresh,
-            }
-            if param == "tag":
-                omit["tag"] = None
-            elif param == "q":
-                omit["q"] = None
-            elif param == "wave":
-                omit["wave"] = None
-            elif param == "os":
-                omit["os_filter"] = None
-            elif param == "ram":
-                omit["ram_filter"] = None
-            elif param == "disk":
-                omit["disk_filter"] = None
-            elif param == "cpu":
-                omit["cpu_filter"] = None
-            elif param == "cpu_vendor":
-                omit["cpu_vendor_filter"] = None
-            elif param == "agent":
-                omit["agent_filter"] = None
-            elif param == "fresh":
-                omit["fresh"] = None
-            without = _devices_query_params(
-                tag=omit["tag"],
-                q=omit["q"],
-                archive=bool(omit["archive"]),
-                page=1,
-                wave=omit["wave"],
-                os_filter=omit["os_filter"],
-                ram_filter=omit["ram_filter"],
-                disk_filter=omit["disk_filter"],
-                cpu_filter=omit["cpu_filter"],
-                cpu_vendor_filter=omit["cpu_vendor_filter"],
-                agent_filter=omit["agent_filter"],
-                fresh=omit["fresh"],
-            )
+            key = {
+                "tag": "tag",
+                "q": "q",
+                "wave": "wave",
+                "os": "os_filter",
+                "ram": "ram_filter",
+                "disk": "disk_filter",
+                "cpu": "cpu_filter",
+                "cpu_vendor": "cpu_vendor_filter",
+                "agent": "agent_filter",
+                "fresh": "fresh",
+                "model": "model_filter",
+                "chassis": "chassis_filter",
+            }[param]
+            without = _qs(**{key: None})
         href = f"/devices?{without}" if without else "/devices"
         chips.append({"param": param, "label": label, "href": href})
     return chips
@@ -1462,6 +1475,8 @@ def _devices_wave_context(
     cpu_vendor_filter: Optional[str] = None,
     agent_filter: Optional[str] = None,
     fresh: Optional[str] = None,
+    model_filter: Optional[str] = None,
+    chassis_filter: Optional[str] = None,
 ) -> tuple[list[dict], int, int, int]:
     # Индекс дублей всегда по всему парку (meta), иначе поиск/тег ломают бейджи.
     fleet = db.list_devices(archived=None)
@@ -1517,6 +1532,8 @@ def _devices_wave_context(
             cpu_filter,
             cpu_vendor_filter,
             agent_filter,
+            model_filter,
+            chassis_filter,
             fresh_ok,
         )
     )
@@ -1536,6 +1553,8 @@ def _devices_wave_context(
                 cpu_filter=cpu_filter,
                 cpu_vendor_filter=cpu_vendor_filter,
                 agent_filter=agent_filter,
+                model_filter=model_filter,
+                chassis_filter=chassis_filter,
                 fresh_ok=fresh_ok,
                 silence_status=str(silence.get("status") or ""),
             ):
@@ -1564,6 +1583,8 @@ def devices_page(
     cpu_vendor: Optional[str] = None,
     agent: Optional[str] = None,
     fresh: Optional[str] = None,
+    model: Optional[str] = None,
+    chassis: Optional[str] = None,
     page: int = 1,
     flash: Optional[str] = None,
     user: WebUser = Depends(require_web_user),
@@ -1581,6 +1602,10 @@ def devices_page(
     cpu_vendor_filter = (cpu_vendor or "").strip() or None
     agent_filter = (agent or "").strip() or None
     fresh_filter = (fresh or "").strip() or None
+    model_filter = (model or "").strip() or None
+    chassis_filter = (chassis or "").strip().casefold() or None
+    if chassis_filter and chassis_filter not in {"laptop", "desktop", "server", "vm", "other"}:
+        chassis_filter = None
     page_i = max(1, int(page or 1))
     devices, total, pages, page_i = _devices_wave_context(
         db,
@@ -1597,6 +1622,8 @@ def devices_page(
         cpu_vendor_filter=cpu_vendor_filter,
         agent_filter=agent_filter,
         fresh=fresh_filter,
+        model_filter=model_filter,
+        chassis_filter=chassis_filter,
     )
 
     agent_update = db.get_agent_update()
@@ -1613,6 +1640,8 @@ def devices_page(
         cpu_vendor_filter=cpu_vendor_filter,
         agent_filter=agent_filter,
         fresh=fresh_filter,
+        model_filter=model_filter,
+        chassis_filter=chassis_filter,
     )
     filter_chips = _devices_filter_chips(
         tag_filter=tag_filter,
@@ -1626,6 +1655,8 @@ def devices_page(
         cpu_vendor_filter=cpu_vendor_filter,
         agent_filter=agent_filter,
         fresh=fresh_filter,
+        model_filter=model_filter,
+        chassis_filter=chassis_filter,
     )
     flash_msg = (flash or "").strip() or None
     if flash_msg and len(flash_msg) > 200:
@@ -1660,6 +1691,8 @@ def devices_page(
             "cpu_vendor_filter": cpu_vendor_filter or "",
             "agent_filter": agent_filter or "",
             "fresh_filter": fresh_filter or "",
+            "model_filter": model_filter or "",
+            "chassis_filter": chassis_filter or "",
             "all_tags": db.list_all_tags(),
             "stale_after_seconds": effective_stale_after_seconds(db, settings),
             "page": page_i,
@@ -1682,6 +1715,8 @@ def devices_page(
                 or cpu_vendor_filter
                 or agent_filter
                 or fresh_filter
+                or model_filter
+                or chassis_filter
             ),
             "filters_active": bool(filter_chips),
             "catalog_filter_options": catalog_filter_options,

@@ -13,6 +13,7 @@ from typing import Any, Optional
 from .agent_config import ALLOWED_SETTING_KEYS, compute_setting_sources
 from .device_health import device_silence_status
 from .enrollment_ops import enrollment_status
+from .fleet_buckets import resolve_cpu_family
 from .tls_ops import tls_panel_mode
 
 WAVE_FILTERS = frozenset({"drift", "revoked", "agent_local", "stale", "dup"})
@@ -627,10 +628,56 @@ def device_matches_chart_filters(
     return True
 
 
-def chart_filter_href(param: str, value: str) -> str:
+def chart_filter_href(param: str, value: str, **extra: str) -> str:
     from urllib.parse import urlencode
 
-    return "/devices?" + urlencode({param: value})
+    params: dict[str, str] = {param: value}
+    for key, val in extra.items():
+        if val:
+            params[key] = val
+    return "/devices?" + urlencode(params)
+
+
+def _treemap_vendor(label: str) -> str:
+    if label.startswith("Intel"):
+        return "intel"
+    if label.startswith("AMD"):
+        return "amd"
+    return "neutral"
+
+
+def _treemap_items(
+    counts: dict[str, int],
+    *,
+    href_param: Optional[str] = None,
+    href_extra: Optional[dict[str, str]] = None,
+    vendor_from_label: bool = False,
+) -> list[dict[str, Any]]:
+    """Кубики: сортировка по убыванию count — самый частый = самый большой."""
+    total = sum(max(0, int(c)) for c in counts.values()) or 1
+    items: list[dict[str, Any]] = []
+    for label, count in sorted(counts.items(), key=lambda x: (-int(x[1]), str(x[0]))):
+        n = int(count)
+        if n <= 0:
+            continue
+        # Голый «Intel»/«AMD» не показываем (сломанный разбор)
+        if label in {"Intel", "AMD"}:
+            continue
+        row: dict[str, Any] = {
+            "label": label,
+            "count": n,
+            "pct": round(100.0 * n / total, 1),
+            "share": round(n / total, 6),
+        }
+        if vendor_from_label:
+            row["vendor"] = _treemap_vendor(label)
+        else:
+            row["vendor"] = "neutral"
+        if href_param:
+            extra = dict(href_extra or {})
+            row["href"] = chart_filter_href(href_param, label, **extra)
+        items.append(row)
+    return items
 
 
 def _accumulate_hw_bars(hw: dict[str, Any], ram_counts: dict[str, int], storage_counts: dict[str, int]) -> None:
@@ -774,34 +821,40 @@ def build_dashboard_stats(
         }
 
     cpu_family_counts: dict[str, int] = {}
+    laptop_model_counts: dict[str, int] = {}
+    desktop_model_counts: dict[str, int] = {}
     for d in active:
         meta = d.get("meta") if isinstance(d.get("meta"), dict) else {}
-        fam = meta.get("cpu_family")
-        if not fam:
-            continue
-        key = str(fam)
-        cpu_family_counts[key] = cpu_family_counts.get(key, 0) + 1
-    cpu_treemap_items = []
-    for label, count in sorted(
-        cpu_family_counts.items(), key=lambda x: (-x[1], x[0])
-    ):
-        if count <= 0:
-            continue
-        if label.startswith("Intel"):
-            vendor = "intel"
-        elif label.startswith("AMD"):
-            vendor = "amd"
-        else:
-            vendor = "neutral"
-        cpu_treemap_items.append(
-            {
-                "label": label,
-                "count": count,
-                "vendor": vendor,
-                "href": chart_filter_href("cpu", label),
-            }
+        fam = resolve_cpu_family(meta)
+        if fam:
+            cpu_family_counts[fam] = cpu_family_counts.get(fam, 0) + 1
+        model = str(meta.get("hardware_model") or "").strip()
+        if model:
+            chassis = str(meta.get("chassis_type") or "").strip().casefold()
+            if chassis == "laptop":
+                laptop_model_counts[model] = laptop_model_counts.get(model, 0) + 1
+            elif chassis == "desktop":
+                desktop_model_counts[model] = desktop_model_counts.get(model, 0) + 1
+
+    cpu_family_treemap = {
+        "items": _treemap_items(
+            cpu_family_counts, href_param="cpu", vendor_from_label=True
         )
-    cpu_family_treemap = {"items": cpu_treemap_items}
+    }
+    laptop_model_treemap = {
+        "items": _treemap_items(
+            laptop_model_counts,
+            href_param="model",
+            href_extra={"chassis": "laptop"},
+        )
+    }
+    desktop_model_treemap = {
+        "items": _treemap_items(
+            desktop_model_counts,
+            href_param="model",
+            href_extra={"chassis": "desktop"},
+        )
+    }
 
     def _href_items(items: list[dict[str, Any]], param: str) -> list[dict[str, Any]]:
         out = []
@@ -836,6 +889,8 @@ def build_dashboard_stats(
         "ram_bars": ram_bars,
         "storage_bars": storage_bars,
         "cpu_family_treemap": cpu_family_treemap,
+        "laptop_model_treemap": laptop_model_treemap,
+        "desktop_model_treemap": desktop_model_treemap,
         "event_sparkline": event_sparkline,
         "gauges": gauges,
     }
