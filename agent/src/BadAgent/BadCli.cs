@@ -41,6 +41,11 @@ public static class BadCli
                 return UpdateCli.Run(updateRest);
             }
 
+            if (IsUninstallCommand(args, out var uninstallRest))
+            {
+                return UninstallCli.Run(uninstallRest);
+            }
+
             if (args.Length == 0 || IsAsciiCommand(args[0]))
             {
                 return RunAscii(collector);
@@ -65,7 +70,8 @@ public static class BadCli
             or "report" or "info" or "ascii"
             or "config" or "settings"
             or "push"
-            or "update";
+            or "update"
+            or "uninstall" or "unistall";
 
     private static bool IsHelp(string[] args) =>
         args.Length > 0 && args[0] is "-?" or "--help" or "help" or "/?" or "-h";
@@ -103,6 +109,21 @@ public static class BadCli
     private static bool IsUpdateCommand(string[] args, out string[] rest)
     {
         if (args.Length > 0 && string.Equals(args[0], "update", StringComparison.OrdinalIgnoreCase))
+        {
+            rest = args.AsSpan(1).ToArray();
+            return true;
+        }
+
+        rest = [];
+        return false;
+    }
+
+    private static bool IsUninstallCommand(string[] args, out string[] rest)
+    {
+        // unistall — частая опечатка
+        if (args.Length > 0
+            && (string.Equals(args[0], "uninstall", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(args[0], "unistall", StringComparison.OrdinalIgnoreCase)))
         {
             rest = args.AsSpan(1).ToArray();
             return true;
@@ -175,12 +196,15 @@ public static class BadCli
   bad config set <k> <v>   Один параметр (server_url в бою — https://)
   bad push                 Синхронизация с сервером: очередь → inventory → heartbeat
   bad update               Проверка версии на сервере и установка MSI при необходимости
+  bad uninstall [-y]       Снять агент (msiexec, нужны права администратора)
   bad service …            Управление службой Windows (от администратора)
 
 HTML (-r): без path — рабочий стол, bad_report_yyyyMMdd_HHmmss.html
 
 Служба:
   bad service status|start|stop|restart
+
+Снятие также: bin\uninstall.cmd
 """);
     }
 }

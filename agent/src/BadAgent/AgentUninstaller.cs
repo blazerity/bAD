@@ -15,21 +15,31 @@ public static class AgentUninstaller
     /// <summary>
     /// Запускает <c>msiexec /x</c> без ожидания. Возвращает false, если ProductCode не найден или старт не удался.
     /// </summary>
-    public static bool TryStartSilentUninstall(ILogger logger)
+    public static bool TryStartSilentUninstall(ILogger logger) =>
+        TryStartSilentUninstall(msg => logger.LogInformation("{Message}", msg),
+            warn => logger.LogWarning("{Message}", warn),
+            err => logger.LogError("{Message}", err));
+
+    /// <summary>То же для CLI (без DI-логгера).</summary>
+    public static bool TryStartSilentUninstall(Action<string>? info = null) =>
+        TryStartSilentUninstall(info, info, msg => Console.Error.WriteLine(msg));
+
+    private static bool TryStartSilentUninstall(
+        Action<string>? info,
+        Action<string>? warn,
+        Action<string>? error)
     {
         if (!OperatingSystem.IsWindows())
         {
-            logger.LogWarning("Снятие агента: только Windows");
+            warn?.Invoke("Снятие агента: только Windows");
             return false;
         }
 
         var productCode = TryFindInstalledProductCode();
         if (productCode is null)
         {
-            logger.LogWarning(
-                "Снятие агента: ProductCode MSI не найден (DisplayName «{DisplayName}» / UpgradeCode {UpgradeCode})",
-                MsiDisplayName,
-                MsiUpgradeCode);
+            warn?.Invoke(
+                $"Снятие агента: ProductCode MSI не найден (DisplayName «{MsiDisplayName}» / UpgradeCode {MsiUpgradeCode})");
             WindowsEventLog.WriteWarning(
                 "bAD: команда снятия — установка MSI не найдена в реестре, служба не останавливается");
             return false;
@@ -40,7 +50,7 @@ public static class AgentUninstaller
             "msiexec.exe");
         if (!File.Exists(msiexec))
         {
-            logger.LogError("Снятие агента: msiexec.exe не найден");
+            error?.Invoke("Снятие агента: msiexec.exe не найден");
             WindowsEventLog.WriteError("bAD: команда снятия — msiexec.exe не найден");
             return false;
         }
@@ -58,17 +68,17 @@ public static class AgentUninstaller
 
             if (Process.Start(psi) is null)
             {
-                logger.LogError("Снятие агента: не удалось запустить msiexec");
+                error?.Invoke("Снятие агента: не удалось запустить msiexec");
                 return false;
             }
 
-            logger.LogInformation("Снятие агента: запущен msiexec {Args}", args);
+            info?.Invoke($"Снятие агента: запущен msiexec {args}");
             WindowsEventLog.WriteInfo($"bAD: запущено снятие MSI (ProductCode {productCode})");
             return true;
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Снятие агента: ошибка запуска msiexec");
+            error?.Invoke($"Снятие агента: ошибка запуска msiexec: {ex.Message}");
             WindowsEventLog.WriteError("bAD: ошибка запуска msiexec для снятия", ex);
             return false;
         }

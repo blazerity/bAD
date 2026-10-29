@@ -132,6 +132,7 @@ jobs:
           Copy-Item installer/msi/bad-paths.ps1 $scripts -Force
           Copy-Item installer/msi/migrate-legacy-install.ps1 $scripts -Force
           Copy-Item installer/msi/bad.cmd $root -Force
+          Copy-Item installer/msi/uninstall.cmd $bin -Force
 
       - name: Install WiX toolset (dotnet tool)
         run: |

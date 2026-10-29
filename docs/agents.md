@@ -89,12 +89,13 @@ bad config set <k> <v>  # один knob — только elevated
 bad config unset <k>    # сброс knob — только elevated
 bad push                # синхронизация: очередь → inventory → heartbeat (config с сервера)
 bad update              # проверка и установка MSI с сервера
+bad uninstall [-y]      # снять агент (msiexec) — elevated; также bin\uninstall.cmd
 bad service status|start|stop|restart   # служба badagent — elevated
 ```
 
-MSI **2.0+:** `%ProgramFiles%\blazerity\bad agent\`; служба **`badagent`**. Апгрейд с 1.x: MajorUpgrade + `migrate-legacy-install.ps1` (см. `installer/msi/README.md`).
+MSI **2.1+:** `%ProgramFiles%\blazerity\bad agent\`; служба **`badagent`**; `bin\` — single-file `BadAgent.exe` + `uninstall.cmd`. Апгрейд с 1.x: MajorUpgrade + `migrate-legacy-install.ps1` (см. `installer/msi/README.md`).
 
-> Обычный пользователь: **`bad`**, **`bad -r`**, **`-h`**. Настройка: **`bad -c`** / **`config set|unset`** — запуск от администратора.
+> Обычный пользователь: **`bad`**, **`bad -r`**, **`-h`**. Настройка / снятие: **`bad -c`** / **`config set|unset`** / **`uninstall`** — запуск от администратора.
 
 Учитываются `collect_*` из `%ProgramData%\blazerity\bAD\config.json` (если файл доступен на чтение; иначе — значения по умолчанию). Локальные отчёты **не** создают каталог `logs` в ProgramData. Код: `BadCli`, `ConfigStore.LoadForReport`, `ConfigCli`, `AsciiReportWriter`, `HtmlReportWriter`, `ReportPathResolver`.
 

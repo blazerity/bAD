@@ -216,6 +216,7 @@ msiexec /i bad-agent-2.0.2.msi `
 | `bad config unset <ключ>` | администратор | сбросить параметр |
 | `bad push` | администратор | синхронизация с сервером: очередь, инвентаризация, heartbeat |
 | `bad update` | администратор | проверить и установить MSI с сервера |
+| `bad uninstall [-y]` | администратор | снять агент (msiexec); также `%ProgramFiles%\blazerity\bad agent\bin\uninstall.cmd` |
 | `bad service …` | администратор | управление службой `badagent` |
 
 Управление службой (от администратора):

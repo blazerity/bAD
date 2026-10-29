@@ -5,7 +5,7 @@ bAD (blazerity Asset Discovery) состоит из двух частей: аг�
 Версии двух частей независимы:
 
 - **Сервер:** файл `VERSION` в корне репозитория (сейчас 2.2.5).
-- **Агент:** файл `agent/VERSION` (сейчас 2.0.2).
+- **Агент:** файл `agent/VERSION` (сейчас 2.1.0).
 
 Обновление панели с GitHub и обновление агентов на ПК — разные процедуры.
 
@@ -60,7 +60,7 @@ flowchart LR
 
 ### Установка и службы
 
-MSI устанавливает агент в **`%ProgramFiles%\blazerity\bad agent\`** (`bin\BadAgent.exe`, `bad.cmd`, скрипты) и регистрирует службу **`badagent`** (отображаемое имя **bAD Agent**, описание на русском). Запуск — автоматически от LocalSystem.
+MSI устанавливает агент в **`%ProgramFiles%\blazerity\bad agent\`** (`bin\BadAgent.exe` как single-file, `bin\uninstall.cmd`, `bad.cmd`, скрипты) и регистрирует службу **`badagent`** (отображаемое имя **bAD Agent**, описание на русском). Запуск — автоматически от LocalSystem.
 
 Апгрейд с линии **1.x**: WiX **MajorUpgrade** и скрипт **`migrate-legacy-install.ps1`** (снять службу `BlazerityAssetDiscovery`, старый каталог `...\blazerity\bAD\`, устаревший PATH). **`%ProgramData%\blazerity\bAD\`** не переносится — config и очередь сохраняются.
 
@@ -126,7 +126,7 @@ Heartbeat сообщает серверу, что агент жив, и пере
 
 ### CLI `bad`
 
-CLI: shim **`bad.cmd`** в каталоге установки вызывает `bin\BadAgent.exe`.
+CLI: shim **`bad.cmd`** в каталоге установки вызывает `bin\BadAgent.exe`. Снятие: **`bad uninstall`** или **`bin\uninstall.cmd`**.
 
 | Режим | Кто может | Что делает |
 |-------|-----------|------------|

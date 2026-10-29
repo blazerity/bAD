@@ -53,6 +53,7 @@ dotnet publish ..\..\agent\src\BadAgent\BadAgent.csproj `
   -c Release -r win-x64 --self-contained true `
   -p:Version=$ver `
   -o .\publish\bin
+# PublishSingleFile: в bin\ остаётся BadAgent.exe (+ uninstall.cmd), без россыпи DLL
 
 # 3. scripts + bad.cmd (корень publish — PATH; exe в bin\)
 Copy-Item .\write-config.ps1 .\publish\scripts\
@@ -60,6 +61,7 @@ Copy-Item .\cleanup-uninstall.ps1 .\publish\scripts\
 Copy-Item .\bad-paths.ps1 .\publish\scripts\
 Copy-Item .\migrate-legacy-install.ps1 .\publish\scripts\
 Copy-Item .\bad.cmd .\publish\
+Copy-Item .\uninstall.cmd .\publish\bin\
 
 # 4. Собрать MSI (Product.wxs harvest'ит publish\** через <Files>,
 #    BadAgent.exe — отдельно в компоненте службы; util = WixQuietExec;
