@@ -18,6 +18,46 @@ _DISK_NOMINALS = (
 )
 
 
+def normalize_os_caption(value: object) -> str:
+    """Единые ярлыки ОС: Windows 10 Pro / Enterprise; пусто → «Не определена»."""
+    text = str(value or "").strip()
+    if not text or text in {"—", "-", "?"}:
+        return "Не определена"
+    low = text.casefold()
+    low = re.sub(r"^(microsoft|майкрософт)\s+", "", low)
+    ver: Optional[str] = None
+    if "windows server" in low:
+        m = re.search(r"windows server\s+(\d{4})", low)
+        ver = f"Windows Server {m.group(1)}" if m else "Windows Server"
+    elif "windows 11" in low or "windows11" in low:
+        ver = "Windows 11"
+    elif "windows 10" in low or "windows10" in low:
+        ver = "Windows 10"
+    elif "windows 8.1" in low:
+        ver = "Windows 8.1"
+    elif "windows 8" in low:
+        ver = "Windows 8"
+    elif "windows 7" in low:
+        ver = "Windows 7"
+    edition: Optional[str] = None
+    if "корпоратив" in low or "enterprise" in low:
+        edition = "Enterprise"
+    elif "образовательн" in low or "education" in low:
+        edition = "Education"
+    elif re.search(r"\bpro\b", low) or "профессион" in low:
+        edition = "Pro"
+    elif "home" in low or "домашн" in low:
+        edition = "Home"
+    if ver and edition:
+        return f"{ver} {edition}"
+    if ver:
+        return ver
+    cleaned = re.sub(
+        r"^(Microsoft|Майкрософт)\s+", "", text, flags=re.IGNORECASE
+    ).strip()
+    return cleaned or "Не определена"
+
+
 def format_ram_gib(ram_bytes: object) -> str:
     try:
         n = int(ram_bytes or 0)
@@ -343,8 +383,10 @@ def meta_facet_matches(
     fresh_ok: bool = False,
     silence_status: Optional[str] = None,
 ) -> bool:
-    if os_filter and str(meta.get("os_caption") or meta.get("os") or "") != os_filter:
-        return False
+    if os_filter:
+        have_os = normalize_os_caption(meta.get("os_caption") or meta.get("os") or "")
+        if have_os != os_filter and str(meta.get("os_caption") or meta.get("os") or "") != os_filter:
+            return False
     if ram_filter and str(meta.get("ram_bucket") or "") != ram_filter:
         return False
     if disk_filter and str(meta.get("disk_bucket") or "") != disk_filter:

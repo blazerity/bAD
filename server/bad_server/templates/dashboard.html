@@ -1,17 +1,20 @@
 {% extends "base.html" %}
 {% from "macros/icons.html" import icon %}
 {% from "macros/ui.html" import local_time, device_link %}
-{% from "macros/charts.html" import conic_donut %}
+{% from "macros/charts.html" import conic_donut, rank_bars %}
 {% block title %}Дашборд — bAD{% endblock %}
 {% block content %}
+{% set park = dashboard.park_status or {} %}
+{% set net = park.network or {} %}
+{% set comp = park.compliance or {} %}
 <section class="page dashboard-page" data-dashboard>
   <header class="page-header page-header-row">
     <div>
       <h1 class="with-icon">{{ icon('dashboard') }}Дашборд</h1>
-      <p class="page-lead muted">Аналитика парка</p>
+      <p class="page-lead muted">Оперативный пульт парка</p>
     </div>
     <span class="badge badge-fresh-recent">
-      онлайн <span class="mono tnum">{{ stats.online }}</span> / <span class="mono tnum">{{ stats.total_active }}</span>
+      в сети <span class="mono tnum">{{ stats.online }}</span> / <span class="mono tnum">{{ stats.total_active }}</span>
     </span>
   </header>
 
@@ -19,153 +22,202 @@
     <div class="kpi-tile card-surface">
       <div class="kpi-icon kpi-icon-accent">{{ icon('devices') }}</div>
       <div>
-        <div class="kpi-label">Активных</div>
+        <div class="kpi-label">Всего ПК</div>
         <div class="kpi-value tnum">{{ stats.total_active }}</div>
       </div>
     </div>
-    <div class="kpi-tile card-surface">
+    <a class="kpi-tile card-surface kpi-tile-link" href="/devices?fresh=ok">
       <div class="kpi-icon kpi-icon-ok">{{ icon('network') }}</div>
       <div>
-        <div class="kpi-label">Онлайн / устарели</div>
-        <div class="kpi-value tnum">{{ stats.online }} / {{ stats.stale }}</div>
+        <div class="kpi-label">В сети</div>
+        <div class="kpi-value tnum">{{ stats.online }}</div>
       </div>
-    </div>
-    <div class="kpi-tile card-surface">
-      <div class="kpi-icon kpi-icon-warn">{{ icon('events') }}</div>
+    </a>
+    <a class="kpi-tile card-surface kpi-tile-link" href="/devices?wave=drift">
+      <div class="kpi-icon kpi-icon-warn">{{ icon('updates') }}</div>
       <div>
-        <div class="kpi-label">Критичные события</div>
-        <div class="kpi-value tnum">{{ critical_event_count }}</div>
-      </div>
-    </div>
-    <div class="kpi-tile card-surface">
-      <div class="kpi-icon kpi-icon-accent">{{ icon('updates') }}</div>
-      <div>
-        <div class="kpi-label">Drift агента</div>
+        <div class="kpi-label">Требуют обновления</div>
         <div class="kpi-value tnum">{{ ops.version_drift_count or 0 }}</div>
       </div>
-    </div>
-  </div>
-
-  {# ОС — на всю ширину по центру #}
-  <article class="dash-card card-surface dash-card-full dash-os-card">
-    <h2>ОС</h2>
-    {% set osb = dashboard.os_bars %}
-    {% if osb and osb['items'] %}
-    {{ conic_donut(osb['items'], 'chart-donut chart-donut--wide') }}
-    {% else %}<p class="muted">Нет данных</p>{% endif %}
-  </article>
-
-  {# ОЗУ и диски рядом #}
-  <div class="dash-grid-2 dash-bars-row">
-    <article class="dash-card card-surface">
-      <h2>ОЗУ в парке</h2>
-      {% set rb = dashboard.ram_bars %}
-      {% if rb and rb['items'] %}
-      <ul class="hbar-list dash-bar-links">
-        {% for row in rb['items'] %}
-        <li class="hbar-row">
-          {% if row.href and row.count %}<a href="{{ row.href }}" class="hbar-link-row">{% endif %}
-          <div class="hbar-meta"><span>{{ row.label }}</span><span class="muted tnum">{{ row.count }}</span></div>
-          <div class="hbar-track"><span class="hbar-fill" style="width: {{ row.pct }}%"></span></div>
-          {% if row.href and row.count %}</a>{% endif %}
-        </li>
-        {% endfor %}
-      </ul>
-      {% else %}<p class="muted">Нет данных</p>{% endif %}
-    </article>
-    <article class="dash-card card-surface">
-      <h2>Диски</h2>
-      {% set sb = dashboard.storage_bars %}
-      {% if sb and sb['items'] %}
-      <ul class="hbar-list dash-bar-links">
-        {% for row in sb['items'] %}
-        <li class="hbar-row">
-          {% if row.href and row.count %}<a href="{{ row.href }}" class="hbar-link-row">{% endif %}
-          <div class="hbar-meta"><span>{{ row.label }}</span><span class="muted tnum">{{ row.count }}</span></div>
-          <div class="hbar-track"><span class="hbar-fill" style="width: {{ row.pct }}%"></span></div>
-          {% if row.href and row.count %}</a>{% endif %}
-        </li>
-        {% endfor %}
-      </ul>
-      {% else %}<p class="muted">Нет данных</p>{% endif %}
-    </article>
-  </div>
-
-  {# Treemap (мозаика / «кубики»): площадь ∝ числу устройств #}
-  {% set cpu_items = dashboard.cpu_family_treemap["items"] or [] %}
-  <article class="dash-card card-surface dash-card-full dash-treemap-card">
-    <h2>Поколения CPU <span class="muted tnum">({{ cpu_items|length }})</span></h2>
-    {% if cpu_items %}
-    <div id="dash-cpu-treemap" class="dash-treemap dash-treemap--mosaic" data-treemap='{{ cpu_items|tojson }}'></div>
-    {% else %}<p class="muted">Нет данных</p>{% endif %}
-  </article>
-
-  <div class="dash-grid-2 dash-treemap-pair">
-    {% set laptop_items = dashboard.laptop_model_treemap["items"] or [] %}
-    <article class="dash-card card-surface dash-treemap-card">
-      <h2>Модели ноутбуков <span class="muted tnum">({{ laptop_items|length }})</span></h2>
-      {% if laptop_items %}
-      <div id="dash-laptop-treemap" class="dash-treemap dash-treemap--mosaic" data-treemap='{{ laptop_items|tojson }}'></div>
-      {% else %}<p class="muted">Нет данных</p>{% endif %}
-    </article>
-
-    {% set desktop_items = dashboard.desktop_model_treemap["items"] or [] %}
-    <article class="dash-card card-surface dash-treemap-card">
-      <h2>Модели СБ <span class="muted tnum">({{ desktop_items|length }})</span></h2>
-      {% if desktop_items %}
-      <div id="dash-desktop-treemap" class="dash-treemap dash-treemap--mosaic" data-treemap='{{ desktop_items|tojson }}'></div>
-      {% else %}<p class="muted">Нет данных</p>{% endif %}
-    </article>
-  </div>
-
-  <div class="dash-grid-3 dash-charts-secondary">
-    <article class="dash-card card-surface dash-park-stack">
-      <h2>Парк</h2>
-      {% set park = dashboard.park_bar %}
-      {% if park.total_active %}
-      <div class="park-bar park-bar-stacked">
-        {% for seg in park.segments %}
-        {% if seg.count %}
-        <a class="park-seg park-seg-{{ seg.id }}" href="{{ seg.href }}" style="width: {{ seg.pct }}%" title="{{ seg.label }}: {{ seg.count }}"></a>
-        {% endif %}
-        {% endfor %}
+    </a>
+    <a class="kpi-tile card-surface kpi-tile-link" href="/events?importance=critical">
+      <div class="kpi-icon kpi-icon-warn">{{ icon('events') }}</div>
+      <div>
+        <div class="kpi-label">Инциденты</div>
+        <div class="kpi-value tnum">{{ critical_event_count }}</div>
       </div>
-      <p class="muted park-legend">Онлайн {{ park.segments[0].count }} · устарели {{ park.segments[1].count }} · <a href="{{ park.archived.href }}">архив {{ park.archived.count }}</a></p>
-      {% else %}<p class="muted">Нет активных устройств.</p>{% endif %}
-    </article>
-    <article class="dash-card card-surface dash-gauges-wrap">
-      <h2>Доля парка</h2>
-      <div class="dash-gauges" data-online="{{ dashboard.gauges.online_pct }}" data-stale="{{ dashboard.gauges.stale_pct }}"></div>
-    </article>
-    <article class="dash-card card-surface">
-      <h2>{{ dashboard.event_sparkline.label }}</h2>
-      <div id="dash-event-sparkline" class="dash-sparkline" data-points='{{ dashboard.event_sparkline["items"]|tojson }}'></div>
-    </article>
+    </a>
   </div>
 
-  <div class="dash-grid-2">
-    <article class="dash-card card-surface">
-      <h2>Отстают по версии</h2>
-      {% if ops.version_drift_count and ops.version_drift %}
-      <ul class="hit-list">
-        {% for d in ops.version_drift[:6] %}
-        <li><a class="hit-row" href="/devices/{{ d.device_id }}"><span class="hit-row-title">{{ d.hostname or d.device_id }}</span><span class="muted hit-row-sub mono">{{ d.agent_version }}</span></a></li>
-        {% endfor %}
-      </ul>
-      <p class="muted"><a href="/devices?wave=drift">волна drift</a></p>
-      {% else %}<p class="muted">Нет drift.</p>{% endif %}
-    </article>
-    <article class="dash-card card-surface">
-      <h2>Критичные события</h2>
-      {% if critical_events %}
-      <ul class="hit-list">
-        {% for e in critical_events %}
-        <li><a class="hit-row" href="/events/{{ e.id }}"><span class="hit-row-title">{{ e.summary }}</span><span class="muted hit-row-sub">{{ local_time(e.created_at) }}</span></a></li>
-        {% endfor %}
-      </ul>
-      <p class="muted"><a href="/events?importance=critical">все критичные</a></p>
-      {% else %}<p class="muted">Нет критичных.</p>{% endif %}
-    </article>
+  <div class="dash-ops-grid">
+    <div class="dash-ops-main">
+      <article class="dash-card card-surface">
+        <div class="dash-card-head">
+          <h2>Динамика событий</h2>
+          <div class="dash-range-tabs" role="tablist" aria-label="Интервал">
+            <button type="button" class="dash-range-tab" data-days="7">7 д</button>
+            <button type="button" class="dash-range-tab is-active" data-days="14">14 д</button>
+            <button type="button" class="dash-range-tab" data-days="30">30 д</button>
+          </div>
+        </div>
+        <div
+          id="dash-event-chart"
+          class="dash-event-chart"
+          data-series='{{ dashboard.event_series.series|tojson }}'
+          data-days="{{ dashboard.event_series.days_default }}"
+        ></div>
+      </article>
+
+      <article class="dash-card card-surface">
+        <div class="dash-card-head">
+          <h2>Комплаенс и версионность</h2>
+          <span class="muted">Актуальная версия: <strong class="mono">{{ target_agent_version }}</strong></span>
+        </div>
+        {% if drift_rows %}
+        <ul class="dash-drift-list">
+          {% for d in drift_rows %}
+          <li class="dash-drift-row">
+            <div class="dash-drift-main">
+              <a href="{{ d.href }}" class="dash-drift-host">{{ d.hostname or d.device_id }}</a>
+              {% if d.user %}<span class="muted dash-drift-user">{{ d.user }}</span>{% endif %}
+            </div>
+            <span class="mono muted">{{ d.agent_version }}</span>
+            <span class="dash-depth-badge dash-depth-{{ d.depth_level }}">{{ d.depth_label }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+        <div class="dash-card-actions">
+          <a class="btn btn-compact" href="/devices?wave=drift">Сформировать волну обновления ({{ ops.version_drift_count or 0 }})</a>
+          <a class="btn secondary btn-compact" href="/settings/updates">Обновления агента</a>
+        </div>
+        {% else %}
+        <p class="muted">Все агенты на целевой версии.</p>
+        {% endif %}
+      </article>
+
+      <div class="dash-grid-2 dash-bars-row">
+        <article class="dash-card card-surface">
+          <h2>ОЗУ в парке</h2>
+          {% set rb = dashboard.ram_bars %}
+          {% if rb and rb['items'] %}
+          <ul class="hbar-list dash-bar-links">
+            {% for row in rb['items'] %}
+            <li class="hbar-row">
+              {% if row.href and row.count and not row.is_other %}<a href="{{ row.href }}" class="hbar-link-row">{% else %}<div class="hbar-link-row">{% endif %}
+              <div class="hbar-meta"><span>{{ row.label }}</span><span class="muted tnum">{{ row.count }}</span></div>
+              <div class="hbar-track"><span class="hbar-fill" style="width: {{ row.bar_pct or row.pct }}%"></span></div>
+              {% if row.href and row.count and not row.is_other %}</a>{% else %}</div>{% endif %}
+            </li>
+            {% endfor %}
+          </ul>
+          {% else %}<p class="muted">Нет данных</p>{% endif %}
+        </article>
+        <article class="dash-card card-surface">
+          <h2>Диски</h2>
+          {% set sb = dashboard.storage_bars %}
+          {% if sb and sb['items'] %}
+          <ul class="hbar-list dash-bar-links">
+            {% for row in sb['items'] %}
+            <li class="hbar-row">
+              {% if row.href and row.count and not row.is_other %}<a href="{{ row.href }}" class="hbar-link-row">{% else %}<div class="hbar-link-row">{% endif %}
+              <div class="hbar-meta"><span>{{ row.label }}</span><span class="muted tnum">{{ row.count }}</span></div>
+              <div class="hbar-track"><span class="hbar-fill" style="width: {{ row.bar_pct or row.pct }}%"></span></div>
+              {% if row.href and row.count and not row.is_other %}</a>{% else %}</div>{% endif %}
+            </li>
+            {% endfor %}
+          </ul>
+          {% else %}<p class="muted">Нет данных</p>{% endif %}
+        </article>
+      </div>
+    </div>
+
+    <div class="dash-ops-side">
+      <article class="dash-card card-surface">
+        <div class="dash-card-head">
+          <h2>Лента инцидентов</h2>
+        </div>
+        {% if incident_feed %}
+        <ul class="dash-incident-list">
+          {% for e in incident_feed %}
+          <li class="dash-incident-row">
+            <span class="dash-sev-badge dash-sev-{{ e.badge_level }}">{{ e.badge }}</span>
+            <div class="dash-incident-body">
+              <div class="dash-incident-top">
+                <a href="{{ e.device_href }}" class="dash-incident-host">{{ e.hostname }}</a>
+                {% if e.count and e.count > 1 %}<span class="dash-agg-count">×{{ e.count }}</span>{% endif %}
+                <span class="muted">{{ local_time(e.created_at) }}</span>
+              </div>
+              {% if e.user %}<div class="muted dash-incident-user">{{ e.user }}</div>{% endif %}
+              <a href="{{ e.href }}" class="dash-incident-summary">{{ e.summary }}</a>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="muted">Нет недавних инцидентов.</p>
+        {% endif %}
+        <p class="dash-card-actions">
+          <a href="/events?importance=critical">Все критичные события ({{ critical_event_count }})</a>
+          {% if high_event_count and high_event_count != critical_event_count %}
+          · <a href="/events?importance=high">высокая и выше ({{ high_event_count }})</a>
+          {% endif %}
+        </p>
+      </article>
+
+      <article class="dash-card card-surface">
+        <h2>Состояние парка</h2>
+        <div class="dash-park-total tnum">{{ park.total_active or stats.total_active }} <span class="muted">устройств</span></div>
+
+        <h3 class="dash-subhead">Сеть</h3>
+        <div class="park-bar park-bar-stacked">
+          {% if net.online and net.online.count %}
+          <a class="park-seg park-seg-online" href="{{ net.online.href }}" style="width: {{ net.online.pct }}%" title="В сети: {{ net.online.count }}"></a>
+          {% endif %}
+          {% if net.offline and net.offline.count %}
+          <a class="park-seg park-seg-offline" href="{{ net.offline.href }}" style="width: {{ net.offline.pct }}%" title="Не в сети: {{ net.offline.count }}"></a>
+          {% endif %}
+        </div>
+        <p class="muted park-legend">
+          В сети {{ net.online.count if net.online else 0 }}
+          · не в сети {{ net.offline.count if net.offline else 0 }}
+          {% if park.archived and park.archived.count %}
+          · <a href="{{ park.archived.href }}">архив {{ park.archived.count }}</a>
+          {% endif %}
+        </p>
+
+        <h3 class="dash-subhead">Версии агента</h3>
+        <div class="park-bar park-bar-stacked">
+          {% if comp.current and comp.current.count %}
+          <a class="park-seg park-seg-online" href="{{ comp.current.href }}" style="width: {{ comp.current.pct }}%" title="Актуальны: {{ comp.current.count }}"></a>
+          {% endif %}
+          {% if comp.needs_update and comp.needs_update.count %}
+          <a class="park-seg park-seg-drift" href="{{ comp.needs_update.href }}" style="width: {{ comp.needs_update.pct }}%" title="Требуют обновления: {{ comp.needs_update.count }}"></a>
+          {% endif %}
+        </div>
+        <p class="muted park-legend">
+          Актуальны {{ comp.current.count if comp.current else 0 }}
+          · требуют обновления {{ comp.needs_update.count if comp.needs_update else 0 }}
+        </p>
+      </article>
+
+      <article class="dash-card card-surface dash-os-card">
+        <h2>ОС</h2>
+        {% set osb = dashboard.os_bars %}
+        {% if osb and osb['items'] %}
+        {{ conic_donut(osb['items'], 'chart-donut', osb['center_total'] if osb['center_total'] is defined else stats.total_active, osb['center_label'] if osb['center_label'] is defined else 'ПК') }}
+        {% else %}<p class="muted">Нет данных</p>{% endif %}
+      </article>
+
+      <article class="dash-card card-surface">
+        {{ rank_bars(dashboard.cpu_bars, 'ТОП процессоров', 'dlg-cpu-others') }}
+      </article>
+      <article class="dash-card card-surface">
+        {{ rank_bars(dashboard.laptop_bars, 'ТОП ноутбуков', 'dlg-laptop-others') }}
+      </article>
+      <article class="dash-card card-surface">
+        {{ rank_bars(dashboard.desktop_bars, 'ТОП СБ', 'dlg-desktop-others') }}
+      </article>
+    </div>
   </div>
 </section>
 <script src="/static/dashboard-charts.js" defer></script>

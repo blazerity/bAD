@@ -806,28 +806,53 @@ class Database:
             )
 
     def count_events_by_utc_day(self, days: int = 14) -> list[dict[str, Any]]:
-        """Число событий по UTC-дате (YYYY-MM-DD) за последние days суток."""
+        """События по UTC-дате: count + critical/warning (важность по типу)."""
         from datetime import timedelta
 
+        from .event_importance import event_importance
+
         span = max(1, min(int(days or 14), 60))
-        cutoff_dt = datetime.now(timezone.utc) - timedelta(days=span)
-        cutoff = cutoff_dt.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        cutoff_dt = datetime.now(timezone.utc) - timedelta(days=span - 1)
+        cutoff_dt = cutoff_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+        cutoff = cutoff_dt.isoformat().replace("+00:00", "Z")
         with self.connection() as conn:
             rows = conn.execute(
                 """
-                SELECT LEFT(created_at::text, 10) AS day, COUNT(*)::bigint AS count
+                SELECT LEFT(created_at::text, 10) AS day, type, COUNT(*)::bigint AS count
                 FROM device_events
                 WHERE created_at >= ?
-                GROUP BY LEFT(created_at::text, 10)
+                GROUP BY LEFT(created_at::text, 10), type
                 ORDER BY day ASC
                 """,
                 (cutoff,),
             ).fetchall()
-        return [
-            {"day": str(r["day"]), "count": int(r["count"] or 0)}
-            for r in rows
-            if r and r["day"]
-        ]
+        by_day: dict[str, dict[str, int]] = {}
+        for r in rows:
+            if not r or not r["day"]:
+                continue
+            day = str(r["day"])
+            bucket = by_day.setdefault(day, {"count": 0, "critical": 0, "warning": 0})
+            n = int(r["count"] or 0)
+            bucket["count"] += n
+            lvl = event_importance(str(r["type"] or ""))
+            if lvl == "critical":
+                bucket["critical"] += n
+            elif lvl in {"high", "medium"}:
+                bucket["warning"] += n
+        # Заполнить пропуски нулями — иначе график «прыгает»
+        out: list[dict[str, Any]] = []
+        for i in range(span):
+            day = (cutoff_dt + timedelta(days=i)).strftime("%Y-%m-%d")
+            b = by_day.get(day) or {"count": 0, "critical": 0, "warning": 0}
+            out.append(
+                {
+                    "day": day,
+                    "count": int(b["count"]),
+                    "critical": int(b["critical"]),
+                    "warning": int(b["warning"]),
+                }
+            )
+        return out
 
     def count_device_events(
         self,

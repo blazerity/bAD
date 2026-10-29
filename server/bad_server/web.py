@@ -93,6 +93,7 @@ from .device_uninstall import (
     uninstall_ui_context,
 )
 from .ops_panel import (
+    aggregate_dashboard_incidents,
     build_attention_queue,
     build_bootstrap_checklist,
     build_bootstrap_progress,
@@ -100,6 +101,7 @@ from .ops_panel import (
     build_dashboard_stats,
     build_wave_counts,
     device_has_agent_local,
+    enrich_drift_rows,
     enrich_overview_ops_signals,
     filter_devices_by_wave,
     normalize_wave_filter,
@@ -1030,7 +1032,7 @@ def dashboard_page(
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    """Отдельная вкладка Дашборд: визуальные агрегаты D1–D5 (не /v1)."""
+    """Отдельная вкладка Дашборд: оперативный пульт (не /v1)."""
     active, _archived, stats, ops = _fleet_snapshot(db, settings)
     security = patch_security_for_qa(security_status(db, settings), settings)
     ops = merge_security_into_ops(ops, security)
@@ -1039,14 +1041,20 @@ def dashboard_page(
         stale_after_seconds=effective_stale_after_seconds(db, settings),
         stats=stats,
         active=active,
+        ops=ops,
     )
-    critical_events = db.list_device_events(
-        importance="critical", limit=8, include_detail=False
+    devices_by_id = {
+        str(d.get("device_id") or ""): d for d in active if d.get("device_id")
+    }
+    raw_incidents = db.list_device_events(
+        importance="high", limit=80, include_detail=False
     )
+    incident_feed = aggregate_dashboard_incidents(raw_incidents, devices_by_id)
     critical_event_count = db.count_device_events(importance="critical")
-    chassis_by_id = _chassis_map_for_devices(active)
-    for e in critical_events:
-        e["chassis_type"] = chassis_by_id.get(str(e.get("device_id") or ""), "other")
+    high_event_count = db.count_device_events(importance="high")
+    drift_rows = enrich_drift_rows(
+        list(ops.get("version_drift") or []), devices_by_id
+    )
     return _html(
         request,
         "dashboard.html",
@@ -1056,8 +1064,11 @@ def dashboard_page(
             "ops": ops,
             "security": security,
             "dashboard": dashboard,
-            "critical_events": critical_events,
+            "incident_feed": incident_feed,
             "critical_event_count": critical_event_count,
+            "high_event_count": high_event_count,
+            "drift_rows": drift_rows,
+            "target_agent_version": ops.get("latest_version") or "—",
             "stale_after_seconds": effective_stale_after_seconds(db, settings),
         },
     )
@@ -1263,10 +1274,10 @@ def _devices_catalog_filter_options(
     stats: dict[str, Any],
 ) -> dict[str, list[str]]:
     """Ярлыки фасетов как на дашборде + версии агента из парка."""
-    treemap = dashboard.get("cpu_family_treemap") or {}
+    cpu_block = dashboard.get("cpu_bars") or dashboard.get("cpu_family_treemap") or {}
     cpu_vals: list[str] = []
-    for item in treemap.get("items") or []:
-        if not isinstance(item, dict):
+    for item in cpu_block.get("items") or []:
+        if not isinstance(item, dict) or item.get("is_other"):
             continue
         label = str(item.get("label") or "").strip()
         if _facet_catalog_label_ok(label):
@@ -1661,12 +1672,13 @@ def devices_page(
     flash_msg = (flash or "").strip() or None
     if flash_msg and len(flash_msg) > 200:
         flash_msg = flash_msg[:200]
-    active_fleet, _archived, fleet_stats, _ops = _fleet_snapshot(db, settings)
+    active_fleet, _archived, fleet_stats, fleet_ops = _fleet_snapshot(db, settings)
     dashboard = build_dashboard_stats(
         db,
         stale_after_seconds=effective_stale_after_seconds(db, settings),
         stats=fleet_stats,
         active=active_fleet,
+        ops=fleet_ops,
     )
     catalog_filter_options = _devices_catalog_filter_options(
         active_fleet, dashboard, fleet_stats

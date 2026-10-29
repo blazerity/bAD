@@ -1,5 +1,5 @@
 {# Простые графики без внешних библиотек #}
-{% macro conic_donut(items, class_name='chart-donut') -%}
+{% macro conic_donut(items, class_name='chart-donut', center_total=none, center_label='') -%}
 {% set total = items|map(attribute='count')|sum %}
 {% if total < 1 %}
 <p class="muted">Нет данных</p>
@@ -27,7 +27,12 @@
     {% set ns.pos = ns.pos + slice %}
     {% endif %}
     {% endfor %}
-    <div class="chart-donut__ring-hole" aria-hidden="true"></div>
+    <div class="chart-donut__ring-hole" aria-hidden="true">
+      {% if center_total is not none %}
+      <span class="chart-donut__center-value tnum">{{ center_total }}</span>
+      {% if center_label %}<span class="chart-donut__center-label">{{ center_label }}</span>{% endif %}
+      {% endif %}
+    </div>
   </div>
   <ul class="chart-donut__legend">
     {% for row in items[:6] %}
@@ -45,5 +50,55 @@
     {% endfor %}
   </ul>
 </div>
+{% endif %}
+{%- endmacro %}
+
+{% macro rank_bars(block, title='', dialog_id='') -%}
+{% set items = (block.items if block else []) or [] %}
+{% if title %}<h3 class="dash-subhead">{{ title }}{% if items %} <span class="muted tnum">({{ items|length }})</span>{% endif %}</h3>{% endif %}
+{% if items %}
+<ul class="hbar-list dash-bar-links dash-rank-bars">
+  {% for row in items %}
+  <li class="hbar-row{% if row.is_other %} is-other{% endif %}">
+    {% if row.is_other and dialog_id and block.others_full %}
+    <button type="button" class="hbar-link-row dash-others-open" data-dialog="{{ dialog_id }}">
+      <div class="hbar-meta"><span>{{ row.label }}</span><span class="muted tnum">{{ row.count }}</span></div>
+      <div class="hbar-track"><span class="hbar-fill" style="width: {{ row.bar_pct or row.pct or 0 }}%"></span></div>
+    </button>
+    {% elif row.href and row.count %}
+    <a href="{{ row.href }}" class="hbar-link-row">
+      <div class="hbar-meta"><span>{{ row.label }}</span><span class="muted tnum">{{ row.count }}</span></div>
+      <div class="hbar-track"><span class="hbar-fill" style="width: {{ row.bar_pct or row.pct or 0 }}%"></span></div>
+    </a>
+    {% else %}
+    <div class="hbar-link-row">
+      <div class="hbar-meta"><span>{{ row.label }}</span><span class="muted tnum">{{ row.count }}</span></div>
+      <div class="hbar-track"><span class="hbar-fill" style="width: {{ row.bar_pct or row.pct or 0 }}%"></span></div>
+    </div>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% if dialog_id and block.others_full %}
+<dialog id="{{ dialog_id }}" class="dash-others-dialog">
+  <form method="dialog" class="dash-others-dialog__head">
+    <strong>Полный список</strong>
+    <button type="submit" class="btn secondary btn-compact" value="cancel">Закрыть</button>
+  </form>
+  <ul class="hit-list dash-others-list">
+    {% for row in block.others_full %}
+    <li>
+      {% if row.href %}
+      <a class="hit-row" href="{{ row.href }}"><span class="hit-row-title">{{ row.label }}</span><span class="muted hit-row-sub tnum">{{ row.count }}</span></a>
+      {% else %}
+      <span class="hit-row"><span class="hit-row-title">{{ row.label }}</span><span class="muted hit-row-sub tnum">{{ row.count }}</span></span>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</dialog>
+{% endif %}
+{% else %}
+<p class="muted">Нет данных</p>
 {% endif %}
 {%- endmacro %}
