@@ -16,6 +16,93 @@ from .fleet_buckets import (
 
 CHASSIS_TYPES = frozenset({"laptop", "desktop", "server", "vm", "other"})
 
+# Placeholder / мусор WMI — не индексируем в поиск
+_SERIAL_PLACEHOLDERS = frozenset(
+    {
+        "",
+        "none",
+        "n/a",
+        "na",
+        "null",
+        "unknown",
+        "to be filled by o.e.m.",
+        "to be filled by oem",
+        "default string",
+        "system serial number",
+        "chassis serial number",
+        "base board serial number",
+        "0",
+        "00000000",
+        "0000000000000000",
+    }
+)
+
+
+def normalize_search_serial(raw: object) -> Optional[str]:
+    """Очистить серийник для индекса поиска (мониторы/диски/ОЗУ/плата)."""
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    if text.casefold() in _SERIAL_PLACEHOLDERS:
+        return None
+    return text
+
+
+def collect_hardware_serials(hardware: Optional[dict[str, Any]]) -> dict[str, list[str]]:
+    """Все серийники из снимка hardware: ПК, BIOS, плата, диски, мониторы, ОЗУ."""
+    out: dict[str, list[str]] = {
+        "chassis": [],
+        "disk_serials": [],
+        "monitor_serials": [],
+        "ram_serials": [],
+        "all": [],
+    }
+    if not isinstance(hardware, dict):
+        return out
+    seen_all: set[str] = set()
+    seen_bucket: dict[str, set[str]] = {
+        "chassis": set(),
+        "disk_serials": set(),
+        "monitor_serials": set(),
+        "ram_serials": set(),
+    }
+
+    def _add(bucket: str, raw: object) -> None:
+        serial = normalize_search_serial(raw)
+        if not serial:
+            return
+        key = serial.casefold()
+        bucket_seen = seen_bucket[bucket]
+        if key not in bucket_seen:
+            bucket_seen.add(key)
+            out[bucket].append(serial)
+        if key not in seen_all:
+            seen_all.add(key)
+            out["all"].append(serial)
+
+    for key in (
+        "serial_number",
+        "bios_serial",
+        "identifying_number",
+        "baseboard_serial",
+        "smbios_uuid",
+    ):
+        _add("chassis", hardware.get(key))
+
+    for disk in hardware.get("disks") or []:
+        if isinstance(disk, dict):
+            _add("disk_serials", disk.get("serial_number"))
+
+    for mon in hardware.get("monitors") or []:
+        if isinstance(mon, dict):
+            _add("monitor_serials", mon.get("serial_number"))
+
+    for mod in hardware.get("ram_modules") or []:
+        if isinstance(mod, dict):
+            _add("ram_serials", mod.get("serial_number"))
+
+    return out
+
 
 def normalize_logged_on_user(entry: object) -> Optional[str]:
     """Строка для UI/поиска: str, либо dict с username/user и опционально domain."""
@@ -100,6 +187,15 @@ def inventory_meta_cache(
             cpu_name = cpu.get("name")
             if cpu_name is not None and str(cpu_name).strip():
                 out["cpu_name"] = str(cpu_name).strip()
+        serials = collect_hardware_serials(hardware)
+        if serials["disk_serials"]:
+            out["disk_serials"] = serials["disk_serials"]
+        if serials["monitor_serials"]:
+            out["monitor_serials"] = serials["monitor_serials"]
+        if serials["ram_serials"]:
+            out["ram_serials"] = serials["ram_serials"]
+        if serials["all"]:
+            out["search_serials"] = serials["all"]
     if network and isinstance(network, dict):
         ips: list[str] = []
         macs: list[str] = []
@@ -214,4 +310,10 @@ def meta_search_haystack(meta: dict[str, Any]) -> str:
         bits.append(str(mac or ""))
     for disk in meta.get("disk_serials") or []:
         bits.append(str(disk or ""))
+    for mon in meta.get("monitor_serials") or []:
+        bits.append(str(mon or ""))
+    for ram in meta.get("ram_serials") or []:
+        bits.append(str(ram or ""))
+    for serial in meta.get("search_serials") or []:
+        bits.append(str(serial or ""))
     return " ".join(bits).casefold()

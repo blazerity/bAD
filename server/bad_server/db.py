@@ -574,12 +574,14 @@ class Database:
     def search_devices_global(
         self, q: str, *, limit: int = 25
     ) -> list[dict[str, Any]]:
-        """ILIKE по hostname, id, meta/tags (Postgres)."""
+        """ILIKE по hostname, id, meta/tags и серийникам в последних inventory."""
         query = (q or "").strip()
         if not query:
             return []
         cap = max(1, min(int(limit), 50))
         like = f"%{query}%"
+        # meta_json уже содержит disk/monitor/ram serials после свежего inventory;
+        # payload_json — запасной путь для старых снимков до обновления meta.
         sql = """
             SELECT device_id, bad_id, hostname, enrolled_at, last_seen_at,
                    agent_version, meta_json, tags_json, revoked, archived
@@ -589,11 +591,18 @@ class Database:
                OR bad_id ILIKE ?
                OR COALESCE(meta_json, '') ILIKE ?
                OR COALESCE(tags_json, '') ILIKE ?
+               OR EXISTS (
+                    SELECT 1 FROM inventory_snapshots s
+                    WHERE s.device_id = devices.device_id
+                      AND s.payload_json ILIKE ?
+               )
             ORDER BY COALESCE(last_seen_at, enrolled_at) DESC NULLS LAST
             LIMIT ?
         """
         with self.connection() as conn:
-            rows = conn.execute(sql, (like, like, like, like, like, cap)).fetchall()
+            rows = conn.execute(
+                sql, (like, like, like, like, like, like, cap)
+            ).fetchall()
         return [self._device_row_dict(row) for row in rows]
 
     def get_device_event(self, event_id: int) -> Optional[dict[str, Any]]:

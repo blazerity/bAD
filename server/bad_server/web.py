@@ -81,6 +81,7 @@ from .panel_search import (
     device_search_meta_line,
     event_match_label,
     highlight_match,
+    matched_serial_subtitle,
 )
 from .bad_id import device_panel_href
 from .fleet_buckets import disk_role, meta_facet_matches
@@ -1101,11 +1102,21 @@ def overview_search_json(
         offset=0,
         include_detail=False,
     )
-    chassis_by_id = _chassis_map_for_devices(devices)
+    payloads = db.latest_inventory_payloads(
+        [str(d.get("device_id") or "") for d in devices],
+        cap=max(len(devices), 1),
+    )
     dev_out = []
     for d in devices:
         did = d["device_id"]
         label = d.get("hostname") or did
+        hw = None
+        payload = payloads.get(str(did))
+        if isinstance(payload, dict):
+            raw_hw = payload.get("hardware")
+            hw = raw_hw if isinstance(raw_hw, dict) else None
+        reason = device_match_label(d, query, hardware=hw)
+        subtitle = matched_serial_subtitle(d, query, hardware=hw) or reason
         dev_out.append(
             {
                 "kind": "device",
@@ -1114,12 +1125,9 @@ def overview_search_json(
                 "hostname": label,
                 "href": device_panel_href(d.get("bad_id"), did),
                 "chassis_type": _chassis_type_from_device(d),
-                "match_reason": device_match_label(d, query),
+                "match_reason": reason,
                 "title_html": highlight_match(label, query),
-                "subtitle_html": highlight_match(
-                    device_search_meta_line(d) or device_match_label(d, query),
-                    query,
-                ),
+                "subtitle_html": highlight_match(subtitle, query),
                 "archived": bool(d.get("archived")),
             }
         )
@@ -1944,10 +1952,24 @@ def devices_search_json(
         if len(query) >= 2
         else db.list_devices(archived=False, q=query, limit=cap)
     )
+    payloads = (
+        db.latest_inventory_payloads(
+            [str(d.get("device_id") or "") for d in rows],
+            cap=max(len(rows), 1),
+        )
+        if len(query) >= 2
+        else {}
+    )
     out = []
     for d in rows:
         label = d.get("hostname") or d["device_id"]
-        meta_line = device_search_meta_line(d) or _search_match_reason(d, query)
+        hw = None
+        payload = payloads.get(str(d.get("device_id") or ""))
+        if isinstance(payload, dict):
+            raw_hw = payload.get("hardware")
+            hw = raw_hw if isinstance(raw_hw, dict) else None
+        reason = device_match_label(d, query, hardware=hw)
+        meta_line = matched_serial_subtitle(d, query, hardware=hw) or reason
         out.append(
             {
                 "device_id": d["device_id"],
@@ -1955,7 +1977,7 @@ def devices_search_json(
                 "href": device_panel_href(d.get("bad_id"), d["device_id"]),
                 "chassis_type": _chassis_type_from_device(d),
                 "chassis_label": _format_chassis(_chassis_type_from_device(d)),
-                "match_reason": _search_match_reason(d, query),
+                "match_reason": reason,
                 "title_html": highlight_match(label, query),
                 "subtitle_html": highlight_match(meta_line, query),
             }

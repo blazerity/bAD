@@ -77,7 +77,13 @@
               return (
                 r.indexOf("serial") >= 0 ||
                 r.indexOf("серий") >= 0 ||
-                r.indexOf("uuid") >= 0
+                r.indexOf("uuid") >= 0 ||
+                r.indexOf("bios") >= 0 ||
+                r.indexOf("плат") >= 0 ||
+                r.indexOf("диск") >= 0 ||
+                r.indexOf("монитор") >= 0 ||
+                r.indexOf("озу") >= 0 ||
+                r.indexOf("identifying") >= 0
               );
             })
           : [];

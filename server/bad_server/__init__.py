@@ -19,7 +19,7 @@ def _read_server_version() -> str:
                     return text.splitlines()[0].strip()
             except OSError:
                 continue
-    return "2.2.4"
+    return "2.2.5"
 
 
 __version__ = _read_server_version()
