@@ -205,6 +205,10 @@ CREATE TABLE IF NOT EXISTS smtp_settings (
   to_addrs TEXT NOT NULL DEFAULT '',
   notify_json TEXT NOT NULL DEFAULT '',
   digest_interval_hours INTEGER NOT NULL DEFAULT 3,
+  digest_lookback_hours INTEGER NOT NULL DEFAULT 3,
+  digest_window_start_hour INTEGER NOT NULL DEFAULT 9,
+  digest_window_end_hour INTEGER NOT NULL DEFAULT 19,
+  digest_weekdays TEXT NOT NULL DEFAULT '[0,1,2,3,4,5]',
   updated_at TEXT
 );
 

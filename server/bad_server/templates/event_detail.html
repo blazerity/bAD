@@ -13,8 +13,22 @@
 
   <article class="event-digest-card polarity-{{ visual.polarity }}">
     <header class="event-digest-card__device">
-      {{ device_link(event.device_id, event.hostname or event.device_id, chassis_type) }}
-      <span class="mono muted">{{ event.device_id }}</span>
+      <div class="event-digest-card__device-head">
+        {{ device_link(event.device_id, event.hostname or event.device_id, chassis_type) }}
+        <span class="mono muted">{{ event.device_id }}</span>
+      </div>
+      {% if hardware_model %}
+      <p class="event-digest-card__device-meta muted">
+        Модель:
+        {% if hardware_manufacturer %}{{ hardware_manufacturer }} {% endif %}{{ hardware_model }}
+      </p>
+      {% endif %}
+      {% if user_display_name %}
+      <p class="event-digest-card__device-meta">
+        <span class="user-presence-{{ user_presence }}">{{ user_display_name }}</span>
+        {% if user_presence_caption %}<span class="muted">{{ user_presence_caption }}</span>{% endif %}
+      </p>
+      {% endif %}
     </header>
     <div class="event-digest-card__row">
       <span class="event-digest-card__icon" aria-hidden="true">{{ icon(visual.icon) }}</span>

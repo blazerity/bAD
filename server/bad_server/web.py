@@ -134,7 +134,10 @@ from .smtp_mail import (
     DEFAULT_NOTIFY,
     NOTIFY_LABELS_RU,
     build_hardware_email,
+    default_digest_weekdays,
+    digest_schedule_preview_ru,
     dump_notify_flags,
+    parse_digest_weekdays,
     parse_notify_flags,
     parse_recipients,
     send_email,
@@ -206,12 +209,16 @@ _EVENT_TYPE_LABELS_RU = {
     "ram_module_added": "Планка ОЗУ+",
     "ram_module_removed": "Планка ОЗУ−",
     "volume_free_drop": "Свободное место",
+    "volume_free_critical": "Мало места на диске",
     "nic_ipv4_change": "IPv4",
     "logged_on_change": "Пользователи",
     "last_interactive_change": "Интерактивный вход",
+    "usb_added": "USB подключено",
+    "usb_removed": "USB отключено",
     "device_merged": "Объединение",
     "device_enrolled": "Регистрация устройства",
     "device_stale": "Устройство устарело",
+    "device_back_online": "Снова на связи",
 }
 
 
@@ -800,7 +807,19 @@ class SmtpFormData:
         notify_hostname: Optional[str] = Form(None),
         notify_domain: Optional[str] = Form(None),
         notify_pending_reboot: Optional[str] = Form(None),
+        notify_online: Optional[str] = Form(None),
+        notify_disk_space: Optional[str] = Form(None),
         digest_interval_hours: str = Form("3"),
+        digest_lookback_hours: str = Form("3"),
+        digest_window_start_hour: str = Form("9"),
+        digest_window_end_hour: str = Form("19"),
+        digest_wd_0: Optional[str] = Form(None),
+        digest_wd_1: Optional[str] = Form(None),
+        digest_wd_2: Optional[str] = Form(None),
+        digest_wd_3: Optional[str] = Form(None),
+        digest_wd_4: Optional[str] = Form(None),
+        digest_wd_5: Optional[str] = Form(None),
+        digest_wd_6: Optional[str] = Form(None),
     ):
         self.enabled = enabled
         self.host = host
@@ -817,7 +836,19 @@ class SmtpFormData:
         self.notify_hostname = notify_hostname
         self.notify_domain = notify_domain
         self.notify_pending_reboot = notify_pending_reboot
+        self.notify_online = notify_online
+        self.notify_disk_space = notify_disk_space
         self.digest_interval_hours = digest_interval_hours
+        self.digest_lookback_hours = digest_lookback_hours
+        self.digest_window_start_hour = digest_window_start_hour
+        self.digest_window_end_hour = digest_window_end_hour
+        self.digest_wd_0 = digest_wd_0
+        self.digest_wd_1 = digest_wd_1
+        self.digest_wd_2 = digest_wd_2
+        self.digest_wd_3 = digest_wd_3
+        self.digest_wd_4 = digest_wd_4
+        self.digest_wd_5 = digest_wd_5
+        self.digest_wd_6 = digest_wd_6
 
 
 _FLEET_SNAPSHOT_TTL_SEC = 8.0
@@ -2024,10 +2055,39 @@ def event_detail_page(
 
     device_id = str(event.get("device_id") or "")
     chassis = "other"
+    user_display_name = None
+    user_presence = ""
+    user_presence_caption = ""
+    hardware_model = None
+    hardware_manufacturer = None
+    device_detail = None
     if device_id:
-        detail = db.get_device_detail(device_id)
-        if detail:
-            chassis = _chassis_type_from_device(detail)
+        device_detail = db.get_device_detail(device_id)
+        if device_detail:
+            chassis = _chassis_type_from_device(device_detail)
+            device_meta = (
+                device_detail.get("meta")
+                if isinstance(device_detail.get("meta"), dict)
+                else {}
+            )
+            presence = str(device_meta.get("user_presence") or "")
+            if presence == "online":
+                user_names = normalize_logged_on_list(device_meta.get("logged_on"))
+                user_display_name = user_names[0] if user_names else None
+                user_presence = "online"
+                user_presence_caption = "в системе"
+            else:
+                user_display_name = device_meta.get("last_logged_on") or None
+                user_presence = "last" if user_display_name else ""
+                user_presence_caption = (
+                    "последний" if user_display_name else ""
+                )
+            hw_model = device_meta.get("hardware_model")
+            if hw_model:
+                hardware_model = str(hw_model).strip()
+            hw_mfr = device_meta.get("hardware_manufacturer")
+            if hw_mfr:
+                hardware_manufacturer = str(hw_mfr).strip()
     visual = event_visual(str(event.get("type") or ""))
     if visual.get("icon") == "host":
         visual = {**visual, "icon": "devices"}
@@ -2048,6 +2108,11 @@ def event_detail_page(
             "chassis_type": chassis,
             "permalink": permalink,
             "detail_pretty": detail_pretty,
+            "user_display_name": user_display_name,
+            "user_presence": user_presence,
+            "user_presence_caption": user_presence_caption,
+            "hardware_model": hardware_model,
+            "hardware_manufacturer": hardware_manufacturer,
         },
     )
 
@@ -2099,9 +2164,12 @@ def events_page(
         date_to=date_to_f,
         include_detail=False,
     )
+    from .smtp_mail import event_visual
+
     chassis_by_id = _chassis_map_for_devices(db.list_devices(archived=None))
     for e in events:
         e["chassis_type"] = chassis_by_id.get(str(e.get("device_id") or ""), "other")
+        e["event_icon"] = event_visual(str(e.get("type") or "")).get("icon") or "events"
     today_d = datetime.now(timezone.utc).date()
     yesterday_d = today_d - timedelta(days=1)
     chip_kw = {
@@ -3611,7 +3679,22 @@ def _smtp_form_context(
             "from_addr": row.get("from_addr") or "",
             "to_addrs": row.get("to_addrs") or "",
             "digest_interval_hours": int(row.get("digest_interval_hours") or 3),
+            "digest_lookback_hours": int(row.get("digest_lookback_hours") or 3),
+            "digest_window_start_hour": int(row.get("digest_window_start_hour") or 9),
+            "digest_window_end_hour": int(row.get("digest_window_end_hour") or 19),
+            "digest_weekdays": row.get("digest_weekdays_list")
+            or parse_digest_weekdays(row.get("digest_weekdays")),
         },
+        "digest_schedule_preview": digest_schedule_preview_ru(row),
+        "digest_weekday_labels": [
+            (0, "Пн"),
+            (1, "Вт"),
+            (2, "Ср"),
+            (3, "Чт"),
+            (4, "Пт"),
+            (5, "Сб"),
+            (6, "Вс"),
+        ],
     }
 
 
@@ -3626,12 +3709,37 @@ def _parse_smtp_form(form: SmtpFormData) -> tuple[dict, Optional[str]]:
         digest_h = int((form.digest_interval_hours or "3").strip())
     except ValueError:
         return {}, "Интервал сводки должен быть целым числом часов"
-    if digest_h < 1 or digest_h > 48:
-        return {}, "Интервал сводки: от 1 до 48 часов"
+    if digest_h < 1 or digest_h > 24:
+        return {}, "Интервал сводки: от 1 до 24 часов"
+    try:
+        lookback_h = int((form.digest_lookback_hours or "3").strip())
+    except ValueError:
+        return {}, "Окно событий (lookback) должно быть целым числом часов"
+    if lookback_h < 1 or lookback_h > 168:
+        return {}, "Окно событий: от 1 до 168 часов"
+    try:
+        win_start = int((form.digest_window_start_hour or "9").strip())
+        win_end = int((form.digest_window_end_hour or "19").strip())
+    except ValueError:
+        return {}, "Часы окна сводки должны быть целыми (0–24)"
+    if win_start < 0 or win_start > 23:
+        return {}, "Начало окна: час от 0 до 23"
+    if win_end < 1 or win_end > 24:
+        return {}, "Конец окна: час от 1 до 24 (не включительно)"
+    if win_end <= win_start:
+        return {}, "Конец окна должен быть позже начала"
+    weekdays: list[int] = []
+    for wd in range(7):
+        if getattr(form, f"digest_wd_{wd}", None) is not None:
+            weekdays.append(wd)
+    if not weekdays:
+        weekdays = default_digest_weekdays()
     flags = {key: False for key in DEFAULT_NOTIFY}
     notify_flags = {
         "hardware": form.notify_hardware,
         "stale": form.notify_stale,
+        "online": form.notify_online,
+        "disk_space": form.notify_disk_space,
         "enroll": form.notify_enroll,
         "hostname": form.notify_hostname,
         "domain": form.notify_domain,
@@ -3651,6 +3759,10 @@ def _parse_smtp_form(form: SmtpFormData) -> tuple[dict, Optional[str]]:
         "from_addr": (form.from_addr or "").strip(),
         "to_addrs": (form.to_addrs or "").strip(),
         "digest_interval_hours": digest_h,
+        "digest_lookback_hours": lookback_h,
+        "digest_window_start_hour": win_start,
+        "digest_window_end_hour": win_end,
+        "digest_weekdays": json.dumps(weekdays, separators=(",", ":")),
         "notify_json": dump_notify_flags(flags),
     }, None
 
@@ -3848,6 +3960,10 @@ def mail_settings_save(
         to_addrs=parsed["to_addrs"],
         notify_json=parsed["notify_json"],
         digest_interval_hours=parsed["digest_interval_hours"],
+        digest_lookback_hours=parsed["digest_lookback_hours"],
+        digest_window_start_hour=parsed["digest_window_start_hour"],
+        digest_window_end_hour=parsed["digest_window_end_hour"],
+        digest_weekdays=parsed["digest_weekdays"],
         password_enc=enc,
     )
     return _html(
@@ -3922,6 +4038,10 @@ def mail_settings_test(
             "to_addrs": parsed["to_addrs"],
             "notify_json": parsed["notify_json"],
             "digest_interval_hours": parsed["digest_interval_hours"],
+            "digest_lookback_hours": parsed["digest_lookback_hours"],
+            "digest_window_start_hour": parsed["digest_window_start_hour"],
+            "digest_window_end_hour": parsed["digest_window_end_hour"],
+            "digest_weekdays": parsed["digest_weekdays"],
         }
     )
     return _html(

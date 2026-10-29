@@ -47,6 +47,30 @@ class Database:
             )
             conn.execute(
                 """
+                ALTER TABLE smtp_settings
+                ADD COLUMN IF NOT EXISTS digest_lookback_hours INTEGER NOT NULL DEFAULT 3
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE smtp_settings
+                ADD COLUMN IF NOT EXISTS digest_window_start_hour INTEGER NOT NULL DEFAULT 9
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE smtp_settings
+                ADD COLUMN IF NOT EXISTS digest_window_end_hour INTEGER NOT NULL DEFAULT 19
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE smtp_settings
+                ADD COLUMN IF NOT EXISTS digest_weekdays TEXT NOT NULL DEFAULT '[0,1,2,3,4,5]'
+                """
+            )
+            conn.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_device_events_unmailed
                 ON device_events(mailed_at) WHERE mailed_at IS NULL
                 """
@@ -2524,7 +2548,29 @@ class Database:
             val = int(raw)
         except (TypeError, ValueError):
             val = 3
-        return max(1, min(val, 48))
+        return max(1, min(val, 24))
+
+    @staticmethod
+    def _clamp_digest_lookback_hours(raw: Any) -> int:
+        try:
+            val = int(raw)
+        except (TypeError, ValueError):
+            val = 3
+        return max(1, min(val, 168))
+
+    @staticmethod
+    def _clamp_digest_window_hour(raw: Any, *, default: int, hi: int) -> int:
+        try:
+            val = int(raw)
+        except (TypeError, ValueError):
+            val = default
+        return max(0, min(val, hi))
+
+    @staticmethod
+    def _normalize_digest_weekdays(raw: Any) -> list[int]:
+        from .smtp_mail import parse_digest_weekdays
+
+        return parse_digest_weekdays(raw)
 
     def get_smtp_settings(self) -> dict[str, Any]:
         from .smtp_mail import dump_notify_flags, parse_notify_flags
@@ -2545,11 +2591,30 @@ class Database:
                 "notify_json": dump_notify_flags({}),
                 "notify": parse_notify_flags({}),
                 "digest_interval_hours": 3,
+                "digest_lookback_hours": 3,
+                "digest_window_start_hour": 9,
+                "digest_window_end_hour": 19,
+                "digest_weekdays": "[0,1,2,3,4,5]",
                 "updated_at": None,
             }
         data = dict(row)
         data["digest_interval_hours"] = self._clamp_digest_interval_hours(
             data.get("digest_interval_hours")
+        )
+        data["digest_lookback_hours"] = self._clamp_digest_lookback_hours(
+            data.get("digest_lookback_hours")
+        )
+        data["digest_window_start_hour"] = self._clamp_digest_window_hour(
+            data.get("digest_window_start_hour"), default=9, hi=23
+        )
+        data["digest_window_end_hour"] = self._clamp_digest_window_hour(
+            data.get("digest_window_end_hour"), default=19, hi=24
+        )
+        data["digest_weekdays_list"] = self._normalize_digest_weekdays(
+            data.get("digest_weekdays")
+        )
+        data["digest_weekdays"] = json.dumps(
+            data["digest_weekdays_list"], separators=(",", ":")
         )
         data["notify"] = parse_notify_flags(data.get("notify_json"))
         if not (data.get("notify_json") or "").strip():
@@ -2568,11 +2633,28 @@ class Database:
         from_addr: str,
         to_addrs: str,
         digest_interval_hours: int = 3,
+        digest_lookback_hours: int = 3,
+        digest_window_start_hour: int = 9,
+        digest_window_end_hour: int = 19,
+        digest_weekdays: Optional[str] = None,
         notify_json: Optional[str] = None,
         password_enc: Optional[str] = None,
     ) -> None:
         now = utc_now()
         digest_h = self._clamp_digest_interval_hours(digest_interval_hours)
+        lookback_h = self._clamp_digest_lookback_hours(digest_lookback_hours)
+        start_h = self._clamp_digest_window_hour(
+            digest_window_start_hour, default=9, hi=23
+        )
+        end_h = self._clamp_digest_window_hour(
+            digest_window_end_hour, default=19, hi=24
+        )
+        if end_h <= start_h:
+            end_h = min(24, start_h + 1)
+        wd_json = digest_weekdays
+        if wd_json is not None:
+            wd_list = self._normalize_digest_weekdays(wd_json)
+            wd_json = json.dumps(wd_list, separators=(",", ":"))
         sets = [
             "enabled = ?",
             "host = ?",
@@ -2597,8 +2679,19 @@ class Database:
         if notify_json is not None:
             sets.append("notify_json = ?")
             params.append(notify_json)
-        sets.extend(["digest_interval_hours = ?", "updated_at = ?"])
-        params.extend([digest_h, now])
+        sets.extend(
+            [
+                "digest_interval_hours = ?",
+                "digest_lookback_hours = ?",
+                "digest_window_start_hour = ?",
+                "digest_window_end_hour = ?",
+                "updated_at = ?",
+            ]
+        )
+        params.extend([digest_h, lookback_h, start_h, end_h, now])
+        if wd_json is not None:
+            sets.insert(-1, "digest_weekdays = ?")
+            params.insert(-1, wd_json)
         with self.connection() as conn:
             conn.execute(
                 f"UPDATE smtp_settings SET {', '.join(sets)} WHERE id = 1",
@@ -2633,9 +2726,22 @@ class Database:
                 if meta.get("stale_notified_at"):
                     continue
                 out.append(d)
-            elif meta.get("stale_notified_at"):
-                # Восстановилось — сбросить флаг, чтобы следующий сбой снова алертил.
-                self.patch_device_meta(d["device_id"], {"stale_notified_at": None})
+        return out
+
+    def devices_recovered_from_stale(
+        self, *, stale_after_seconds: int
+    ) -> list[dict[str, Any]]:
+        """Было stale_notified_at, снова heartbeat — для device_back_online."""
+        from .device_health import device_silence_status
+
+        out: list[dict[str, Any]] = []
+        for d in self.list_devices(archived=False):
+            silence = device_silence_status(
+                d.get("last_seen_at"), stale_after_seconds=stale_after_seconds
+            )
+            meta = d.get("meta") or {}
+            if silence["status"] != "stale" and meta.get("stale_notified_at"):
+                out.append(d)
         return out
 
 

@@ -64,18 +64,9 @@
 
     <h2>Какие события слать</h2>
     <p class="hint">
-      По умолчанию включены: железо, устаревание, новая регистрация.
-      Hostname/domain — выключены.
-      Все включённые уведомления (железо, регистрация, устаревание, hostname,
-      domain, pending reboot) копятся и уходят одним письмом-сводкой
-      с группировкой по устройствам.
+      По умолчанию: железо, устаревание, снова на связи, место на диске, регистрация.
+      Hostname/domain — выключены. Включённые типы копятся в одну сводку по устройствам.
     </p>
-
-    <label for="digest_interval_hours">Интервал сводки, часы</label>
-    <input id="digest_interval_hours" name="digest_interval_hours" type="number"
-      min="1" max="48" value="{{ smtp.digest_interval_hours }}"
-      {% if tls_mode == 'http' %}disabled{% endif %}>
-    <p class="hint">Как часто отправлять накопленную сводку уведомлений (1–48, по умолчанию 3).</p>
     {% for key, label in notify_labels %}
     <label class="check">
       <input type="checkbox" name="notify_{{ key }}" value="1"
@@ -84,6 +75,50 @@
       {{ label }}
     </label>
     {% endfor %}
+
+    <h2>Расписание сводки</h2>
+    {% if digest_schedule_preview %}
+    <p class="hint digest-schedule-preview">{{ digest_schedule_preview }}</p>
+    {% endif %}
+    <label for="digest_interval_hours">Шаг между слотами, часы</label>
+    <input id="digest_interval_hours" name="digest_interval_hours" type="number"
+      min="1" max="24" value="{{ smtp.digest_interval_hours }}"
+      {% if tls_mode == 'http' %}disabled{% endif %}>
+
+    <label for="digest_lookback_hours">Окно событий в тексте письма, часы</label>
+    <input id="digest_lookback_hours" name="digest_lookback_hours" type="number"
+      min="1" max="168" value="{{ smtp.digest_lookback_hours }}"
+      {% if tls_mode == 'http' %}disabled{% endif %}>
+
+    <div class="digest-window-row">
+      <div>
+        <label for="digest_window_start_hour">Начало окна (0–23)</label>
+        <input id="digest_window_start_hour" name="digest_window_start_hour" type="number"
+          min="0" max="23" value="{{ smtp.digest_window_start_hour }}"
+          {% if tls_mode == 'http' %}disabled{% endif %}>
+      </div>
+      <div>
+        <label for="digest_window_end_hour">Конец окна (1–24, не включ.)</label>
+        <input id="digest_window_end_hour" name="digest_window_end_hour" type="number"
+          min="1" max="24" value="{{ smtp.digest_window_end_hour }}"
+          {% if tls_mode == 'http' %}disabled{% endif %}>
+      </div>
+    </div>
+    <p class="hint">Сводка — в первые 10 минут слота (локальное время сервера).</p>
+
+    <fieldset class="digest-weekdays">
+      <legend>Дни недели</legend>
+      {% set wd_labels = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'] %}
+      {% set wd_set = smtp.digest_weekdays %}
+      {% for i in range(7) %}
+      <label class="check digest-wd-check">
+        <input type="checkbox" name="digest_wd_{{ i }}" value="1"
+          {% if i in wd_set %}checked{% endif %}
+          {% if tls_mode == 'http' %}disabled{% endif %}>
+        {{ wd_labels[i] }}
+      </label>
+      {% endfor %}
+    </fieldset>
 
     <div class="form-actions">
       <button type="submit" {% if tls_mode == 'http' %}disabled title="Доступно после защищённого соединения"{% endif %}>Сохранить</button>

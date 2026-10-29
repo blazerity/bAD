@@ -21,7 +21,7 @@ from .db import Database, open_database, utc_now
 from .device_health import effective_stale_after_seconds
 from .rate_limit import SlidingWindowRateLimiter
 from .security import hash_secret
-from .smtp_mail import flush_inventory_mail_digest, notify_stale_device
+from .smtp_mail import flush_inventory_mail_digest, notify_device_back_online, notify_stale_device
 from .web import router as web_router
 
 logger = logging.getLogger(__name__)
@@ -171,7 +171,20 @@ async def _stale_alert_loop(app: FastAPI) -> None:
                         db.patch_device_meta(
                             device["device_id"], {"stale_notified_at": utc_now()}
                         )
-                    return len(needing)
+                    recovered = db.devices_recovered_from_stale(
+                        stale_after_seconds=stale_sec
+                    )
+                    for device in recovered:
+                        notify_device_back_online(
+                            db,
+                            smtp_row,
+                            device_id=device["device_id"],
+                            hostname=device.get("hostname"),
+                        )
+                        db.patch_device_meta(
+                            device["device_id"], {"stale_notified_at": None}
+                        )
+                    return len(needing) + len(recovered)
 
                 n = await _run_bg_cycle("stale_alert", _stale_pass)
                 if n:

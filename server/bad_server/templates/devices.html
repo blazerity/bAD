@@ -46,7 +46,7 @@
         {% endfor %}
       </div>
       {% endif %}
-      <div id="devices-search-results" class="card-surface devices-search-hits" hidden></div>
+      <div id="devices-search-results" class="card-surface overview-search-hits devices-search-hits" hidden></div>
       {% if fleet_stats %}
       <div class="filter-card-row filter-card-row-2">
         <div class="filter-chips devices-fleet-chips" role="group" aria-label="Состояние парка">
@@ -182,9 +182,10 @@
         <th class="col-device-state">Состояние</th>
         <th>Устройство</th>
         <th>Пользователь</th>
-        <th>ОС</th>
+        <th>Модель</th>
         <th>CPU</th>
         <th>ОЗУ</th>
+        <th>ОС</th>
         <th>IP</th>
         <th>Контакт</th>
         <th class="col-chevron" aria-hidden="true"></th>
@@ -225,12 +226,13 @@
           <span class="muted">нет данных</span>
           {% endif %}
         </td>
+        <td class="device-col-model muted">{% if meta.hardware_model %}{{ meta.hardware_model }}{% else %}—{% endif %}</td>
+        <td class="device-col-cpu muted">{% if meta.cpu_name %}{{ meta.cpu_name }}{% else %}—{% endif %}</td>
+        <td class="muted">{{ d.ram_display }}</td>
         <td>
           <span>{{ os_line }}</span>
           <span class="mono muted device-col-sub">bAD Agent {{ d.agent_version or '—' }}</span>
         </td>
-        <td class="device-col-cpu muted">{% if meta.cpu_name %}{{ meta.cpu_name }}{% else %}—{% endif %}</td>
-        <td class="muted">{{ d.ram_display }}</td>
         <td class="mono device-col-ip device-col-ip-nowrap" title="{{ d.ip_title }}">
           {% if d.ip_copy %}{{ copyable(d.ip_copy, display=d.ip_display) }}{% else %}—{% endif %}
         </td>
@@ -246,4 +248,5 @@
   {{ table_pager('/devices', page, pages, total, page_size, q=q, tag=tag_filter, wave=wave, archive=show_archive, os=os_filter, ram=ram_filter, disk=disk_filter, cpu=cpu_filter, cpu_vendor=cpu_vendor_filter, agent=agent_filter, fresh=fresh_filter, model=model_filter, chassis=chassis_filter) }}
   {% endif %}
 </section>
+<script src="/static/devices-search.js" defer></script>
 {% endblock %}

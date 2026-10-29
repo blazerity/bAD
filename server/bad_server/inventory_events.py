@@ -11,6 +11,10 @@ from .fleet_buckets import disk_role
 VOLUME_FREE_DROP_ABS = 5 * 1024**3  # 5 ГиБ
 VOLUME_FREE_DROP_REL = 0.20
 
+# Критически мало места на системном томе (пересечение порога).
+VOLUME_FREE_CRITICAL_ABS = 10 * 1024**3  # 10 ГиБ
+VOLUME_FREE_CRITICAL_REL = 0.05  # 5% от размера тома
+
 
 def _as_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
@@ -168,6 +172,88 @@ def _nic_ipv4_set(network: dict[str, Any]) -> frozenset[str]:
             if text:
                 ips.add(text)
     return frozenset(ips)
+
+
+def _volume_display_letter(vol: dict[str, Any], fallback_key: str = "") -> str:
+    letter = _norm_str(vol.get("letter"))
+    if letter:
+        up = letter.upper()
+        return up if up.endswith(":") else f"{up}:"
+    if fallback_key and not fallback_key.startswith("vol|"):
+        up = fallback_key.upper()
+        return up if up.endswith(":") else f"{up}:"
+    return "системный диск"
+
+
+def _format_free_gib(free_bytes: int) -> str:
+    gib = free_bytes / (1024**3)
+    if gib >= 100:
+        return f"{gib:.0f}"
+    if gib >= 10:
+        return f"{gib:.0f}"
+    return f"{gib:.1f}"
+
+
+def _pick_system_volume(volumes: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    """Системный том: флаг boot/system, иначе C:, иначе первый."""
+    for vol in volumes:
+        if not isinstance(vol, dict):
+            continue
+        if vol.get("boot") is True or vol.get("is_system") is True or vol.get("system") is True:
+            return vol
+    for vol in volumes:
+        if not isinstance(vol, dict):
+            continue
+        letter = _norm_str(vol.get("letter")).upper().rstrip(":")
+        if letter == "C":
+            return vol
+    for vol in volumes:
+        if isinstance(vol, dict):
+            return vol
+    return None
+
+
+def _volume_is_critical(vol: dict[str, Any]) -> bool:
+    try:
+        free_b = int(vol.get("free_bytes"))
+    except (TypeError, ValueError):
+        return False
+    if free_b < VOLUME_FREE_CRITICAL_ABS:
+        return True
+    try:
+        total_b = int(vol.get("size_bytes"))
+    except (TypeError, ValueError):
+        return False
+    if total_b <= 0:
+        return False
+    return (free_b / total_b) < VOLUME_FREE_CRITICAL_REL
+
+
+def _volume_free_drop_summary(
+    vol_key: str, prev_vol: dict[str, Any], cur_vol: dict[str, Any]
+) -> str:
+    try:
+        prev_free = int(prev_vol.get("free_bytes"))
+        cur_free = int(cur_vol.get("free_bytes"))
+    except (TypeError, ValueError):
+        return f"Свободное место на томе {vol_key} уменьшилось"
+    letter = _volume_display_letter(cur_vol, vol_key)
+    return (
+        f"Мало свободного места на диске {letter}: "
+        f"{_format_free_gib(prev_free)} → {_format_free_gib(cur_free)} ГБ"
+    )
+
+
+def _volume_free_critical_summary(vol: dict[str, Any], vol_key: str = "") -> str:
+    try:
+        free_b = int(vol.get("free_bytes"))
+    except (TypeError, ValueError):
+        free_b = 0
+    letter = _volume_display_letter(vol, vol_key)
+    return (
+        f"Критически мало места на системном диске {letter} — "
+        f"осталось {_format_free_gib(free_b)} ГБ"
+    )
 
 
 def _volume_free_dropped(prev: dict[str, Any], new: dict[str, Any]) -> bool:
@@ -507,15 +593,32 @@ def diff_inventory_snapshots(
             events.append(
                 {
                     "type": "volume_free_drop",
-                    "summary": (
-                        f"Volume {key} free space dropped: "
-                        f"{prev_vols[key].get('free_bytes')} → "
-                        f"{cur_vols[key].get('free_bytes')} bytes"
+                    "summary": _volume_free_drop_summary(
+                        key, prev_vols[key], cur_vols[key]
                     ),
                     "detail": {
                         "volume": key,
                         "from_free_bytes": prev_vols[key].get("free_bytes"),
                         "to_free_bytes": cur_vols[key].get("free_bytes"),
+                    },
+                }
+            )
+
+    prev_sys = _pick_system_volume(list(prev_vols.values()))
+    cur_sys = _pick_system_volume(list(cur_vols.values()))
+    if prev_sys is not None and cur_sys is not None:
+        prev_crit = _volume_is_critical(prev_sys)
+        cur_crit = _volume_is_critical(cur_sys)
+        if not prev_crit and cur_crit:
+            sys_key = _volume_key(cur_sys)
+            events.append(
+                {
+                    "type": "volume_free_critical",
+                    "summary": _volume_free_critical_summary(cur_sys, sys_key),
+                    "detail": {
+                        "volume": sys_key,
+                        "free_bytes": cur_sys.get("free_bytes"),
+                        "size_bytes": cur_sys.get("size_bytes"),
                     },
                 }
             )

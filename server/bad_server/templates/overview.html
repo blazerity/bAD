@@ -177,19 +177,16 @@
         {% if priority_feed %}
         <ul class="dash-incident-list">
           {% for e in priority_feed %}
-          <li class="dash-incident-row">
-            {% if e.importance %}
-            <span class="badge badge-importance badge-importance-{{ e.importance }}">{{ e.importance|importance_label_ru }}</span>
-            {% endif %}
-            <div class="dash-incident-body">
-              <div class="dash-incident-top">
-                <a href="{{ e.device_href }}" class="dash-incident-host">{{ e.hostname }}</a>
-                {% if e.count and e.count > 1 %}<span class="dash-agg-count">×{{ e.count }}</span>{% endif %}
-                <span class="muted">{{ local_time(e.created_at) }}</span>
-              </div>
-              {% if e.user %}<div class="muted dash-incident-user">{{ e.user }}</div>{% endif %}
-              <a href="{{ e.href }}" class="dash-incident-summary">{{ e.summary or (e.type|format_event_type) }}</a>
-            </div>
+          {% set imp = e.importance or 'low' %}
+          <li class="event-feed-row dash-incident-row">
+            <span class="badge badge-importance badge-importance-{{ imp }}">{{ imp|importance_label_ru }}</span>
+            <a href="{{ e.device_href }}" class="event-feed-host dash-incident-host">{{ e.hostname }}</a>
+            <span class="event-feed-user muted">{% if e.user %}{{ e.user }}{% else %}—{% endif %}</span>
+            <a href="{{ e.href }}" class="event-feed-summary dash-incident-summary">
+              {{ e.summary or (e.type|format_event_type) }}
+              {% if e.count and e.count > 1 %}<span class="dash-agg-count">×{{ e.count }}</span>{% endif %}
+            </a>
+            <span class="event-feed-time mono muted">{{ local_time(e.created_at) }}</span>
           </li>
           {% endfor %}
         </ul>

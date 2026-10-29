@@ -77,7 +77,6 @@
       <tr>
         <th>Событие</th>
         <th>Устройство</th>
-        <th>Тип</th>
         <th>Важность</th>
         <th>Когда</th>
         <th class="col-chevron" aria-hidden="true"></th>
@@ -91,7 +90,7 @@
       {% if day_key and day_key != ns.prev_day %}
       {% set ns.prev_day = day_key %}
       <tr class="events-day-divider">
-        <td colspan="6">
+        <td colspan="5">
           {% if day_key == today_utc %}Сегодня
           {% elif day_key == yesterday_utc %}Вчера
           {% else %}Ранее · <span class="mono">{{ day_key }}</span>{% endif %}
@@ -101,7 +100,7 @@
       <tr class="table-row-link">
         <td>
           <a class="event-cell-link" href="/events/{{ e.id }}">
-            <span class="event-type-icon event-imp-{{ imp }}" aria-hidden="true">{{ icon('events') }}</span>
+            <span class="event-type-icon event-imp-{{ imp }}" aria-hidden="true">{{ icon(e.event_icon|default('events')) }}</span>
             <span class="event-cell-text">
               <span class="event-cell-title">{{ e.summary }}</span>
               <span class="muted event-cell-sub">{{ e.type|format_event_type }}</span>
@@ -109,7 +108,6 @@
           </a>
         </td>
         <td>{{ device_link(e.device_id, e.hostname or e.device_id, e.chassis_type) }}</td>
-        <td title="{{ e.type }}">{{ e.type|format_event_type }}</td>
         <td><span class="badge badge-importance badge-importance-{{ imp }}">{{ imp|importance_label_ru }}</span></td>
         <td class="mono muted">{{ local_time(e.created_at) }}</td>
         <td class="col-chevron"><a class="row-chevron" href="/events/{{ e.id }}" aria-label="Открыть событие"></a></td>
