@@ -2,7 +2,7 @@
 
 Только сборка контекста для web UI из уже существующих полей (tls / enrollment / ops /
 meta.config_local / sources). Без новых таблиц БД.
-Дашборд (/dashboard): агрегаты park/version/wave/os/model (контракт overview-dashboard).
+Дашборд (/dashboard): конфиги парка (ОС/ОЗУ/диски/treemap). События и дрейф — на Обзоре.
 """
 
 from __future__ import annotations
@@ -11,22 +11,16 @@ import re
 from typing import Any, Optional
 
 from .agent_config import ALLOWED_SETTING_KEYS, compute_setting_sources
-from .agent_update import parse_semver
 from .device_health import device_silence_status
 from .enrollment_ops import enrollment_status
-from .event_importance import event_importance
 from .fleet_buckets import normalize_os_caption, resolve_cpu_family
 from .tls_ops import tls_panel_mode
 
 WAVE_FILTERS = frozenset({"drift", "revoked", "agent_local", "stale", "dup"})
 
-# Дашборд (согласовано с UI Lead / контрактом)
+# Дашборд: конфиги парка (ОС / ОЗУ / диски / treemap железа)
 OS_DOMAIN_BAR_TOP = 5
-HARDWARE_BAR_TOP = 5
 INVENTORY_SCAN_CAP = 500
-DASH_INCIDENT_FETCH = 80
-DASH_INCIDENT_SHOW = 10
-DASH_DRIFT_SHOW = 8
 
 _SOURCE_LABEL_RU = {
     "default": "по умолчанию",
@@ -644,205 +638,44 @@ def chart_filter_href(param: str, value: str, **extra: str) -> str:
     return "/devices?" + urlencode(params)
 
 
-def version_drift_depth(want: object, have: object) -> dict[str, str]:
-    """Бейдж глубины отставания: −N релиз(а) / Критично."""
-    a = parse_semver(str(want or ""))
-    b = parse_semver(str(have or ""))
-    if not a or not b:
-        return {"level": "warn", "label": "Отстаёт"}
-    if a[0] > b[0]:
-        return {"level": "critical", "label": "Критично"}
-    minor = a[1] - b[1]
-    patch = a[2] - b[2]
-    if minor >= 3:
-        return {"level": "critical", "label": "Критично"}
-    if minor >= 1:
-        n = minor
-        word = "релиз" if n == 1 else ("релиза" if 2 <= n <= 4 else "релизов")
-        return {"level": "warn", "label": f"−{n} {word}"}
-    if patch >= 1:
-        n = patch
-        word = "патч" if n == 1 else ("патча" if 2 <= n <= 4 else "патчей")
-        return {"level": "info", "label": f"−{n} {word}"}
-    return {"level": "info", "label": "Отстаёт"}
+def _treemap_vendor(label: str) -> str:
+    if label.startswith("Intel"):
+        return "intel"
+    if label.startswith("AMD"):
+        return "amd"
+    return "neutral"
 
 
-def _top_rank_bars(
+def _treemap_items(
     counts: dict[str, int],
     *,
-    top: int = HARDWARE_BAR_TOP,
     href_param: Optional[str] = None,
     href_extra: Optional[dict[str, str]] = None,
-    other_label_tpl: str = "Остальные ({n} шт.)",
-) -> dict[str, Any]:
-    """ТОП-N + «остальные» с полным хвостом для модалки."""
-    ranked = [
-        (str(label), int(count))
-        for label, count in sorted(counts.items(), key=lambda x: (-int(x[1]), str(x[0])))
-        if int(count) > 0 and str(label) not in {"Intel", "AMD"}
-    ]
-    total = sum(c for _, c in ranked) or 1
+    vendor_from_label: bool = False,
+) -> list[dict[str, Any]]:
+    """Кубики treemap: сортировка по убыванию count; голый Intel/AMD скрываем."""
+    total = sum(max(0, int(c)) for c in counts.values()) or 1
     items: list[dict[str, Any]] = []
-    for label, count in ranked[: max(0, top)]:
+    for label, count in sorted(counts.items(), key=lambda x: (-int(x[1]), str(x[0]))):
+        n = int(count)
+        if n <= 0:
+            continue
+        if label in {"Intel", "AMD"}:
+            continue
         row: dict[str, Any] = {
             "label": label,
-            "count": count,
-            "pct": _pct(count, total),
-            "bar_pct": max(_pct(count, total), 4.0),
-            "is_other": False,
+            "count": n,
+            "pct": round(100.0 * n / total, 1),
+            "share": round(n / total, 6),
         }
+        row["vendor"] = (
+            _treemap_vendor(label) if vendor_from_label else "neutral"
+        )
         if href_param:
-            row["href"] = chart_filter_href(href_param, label, **dict(href_extra or {}))
+            extra = dict(href_extra or {})
+            row["href"] = chart_filter_href(href_param, label, **extra)
         items.append(row)
-    tail = ranked[top:]
-    rest = sum(c for _, c in tail)
-    others_full = [
-        {
-            "label": lab,
-            "count": cnt,
-            "href": chart_filter_href(href_param, lab, **dict(href_extra or {}))
-            if href_param
-            else None,
-        }
-        for lab, cnt in tail
-    ]
-    if rest > 0:
-        items.append(
-            {
-                "label": other_label_tpl.format(n=len(tail)),
-                "count": rest,
-                "pct": _pct(rest, total),
-                "bar_pct": max(_pct(rest, total), 4.0),
-                "is_other": True,
-                "others_count": len(tail),
-            }
-        )
-    return {"items": items, "others_full": others_full, "total": total}
-
-
-def aggregate_dashboard_incidents(
-    events: list[dict[str, Any]],
-    devices_by_id: dict[str, dict[str, Any]],
-    *,
-    limit: int = DASH_INCIDENT_SHOW,
-) -> list[dict[str, Any]]:
-    """Схлопнуть однотипные инциденты на одном ПК за 24ч; hostname + пользователь."""
-    from datetime import datetime, timedelta, timezone
-
-    def _parse_ts(raw: object) -> Optional[datetime]:
-        text = str(raw or "").strip()
-        if not text:
-            return None
-        try:
-            return datetime.fromisoformat(text.replace("Z", "+00:00"))
-        except ValueError:
-            return None
-
-    now = datetime.now(timezone.utc)
-    window = now - timedelta(hours=24)
-    groups: dict[tuple[str, str], dict[str, Any]] = {}
-    order: list[tuple[str, str]] = []
-    for ev in events:
-        did = str(ev.get("device_id") or "")
-        etype = str(ev.get("type") or "")
-        key = (did, etype)
-        created = _parse_ts(ev.get("created_at"))
-        if key not in groups:
-            groups[key] = {
-                "id": ev.get("id"),
-                "device_id": did,
-                "type": etype,
-                "summary": ev.get("summary"),
-                "created_at": ev.get("created_at"),
-                "importance": ev.get("importance") or event_importance(etype),
-                "count": 1,
-                "_ts": created,
-            }
-            order.append(key)
-            continue
-        g = groups[key]
-        if created and g.get("_ts") and created >= window and g["_ts"] >= window:
-            g["count"] = int(g["count"]) + 1
-            if created > g["_ts"]:
-                g["created_at"] = ev.get("created_at")
-                g["_ts"] = created
-                g["id"] = ev.get("id")
-                g["summary"] = ev.get("summary")
-        else:
-            # Вне окна — отдельная «свежая» группа не нужна: берём как новую запись
-            alt = (did, f"{etype}#{ev.get('id')}")
-            groups[alt] = {
-                "id": ev.get("id"),
-                "device_id": did,
-                "type": etype,
-                "summary": ev.get("summary"),
-                "created_at": ev.get("created_at"),
-                "importance": ev.get("importance") or event_importance(etype),
-                "count": 1,
-                "_ts": created,
-            }
-            order.append(alt)
-
-    out: list[dict[str, Any]] = []
-    for key in order:
-        g = groups[key]
-        did = str(g.get("device_id") or "")
-        device = devices_by_id.get(did) or {}
-        meta = device.get("meta") if isinstance(device.get("meta"), dict) else {}
-        user = str(meta.get("last_logged_on") or "").strip()
-        if not user:
-            logged = meta.get("logged_on")
-            if isinstance(logged, list) and logged:
-                user = str(logged[0] or "").strip()
-        imp = str(g.get("importance") or "medium")
-        badge = "CRITICAL" if imp == "critical" else "WARNING"
-        badge_level = "critical" if imp == "critical" else "warning"
-        hostname = str(device.get("hostname") or g.get("hostname") or did or "—")
-        out.append(
-            {
-                "id": g.get("id"),
-                "device_id": did,
-                "hostname": hostname,
-                "user": user or None,
-                "summary": g.get("summary"),
-                "type": g.get("type"),
-                "created_at": g.get("created_at"),
-                "importance": imp,
-                "badge": badge,
-                "badge_level": badge_level,
-                "count": int(g.get("count") or 1),
-                "href": f"/events/{g.get('id')}" if g.get("id") else "/events",
-                "device_href": f"/devices/{did}" if did else "/devices",
-            }
-        )
-        if len(out) >= limit:
-            break
-    return out
-
-
-def enrich_drift_rows(
-    drift: list[dict[str, Any]],
-    devices_by_id: dict[str, dict[str, Any]],
-    *,
-    limit: int = DASH_DRIFT_SHOW,
-) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for d in drift[:limit]:
-        did = str(d.get("device_id") or "")
-        device = devices_by_id.get(did) or {}
-        meta = device.get("meta") if isinstance(device.get("meta"), dict) else {}
-        user = str(meta.get("last_logged_on") or "").strip() or None
-        depth = version_drift_depth(d.get("want_version"), d.get("agent_version"))
-        rows.append(
-            {
-                **d,
-                "user": user,
-                "depth_level": depth["level"],
-                "depth_label": depth["label"],
-                "href": f"/devices/{did}" if did else "/devices?wave=drift",
-            }
-        )
-    return rows
+    return items
 
 
 def _accumulate_hw_bars(hw: dict[str, Any], ram_counts: dict[str, int], storage_counts: dict[str, int]) -> None:
@@ -879,51 +712,16 @@ def build_dashboard_stats(
     active: Optional[list[dict[str, Any]]] = None,
     ops: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
-    """Агрегаты SSR для /dashboard. Не публичный /v1."""
+    """Агрегаты SSR для /dashboard (конфиги парка). Не публичный /v1."""
     del stale_after_seconds  # silence уже в stats; параметр для симметрии home()
+    del ops  # события и дрейф версий — только на Обзоре
     if active is None:
         active = db.list_devices(archived=False)
-    ops = ops or {}
     total_active = int(stats.get("total_active") or len(active))
     online = int(stats.get("online") or 0)
-    stale_n = int(stats.get("stale") or 0)
     archived_n = int(stats.get("archived") or 0)
     offline_n = max(0, total_active - online)
-    drift_n = int(ops.get("version_drift_count") or 0)
-    current_n = max(0, total_active - drift_n)
-    target_version = ops.get("latest_version") or "—"
 
-    # Состояние парка: сеть отдельно от комплаенса версий
-    park_status = {
-        "total_active": total_active,
-        "network": {
-            "online": {
-                "count": online,
-                "pct": _pct(online, total_active),
-                "href": "/devices?fresh=ok",
-            },
-            "offline": {
-                "count": offline_n,
-                "pct": _pct(offline_n, total_active),
-                "href": "/devices?wave=stale",
-            },
-        },
-        "compliance": {
-            "current": {
-                "count": current_n,
-                "pct": _pct(current_n, total_active),
-                "href": "/devices",
-            },
-            "needs_update": {
-                "count": drift_n,
-                "pct": _pct(drift_n, total_active),
-                "href": "/devices?wave=drift",
-            },
-        },
-        "archived": {"count": archived_n, "href": "/devices?archive=1"},
-        "target_version": target_version,
-    }
-    # Совместимость со старыми шаблонами (обзор и т.п.)
     park_bar = {
         "segments": [
             {
@@ -941,7 +739,7 @@ def build_dashboard_stats(
                 "href": "/devices?wave=stale",
             },
         ],
-        "archived": park_status["archived"],
+        "archived": {"count": archived_n, "href": "/devices?archive=1"},
         "total_active": total_active,
     }
 
@@ -1033,58 +831,55 @@ def build_dashboard_stats(
     cpu_family_counts: dict[str, int] = {}
     laptop_model_counts: dict[str, int] = {}
     desktop_model_counts: dict[str, int] = {}
+    chassis_counts = {"laptop": 0, "desktop": 0, "other": 0}
     for d in active:
         meta = d.get("meta") if isinstance(d.get("meta"), dict) else {}
         fam = resolve_cpu_family(meta)
         if fam:
             cpu_family_counts[fam] = cpu_family_counts.get(fam, 0) + 1
+        chassis = str(meta.get("chassis_type") or "").strip().casefold()
+        if chassis == "laptop":
+            chassis_counts["laptop"] += 1
+        elif chassis == "desktop":
+            chassis_counts["desktop"] += 1
+        else:
+            chassis_counts["other"] += 1
         model = str(meta.get("hardware_model") or "").strip()
         if model:
-            chassis = str(meta.get("chassis_type") or "").strip().casefold()
             if chassis == "laptop":
                 laptop_model_counts[model] = laptop_model_counts.get(model, 0) + 1
             elif chassis == "desktop":
                 desktop_model_counts[model] = desktop_model_counts.get(model, 0) + 1
 
-    cpu_bars = _top_rank_bars(cpu_family_counts, href_param="cpu")
-    laptop_bars = _top_rank_bars(
-        laptop_model_counts,
-        href_param="model",
-        href_extra={"chassis": "laptop"},
-        other_label_tpl="Остальные модели ({n} шт.)",
-    )
-    desktop_bars = _top_rank_bars(
-        desktop_model_counts,
-        href_param="model",
-        href_extra={"chassis": "desktop"},
-        other_label_tpl="Остальные модели ({n} шт.)",
-    )
-
-    event_series = {
-        "days_default": 14,
-        "label": "Динамика событий",
-        "series": {
-            "7": db.count_events_by_utc_day(7),
-            "14": db.count_events_by_utc_day(14),
-            "30": db.count_events_by_utc_day(30),
-        },
+    cpu_family_treemap = {
+        "items": _treemap_items(
+            cpu_family_counts, href_param="cpu", vendor_from_label=True
+        )
+    }
+    laptop_model_treemap = {
+        "items": _treemap_items(
+            laptop_model_counts,
+            href_param="model",
+            href_extra={"chassis": "laptop"},
+        )
+    }
+    desktop_model_treemap = {
+        "items": _treemap_items(
+            desktop_model_counts,
+            href_param="model",
+            href_extra={"chassis": "desktop"},
+        )
     }
 
     return {
         "park_bar": park_bar,
-        "park_status": park_status,
         "os_bars": os_bars,
         "ram_bars": ram_bars,
         "storage_bars": storage_bars,
-        "cpu_bars": cpu_bars,
-        "laptop_bars": laptop_bars,
-        "desktop_bars": desktop_bars,
-        "event_series": event_series,
-        # legacy aliases (на случай старых ссылок в шаблонах)
-        "event_sparkline": {
-            "items": event_series["series"]["14"],
-            "label": event_series["label"],
-        },
+        "cpu_family_treemap": cpu_family_treemap,
+        "laptop_model_treemap": laptop_model_treemap,
+        "desktop_model_treemap": desktop_model_treemap,
+        "chassis_counts": chassis_counts,
         "gauges": {
             "online_pct": _pct(online, total_active) if total_active else 0,
             "stale_pct": _pct(offline_n, total_active) if total_active else 0,

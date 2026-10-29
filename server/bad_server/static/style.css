@@ -3140,6 +3140,120 @@ body.global-search-open { overflow: hidden; }
   gap: 0.75rem;
   margin: 0.75rem 0 1rem;
 }
+.dash-bars-row,
+.dash-treemap-pair {
+  margin-top: 0.75rem;
+}
+.dash-card-full {
+  margin-top: 0.75rem;
+}
+.dash-os-card .chart-donut--wide {
+  justify-content: center;
+  gap: 1.5rem 2.5rem;
+}
+.dash-os-card .chart-donut--wide .chart-donut__ring-wrap {
+  width: 9rem;
+  height: 9rem;
+}
+.dash-os-card .chart-donut--wide .chart-donut__legend {
+  min-width: 14rem;
+}
+.dash-treemap-card .dash-treemap--mosaic {
+  margin-top: 0.5rem;
+}
+
+/* Treemap / мозаика: absolute-ячейки, площадь ∝ count */
+.dash-treemap {
+  display: block;
+  position: relative;
+  width: 100%;
+  min-height: 12rem;
+  overflow: hidden;
+}
+.dash-treemap--mosaic {
+  min-height: 14rem;
+}
+.dash-treemap-pair .dash-treemap--mosaic {
+  min-height: 12rem;
+}
+.dash-treemap--few {
+  min-height: 12.5rem;
+}
+.dash-treemap-cell {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: flex-start;
+  box-sizing: border-box;
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+  color: var(--fg);
+  text-decoration: none;
+  background: var(--subtle-bg);
+  cursor: pointer;
+  overflow: hidden;
+}
+.dash-treemap-cell.is-roomy {
+  justify-content: center;
+  padding: 0.75rem 1rem;
+}
+.dash-treemap-cell.is-roomy .dash-treemap-label {
+  font-size: 0.95rem;
+  -webkit-line-clamp: 4;
+}
+.dash-treemap-cell.is-roomy .tnum {
+  font-size: 1.35rem;
+  margin-top: 0.35rem;
+}
+.dash-treemap-cell:hover {
+  filter: brightness(1.08);
+  text-decoration: none;
+  z-index: 1;
+}
+.dash-treemap-cell.vendor-intel {
+  background: #5bb0f5;
+  color: #1a1a1a;
+}
+.dash-treemap-cell.vendor-intel:nth-child(2n) {
+  background: #0067c0;
+  color: #fff;
+}
+.dash-treemap-cell.vendor-amd {
+  background: #e8625a;
+  color: #1a1a1a;
+}
+.dash-treemap-cell.vendor-amd:nth-child(2n) {
+  background: #c42b1c;
+  color: #fff;
+}
+.dash-treemap-cell.vendor-neutral {
+  background: #d7e3f4;
+  border: 1px solid var(--control-stroke);
+  color: var(--fg);
+}
+.dash-treemap-cell.vendor-neutral:nth-child(2n) {
+  background: #b8c9e0;
+}
+.dash-treemap-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 100%;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.dash-treemap-cell .tnum {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.95rem;
+  line-height: 1.15;
+  font-weight: 700;
+}
 
 .chart-donut {
   display: flex;
@@ -3976,10 +4090,15 @@ table.devices.devices-list td {
   .quick-tiles { grid-template-columns: 1fr; }
   .overview-grid-2,
   .dash-grid-2,
-  .dash-grid-3 { grid-template-columns: 1fr; }
+  .dash-grid-3,
+  .dash-treemap-pair { grid-template-columns: 1fr; }
   .server-info-grid { grid-template-columns: 1fr 1fr; }
   .dash-drift-row {
     grid-template-columns: 1fr auto;
+  }
+  .dash-os-card .chart-donut--wide .chart-donut__legend {
+    grid-template-columns: 1fr;
+    max-width: none;
   }
   .overview-cmd-header { flex-direction: column; }
   .server-status-bar { width: 100%; }

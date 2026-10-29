@@ -93,7 +93,6 @@ from .device_uninstall import (
     uninstall_ui_context,
 )
 from .ops_panel import (
-    aggregate_dashboard_incidents,
     build_attention_queue,
     build_bootstrap_checklist,
     build_bootstrap_progress,
@@ -101,7 +100,6 @@ from .ops_panel import (
     build_dashboard_stats,
     build_wave_counts,
     device_has_agent_local,
-    enrich_drift_rows,
     enrich_overview_ops_signals,
     filter_devices_by_wave,
     normalize_wave_filter,
@@ -1142,7 +1140,7 @@ def dashboard_page(
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    """Отдельная вкладка Дашборд: оперативный пульт (не /v1)."""
+    """Отдельная вкладка Дашборд: конфигурация парка (не /v1)."""
     active, _archived, stats, ops = _fleet_snapshot(db, settings)
     security = patch_security_for_qa(security_status(db, settings), settings)
     ops = merge_security_into_ops(ops, security)
@@ -1153,18 +1151,6 @@ def dashboard_page(
         active=active,
         ops=ops,
     )
-    devices_by_id = {
-        str(d.get("device_id") or ""): d for d in active if d.get("device_id")
-    }
-    raw_incidents = db.list_device_events(
-        importance="high", limit=80, include_detail=False
-    )
-    incident_feed = aggregate_dashboard_incidents(raw_incidents, devices_by_id)
-    critical_event_count = db.count_device_events(importance="critical")
-    high_event_count = db.count_device_events(importance="high")
-    drift_rows = enrich_drift_rows(
-        list(ops.get("version_drift") or []), devices_by_id
-    )
     return _html(
         request,
         "dashboard.html",
@@ -1174,11 +1160,6 @@ def dashboard_page(
             "ops": ops,
             "security": security,
             "dashboard": dashboard,
-            "incident_feed": incident_feed,
-            "critical_event_count": critical_event_count,
-            "high_event_count": high_event_count,
-            "drift_rows": drift_rows,
-            "target_agent_version": ops.get("latest_version") or "—",
             "stale_after_seconds": effective_stale_after_seconds(db, settings),
         },
     )
@@ -1384,10 +1365,10 @@ def _devices_catalog_filter_options(
     stats: dict[str, Any],
 ) -> dict[str, list[str]]:
     """Ярлыки фасетов как на дашборде + версии агента из парка."""
-    cpu_block = dashboard.get("cpu_bars") or dashboard.get("cpu_family_treemap") or {}
+    cpu_block = dashboard.get("cpu_family_treemap") or {}
     cpu_vals: list[str] = []
     for item in cpu_block.get("items") or []:
-        if not isinstance(item, dict) or item.get("is_other"):
+        if not isinstance(item, dict):
             continue
         label = str(item.get("label") or "").strip()
         if _facet_catalog_label_ok(label):
