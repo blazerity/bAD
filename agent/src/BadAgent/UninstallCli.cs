@@ -53,14 +53,17 @@ public static class UninstallCli
             }
         }
 
-        Console.WriteLine($"Запуск msiexec /x {productCode} …");
+        Console.WriteLine($"Планируется msiexec /x {productCode} …");
         if (!AgentUninstaller.TryStartSilentUninstall(msg => Console.WriteLine(msg)))
         {
             Console.Error.WriteLine("error: не удалось запустить msiexec для снятия.");
             return 1;
         }
 
-        Console.WriteLine("Снятие запущено. Окно/процесс msiexec может ещё работать несколько секунд.");
+        Console.WriteLine(
+            "Снятие запланировано через несколько секунд. Закройте это окно или дождитесь выхода " +
+            "(не жмите Ctrl+C).");
+        Environment.Exit(0);
         return 0;
     }
 

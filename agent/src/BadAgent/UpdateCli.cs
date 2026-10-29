@@ -59,12 +59,13 @@ public static class UpdateCli
                 if (applying)
                 {
                     Console.WriteLine(
-                        "Запущена установка MSI — дождитесь перезапуска службы.");
+                        "Установка MSI запланирована — через несколько секунд. " +
+                        "Дождитесь перезапуска службы (не жмите Ctrl+C).");
+                    // Сразу выходим: bad.cmd должен завершиться до msiexec / Restart Manager.
+                    Environment.Exit(0);
                 }
-                else
-                {
-                    Console.WriteLine("Обновление не требуется или отключено в конфиге.");
-                }
+
+                Console.WriteLine("Обновление не требуется или отключено в конфиге.");
             }
             catch (AgentApiException ex) when (ex.IsAuthFailure)
             {

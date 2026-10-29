@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Runtime.Versioning;
 using Microsoft.Win32;
 
@@ -58,21 +57,14 @@ public static class AgentUninstaller
         var args = $"/x {productCode} /qn /norestart";
         try
         {
-            var psi = new ProcessStartInfo
-            {
-                FileName = msiexec,
-                Arguments = args,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-
-            if (Process.Start(psi) is null)
+            // Тот же паттерн, что у update: не держать msiexec в консоли bad.cmd.
+            if (!MsiexecLauncher.StartDelayedDetached(args))
             {
                 error?.Invoke("Снятие агента: не удалось запустить msiexec");
                 return false;
             }
 
-            info?.Invoke($"Снятие агента: запущен msiexec {args}");
+            info?.Invoke($"Снятие агента: запланирован msiexec {args}");
             WindowsEventLog.WriteInfo($"bAD: запущено снятие MSI (ProductCode {productCode})");
             return true;
         }

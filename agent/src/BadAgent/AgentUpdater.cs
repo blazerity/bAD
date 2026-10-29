@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 
@@ -133,18 +132,12 @@ public sealed class AgentUpdater
 
             var kind = plan.Action == UpdateAction.Downgrade ? "downgrade" : "upgrade";
             var logPath = Path.Combine(ConfigStore.LogsDir, $"msiexec-{kind}-{plan.TargetVersion}.log");
-            var psi = new ProcessStartInfo
-            {
-                FileName = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.System),
-                    "msiexec.exe"),
-                Arguments = $"/i \"{msiPath}\" /qn /l*v \"{logPath}\"",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+            // Отложенный detached старт: иначе из-под bad.cmd Restart Manager шлёт CTRL+C
+            // → «Завершить выполнение пакетного файла» и msiexec обрывается.
+            var msiexecArgs = $"/i \"{msiPath}\" /qn /norestart /l*v \"{logPath}\"";
 
             _logger.LogInformation(
-                "Starting silent msiexec {Action} {From} → {To}; agent will exit for file replace (log {Log})",
+                "Scheduling silent msiexec {Action} {From} → {To}; agent will exit for file replace (log {Log})",
                 plan.Action,
                 _agentVersion,
                 plan.TargetVersion,
@@ -152,20 +145,11 @@ public sealed class AgentUpdater
             WindowsEventLog.WriteInfo(
                 $"bAD: msiexec {kind} {_agentVersion} → {plan.TargetVersion}");
 
-            if (Process.Start(psi) is null)
+            if (!MsiexecLauncher.StartDelayedDetached(msiexecArgs, _logger))
             {
-                _logger.LogError("Failed to start msiexec");
+                _logger.LogError("Failed to schedule msiexec");
                 ClearPending(config);
                 return false;
-            }
-
-            try
-            {
-                await Task.Delay(TimeSpan.FromSeconds(2), ct);
-            }
-            catch (OperationCanceledException)
-            {
-                // всё равно выходим, чтобы разблокировать файлы
             }
 
             return true;

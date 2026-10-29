@@ -93,7 +93,7 @@ bad uninstall [-y]      # снять агент (msiexec) — elevated; такж
 bad service status|start|stop|restart   # служба badagent — elevated
 ```
 
-MSI **2.1.2+:** `%ProgramFiles%\blazerity\bad agent\`; служба **`badagent`**; self-contained `bin\` (`BadAgent.exe` + `ms\` / `lib\` + `uninstall.cmd`). Апгрейд: `msiexec /i bad-agent-<ver>.msi /qn` (MajorUpgrade). С 1.x: + `migrate-legacy-install.ps1` (см. `installer/msi/README.md`).
+MSI **2.1.2+:** `%ProgramFiles%\blazerity\bad agent\`; служба **`badagent`**; self-contained `bin\` (`BadAgent.exe` + `ms\` / `lib\` + `uninstall.cmd`). Апгрейд: `msiexec /i bad-agent-<ver>.msi /qn` (MajorUpgrade). С 1.x: + `migrate-legacy-install.ps1` (см. `installer/msi/README.md`). **2.1.3:** `bad update` / `bad uninstall` запускают msiexec отложенно вне консоли `bad.cmd` (иначе CTRL+C → «Завершить выполнение пакетного файла»).
 
 > Обычный пользователь: **`bad`**, **`bad -r`**, **`-h`**. Настройка / снятие: **`bad -c`** / **`config set|unset`** / **`uninstall`** — запуск от администратора.
 
