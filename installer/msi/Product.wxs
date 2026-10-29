@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
   MSI bAD 2.x: %ProgramFiles%\blazerity\bad agent\ (bin\ + ms\ + lib\, scripts\, bad.cmd).
-  Framework-dependent: на ПК нужен .NET 8 Runtime x64.
+  Self-contained: runtime внутри MSI, на ПК .NET ставить не нужно.
   ProgramData: %ProgramData%\blazerity\bAD\ — Permanent, без переименования.
   UpgradeCode BADA0001…; MajorUpgrade AllowDowngrades; migrate-legacy-install.ps1.
   Апгрейд: msiexec /i новый.msi /qn (не /upgrade).

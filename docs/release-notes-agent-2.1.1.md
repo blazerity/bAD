@@ -8,9 +8,9 @@
 - DLL разложены по папкам: **`bin\ms\`** (Microsoft / System), **`bin\lib\`** (Serilog и прочие NuGet), в корне — `BadAgent.exe`, `BadAgent.dll`, `uninstall.cmd`.
 - MSI заметно легче (~единицы МБ вместо ~28 МБ self-contained).
 
-## Требование
+## Требование (снято в 2.1.2)
 
-На устройстве должен быть установлен [.NET 8 Runtime (x64)](https://dotnet.microsoft.com/download/dotnet/8.0) (не SDK). Без него служба не стартует.
+В 2.1.1 нужен был .NET 8 Runtime на ПК. С **2.1.2** снова self-contained — runtime внутри MSI.
 
 ## Снятие / CLI
 

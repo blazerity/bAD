@@ -115,7 +115,7 @@ jobs:
           "msi_name=bad-agent-$version.msi" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           Write-Host "Resolved agent version=$version release_tag=$releaseTag"
 
-      - name: Publish agent (win-x64 framework-dependent)
+      - name: Publish agent (win-x64 self-contained)
         run: |
           $root = "installer/msi/publish"
           $bin = "$root/bin"
@@ -124,7 +124,7 @@ jobs:
           dotnet publish agent/src/BadAgent/BadAgent.csproj `
             -c Release `
             -r win-x64 `
-            --self-contained false `
+            --self-contained true `
             -p:Version=${{ steps.ver.outputs.version }} `
             -o $bin
           powershell -NoProfile -ExecutionPolicy Bypass -File installer/msi/organize-publish.ps1 -BinDir $bin

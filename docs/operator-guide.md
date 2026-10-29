@@ -174,7 +174,7 @@ msiexec /i bad-agent-2.0.2.msi `
   /qn
 ```
 
-Файлы агента: **`%ProgramFiles%\blazerity\bad agent\`** (`bin\`, `bin\ms\`, `bin\lib\`, `bad.cmd`). Служба Windows: **`badagent`** (в списке служб — **bAD Agent**). На ПК нужен **.NET 8 Runtime x64** (не SDK).
+Файлы агента: **`%ProgramFiles%\blazerity\bad agent\`** (`bin\`, `bin\ms\`, `bin\lib\`, `bad.cmd`). Служба Windows: **`badagent`** (в списке служб — **bAD Agent**). Отдельный .NET Runtime на ПК не нужен (self-contained MSI).
 
 Каталог с `bad` по умолчанию добавляется в системный `PATH` (`ADDPATH=1`). Чтобы не менять `PATH`, добавьте `ADDPATH=0`.
 

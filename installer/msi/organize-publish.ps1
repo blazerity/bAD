@@ -1,8 +1,8 @@
-# Раскладка publish\bin после dotnet publish (framework-dependent):
-#   BadAgent.exe / BadAgent.dll / *.json / uninstall.cmd — в корне bin\
-#   Microsoft.* / System.* / netstandard — в bin\ms\
+# Раскладка publish\bin после dotnet publish (self-contained):
+#   BadAgent.exe / BadAgent.dll / *.json / uninstall.cmd / native host — в корне bin\
+#   Microsoft.* / System.* / netstandard (managed) — в bin\ms\
 #   остальные NuGet DLL (Serilog и т.п.) — в bin\lib\
-# Нативные *.dll (если появятся) оставляем в корне bin\ рядом с exe.
+# coreclr/hostfxr/hostpolicy/clrjit и пр. native — остаются в корне.
 
 param(
     [Parameter(Mandatory = $true)]

@@ -50,12 +50,12 @@ wix extension add --global WixToolset.Util.wixext/5.0.2
 $ver = (Get-Content ..\..\agent\VERSION -Raw).Trim()
 New-Item -ItemType Directory -Force -Path .\publish\bin, .\publish\scripts | Out-Null
 dotnet publish ..\..\agent\src\BadAgent\BadAgent.csproj `
-  -c Release -r win-x64 --self-contained false `
+  -c Release -r win-x64 --self-contained true `
   -p:Version=$ver `
   -o .\publish\bin
-# Framework-dependent: нужен .NET 8 Runtime x64 на ПК; MSI заметно меньше self-contained
+# Self-contained: .NET внутри MSI (~десятки МБ), на ПК runtime ставить не нужно
 .\organize-publish.ps1 -BinDir .\publish\bin
-# bin\: BadAgent.exe + BadAgent.dll; bin\ms\ — Microsoft/System; bin\lib\ — Serilog и пр.
+# bin\: BadAgent.exe + native host; bin\ms\ — Microsoft/System; bin\lib\ — Serilog и пр.
 
 # 3. scripts + bad.cmd (корень publish — PATH; exe в bin\)
 Copy-Item .\write-config.ps1 .\publish\scripts\
@@ -85,7 +85,7 @@ msiexec /i bad-agent-<версия из agent/VERSION>.msi `
   /qn
 ```
 
-**2.1.1+:** `%ProgramFiles%\blazerity\bad agent\` (`bin\` + `ms\`/`lib\`, `scripts\`, `bad.cmd`). Служба **`badagent`**. Нужен **.NET 8 Runtime x64**. Апгрейд на новую версию: `msiexec /i bad-agent-<ver>.msi /qn` (MajorUpgrade, отдельного `/upgrade` нет). С 1.x: + `migrate-legacy-install.ps1`.
+**2.1.2+:** `%ProgramFiles%\blazerity\bad agent\` (`bin\` + `ms\`/`lib\`, `scripts\`, `bad.cmd`). Служба **`badagent`**. Self-contained — отдельный .NET Runtime на ПК **не** нужен. Апгрейд: `msiexec /i bad-agent-<ver>.msi /qn` (MajorUpgrade). С 1.x: + `migrate-legacy-install.ps1`.
 
 Каталог установки по умолчанию в **Machine PATH** (`ADDPATH=1`): `bad.cmd` → `bin\BadAgent.exe`. Чтобы **не** менять PATH: `ADDPATH=0`.
 

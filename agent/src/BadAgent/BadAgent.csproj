@@ -10,8 +10,8 @@
     <OutputType>Exe</OutputType>
     <!-- Win11-family mark; shown in Task Manager / Start for the agent process -->
     <ApplicationIcon>..\..\assets\bad.ico</ApplicationIcon>
-    <!-- Framework-dependent: MSI ~несколько МБ; нужен .NET 8 Runtime x64 на ПК -->
-    <SelfContained>false</SelfContained>
+    <!-- Self-contained: runtime внутри MSI, на ПК .NET ставить не нужно -->
+    <SelfContained>true</SelfContained>
   </PropertyGroup>
 
   <ItemGroup>
