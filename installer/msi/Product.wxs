@@ -7,6 +7,7 @@
   Апгрейд: msiexec /i новый.msi /qn (не /upgrade).
   2.1.4+: stop-agent-before-upgrade до RemoveExistingProducts; REBOOT=ReallySuppress.
   2.1.6+: bootstrap CA (парк &lt;2.1.5): первый msiexec → schtasks +60s BADBOOTSTRAP=1, exit 1602.
+  2.1.8+: bootstrap — cmd + EncodedCommand (inline .ps1), не WixQuietExec -Command.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <?ifndef ProductVersion?>
@@ -38,7 +39,7 @@
     <Property Id="REBOOT" Value="ReallySuppress" />
     <!-- Второй заход bootstrap: msiexec … BADBOOTSTRAP=1 (public property). -->
     <Property Id="BADBOOTSTRAP" Secure="yes" />
-    <!-- Immediate WixQuietExec (bootstrap) читает WixQuietExecCmdLine. -->
+    <!-- Immediate WixQuietExec (остальные CA) читает WixQuietExecCmdLine. Bootstrap — ExeCommand в bootstrap-inline.wxi. -->
     <Property Id="WixQuietExecCmdLine" Hidden="yes" />
 
     <?include bootstrap-inline.wxi?>
