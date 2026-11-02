@@ -42,7 +42,7 @@
     <!-- Immediate WixQuietExec (остальные CA) читает WixQuietExecCmdLine. -->
     <Property Id="WixQuietExecCmdLine" Hidden="yes" />
 
-    <!-- Прыжок с 2.0.x: script CA (не ExeCommand/PS). return 2 = UserExit 1602. -->
+    <!-- Bootstrap from 2.0.x: VBScript ScriptSourceFile (ASCII). return 2 = UserExit 1602. -->
     <CustomAction Id="BootstrapScheduleAction"
                   Script="vbscript"
                   ScriptSourceFile="bootstrap-schedule.vbs"

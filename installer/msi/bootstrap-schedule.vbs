@@ -1,11 +1,12 @@
-' Первый заход MajorUpgrade с парка 2.0.x: копия MSI + schtasks (+90s) + UserExit (return 2 → 1602).
-' Script CA читает Session.Property — без PowerShell в ExeCommand (MSI Formatted съедает [Type]).
+' First-pass MajorUpgrade from 2.0.x: copy MSI, schtasks (+90s), return 2 = UserExit 1602.
+' Script CA uses Session.Property - do not put PowerShell in ExeCommand (MSI Formatted strips [Type]).
+' ASCII-only: Package Codepage 1251 rejects non-1251 chars in ScriptSourceFile (WIX0311).
 Option Explicit
 
 Function BootstrapScheduleAction
   On Error Resume Next
   Dim fso, sh, orig, pd, updates, logs, dest, blog, xmlPath, exe, ver
-  Dim startAt, startIso, xml, rc, logLine
+  Dim startAt, startIso, xml, rc
 
   BootstrapScheduleAction = 3
   Set fso = CreateObject("Scripting.FileSystemObject")
@@ -39,6 +40,7 @@ Function BootstrapScheduleAction
     End If
   End If
 
+  Err.Clear
   fso.CopyFile orig, dest, True
   If Err.Number <> 0 Or Not fso.FileExists(dest) Then
     Call WriteLog(fso, sh, "ERROR BAD_MSI_121 copy failed: " & Err.Description)
@@ -64,6 +66,7 @@ Function BootstrapScheduleAction
   xml = xml & "</Exec></Actions>" & vbCrLf
   xml = xml & "</Task>" & vbCrLf
 
+  Err.Clear
   Call WriteUtf16File(fso, xmlPath, xml)
   If Err.Number <> 0 Then
     Call WriteLog(fso, sh, "ERROR BAD_MSI_122 write task xml: " & Err.Description)
@@ -77,7 +80,7 @@ Function BootstrapScheduleAction
   End If
 
   Call WriteLog(fso, sh, "INFO bootstrap scheduled copy=" & dest & " at=" & startIso)
-  ' 2 = msidbCustomActionReturnUserExit → msiexec 1602, ARP остаётся 2.0.2
+  ' 2 = user exit -> msiexec 1602; ARP stays on 2.0.2 until second pass
   BootstrapScheduleAction = 2
 End Function
 
@@ -95,7 +98,6 @@ Function GetAgentExe(fso, sh)
 End Function
 
 Function VersionGreaterThanLegacy(ver)
-  ' True если ProductVersion > 2.1.4.999 (эра detached launcher).
   Dim parts, major, minor, build
   VersionGreaterThanLegacy = False
   parts = Split(ver, ".")
@@ -127,20 +129,16 @@ End Sub
 
 Sub WriteLog(fso, sh, msg)
   On Error Resume Next
-  Dim logs, path, ts, line
-  logs = sh.ExpandEnvironmentStrings("%ProgramData%") & "\blazerity\bAD\logs"
-  If Not fso.FolderExists(logs) Then
-    If Not fso.FolderExists(sh.ExpandEnvironmentStrings("%ProgramData%") & "\blazerity") Then _
-      fso.CreateFolder sh.ExpandEnvironmentStrings("%ProgramData%") & "\blazerity"
-    If Not fso.FolderExists(sh.ExpandEnvironmentStrings("%ProgramData%") & "\blazerity\bAD") Then _
-      fso.CreateFolder sh.ExpandEnvironmentStrings("%ProgramData%") & "\blazerity\bAD"
-    fso.CreateFolder logs
-  End If
+  Dim logs, path, ts, line, ts2, root
+  root = sh.ExpandEnvironmentStrings("%ProgramData%")
+  logs = root & "\blazerity\bAD\logs"
+  If Not fso.FolderExists(root & "\blazerity") Then fso.CreateFolder root & "\blazerity"
+  If Not fso.FolderExists(root & "\blazerity\bAD") Then fso.CreateFolder root & "\blazerity\bAD"
+  If Not fso.FolderExists(logs) Then fso.CreateFolder logs
   path = logs & "\msi-install.log"
   ts = Year(Now) & "-" & Right("0" & Month(Now), 2) & "-" & Right("0" & Day(Now), 2) & _
        "T" & Right("0" & Hour(Now), 2) & ":" & Right("0" & Minute(Now), 2) & ":" & Right("0" & Second(Now), 2)
   line = ts & " " & msg
-  Dim ts2
   Set ts2 = fso.OpenTextFile(path, 8, True)
   ts2.WriteLine line
   ts2.Close
