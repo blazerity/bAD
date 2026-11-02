@@ -87,7 +87,7 @@ msiexec /i bad-agent-<версия из agent/VERSION>.msi `
   /qn
 ```
 
-**2.1.4+:** `%ProgramFiles%\blazerity\bad agent\` (плоский `bin\`, `scripts\`, `bad.cmd`). Служба **`badagent`**. Self-contained — отдельный .NET Runtime на ПК **не** нужен. MajorUpgrade: до `RemoveExistingProducts` MSI останавливает `badagent` и ждёт выхода `BadAgent.exe`; `REBOOT=ReallySuppress`; после установки удаляет пустые `bin\ms` / `bin\lib` от 2.1.1–2.1.3. Апгрейд: `msiexec /i bad-agent-<ver>.msi /qn`. С 1.x: + `migrate-legacy-install.ps1`.
+**2.1.4+:** `%ProgramFiles%\blazerity\bad agent\` (плоский `bin\`, `scripts\`, `bad.cmd`). Служба **`badagent`**. Self-contained — отдельный .NET Runtime на ПК **не** нужен. MajorUpgrade: до `RemoveExistingProducts` MSI останавливает `badagent` и ждёт выхода `BadAgent.exe`; `REBOOT=ReallySuppress`; после установки удаляет пустые `bin\ms` и `bin\lib`, если они остались. Апгрейд: `msiexec /i bad-agent-<ver>.msi /qn`. С 1.x: + `migrate-legacy-install.ps1`.
 
 Каталог установки по умолчанию в **Machine PATH** (`ADDPATH=1`): `bad.cmd` → `bin\BadAgent.exe`. Чтобы **не** менять PATH: `ADDPATH=0`.
 

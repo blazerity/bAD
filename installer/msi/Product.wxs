@@ -6,8 +6,6 @@
   UpgradeCode BADA0001…; MajorUpgrade AllowDowngrades; migrate-legacy-install.ps1.
   Апгрейд: msiexec /i новый.msi /qn (не /upgrade).
   2.1.4+: stop-agent-before-upgrade до RemoveExistingProducts; REBOOT=ReallySuppress.
-  2.2.3: пустые скобки catch WiX выкидывает, из-за этого PowerShell не принимает команду.
-    Нельзя PowerShell в ExeCommand: MSI Formatted съедает [Type].
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <?ifndef ProductVersion?>
