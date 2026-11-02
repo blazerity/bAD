@@ -55,13 +55,15 @@ dotnet publish ..\..\agent\src\BadAgent\BadAgent.csproj `
   -o .\publish\bin
 # Self-contained: .NET внутри MSI (~десятки МБ), на ПК runtime ставить не нужно
 .\organize-publish.ps1 -BinDir .\publish\bin
-# bin\: BadAgent.exe + native host; bin\ms\ — Microsoft/System; bin\lib\ — Serilog и пр.
+# bin\: плоский self-contained (BadAgent.exe + все DLL в корне), без ms\lib\
 
 # 3. scripts + bad.cmd (корень publish — PATH; exe в bin\)
 Copy-Item .\write-config.ps1 .\publish\scripts\
 Copy-Item .\cleanup-uninstall.ps1 .\publish\scripts\
 Copy-Item .\bad-paths.ps1 .\publish\scripts\
 Copy-Item .\migrate-legacy-install.ps1 .\publish\scripts\
+Copy-Item .\stop-agent-before-upgrade.ps1 .\publish\scripts\
+Copy-Item .\cleanup-orphan-bin-dirs.ps1 .\publish\scripts\
 Copy-Item .\bad.cmd .\publish\
 Copy-Item .\uninstall.cmd .\publish\bin\
 
@@ -85,7 +87,7 @@ msiexec /i bad-agent-<версия из agent/VERSION>.msi `
   /qn
 ```
 
-**2.1.2+:** `%ProgramFiles%\blazerity\bad agent\` (`bin\` + `ms\`/`lib\`, `scripts\`, `bad.cmd`). Служба **`badagent`**. Self-contained — отдельный .NET Runtime на ПК **не** нужен. Апгрейд: `msiexec /i bad-agent-<ver>.msi /qn` (MajorUpgrade). С 1.x: + `migrate-legacy-install.ps1`.
+**2.1.4+:** `%ProgramFiles%\blazerity\bad agent\` (плоский `bin\`, `scripts\`, `bad.cmd`). Служба **`badagent`**. Self-contained — отдельный .NET Runtime на ПК **не** нужен. MajorUpgrade: до `RemoveExistingProducts` MSI останавливает `badagent` и ждёт выхода `BadAgent.exe`; `REBOOT=ReallySuppress`; после установки удаляет пустые `bin\ms` / `bin\lib` от 2.1.1–2.1.3. Апгрейд: `msiexec /i bad-agent-<ver>.msi /qn`. С 1.x: + `migrate-legacy-install.ps1`.
 
 Каталог установки по умолчанию в **Machine PATH** (`ADDPATH=1`): `bad.cmd` → `bin\BadAgent.exe`. Чтобы **не** менять PATH: `ADDPATH=0`.
 
