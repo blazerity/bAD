@@ -1,6 +1,5 @@
 ' First-pass MajorUpgrade from 2.0.x: copy MSI, schtasks (+90s), return 1602 = UserExit.
-' Не вызывать функцию ещё раз в конце файла: повторный вызов затирает код возврата.
-' Trailing call required: ScriptSourceFile may not invoke Function by CA Id alone.
+' Функцию вызывает установщик по имени. Повторный вызов в конце файла даёт код 0.
 ' ASCII-only: Package Codepage 1251 (WIX0311).
 Option Explicit
 
