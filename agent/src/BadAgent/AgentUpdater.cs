@@ -40,10 +40,19 @@ public sealed class AgentUpdater
         }
 
         var removed = 0;
+        var cutoff = DateTime.UtcNow.AddHours(-1);
         foreach (var path in Directory.EnumerateFileSystemEntries(root))
         {
             try
             {
+                var written = Directory.Exists(path)
+                    ? Directory.GetLastWriteTimeUtc(path)
+                    : File.GetLastWriteTimeUtc(path);
+                if (written > cutoff)
+                {
+                    continue;
+                }
+
                 if (Directory.Exists(path))
                 {
                     Directory.Delete(path, recursive: true);
