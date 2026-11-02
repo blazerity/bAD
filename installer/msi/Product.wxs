@@ -45,29 +45,13 @@
 
     <?include bootstrap-inline.wxi?>
 
-    <!-- После успешного schedule (marker .bootstrap-scheduled): UserExit 1602 без exit 1602 из Exe CA (Return=check → 1722). -->
+    <!-- После успешного schedule (marker): script CA → 2 = UserExit 1602. Inline VBScript в WiX v4 нельзя (WIX0010/WIX0400). -->
     <CustomAction Id="BootstrapUserExitAction"
                   Script="vbscript"
+                  ScriptSourceFile="bootstrap-user-exit.vbs"
                   Execute="immediate"
                   Return="check"
-                  Impersonate="no">
-      <![CDATA[
-Function BootstrapUserExitAction
-  On Error Resume Next
-  Dim fso, sh, marker
-  Set fso = CreateObject("Scripting.FileSystemObject")
-  Set sh = CreateObject("WScript.Shell")
-  marker = sh.ExpandEnvironmentStrings("%ProgramData") & "\blazerity\bAD\updates\.bootstrap-scheduled"
-  If fso.FileExists(marker) Then
-    fso.DeleteFile marker, True
-    BootstrapUserExitAction = 2
-  Else
-    BootstrapUserExitAction = 0
-  End If
-End Function
-BootstrapUserExitAction
-      ]]>
-    </CustomAction>
+                  Impersonate="no" />
 
     <UI>
       <Error Id="1722"
