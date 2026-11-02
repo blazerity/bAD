@@ -1,18 +1,18 @@
-using System.Diagnostics;
 using System.Text;
 
 namespace BadAgent;
 
 /// <summary>
 /// Запуск msiexec вне консоли <c>bad.cmd</c>.
-/// Иначе Restart Manager шлёт CTRL+C в консоль → «Завершить выполнение пакетного файла (Y/N)?»
-/// и установка обрывается.
+/// Helper через .cmd + <c>Process.Start(UseShellExecute)</c> оставался в той же консоли —
+/// Restart Manager → Ctrl+C → «Завершить выполнение пакетного файла».
 /// </summary>
 internal static class MsiexecLauncher
 {
+    private const int DelayMs = 3500;
+
     /// <summary>
-    /// Пишет короткий .cmd в %TEMP%, стартует его скрыто (без привязки к текущей консоли),
-    /// ждёт несколько секунд, затем вызывает msiexec — чтобы BadAgent / bad.cmd успели выйти.
+    /// Пишет короткий .vbs в %TEMP%, стартует wscript detached, пауза, msiexec с /norestart.
     /// </summary>
     public static bool StartDelayedDetached(string msiexecArguments, ILogger? logger = null)
     {
@@ -32,51 +32,52 @@ internal static class MsiexecLauncher
 
         var dir = Path.Combine(Path.GetTempPath(), "bad-agent-update");
         Directory.CreateDirectory(dir);
-        var helperPath = Path.Combine(dir, $"msiexec-{Guid.NewGuid():N}.cmd");
+        var scriptPath = Path.Combine(dir, $"msiexec-{Guid.NewGuid():N}.vbs");
 
-        // ping ≈ пауза без timeout.exe (есть не везде / может ждать подтверждения).
-        var sb = new StringBuilder();
-        sb.AppendLine("@echo off");
-        sb.AppendLine("rem bAD: отложенный msiexec — bad.cmd должен завершиться до замены файлов");
-        sb.AppendLine("ping -n 4 127.0.0.1 >nul");
-        sb.AppendLine($"\"{msiexec}\" {msiexecArguments}");
-        sb.AppendLine("del \"%~f0\" >nul 2>&1");
-        File.WriteAllText(helperPath, sb.ToString(), Encoding.ASCII);
+        var runCommand = BuildMsiexecRunCommand(msiexec, msiexecArguments);
+        var vbs = new StringBuilder();
+        vbs.AppendLine("' bAD: отложенный msiexec — консоль bad.cmd должна закрыться до установки");
+        vbs.Append("WScript.Sleep ").Append(DelayMs).AppendLine();
+        vbs.Append("CreateObject(\"WScript.Shell\").Run \"")
+            .Append(EscapeVbsString(runCommand))
+            .AppendLine("\", 0, False");
+        vbs.AppendLine("On Error Resume Next");
+        vbs.AppendLine("CreateObject(\"Scripting.FileSystemObject\").DeleteFile WScript.ScriptFullName, True");
+        File.WriteAllText(scriptPath, vbs.ToString(), Encoding.ASCII);
 
-        try
+        var wscript = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.System),
+            "wscript.exe");
+        var wscriptArgs = $"//B //Nologo \"{scriptPath}\"";
+
+        if (!DetachedProcessStart.TryStart(wscript, wscriptArgs, logger))
         {
-            var psi = new ProcessStartInfo
-            {
-                FileName = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.System),
-                    "cmd.exe"),
-                Arguments = $"/d /c \"{helperPath}\"",
-                UseShellExecute = true,
-                WindowStyle = ProcessWindowStyle.Hidden,
-                WorkingDirectory = dir,
-                ErrorDialog = false
-            };
-
-            if (Process.Start(psi) is null)
-            {
-                logger?.LogError("Не удалось запустить helper msiexec: {Helper}", helperPath);
-                TryDelete(helperPath);
-                return false;
-            }
-
-            logger?.LogInformation(
-                "Запланирован отложенный msiexec через {Helper}: {Args}",
-                helperPath,
-                msiexecArguments);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            logger?.LogError(ex, "Ошибка запуска helper msiexec");
-            TryDelete(helperPath);
+            logger?.LogError("Не удалось запустить detached wscript: {Script}", scriptPath);
+            TryDelete(scriptPath);
             return false;
         }
+
+        logger?.LogInformation(
+            "Запланирован отложенный msiexec (detached VBS {Script}): {Args}",
+            scriptPath,
+            msiexecArguments);
+        return true;
     }
+
+    private static string BuildMsiexecRunCommand(string msiexecPath, string msiexecArguments)
+    {
+        var args = msiexecArguments.Trim();
+        if (!args.Contains("/norestart", StringComparison.OrdinalIgnoreCase)
+            && !args.Contains("/promptrestart", StringComparison.OrdinalIgnoreCase))
+        {
+            args += " /norestart";
+        }
+
+        return $"\"{msiexecPath}\" {args}";
+    }
+
+    private static string EscapeVbsString(string value) =>
+        value.Replace("\"", "\"\"");
 
     private static void TryDelete(string path)
     {
