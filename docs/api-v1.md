@@ -67,7 +67,7 @@
 |-------|------|------------|
 | `GET` | `/v1/health` | доступность и версия сервера (без токена) |
 | `GET` | `/v1/devices` | список устройств с пагинацией и фильтрами |
-| `GET` | `/v1/devices/{device_id}` | карточка устройства и последний снимок |
+| `GET` | `/v1/devices/{device_id}` | карточка и последний снимок; в пути `device_id` или `bad_id` |
 | `GET` | `/v1/events` | лента изменений |
 | `GET` | `/v1/admin/devices/{device_id}/config` | итоговые настройки и источники (опционально) |
 | `GET` | `/v1/admin/policies` | список политик (опционально) |
@@ -192,7 +192,7 @@
 ```json
 {
   "device_id": "3f2b…",
-  "bad_id": "BAD-K7Q2MP",
+  "bad_id": "BAD-K7Q2MP4X9R",
   "hostname": "WS-01",
   "enrolled_at": "2026-10-01T10:00:00Z",
   "last_seen_at": "2026-10-16T11:00:00Z",
@@ -220,7 +220,7 @@
 
 | Поле | Описание |
 |------|----------|
-| `bad_id` | короткий код панели (`BAD-` + 6 символов); в путях `/v1/devices/{device_id}` по-прежнему только `device_id` |
+| `bad_id` | код панели (`BAD-` и 10 символов Crockford). `GET /v1/devices/{device_id}` принимает и `device_id`, и этот код. Остальные пути устройства по-прежнему только `device_id` |
 | `serial_number`, `model` | значения из последнего снимка оборудования |
 | `latest_inventory` | `{ id, received_at, schema_version, payload }` или `null` |
 | `duplicates` | подсказки о возможных дубликатах |

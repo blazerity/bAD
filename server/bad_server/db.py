@@ -109,9 +109,13 @@ class Database:
                     "idx_devices_last_seen skipped on start (retry later): %s", exc
                 )
         ensure_trgm_search_indexes(self.database_url)
-        from .wave_21_migration import run_wave_21_migration
+        from .wave_21_migration import (
+            run_bad_id_formula_migration,
+            run_wave_21_migration,
+        )
 
         run_wave_21_migration(self)
+        run_bad_id_formula_migration(self)
 
     @contextmanager
     def connection(self) -> Iterator[CompatConnection]:
@@ -202,16 +206,15 @@ class Database:
                     ),
                 )
                 return False
-            from .bad_id import generate_bad_id
+            from .bad_id import bad_id_for_device, ensure_bad_id_key
 
-            bad_id = generate_bad_id()
-            for _ in range(8):
-                dup = conn.execute(
-                    "SELECT 1 FROM devices WHERE bad_id = ?", (bad_id,)
-                ).fetchone()
-                if not dup:
-                    break
-                bad_id = generate_bad_id()
+            bad_id = bad_id_for_device(device_id, ensure_bad_id_key(self))
+            dup = conn.execute(
+                "SELECT device_id FROM devices WHERE bad_id = ?",
+                (bad_id,),
+            ).fetchone()
+            if dup:
+                raise ValueError("bad_id_collision")
             conn.execute(
                 """
                 INSERT INTO devices(

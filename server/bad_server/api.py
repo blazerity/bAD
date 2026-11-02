@@ -141,6 +141,12 @@ def enroll(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=_REVOKED_DETAIL,
             ) from exc
+        if code == "bad_id_collision":
+            logger.error("enroll bad_id collision for device_id=%s", body.device_id)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="bad_id collision for this device_id",
+            ) from exc
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Device already enrolled",
@@ -338,10 +344,22 @@ def get_device(
     _admin: str = Depends(require_admin_token),
     db: Database = Depends(get_db),
 ) -> dict[str, Any]:
-    detail = db.get_device_detail(device_id)
+    from .bad_id import is_bad_id
+    from .wave_21_migration import resolve_device_ref
+
+    canonical = device_id
+    if is_bad_id(device_id):
+        resolved = resolve_device_ref(db, device_id)
+        if not resolved:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Device not found",
+            )
+        canonical = resolved
+    detail = db.get_device_detail(canonical)
     if not detail:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
-    detail["duplicates"] = db.find_duplicate_devices(device_id)
+    detail["duplicates"] = db.find_duplicate_devices(canonical)
     return detail
 
 
