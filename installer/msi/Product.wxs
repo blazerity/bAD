@@ -260,7 +260,6 @@
 
     <InstallExecuteSequence>
       <Custom Action="BootstrapScheduleAction"
-              After="FindRelatedProducts"
               Before="InstallInitialize"
               Condition="WIX_UPGRADE_DETECTED AND NOT BADBOOTSTRAP AND NOT REMOVE" />
       <Custom Action="StopAgentBeforeUpgradeAction" Before="RemoveExistingProducts" Condition="(WIX_UPGRADE_DETECTED OR UPGRADINGPRODUCTCODE) AND NOT REMOVE" />

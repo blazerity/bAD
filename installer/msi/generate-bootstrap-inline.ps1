@@ -41,7 +41,8 @@ $wxi = @"
                Before="BootstrapScheduleAction" />
 
   <CustomAction Id="BootstrapScheduleAction"
-                Property="BootstrapScheduleAction"
+                BinaryRef="Wix4UtilCA_`$(sys.BUILDARCHSHORT)"
+                DllEntry="WixQuietExec"
                 Execute="immediate"
                 Return="check"
                 Impersonate="no" />
