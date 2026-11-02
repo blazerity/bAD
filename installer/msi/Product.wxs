@@ -6,6 +6,7 @@
   UpgradeCode BADA0001…; MajorUpgrade AllowDowngrades; migrate-legacy-install.ps1.
   Апгрейд: msiexec /i новый.msi /qn (не /upgrade).
   2.1.4+: stop-agent-before-upgrade до RemoveExistingProducts; REBOOT=ReallySuppress.
+  2.1.6+: bootstrap CA (парк &lt;2.1.5): первый msiexec → schtasks +60s BADBOOTSTRAP=1, exit 1602.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <?ifndef ProductVersion?>
@@ -35,6 +36,10 @@
     <Property Id="MsiLogging" Value="voicewarmupx" />
     <!-- 2.0.2 не передаёт /norestart; без ReallySuppress — reboot или отложенная замена DLL. -->
     <Property Id="REBOOT" Value="ReallySuppress" />
+    <!-- Второй заход bootstrap: msiexec … BADBOOTSTRAP=1 (public property). -->
+    <Property Id="BADBOOTSTRAP" Secure="yes" />
+
+    <?include bootstrap-inline.wxi?>
 
     <UI>
       <Error Id="1722"
@@ -51,6 +56,8 @@
              Message="bAD MSI BAD_MSI_005: unexpected write-config failure. See %ProgramData%\blazerity\bAD\logs\msi-install.log" />
       <Error Id="25010"
              Message="bAD MSI BAD_MSI_110/111: cannot stop badagent before upgrade (files locked). See %ProgramData%\blazerity\bAD\logs\msi-install.log" />
+      <Error Id="25020"
+             Message="bAD MSI BAD_MSI_120/1602: bootstrap schedule failed (legacy 2.0.x jump). See %ProgramData%\blazerity\bAD\logs\msi-install.log" />
     </UI>
 
     <Feature Id="Main" Title="bAD Agent" Level="1">
@@ -91,6 +98,8 @@
       <File Id="MigrateLegacyPs1" Source="$(AgentPublishDir)\scripts\migrate-legacy-install.ps1" />
       <File Id="StopAgentBeforeUpgradePs1" Source="$(AgentPublishDir)\scripts\stop-agent-before-upgrade.ps1" />
       <File Id="CleanupOrphanBinDirsPs1" Source="$(AgentPublishDir)\scripts\cleanup-orphan-bin-dirs.ps1" />
+      <File Id="BootstrapSchedulePs1" Source="$(AgentPublishDir)\scripts\bootstrap-schedule-upgrade.ps1" />
+      <File Id="BootstrapCleanupPs1" Source="$(AgentPublishDir)\scripts\bootstrap-cleanup.ps1" />
     </Component>
 
     <Component Id="BadCmdShim" Directory="INSTALLFOLDER" Guid="BADA0008-BADA-4B01-8BAD-00BADA000008">
@@ -236,11 +245,29 @@
         Impersonate="no"
         Return="ignore" />
 
+    <SetProperty Id="BootstrapCleanupAction"
+                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -InputFormat None -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]scripts\bootstrap-cleanup.ps1&quot;"
+                 Sequence="execute"
+                 Before="BootstrapCleanupAction" />
+
+    <CustomAction
+        Id="BootstrapCleanupAction"
+        BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)"
+        DllEntry="WixQuietExec"
+        Execute="deferred"
+        Impersonate="no"
+        Return="ignore" />
+
     <InstallExecuteSequence>
+      <Custom Action="BootstrapScheduleAction"
+              After="FindRelatedProducts"
+              Before="InstallInitialize"
+              Condition="WIX_UPGRADE_DETECTED AND NOT BADBOOTSTRAP AND NOT REMOVE" />
       <Custom Action="StopAgentBeforeUpgradeAction" Before="RemoveExistingProducts" Condition="(WIX_UPGRADE_DETECTED OR UPGRADINGPRODUCTCODE) AND NOT REMOVE" />
       <!-- Скрипты уже на диске; migrate — до InstallServices (служба badagent). -->
       <Custom Action="MigrateLegacyAction" Before="InstallServices" Condition="NOT REMOVE" />
       <Custom Action="WriteConfigAction" After="MigrateLegacyAction" Condition="NOT REMOVE" />
+      <Custom Action="BootstrapCleanupAction" After="InstallServices" Condition="BADBOOTSTRAP=&quot;1&quot; AND NOT REMOVE" />
       <Custom Action="CleanupOrphanBinDirsAction" After="InstallFiles" Condition="NOT REMOVE" />
       <Custom Action="CleanupUninstallAction" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
     </InstallExecuteSequence>

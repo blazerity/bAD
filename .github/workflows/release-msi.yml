@@ -134,8 +134,11 @@ jobs:
           Copy-Item installer/msi/migrate-legacy-install.ps1 $scripts -Force
           Copy-Item installer/msi/stop-agent-before-upgrade.ps1 $scripts -Force
           Copy-Item installer/msi/cleanup-orphan-bin-dirs.ps1 $scripts -Force
+          Copy-Item installer/msi/bootstrap-schedule-upgrade.ps1 $scripts -Force
+          Copy-Item installer/msi/bootstrap-cleanup.ps1 $scripts -Force
           Copy-Item installer/msi/bad.cmd $root -Force
           Copy-Item installer/msi/uninstall.cmd $bin -Force
+          powershell -NoProfile -ExecutionPolicy Bypass -File installer/msi/generate-bootstrap-inline.ps1
 
       - name: Install WiX toolset (dotnet tool)
         run: |
