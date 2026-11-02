@@ -1,7 +1,6 @@
-' First-pass MajorUpgrade from 2.0.x: copy MSI, schtasks (+90s), set BAD_BOOTSTRAP_SCHEDULED=1.
-' Abort is a separate Error=1602 CA (script return codes are unreliable here).
+' First-pass MajorUpgrade from 2.0.x: copy MSI, schtasks (+90s), return 1602 = UserExit.
+' Trailing call required: ScriptSourceFile may not invoke Function by CA Id alone.
 ' ASCII-only: Package Codepage 1251 (WIX0311).
-' Trailing call required: ScriptSourceFile does not always invoke Function by CA Id.
 Option Explicit
 
 Function BootstrapScheduleAction
@@ -9,7 +8,7 @@ Function BootstrapScheduleAction
   Dim fso, sh, orig, pd, updates, logs, dest, blog, xmlPath, exe, ver
   Dim startAt, startIso, xml, rc
 
-  BootstrapScheduleAction = 0
+  BootstrapScheduleAction = 1603
   Set fso = CreateObject("Scripting.FileSystemObject")
   Set sh = CreateObject("WScript.Shell")
 
@@ -18,7 +17,6 @@ Function BootstrapScheduleAction
   orig = Session.Property("OriginalDatabase")
   If Len(Trim(orig)) = 0 Or Not fso.FileExists(orig) Then
     Call WriteLog(fso, sh, "ERROR BAD_MSI_121 OriginalDatabase missing: '" & orig & "'")
-    BootstrapScheduleAction = 1603
     Exit Function
   End If
 
@@ -51,7 +49,6 @@ Function BootstrapScheduleAction
   fso.CopyFile orig, dest, True
   If Err.Number <> 0 Or Not fso.FileExists(dest) Then
     Call WriteLog(fso, sh, "ERROR BAD_MSI_121 copy failed: " & Err.Description)
-    BootstrapScheduleAction = 1603
     Exit Function
   End If
 
@@ -78,20 +75,17 @@ Function BootstrapScheduleAction
   Call WriteUtf16File(fso, xmlPath, xml)
   If Err.Number <> 0 Then
     Call WriteLog(fso, sh, "ERROR BAD_MSI_122 write task xml: " & Err.Description)
-    BootstrapScheduleAction = 1603
     Exit Function
   End If
 
   rc = sh.Run("schtasks.exe /Create /TN ""bAD-bootstrap"" /XML """ & xmlPath & """ /F", 0, True)
   If rc <> 0 Then
     Call WriteLog(fso, sh, "ERROR BAD_MSI_122 schtasks /Create exit " & rc)
-    BootstrapScheduleAction = 1603
     Exit Function
   End If
 
-  Session.Property("BAD_BOOTSTRAP_SCHEDULED") = "1"
-  Call WriteLog(fso, sh, "INFO bootstrap scheduled copy=" & dest & " at=" & startIso)
-  BootstrapScheduleAction = 0
+  Call WriteLog(fso, sh, "INFO bootstrap scheduled copy=" & dest & " at=" & startIso & " -> 1602")
+  BootstrapScheduleAction = 1602
 End Function
 
 ' Ensure entry runs when host does not auto-call Function by CA Id.
