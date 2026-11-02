@@ -24,10 +24,11 @@ $psCommand =
     'Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue;' +
     'exit $ec'
 
-# WiX SetProperty: literal $ in PowerShell → $$ in .wxi
+# WiX SetProperty: literal $ in PowerShell → $$ in .wxi; & < > " → XML entities в атрибуте Value
 $wxsCommand = ($psCommand -replace '\$', '$$$$')
+$commandBody = ($wxsCommand -replace '&', '&amp;') -replace '"', '&quot;'
 $wxsValue = '&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command &quot;' +
-    ($wxsCommand -replace '"', '&quot;') +
+    $commandBody +
     '&quot;'
 
 $wxi = @"
