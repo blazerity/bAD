@@ -1,10 +1,10 @@
 # Первый заход MajorUpgrade с парка <2.1.5: копия MSI + schtasks bAD-bootstrap (+60s), exit 1602.
-# Immediate, LocalSystem. Аргумент: путь к устанавливаемому MSI ([OriginalDatabase]).
-# Не вызывается с диска при 2.0.2→2.1.6 — дублируется inline в Product.wxs; файл — эталон и тесты.
+# Immediate, LocalSystem. Путь к MSI: аргумент или env BAD_ORIG ([OriginalDatabase]).
+# Эталон для publish/scripts; inline CA — EncodedCommand в bootstrap-inline.wxi.
 
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$OriginalDatabase
+    [Parameter(Mandatory = $false)]
+    [string]$OriginalDatabase = $env:BAD_ORIG
 )
 
 $ErrorActionPreference = "Stop"
@@ -68,19 +68,13 @@ New-Item -ItemType Directory -Force -Path $updatesDir -ErrorAction Stop | Out-Nu
 New-Item -ItemType Directory -Force -Path $logDir -ErrorAction Stop | Out-Null
 Copy-Item -LiteralPath $OriginalDatabase -Destination $destMsi -Force
 
-$msiArgs = @(
-    "/i", "`"$destMsi`"",
-    "/qn", "/norestart",
-    "BADBOOTSTRAP=1", "REBOOT=ReallySuppress",
-    "/l*v", "`"$bootstrapLog`""
-) -join " "
+$t = (Get-Date).AddSeconds(90)
+$tr = 'msiexec.exe /i "' + $destMsi + '" /qn /norestart BADBOOTSTRAP=1 REBOOT=ReallySuppress /l*v "' + $bootstrapLog + '"'
+& "$env:SystemRoot\System32\schtasks.exe" /Create /TN bAD-bootstrap /TR $tr /SC ONCE /ST $($t.ToString('HH:mm')) /SD $($t.ToString('yyyy/MM/dd')) /RU SYSTEM /RL HIGHEST /F | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    Write-BootstrapLog "ERROR BAD_MSI_120 schtasks exit $LASTEXITCODE"
+    exit 120
+}
 
-$runAt = (Get-Date).AddSeconds(60)
-$action = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\msiexec.exe" -Argument $msiArgs
-$trigger = New-ScheduledTaskTrigger -Once -At $runAt
-$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-Register-ScheduledTask -TaskName "bAD-bootstrap" -Action $action -Trigger $trigger -Settings $settings `
-    -User "SYSTEM" -RunLevel Highest -Force | Out-Null
-
-Write-BootstrapLog "INFO bootstrap scheduled (installed=$installedVer copy=$destMsi at=$runAt)"
+Write-BootstrapLog "INFO bootstrap scheduled (installed=$installedVer copy=$destMsi at=$t)"
 exit $BootstrapExitCode
