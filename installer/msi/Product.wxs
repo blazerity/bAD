@@ -7,7 +7,8 @@
   Апгрейд: msiexec /i новый.msi /qn (не /upgrade).
   2.1.4+: stop-agent-before-upgrade до RemoveExistingProducts; REBOOT=ReallySuppress.
   2.1.6+: bootstrap CA (парк &lt;2.1.5): первый msiexec → schtasks +60s BADBOOTSTRAP=1, exit 1602.
-  2.1.8+: bootstrap — cmd + EncodedCommand (inline .ps1), не WixQuietExec -Command.
+  2.1.8+: bootstrap — EncodedCommand (inline .ps1), не WixQuietExec -Command.
+  2.1.9+: BAD_ORIG через PowerShell -Command (не cmd set); exit 121/122; UserExit 1602 — отдельная VBS CA.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <?ifndef ProductVersion?>
@@ -44,6 +45,30 @@
 
     <?include bootstrap-inline.wxi?>
 
+    <!-- После успешного schedule (marker .bootstrap-scheduled): UserExit 1602 без exit 1602 из Exe CA (Return=check → 1722). -->
+    <CustomAction Id="BootstrapUserExitAction"
+                  Script="vbscript"
+                  Execute="immediate"
+                  Return="check"
+                  Impersonate="no">
+      <![CDATA[
+Function BootstrapUserExitAction
+  On Error Resume Next
+  Dim fso, sh, marker
+  Set fso = CreateObject("Scripting.FileSystemObject")
+  Set sh = CreateObject("WScript.Shell")
+  marker = sh.ExpandEnvironmentStrings("%ProgramData") & "\blazerity\bAD\updates\.bootstrap-scheduled"
+  If fso.FileExists(marker) Then
+    fso.DeleteFile marker, True
+    BootstrapUserExitAction = 2
+  Else
+    BootstrapUserExitAction = 0
+  End If
+End Function
+BootstrapUserExitAction
+      ]]>
+    </CustomAction>
+
     <UI>
       <Error Id="1722"
              Message="bAD Agent Setup failed (MSI 1722 / custom action). Look for BAD_MSI_### in %ProgramData%\blazerity\bAD\logs\msi-install.log and %TEMP%\MSI*.log. Action [2], location: [3], command: [4]" />
@@ -60,7 +85,7 @@
       <Error Id="25010"
              Message="bAD MSI BAD_MSI_110/111: cannot stop badagent before upgrade (files locked). See %ProgramData%\blazerity\bAD\logs\msi-install.log" />
       <Error Id="25020"
-             Message="bAD MSI BAD_MSI_120/1602: bootstrap schedule failed (legacy 2.0.x jump). See %ProgramData%\blazerity\bAD\logs\msi-install.log" />
+             Message="bAD MSI BAD_MSI_121/122: bootstrap schedule failed (legacy 2.0.x jump). See %ProgramData%\blazerity\bAD\logs\msi-install.log" />
     </UI>
 
     <Feature Id="Main" Title="bAD Agent" Level="1">
@@ -263,6 +288,9 @@
 
     <InstallExecuteSequence>
       <Custom Action="BootstrapScheduleAction"
+              Before="BootstrapUserExitAction"
+              Condition="WIX_UPGRADE_DETECTED AND NOT BADBOOTSTRAP AND NOT REMOVE" />
+      <Custom Action="BootstrapUserExitAction"
               Before="InstallInitialize"
               Condition="WIX_UPGRADE_DETECTED AND NOT BADBOOTSTRAP AND NOT REMOVE" />
       <Custom Action="StopAgentBeforeUpgradeAction" Before="RemoveExistingProducts" Condition="(WIX_UPGRADE_DETECTED OR UPGRADINGPRODUCTCODE) AND NOT REMOVE" />

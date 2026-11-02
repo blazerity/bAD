@@ -1,5 +1,5 @@
-# Генерирует bootstrap-inline.wxi: immediate CA bootstrap-schedule-upgrade.ps1 (2.0.2 без scripts на диске).
-# EncodedCommand + cmd set BAD_ORIG=[OriginalDatabase] — без гигантского -Command и без [Convert] в MSI SetProperty.
+# Генерирует bootstrap-inline.wxi: immediate CA bootstrap-schedule-upgrade-inline.ps1 (2.0.2 без scripts на диске).
+# [OriginalDatabase] → $env:BAD_ORIG в том же процессе PowerShell (без cmd set); затем EncodedCommand.
 param(
     [string]$Root = $PSScriptRoot
 )
@@ -14,16 +14,16 @@ if (-not (Test-Path -LiteralPath $scriptPath)) {
 $body = (Get-Content -LiteralPath $scriptPath | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
 $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($body))
 
-# cmd.exe ~8191; запас под путь [OriginalDatabase].
-$maxEnc = 7800
+# cmd.exe ~8191; запас под путь [OriginalDatabase] и обёртку -Command.
+$maxEnc = 7200
 if ($encoded.Length -gt $maxEnc) {
-    throw "Encoded bootstrap too long ($($encoded.Length) > $maxEnc). Shorten bootstrap-schedule-upgrade.ps1."
+    throw "Encoded bootstrap too long ($($encoded.Length) > $maxEnc). Shorten bootstrap-schedule-upgrade-inline.ps1."
 }
 
-# WiX Formatted: [OriginalDatabase], &amp; для cmd &&, кавычки для set "BAD_ORIG=..."
+# WiX Formatted: [OriginalDatabase]; &amp; для cmd не используем — один вызов powershell.
+# Одинарные кавычки вокруг пути: типичный путь MSI без '.
 $exeCommand =
-    'cmd.exe /c set &quot;BAD_ORIG=[OriginalDatabase]&quot;&amp;&amp; &quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ' +
-    $encoded
+    '&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command &quot;&amp; { $env:BAD_ORIG=''[OriginalDatabase]''; $b=''' + $encoded + '''; $s=[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($b)); &amp; ([scriptblock]::Create($s)) }&quot;'
 
 $wxi = @"
 <?xml version="1.0" encoding="UTF-8"?>
