@@ -271,9 +271,8 @@
       <Custom Action="BootstrapScheduleAction"
               Before="InstallInitialize"
               Condition="WIX_UPGRADE_DETECTED AND NOT BADBOOTSTRAP AND NOT REMOVE" />
-      <!-- After=InstallInitialize + Before=REP: avoids MSI 2613 with MajorUpgrade afterInstallInitialize. -->
+      <!-- Only Before= (WIX0035: нельзя After+Before). First pass must UserExit 1602 before REP. -->
       <Custom Action="StopAgentBeforeUpgradeAction"
-              After="InstallInitialize"
               Before="RemoveExistingProducts"
               Condition="(WIX_UPGRADE_DETECTED OR UPGRADINGPRODUCTCODE) AND NOT REMOVE" />
       <!-- Скрипты уже на диске; migrate — до InstallServices (служба badagent). -->
