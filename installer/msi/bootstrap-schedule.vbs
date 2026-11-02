@@ -1,4 +1,5 @@
 ' First-pass MajorUpgrade from 2.0.x: copy MSI, schtasks (+90s), return 1602 = UserExit.
+' Не вызывать функцию ещё раз в конце файла: повторный вызов затирает код возврата.
 ' Trailing call required: ScriptSourceFile may not invoke Function by CA Id alone.
 ' ASCII-only: Package Codepage 1251 (WIX0311).
 Option Explicit
@@ -87,9 +88,6 @@ Function BootstrapScheduleAction
   Call WriteLog(fso, sh, "INFO bootstrap scheduled copy=" & dest & " at=" & startIso & " -> 1602")
   BootstrapScheduleAction = 1602
 End Function
-
-' Ensure entry runs when host does not auto-call Function by CA Id.
-BootstrapScheduleAction
 
 Function GetAgentExe(fso, sh)
   Dim reg, pf
