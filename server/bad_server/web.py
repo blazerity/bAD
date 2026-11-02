@@ -3845,6 +3845,96 @@ def settings_home(user: WebUser = Depends(require_web_admin)):
     return RedirectResponse(url="/settings/ldap", status_code=303)
 
 
+_INTEGRATION_OK = {
+    "approved": "Заявка подтверждена. Программа заберёт ключ при следующей проверке.",
+    "rejected": "Заявка отклонена.",
+    "revoked": "Доступ отозван.",
+}
+_INTEGRATION_ERR = {
+    "missing": "Заявка не найдена.",
+    "state": "Это действие сейчас недоступно.",
+    "key": "Сервер не может выдать ключ. Повторите подтверждение позже.",
+}
+
+
+@router.get("/settings/integrations", response_class=HTMLResponse)
+def integrations_settings_page(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    ok: str = "",
+    err: str = "",
+):
+    from .integrations import list_integrations
+
+    return _html(
+        request,
+        "integrations_settings.html",
+        {
+            "user": user,
+            "items": list_integrations(db),
+            "message": _INTEGRATION_OK.get(ok, ""),
+            "error": _INTEGRATION_ERR.get(err, ""),
+        },
+    )
+
+
+def _integration_action(
+    db: Database,
+    data_key: str,
+    integration_id: str,
+    action: str,
+) -> RedirectResponse:
+    from .integrations import IntegrationError, approve, is_integration_id, reject, revoke
+
+    if not is_integration_id(integration_id):
+        return RedirectResponse(url="/settings/integrations?err=missing", status_code=303)
+    try:
+        if action == "approve":
+            approve(db, data_key, integration_id)
+            code = "approved"
+        elif action == "reject":
+            reject(db, integration_id)
+            code = "rejected"
+        else:
+            revoke(db, integration_id)
+            code = "revoked"
+    except IntegrationError as exc:
+        err = "key" if exc.code == "no_data_key" else "state"
+        if exc.code == "state":
+            err = "state"
+        return RedirectResponse(url=f"/settings/integrations?err={err}", status_code=303)
+    return RedirectResponse(url=f"/settings/integrations?ok={code}", status_code=303)
+
+
+@router.post("/settings/integrations/{integration_id}/approve")
+def integrations_approve(
+    integration_id: str,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    data_key: str = Depends(get_data_key),
+):
+    return _integration_action(db, data_key, integration_id, "approve")
+
+
+@router.post("/settings/integrations/{integration_id}/reject")
+def integrations_reject(
+    integration_id: str,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+):
+    return _integration_action(db, "", integration_id, "reject")
+
+
+@router.post("/settings/integrations/{integration_id}/revoke")
+def integrations_revoke(
+    integration_id: str,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+):
+    return _integration_action(db, "", integration_id, "revoke")
+
+
 @router.get("/settings/retention", response_class=HTMLResponse)
 def retention_settings_page(
     request: Request,

@@ -234,6 +234,10 @@ async def lifespan(app: FastAPI):
         max_calls=settings.enroll_rate_limit_per_minute,
         window_seconds=60.0,
     )
+    app.state.integration_limiter = SlidingWindowRateLimiter(
+        max_calls=10,
+        window_seconds=60.0,
+    )
     app.state.login_ip_limiter = SlidingWindowRateLimiter(
         max_calls=settings.login_rate_limit_per_minute,
         window_seconds=60.0,

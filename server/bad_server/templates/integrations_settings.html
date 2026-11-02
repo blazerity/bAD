@@ -1,0 +1,64 @@
+{% extends "settings_base.html" %}
+{% from "macros/ui.html" import local_time %}
+{% set settings_section = 'integrations' %}
+{% block title %}Интеграции — bAD{% endblock %}
+{% block settings_content %}
+<section class="settings">
+  <h1>Интеграции</h1>
+  <p class="muted">
+    Программы, которым разрешено читать карточки устройств.
+    Программа сама присылает заявку. Пока заявку не подтвердите, она данные не получает.
+    Ключ чтения в панели не показывается: программа забирает его при следующей проверке.
+  </p>
+  {% if message %}<p class="ok">{{ message }}</p>{% endif %}
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+  {% if items %}
+  <div class="table-scroll">
+  <table class="devices">
+    <thead>
+      <tr>
+        <th>Имя</th>
+        <th>Состояние</th>
+        <th>Заявка</th>
+        <th>Последний запрос</th>
+        <th>Запросов</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td>{{ item.name }}</td>
+        <td>{{ item.status_label }}</td>
+        <td>{{ local_time(item.created_at) }}</td>
+        <td>{{ local_time(item.last_used_at) }}</td>
+        <td class="mono">{{ item.use_count }}</td>
+        <td>
+          {% if item.status == 'pending' %}
+          <form method="post" action="/settings/integrations/{{ item.id }}/approve" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit">Подтвердить</button>
+          </form>
+          <form method="post" action="/settings/integrations/{{ item.id }}/reject" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="secondary">Отклонить</button>
+          </form>
+          {% elif item.status == 'approved' or item.status == 'active' %}
+          <form method="post" action="/settings/integrations/{{ item.id }}/revoke" style="display:inline"
+            onsubmit="return confirm('Отозвать доступ этой программы?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="secondary">Отозвать</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="muted">Заявок пока нет.</p>
+  {% endif %}
+</section>
+{% endblock %}

@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 
 from fastapi import (
     APIRouter,
     Depends,
     File,
     Form,
+    Header,
     HTTPException,
     Query,
     Request,
@@ -28,6 +29,7 @@ from .agent_config import (
 )
 from .agent_update import check_update, sync_from_github
 from .auth import get_db, require_admin_token, require_api_key, require_enrollment_token
+from .integrations import require_device_reader as _device_reader
 from .device_refresh import (
     clear_refresh_meta_patch,
     heartbeat_actions_for_refresh,
@@ -48,6 +50,8 @@ from .schemas import (
     EnrollRequest,
     EnrollResponse,
     HeartbeatRequest,
+    IntegrationLookupBody,
+    IntegrationRequestBody,
     InventoryRequest,
 )
 from .http_bootstrap import ENROLL_CLEARTEXT_MSG, client_ip, enroll_cleartext_blocked
@@ -338,28 +342,116 @@ def list_devices(
     }
 
 
-@router.get("/devices/{device_id}")
-def get_device(
-    device_id: str,
-    _admin: str = Depends(require_admin_token),
-    db: Database = Depends(get_db),
-) -> dict[str, Any]:
+def _device_card(db: Database, ref: str) -> dict[str, Any] | None:
     from .bad_id import is_bad_id
     from .wave_21_migration import resolve_device_ref
 
-    canonical = device_id
-    if is_bad_id(device_id):
-        resolved = resolve_device_ref(db, device_id)
+    canonical = ref
+    if is_bad_id(ref):
+        resolved = resolve_device_ref(db, ref)
         if not resolved:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Device not found",
-            )
+            return None
         canonical = resolved
     detail = db.get_device_detail(canonical)
     if not detail:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+        return None
     detail["duplicates"] = db.find_duplicate_devices(canonical)
+    return detail
+
+
+def _note_integration_read(db: Database, reader: dict[str, str]) -> None:
+    if reader.get("kind") == "integration":
+        from .integrations import record_use
+
+        record_use(db, reader["id"])
+
+
+@router.get("/devices/{device_id}")
+def get_device(
+    device_id: str,
+    db: Database = Depends(get_db),
+    reader: dict[str, str] = Depends(_device_reader),
+) -> dict[str, Any]:
+    detail = _device_card(db, device_id)
+    if not detail:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+    _note_integration_read(db, reader)
+    return detail
+
+
+def _integration_http_error(exc: Exception) -> HTTPException:
+    from .integrations import IntegrationError
+
+    if not isinstance(exc, IntegrationError):
+        raise exc
+    if exc.code == "name":
+        return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid name")
+    if exc.code == "too_many":
+        return HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many open integration requests",
+        )
+    if exc.code == "not_found":
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found")
+    if exc.code in {"no_data_key", "token_missing"}:
+        return HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Integration token is not available",
+        )
+    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Integration state conflict")
+
+
+@router.post("/integrations/requests")
+def create_integration_request(
+    body: IntegrationRequestBody,
+    request: Request,
+    db: Database = Depends(get_db),
+) -> dict[str, str]:
+    from .integrations import IntegrationError, create_request
+
+    limiter = getattr(request.app.state, "integration_limiter", None)
+    if limiter is not None and not limiter.allow(client_ip(request)):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Integration request rate limit exceeded",
+        )
+    data_key = getattr(request.app.state, "data_key", "") or ""
+    try:
+        return create_request(db, data_key, body.name)
+    except IntegrationError as exc:
+        raise _integration_http_error(exc) from exc
+
+
+@router.get("/integrations/requests/{integration_id}")
+def poll_integration_request(
+    integration_id: str,
+    request: Request,
+    authorization: Annotated[Optional[str], Header()] = None,
+    db: Database = Depends(get_db),
+) -> dict[str, str]:
+    from .integrations import IntegrationError, poll_request
+    from .security import extract_bearer
+
+    secret = extract_bearer(authorization) or ""
+    if not secret:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing request secret")
+    data_key = getattr(request.app.state, "data_key", "") or ""
+    try:
+        return poll_request(db, data_key, integration_id, secret)
+    except IntegrationError as exc:
+        raise _integration_http_error(exc) from exc
+
+
+@router.post("/integrations/lookup")
+def lookup_integration_device(
+    body: IntegrationLookupBody,
+    db: Database = Depends(get_db),
+    reader: dict[str, str] = Depends(_device_reader),
+) -> dict[str, Any]:
+    detail = _device_card(db, body.device_id)
+    if not detail:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+    _note_integration_read(db, reader)
     return detail
 
 

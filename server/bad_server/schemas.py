@@ -126,3 +126,11 @@ class DeviceConfigOverrideBody(BaseModel):
 
 class DeviceTagsBody(BaseModel):
     tags: list[str] | str = Field(default_factory=list)
+
+
+class IntegrationRequestBody(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+
+
+class IntegrationLookupBody(BaseModel):
+    device_id: str = Field(min_length=1, max_length=128)

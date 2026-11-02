@@ -5,7 +5,7 @@
 <div class="page settings-page">
   <header class="page-header settings-page-header">
     <h1 class="with-icon">{{ icon('settings') }}Параметры</h1>
-    <p class="page-lead muted">Сервер, агенты, доступ, почта и обслуживание</p>
+    <p class="page-lead muted">Сервер, агенты, доступ, интеграции, почта и обслуживание</p>
   </header>
 <div class="settings-shell">
   <aside class="settings-nav card-surface settings-nav-rail" aria-label="Разделы параметров">
@@ -48,6 +48,10 @@
       <a class="settings-nav-item {% if settings_section == 'server_update' %}active{% endif %}" href="/settings/server-update">
         <span class="settings-nav-icon">{{ icon('updates') }}</span>
         <span class="settings-nav-label">Обновление сервера</span>
+      </a>
+      <a class="settings-nav-item {% if settings_section == 'integrations' %}active{% endif %}" href="/settings/integrations">
+        <span class="settings-nav-icon">{{ icon('link') }}</span>
+        <span class="settings-nav-label">Интеграции</span>
       </a>
       {% if user is defined and user and user.source == 'local' %}
       <a class="settings-nav-item {% if settings_section == 'password' %}active{% endif %}" href="/account/password">

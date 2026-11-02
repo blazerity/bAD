@@ -241,6 +241,7 @@ Tag: **`server-vX.Y.Z`**. Не триггерит MSI. Panel **Обновлен�
 | Задача | Файл |
 |--------|------|
 | Маршруты API / гайд 1C | `server/bad_server/api.py`, [api-v1.md](api-v1.md) |
+| Заявки программ | `server/bad_server/integrations.py`, страница `/settings/integrations` |
 | Remote config / policies | `server/bad_server/agent_config.py` |
 | Agent update mirror | `server/bad_server/agent_update.py`, `github_release.py` |
 | Web routes / мастер | `server/bad_server/web.py` (`GET /setup/progress.json`, каталог устройств, карточка) |
@@ -272,6 +273,7 @@ Tag: **`server-vX.Y.Z`**. Не триггерит MSI. Panel **Обновлен�
 | Enrollment Bearer | `POST /v1/enroll` | одноразовый обмен на API key агента |
 | Agent API key | heartbeat / inventory / `GET /v1/agent/config` | per-device |
 | Admin Bearer | `GET /v1/devices*`, policies, overrides, `POST /v1/admin/enrollment/rotate` | автоматизация / curl |
+| Ключ интеграции `bad_in_` | `POST /v1/integrations/lookup`, `GET /v1/devices/{id}` | чтение одной карточки после подтверждения заявки |
 | Local user session | web cookie `bad_session` | операторы в браузере |
 | LDAP (опционально) | fallback входа в web | пользователи каталога → session |
 
