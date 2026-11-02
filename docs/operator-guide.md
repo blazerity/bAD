@@ -4,7 +4,7 @@
 
 | Компонент | Текущая версия | Где посмотреть |
 |-----------|----------------|----------------|
-| Сервер (панель и API) | 2.3.6 | файл `VERSION`, `GET /v1/health`, подвал панели |
+| Сервер (панель и API) | 2.7.0 | файл `VERSION`, `GET /v1/health`, подвал панели |
 | Агент (MSI на ПК) | 2.1.4 | файл `agent/VERSION`, поле `agent_version` в карточке устройства |
 
 Версии сервера и агента независимы. Обновление панели и обновление агентов — разные процедуры (см. разделы 4 и 5).
@@ -69,7 +69,7 @@ BAD_DOMAIN=bad.example.com \
 ```bash
 curl -fsS http://bad.example.com/v1/health    # режим bootstrap
 curl -fsS https://bad.example.com/v1/health   # после настройки TLS
-# → {"status":"ok","version":"2.3.6"}
+# → {"status":"ok","version":"2.7.0"}
 ```
 
 ### 1.3. Сертификат TLS в панели
@@ -507,7 +507,7 @@ curl -fsS -H "Authorization: Bearer <admin-token>" \
 
 ## Дополнительные материалы
 
-- Заметки о выпусках: [2.3.6](release-notes-2.3.6.md), [агент 2.3.1](release-notes-agent-2.3.1.md), [2.1.0](release-notes-2.1.0.md), [агент 2.0.2](release-notes-agent-2.0.2.md).
+- Заметки о выпусках: [2.7.0](release-notes-2.7.0.md), [2.3.6](release-notes-2.3.6.md), [агент 2.3.1](release-notes-agent-2.3.1.md), [2.1.0](release-notes-2.1.0.md).
 - [api-v1.md](api-v1.md): интеграции и API.
 - [architecture.md](architecture.md): устройство системы.
 - [guideline.md](guideline.md): правила разработки и релиза.
