@@ -38,6 +38,8 @@
     <Property Id="REBOOT" Value="ReallySuppress" />
     <!-- Второй заход bootstrap: msiexec … BADBOOTSTRAP=1 (public property). -->
     <Property Id="BADBOOTSTRAP" Secure="yes" />
+    <!-- Immediate WixQuietExec (bootstrap) читает WixQuietExecCmdLine. -->
+    <Property Id="WixQuietExecCmdLine" Hidden="yes" />
 
     <?include bootstrap-inline.wxi?>
 
