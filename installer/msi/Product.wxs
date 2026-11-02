@@ -6,7 +6,7 @@
   UpgradeCode BADA0001…; MajorUpgrade AllowDowngrades; migrate-legacy-install.ps1.
   Апгрейд: msiexec /i новый.msi /qn (не /upgrade).
   2.1.4+: stop-agent-before-upgrade до RemoveExistingProducts; REBOOT=ReallySuppress.
-  2.2.2: текст остановки без вложенных кавычек, иначе PowerShell обрывает команду.
+  2.2.3: пустые скобки catch WiX выкидывает, из-за этого PowerShell не принимает команду.
     Нельзя PowerShell в ExeCommand: MSI Formatted съедает [Type].
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
@@ -229,7 +229,7 @@
 
     <!-- До RemoveExistingProducts: логика = stop-agent-before-upgrade.ps1 (inline — скрипт ещё не на диске при 2.0.2→2.1.4). -->
     <SetProperty Id="WixQuietExecCmdLine"
-                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -InputFormat None -ExecutionPolicy Bypass -Command &quot;$$ErrorActionPreference='Stop';function L($$m){try{$$d=Join-Path $$env:ProgramData 'blazerity\bAD\logs';New-Item -ItemType Directory -Force -Path $$d -ErrorAction SilentlyContinue|Out-Null;Add-Content (Join-Path $$d 'msi-install.log') $$m -Encoding UTF8 -ErrorAction SilentlyContinue}catch{}};try{$$i=(Get-ItemProperty 'HKLM:\SOFTWARE\blazerity\bAD' -Name InstallDir -ErrorAction Stop).InstallDir.TrimEnd('\')}catch{$$i=Join-Path $${env:ProgramFiles} 'blazerity\bad agent'};$$e=Join-Path (Join-Path $$i 'bin') 'BadAgent.exe';L ('INFO stop-agent-before-upgrade InstallDir=' + $$i);try{$$null=Get-Service badagent -ErrorAction Stop}catch{L 'OK stop-agent-before-upgrade (no service)';exit 0};if(Test-Path -LiteralPath $$e){&amp; $$e service stop;if($$LASTEXITCODE){L ('ERROR BAD_MSI_110 exit ' + $$LASTEXITCODE);exit 110}}else{Stop-Service badagent -Force};$$t=(Get-Date).AddSeconds(120);while((Get-Date)-lt $$t){if(-not(Get-Process BadAgent -ErrorAction SilentlyContinue)){L 'OK stop-agent-before-upgrade complete';exit 0};Start-Sleep -Milliseconds 500};L 'ERROR BAD_MSI_111 BadAgent still running';exit 111&quot;"
+                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -InputFormat None -ExecutionPolicy Bypass -Command &quot;$$ErrorActionPreference='Stop';function L($$m){try{$$d=Join-Path $$env:ProgramData 'blazerity\bAD\logs';New-Item -ItemType Directory -Force -Path $$d -ErrorAction SilentlyContinue|Out-Null;Add-Content (Join-Path $$d 'msi-install.log') $$m -Encoding UTF8 -ErrorAction SilentlyContinue}catch{$$null}};try{$$i=(Get-ItemProperty 'HKLM:\SOFTWARE\blazerity\bAD' -Name InstallDir -ErrorAction Stop).InstallDir.TrimEnd('\')}catch{$$i=Join-Path $${env:ProgramFiles} 'blazerity\bad agent'};$$e=Join-Path (Join-Path $$i 'bin') 'BadAgent.exe';L ('INFO stop-agent-before-upgrade InstallDir=' + $$i);try{$$null=Get-Service badagent -ErrorAction Stop}catch{L 'OK stop-agent-before-upgrade (no service)';exit 0};if(Test-Path -LiteralPath $$e){&amp; $$e service stop;if($$LASTEXITCODE){L ('ERROR BAD_MSI_110 exit ' + $$LASTEXITCODE);exit 110}}else{Stop-Service badagent -Force};$$t=(Get-Date).AddSeconds(120);while((Get-Date)-lt $$t){if(-not(Get-Process BadAgent -ErrorAction SilentlyContinue)){L 'OK stop-agent-before-upgrade complete';exit 0};Start-Sleep -Milliseconds 500};L 'ERROR BAD_MSI_111 BadAgent still running';exit 111&quot;"
                  Sequence="execute"
                  Before="StopAgentBeforeUpgradeAction" />
 
