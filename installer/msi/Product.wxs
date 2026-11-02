@@ -6,9 +6,8 @@
   UpgradeCode BADA0001…; MajorUpgrade AllowDowngrades; migrate-legacy-install.ps1.
   Апгрейд: msiexec /i новый.msi /qn (не /upgrade).
   2.1.4+: stop-agent-before-upgrade до RemoveExistingProducts; REBOOT=ReallySuppress.
-  2.1.6+: bootstrap CA (парк &lt;2.1.5): первый msiexec → schtasks +60s BADBOOTSTRAP=1, exit 1602.
-  2.1.8+: bootstrap — EncodedCommand (inline .ps1), не WixQuietExec -Command.
-  2.1.9+: BAD_ORIG через PowerShell -Command (не cmd set); exit 121/122; UserExit 1602 — отдельная VBS CA.
+  2.1.10+: bootstrap — один VBScript CA (Session.Property OriginalDatabase + schtasks XML + return 2).
+    Нельзя PowerShell в ExeCommand: MSI Formatted съедает [Type] → пустой -Command.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <?ifndef ProductVersion?>
@@ -40,15 +39,13 @@
     <Property Id="REBOOT" Value="ReallySuppress" />
     <!-- Второй заход bootstrap: msiexec … BADBOOTSTRAP=1 (public property). -->
     <Property Id="BADBOOTSTRAP" Secure="yes" />
-    <!-- Immediate WixQuietExec (остальные CA) читает WixQuietExecCmdLine. Bootstrap — ExeCommand в bootstrap-inline.wxi. -->
+    <!-- Immediate WixQuietExec (остальные CA) читает WixQuietExecCmdLine. -->
     <Property Id="WixQuietExecCmdLine" Hidden="yes" />
 
-    <?include bootstrap-inline.wxi?>
-
-    <!-- После успешного schedule (marker): script CA → 2 = UserExit 1602. Inline VBScript в WiX v4 нельзя (WIX0010/WIX0400). -->
-    <CustomAction Id="BootstrapUserExitAction"
+    <!-- Прыжок с 2.0.x: script CA (не ExeCommand/PS). return 2 = UserExit 1602. -->
+    <CustomAction Id="BootstrapScheduleAction"
                   Script="vbscript"
-                  ScriptSourceFile="bootstrap-user-exit.vbs"
+                  ScriptSourceFile="bootstrap-schedule.vbs"
                   Execute="immediate"
                   Return="check"
                   Impersonate="no" />
@@ -272,9 +269,6 @@
 
     <InstallExecuteSequence>
       <Custom Action="BootstrapScheduleAction"
-              Before="BootstrapUserExitAction"
-              Condition="WIX_UPGRADE_DETECTED AND NOT BADBOOTSTRAP AND NOT REMOVE" />
-      <Custom Action="BootstrapUserExitAction"
               Before="InstallInitialize"
               Condition="WIX_UPGRADE_DETECTED AND NOT BADBOOTSTRAP AND NOT REMOVE" />
       <Custom Action="StopAgentBeforeUpgradeAction" Before="RemoveExistingProducts" Condition="(WIX_UPGRADE_DETECTED OR UPGRADINGPRODUCTCODE) AND NOT REMOVE" />
