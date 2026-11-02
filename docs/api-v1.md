@@ -2,8 +2,8 @@
 
 Этот документ описывает HTTP JSON API сервера bAD для внешних систем, например 1C Itilium, скриптов и систем отчётности.
 
-- Версия сервера: 2.1.0 (поле `version` в `GET /v1/health`, файл `VERSION`).
-- Версия агента: 2.0.2 (поле `agent_version` в данных устройства, файл `agent/VERSION`).
+- Версия сервера: 2.3.6 (поле `version` в `GET /v1/health`, файл `VERSION`).
+- Версия агента: 2.1.4 (поле `agent_version` в данных устройства, файл `agent/VERSION`).
 - Примеры JSON в документе показывают формат, а не актуальные номера версий.
 
 Связанные документы: [operator-guide.md](operator-guide.md), [architecture.md](architecture.md), [guideline.md](guideline.md).

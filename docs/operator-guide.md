@@ -4,8 +4,8 @@
 
 | Компонент | Текущая версия | Где посмотреть |
 |-----------|----------------|----------------|
-| Сервер (панель и API) | 2.1.0 | файл `VERSION`, `GET /v1/health`, подвал панели |
-| Агент (MSI на ПК) | 2.0.2 | файл `agent/VERSION`, поле `agent_version` в карточке устройства |
+| Сервер (панель и API) | 2.3.6 | файл `VERSION`, `GET /v1/health`, подвал панели |
+| Агент (MSI на ПК) | 2.1.4 | файл `agent/VERSION`, поле `agent_version` в карточке устройства |
 
 Версии сервера и агента независимы. Обновление панели и обновление агентов — разные процедуры (см. разделы 4 и 5).
 
@@ -69,7 +69,7 @@ BAD_DOMAIN=bad.example.com \
 ```bash
 curl -fsS http://bad.example.com/v1/health    # режим bootstrap
 curl -fsS https://bad.example.com/v1/health   # после настройки TLS
-# → {"status":"ok","version":"2.1.0"}
+# → {"status":"ok","version":"2.3.6"}
 ```
 
 ### 1.3. Сертификат TLS в панели
@@ -168,18 +168,18 @@ uvicorn слушает только `127.0.0.1:8000`, TLS обрабатывае
 Имя файла: `bad-agent-<версия>.msi`, версия указана в `agent/VERSION`. MSI собирается на Windows (см. `installer/msi/README.md`).
 
 ```powershell
-msiexec /i bad-agent-2.0.2.msi `
+msiexec /i bad-agent-2.1.4.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=<enrollment-токен> `
   /qn
 ```
 
-Файлы агента: **`%ProgramFiles%\blazerity\bad agent\`** (`bin\`, `bin\ms\`, `bin\lib\`, `bad.cmd`). Служба Windows: **`badagent`** (в списке служб — **bAD Agent**). Отдельный .NET Runtime на ПК не нужен (self-contained MSI).
+Файлы агента: **`%ProgramFiles%\blazerity\bad agent\`** — плоский **`bin\`** (`BadAgent.exe` и DLL в одном каталоге, без `ms\` / `lib\`), **`bad.cmd`**. Служба Windows: **`badagent`** (в списке служб — **bAD Agent**). Отдельный .NET Runtime на ПК не нужен (self-contained MSI).
 
 Каталог с `bad` по умолчанию добавляется в системный `PATH` (`ADDPATH=1`). Чтобы не менять `PATH`, добавьте `ADDPATH=0`.
 
 ```powershell
-msiexec /i bad-agent-2.0.2.msi `
+msiexec /i bad-agent-2.1.4.msi `
   SERVERURL=https://bad.example.com `
   ENROLLMENTTOKEN=<enrollment-токен> `
   ADDPATH=0 `
@@ -199,6 +199,8 @@ msiexec /i bad-agent-2.0.2.msi `
 Целевую версию задают политики: `update_target` — «последняя» или закреплённая.
 
 Обновление MSI не требует повторной регистрации: `ProgramData` сохраняется.
+
+**Самообновление с 2.0.2 на 2.1.4.** Если парк застрял на **2.0.2**, положите в зеркало **`bad-agent-2.1.4.msi`** (не 2.1.3), задайте цель **2.1.4** или **latest** и обновите политику на карточке. Агент скачает MSI с сервера и тихо поставит MajorUpgrade. Установщик **2.1.4** перед заменой файлов **останавливает службу `badagent`**, чтобы отпустить `bin`; раскладка снова **плоская**, как у 2.0.2. Перезагрузка ПК для обновления не нужна. Подробности и логи: [release-notes-agent-2.1.4.md](release-notes-agent-2.1.4.md).
 
 **Апгрейд с агента 1.x на 2.0.** Установите MSI **2.0.0** поверх старой версии (тот же `msiexec` или self-update с сервера). Установщик сам остановит службу **`BlazerityAssetDiscovery`**, уберёт каталог **`%ProgramFiles%\blazerity\bAD\`** и запустит **`badagent`**. Настройки в **`%ProgramData%\blazerity\bAD\`** сохраняются, повторный enroll не нужен. Подробнее: [release-notes-agent-2.0.0.md](release-notes-agent-2.0.0.md).
 
@@ -379,6 +381,16 @@ bad service status|start|stop|restart
 
 Агент следует рекомендации сервера, поэтому поддерживаются и обновление, и откат.
 
+### 5.3. Парк на 2.0.2
+
+Сервер **2.3.6** уже умеет отдавать MSI и команду `update_check` для **2.0.2**. Чтобы ПК перешли на актуальную линию:
+
+1. В зеркале должна быть сборка **2.1.4** (промежуточные **2.1.1–2.1.3** для такого прыжка не подходят).
+2. Политика или карточка: `update_target` = **2.1.4** или **latest** с назначенным latest **2.1.4**.
+3. Дождитесь heartbeat или нажмите «Обновить политику и версию».
+
+Признак успеха — **`agent_version` 2.1.4** и работающая служба. Если версия не меняется, смотрите `%ProgramData%\blazerity\bAD\logs\msiexec-upgrade-*.log`. Ручной обход: `msiexec /i bad-agent-2.1.4.msi /qn` (токен enroll не нужен, config сохраняется).
+
 ---
 
 ## 6. Резервные копии и восстановление
@@ -474,7 +486,7 @@ curl -fsS -H "Authorization: Bearer <admin-token>" \
 | Агент не регистрируется, `403` на `/v1/enroll` | Адрес `SERVERURL` должен быть `https://`. При включённом TLS регистрация по HTTP запрещена. |
 | `401` на `/v1/enroll` | Токен устарел после смены. Используйте текущий токен из раздела 2.4. |
 | MSI не устанавливается, в `%ProgramData%\blazerity\bAD\logs` пусто | Смотрите `msi-install.log`, `msi-ca-error.txt` (коды `BAD_MSI_###`) и `%TEMP%\MSI*.log`. Подробности в `installer/msi/README.md`. |
-| Агент не обновляется | Проверьте `update_target`, наличие версии в зеркале (раздел 5) и доступность сервера. Для ручной проверки — `bad update` (**2.1.3+**). На **2.0.2**, если появляется «Завершить выполнение пакетного файла» — не отвечайте Y/N; обновите через панель/службу или `msiexec /i … /qn` (см. [release-notes-agent-2.1.3.md](release-notes-agent-2.1.3.md)). |
+| Агент не обновляется | Проверьте `update_target`, что в зеркале **2.1.4** (для парка с **2.0.2**), и доступность сервера. Логи: `%ProgramData%\blazerity\bAD\logs\msiexec-upgrade-*.log`. Для ручной проверки — `bad update` (**2.1.3+**). На **2.0.2** надёжнее обновление **со службы** (панель / heartbeat), не `bad.cmd`. См. [release-notes-agent-2.1.4.md](release-notes-agent-2.1.4.md). |
 | Сертификат не применяется | Посмотрите ошибку в интерфейсе и `journalctl -u bad-tls-apply`. Боевые файлы при ошибке не меняются. |
 | Устройство «устарело», хотя ПК работает | Порог «устарело» (раздел 3.6) должен быть больше интервала heartbeat. |
 
@@ -482,7 +494,7 @@ curl -fsS -H "Authorization: Bearer <admin-token>" \
 
 ## Дополнительные материалы
 
-- Заметки о выпусках: [2.1.0](release-notes-2.1.0.md), [агент 2.0.2](release-notes-agent-2.0.2.md), [2.0.1](release-notes-2.0.1.md), [1.10.1](release-notes-1.10.1.md).
+- Заметки о выпусках: [2.3.6](release-notes-2.3.6.md), [агент 2.1.4](release-notes-agent-2.1.4.md), [2.1.0](release-notes-2.1.0.md), [агент 2.0.2](release-notes-agent-2.0.2.md).
 - [api-v1.md](api-v1.md): интеграции и API.
 - [architecture.md](architecture.md): устройство системы.
 - [guideline.md](guideline.md): правила разработки и релиза.

@@ -117,7 +117,7 @@ MSI по умолчанию добавляет каталог установки
 
 1. GHA `release-msi` публикует MSI + `agent-release.json` в Release.
 2. Сервер sync’ит в `/var/lib/bad/agent-updates/` (+ SQLite `agent_update`).
-3. Агент: `GET /v1/agent/update/check?current=` → follow `target_version` / `update_available` → download MSI (same-origin, `?version=`) → sha256 → `msiexec /i … /qn` → exit; WiX MajorUpgrade (**AllowDowngrades**). Gate: не только `IsNewer` — pin ниже current тоже применяется.
+3. Агент: `GET /v1/agent/update/check?current=` → follow `target_version` / `update_available` → download MSI (same-origin, `?version=`) → sha256 → `msiexec /i … /qn` → exit; WiX MajorUpgrade (**AllowDowngrades**). Gate: не только `IsNewer` — pin ниже current тоже применяется. MSI **2.1.4+**: CA **`stop-agent-before-upgrade.ps1`** до RemoveExistingProducts; publish **плоский** `bin\` (как 2.0.2). Прыжок **2.0.2 → 2.1.4** — целевой MSI в зеркале; 2.1.1–2.1.3 для этого сценария не использовать.
 
 Конфиг: `update_enabled` (default true), `update_check_interval_hours` (default 24), **`update_target`** (`latest` | semver pin; алиас `desired_agent_version`). Env: `BAD_UPDATE_ENABLED`, `BAD_UPDATE_CHECK_INTERVAL_HOURS`, `BAD_UPDATE_TARGET`.
 
@@ -222,7 +222,7 @@ Tag: **`server-vX.Y.Z`**. Не триггерит MSI. Panel **Обновлен�
 - Источники: `installer/msi/Product.wxs`, `write-config.ps1`, `cleanup-uninstall.ps1`.
 - Сборка **только на Windows** (локально или GHA `release-msi`): см. `installer/msi/README.md`.
 - Public properties: `SERVERURL`, `ENROLLMENTTOKEN` → ProgramData; `ADDPATH` default `1` → Machine PATH + `bad.cmd` (`ADDPATH=0` — не менять PATH).
-- UpgradeCode фиксирован; major upgrade, ProgramData не сносить (`Permanent`); полный uninstall — Stop/Remove службы + `cleanup-uninstall.ps1` (config/queue/logs).
+- UpgradeCode фиксирован; major upgrade, ProgramData не сносить (`Permanent`); полный uninstall — Stop/Remove службы + `cleanup-uninstall.ps1` (config/queue/logs). **2.1.4:** flat self-contained `bin\`, `stop-agent-before-upgrade.ps1`, `cleanup-orphan-bin-dirs.ps1`, `organize-publish.ps1` (без `ms`/`lib`).
 - Authenticode: secrets `CODE_SIGN_PFX_BASE64` + `CODE_SIGN_PFX_PASSWORD` (optional timestamp URL); без них — unsigned MSI.
 - Артефакт: `bad-agent-<agent-semver>.msi` + `agent-release.json`. Server (`VERSION`) — другая линия; не синхронизировать с MSI без правок агента.
 - Сбой CA до Serilog: `logs\msi-install.log` + `BAD_MSI_###`; msiexec `%TEMP%\MSI*.log`.
