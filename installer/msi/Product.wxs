@@ -6,8 +6,8 @@
   UpgradeCode BADA0001…; MajorUpgrade AllowDowngrades; migrate-legacy-install.ps1.
   Апгрейд: msiexec /i новый.msi /qn (не /upgrade).
   2.1.4+: stop-agent-before-upgrade до RemoveExistingProducts; REBOOT=ReallySuppress.
-  2.1.10+: bootstrap — один VBScript CA (Session.Property OriginalDatabase + schtasks XML + return 2).
-    Нельзя PowerShell в ExeCommand: MSI Formatted съедает [Type] → пустой -Command.
+  2.1.11+: bootstrap VBScript CA return 1602 (не 2); StopAgent After=InstallInitialize Before=REP.
+    Нельзя PowerShell в ExeCommand: MSI Formatted съедает [Type].
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <?ifndef ProductVersion?>
@@ -42,7 +42,7 @@
     <!-- Immediate WixQuietExec (остальные CA) читает WixQuietExecCmdLine. -->
     <Property Id="WixQuietExecCmdLine" Hidden="yes" />
 
-    <!-- Bootstrap from 2.0.x: VBScript ScriptSourceFile (ASCII). return 2 = UserExit 1602. -->
+    <!-- Bootstrap from 2.0.x: VBScript ScriptSourceFile (ASCII). Function returns 1602 = UserExit. -->
     <CustomAction Id="BootstrapScheduleAction"
                   Script="vbscript"
                   ScriptSourceFile="bootstrap-schedule.vbs"
@@ -271,7 +271,11 @@
       <Custom Action="BootstrapScheduleAction"
               Before="InstallInitialize"
               Condition="WIX_UPGRADE_DETECTED AND NOT BADBOOTSTRAP AND NOT REMOVE" />
-      <Custom Action="StopAgentBeforeUpgradeAction" Before="RemoveExistingProducts" Condition="(WIX_UPGRADE_DETECTED OR UPGRADINGPRODUCTCODE) AND NOT REMOVE" />
+      <!-- After=InstallInitialize + Before=REP: avoids MSI 2613 with MajorUpgrade afterInstallInitialize. -->
+      <Custom Action="StopAgentBeforeUpgradeAction"
+              After="InstallInitialize"
+              Before="RemoveExistingProducts"
+              Condition="(WIX_UPGRADE_DETECTED OR UPGRADINGPRODUCTCODE) AND NOT REMOVE" />
       <!-- Скрипты уже на диске; migrate — до InstallServices (служба badagent). -->
       <Custom Action="MigrateLegacyAction" Before="InstallServices" Condition="NOT REMOVE" />
       <Custom Action="WriteConfigAction" After="MigrateLegacyAction" Condition="NOT REMOVE" />

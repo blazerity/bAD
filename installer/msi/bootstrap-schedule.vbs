@@ -1,6 +1,6 @@
-' First-pass MajorUpgrade from 2.0.x: copy MSI, schtasks (+90s), return 2 = UserExit 1602.
-' Script CA uses Session.Property - do not put PowerShell in ExeCommand (MSI Formatted strips [Type]).
-' ASCII-only: Package Codepage 1251 rejects non-1251 chars in ScriptSourceFile (WIX0311).
+' First-pass MajorUpgrade from 2.0.x: copy MSI, schtasks (+90s), return 1602 = UserExit.
+' Script CA return codes are Win32/MSI codes (0 success, 1602 user exit, 1603 failure) - NOT 1/2/3.
+' ASCII-only: Package Codepage 1251 (WIX0311).
 Option Explicit
 
 Function BootstrapScheduleAction
@@ -8,7 +8,7 @@ Function BootstrapScheduleAction
   Dim fso, sh, orig, pd, updates, logs, dest, blog, xmlPath, exe, ver
   Dim startAt, startIso, xml, rc
 
-  BootstrapScheduleAction = 3
+  BootstrapScheduleAction = 1603
   Set fso = CreateObject("Scripting.FileSystemObject")
   Set sh = CreateObject("WScript.Shell")
 
@@ -35,10 +35,12 @@ Function BootstrapScheduleAction
     ver = fso.GetFileVersion(exe)
     If VersionGreaterThanLegacy(ver) Then
       Call WriteLog(fso, sh, "INFO bootstrap skipped (installed agent " & ver & ")")
-      BootstrapScheduleAction = 1
+      BootstrapScheduleAction = 0
       Exit Function
     End If
   End If
+
+  Call WriteLog(fso, sh, "INFO bootstrap begin orig=" & orig & " exe=" & exe & " ver=" & ver)
 
   Err.Clear
   fso.CopyFile orig, dest, True
@@ -79,9 +81,8 @@ Function BootstrapScheduleAction
     Exit Function
   End If
 
-  Call WriteLog(fso, sh, "INFO bootstrap scheduled copy=" & dest & " at=" & startIso)
-  ' 2 = user exit -> msiexec 1602; ARP stays on 2.0.2 until second pass
-  BootstrapScheduleAction = 2
+  Call WriteLog(fso, sh, "INFO bootstrap scheduled copy=" & dest & " at=" & startIso & " -> UserExit 1602")
+  BootstrapScheduleAction = 1602
 End Function
 
 Function GetAgentExe(fso, sh)
