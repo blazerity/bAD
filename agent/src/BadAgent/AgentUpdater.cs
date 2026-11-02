@@ -23,6 +23,50 @@ public sealed class AgentUpdater
         _agentVersion = agentVersion;
     }
 
+    /// <summary>
+    /// Удаляет скачанные MSI в %TEMP%\bad-agent-update. Занятый файл пропускается.
+    /// </summary>
+    public static void DeleteStaleDownloads(ILogger logger)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var root = Path.Combine(Path.GetTempPath(), "bad-agent-update");
+        if (!Directory.Exists(root))
+        {
+            return;
+        }
+
+        var removed = 0;
+        foreach (var path in Directory.EnumerateFileSystemEntries(root))
+        {
+            try
+            {
+                if (Directory.Exists(path))
+                {
+                    Directory.Delete(path, recursive: true);
+                }
+                else
+                {
+                    File.Delete(path);
+                }
+
+                removed++;
+            }
+            catch (Exception ex)
+            {
+                logger.LogDebug(ex, "Skip locked update temp {Path}", path);
+            }
+        }
+
+        if (removed > 0)
+        {
+            logger.LogInformation("Removed {Count} stale agent update file(s) from {Dir}", removed, root);
+        }
+    }
+
     public async Task<bool> CheckAndApplyAsync(BadApiClient client, AgentConfig config, CancellationToken ct)
     {
         if (!config.UpdateEnabled)
@@ -95,6 +139,7 @@ public sealed class AgentUpdater
             return false;
         }
 
+        DeleteStaleDownloads(_logger);
         var tempDir = Path.Combine(Path.GetTempPath(), "bad-agent-update", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
         string msiPath;

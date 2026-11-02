@@ -29,6 +29,7 @@ public sealed class Worker : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("bAD agent {Version} starting", _agentVersion);
+        _ = Task.Run(() => AgentUpdater.DeleteStaleDownloads(_logger));
 
         var config = ConfigStore.LoadOrCreate();
         if (string.IsNullOrWhiteSpace(config.DeviceId))
