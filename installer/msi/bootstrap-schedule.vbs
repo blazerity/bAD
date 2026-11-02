@@ -1,6 +1,7 @@
-' First-pass MajorUpgrade from 2.0.x: copy MSI, schtasks (+90s), return 1602 = UserExit.
-' Script CA return codes are Win32/MSI codes (0 success, 1602 user exit, 1603 failure) - NOT 1/2/3.
+' First-pass MajorUpgrade from 2.0.x: copy MSI, schtasks (+90s), set BAD_BOOTSTRAP_SCHEDULED=1.
+' Abort is a separate Error=1602 CA (script return codes are unreliable here).
 ' ASCII-only: Package Codepage 1251 (WIX0311).
+' Trailing call required: ScriptSourceFile does not always invoke Function by CA Id.
 Option Explicit
 
 Function BootstrapScheduleAction
@@ -8,13 +9,16 @@ Function BootstrapScheduleAction
   Dim fso, sh, orig, pd, updates, logs, dest, blog, xmlPath, exe, ver
   Dim startAt, startIso, xml, rc
 
-  BootstrapScheduleAction = 1603
+  BootstrapScheduleAction = 0
   Set fso = CreateObject("Scripting.FileSystemObject")
   Set sh = CreateObject("WScript.Shell")
+
+  Call WriteLog(fso, sh, "INFO bootstrap enter")
 
   orig = Session.Property("OriginalDatabase")
   If Len(Trim(orig)) = 0 Or Not fso.FileExists(orig) Then
     Call WriteLog(fso, sh, "ERROR BAD_MSI_121 OriginalDatabase missing: '" & orig & "'")
+    BootstrapScheduleAction = 1603
     Exit Function
   End If
 
@@ -31,6 +35,7 @@ Function BootstrapScheduleAction
   If Not fso.FolderExists(logs) Then fso.CreateFolder logs
 
   exe = GetAgentExe(fso, sh)
+  ver = ""
   If Len(exe) > 0 And fso.FileExists(exe) Then
     ver = fso.GetFileVersion(exe)
     If VersionGreaterThanLegacy(ver) Then
@@ -46,6 +51,7 @@ Function BootstrapScheduleAction
   fso.CopyFile orig, dest, True
   If Err.Number <> 0 Or Not fso.FileExists(dest) Then
     Call WriteLog(fso, sh, "ERROR BAD_MSI_121 copy failed: " & Err.Description)
+    BootstrapScheduleAction = 1603
     Exit Function
   End If
 
@@ -72,18 +78,24 @@ Function BootstrapScheduleAction
   Call WriteUtf16File(fso, xmlPath, xml)
   If Err.Number <> 0 Then
     Call WriteLog(fso, sh, "ERROR BAD_MSI_122 write task xml: " & Err.Description)
+    BootstrapScheduleAction = 1603
     Exit Function
   End If
 
   rc = sh.Run("schtasks.exe /Create /TN ""bAD-bootstrap"" /XML """ & xmlPath & """ /F", 0, True)
   If rc <> 0 Then
     Call WriteLog(fso, sh, "ERROR BAD_MSI_122 schtasks /Create exit " & rc)
+    BootstrapScheduleAction = 1603
     Exit Function
   End If
 
-  Call WriteLog(fso, sh, "INFO bootstrap scheduled copy=" & dest & " at=" & startIso & " -> UserExit 1602")
-  BootstrapScheduleAction = 1602
+  Session.Property("BAD_BOOTSTRAP_SCHEDULED") = "1"
+  Call WriteLog(fso, sh, "INFO bootstrap scheduled copy=" & dest & " at=" & startIso)
+  BootstrapScheduleAction = 0
 End Function
+
+' Ensure entry runs when host does not auto-call Function by CA Id.
+BootstrapScheduleAction
 
 Function GetAgentExe(fso, sh)
   Dim reg, pf
