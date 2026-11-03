@@ -2756,42 +2756,32 @@ body.global-search-open { overflow: hidden; }
 .overview-top {
   display: grid;
   grid-template-columns: minmax(16rem, 1fr) minmax(20rem, 42rem) minmax(16rem, 1fr);
-  align-items: stretch;
+  align-items: start;
   gap: 0.85rem 1rem;
 }
-.overview-top-side {
-  display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
-  min-width: 0;
-  min-height: 0;
-  align-self: stretch;
-}
-.overview-top-title {
-  flex: 0 0 auto;
-  min-width: 0;
-  padding-top: 0.15rem;
-}
 .overview-attention-slot {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
+  align-self: start;
+  width: 100%;
+  min-width: 0;
 }
 .overview-attention-slot > .attention-queue {
-  flex: 1 1 auto;
-  min-height: 0;
   margin: 0;
-  overflow: auto;
+  padding: 0;
+  height: auto;
+  overflow: visible;
+}
+.overview-attention-slot > .attention-queue > summary {
+  padding: 0.7rem 0.85rem;
+  font-size: 0.9rem;
   box-sizing: border-box;
 }
-.overview-top-side .attention-body { min-width: 0; }
-.overview-top-side .attention-item {
-  align-items: flex-start;
+.overview-attention-slot > .attention-queue[open] .attention-list {
+  margin: 0;
+  padding: 0 0.75rem 0.75rem;
 }
-.overview-top-side .attention-item .btn {
-  flex-shrink: 0;
-}
+.overview-attention-slot .attention-body { min-width: 0; }
+.overview-attention-slot .attention-item { align-items: flex-start; }
+.overview-attention-slot .attention-item .btn { flex-shrink: 0; }
 .overview-cmd-lead {
   margin: 0.2rem 0 0;
   font-size: 0.875rem;
@@ -3437,19 +3427,23 @@ body.global-search-open { overflow: hidden; }
 }
 .dash-fleet-row .chart-donut--stack {
   flex: 1;
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: center;
-  gap: 0.65rem;
-}
-.dash-fleet-row .chart-donut--stack .chart-donut__ring-wrap {
-  width: 6.25rem;
-  height: 6.25rem;
-  margin: 0 auto;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
 }
 .dash-fleet-row .chart-donut--stack .chart-donut__legend {
+  order: 0;
+  flex: 1 1 auto;
   min-width: 0;
-  width: 100%;
+  width: auto;
+}
+.dash-fleet-row .chart-donut--stack .chart-donut__ring-wrap {
+  order: 1;
+  width: 6.25rem;
+  height: 6.25rem;
+  margin: 0;
+  flex-shrink: 0;
 }
 .dash-fleet-row .chart-donut--stack .chart-donut__legend li {
   flex-wrap: nowrap;
@@ -4220,10 +4214,10 @@ body.global-search-open { overflow: hidden; }
   align-items: start;
 }
 .event-feed-row {
-  /* badge | host | user | summary | time. Лишнее место не уходит в описание. */
-  grid-template-columns: 5.6rem minmax(7.5rem, 10rem) minmax(13rem, 16rem) minmax(12rem, 26rem) auto;
-  justify-content: start;
-  gap: 0.4rem 0.65rem;
+  /* badge | host | user | summary | time. Хост, пользователь и дата целиком, описание забирает остаток. */
+  width: 100%;
+  grid-template-columns: auto max-content max-content minmax(6rem, 1fr) max-content;
+  gap: 0.4rem 0.75rem;
   align-items: center;
   padding: 0.35rem 0;
   border-bottom: 1px solid var(--divider);
@@ -4234,17 +4228,11 @@ body.global-search-open { overflow: hidden; }
   font-weight: 600;
   font-size: 0.88rem;
   text-decoration: none;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .event-feed-host:hover { text-decoration: underline; }
 .event-feed-user {
   font-size: 0.82rem;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .event-feed-summary {
@@ -4713,9 +4701,7 @@ table.devices.devices-list td {
   .overview-top {
     grid-template-columns: 1fr;
   }
-  .overview-top-side { overflow: visible; }
-  .overview-attention-slot { overflow: visible; }
-  .overview-attention-slot > .attention-queue { min-height: 0; }
+  .overview-attention-slot { width: 100%; }
   .overview-top .overview-search-spotlight { max-width: none; min-height: 0; }
   .server-status-facts { grid-template-columns: 1fr 1fr; }
   .overview-server-slot {

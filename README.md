@@ -2,7 +2,7 @@
 
 Лёгкая инвентаризация Windows-компьютеров для локальной сети. Агент собирает данные на ПК, сервер хранит их и показывает в веб-панели. Всё работает on-prem, данные никуда не уходят за пределы вашей инфраструктуры.
 
-[![Версия сервера](https://img.shields.io/badge/server-2.7.2-blue)](VERSION)
+[![Версия сервера](https://img.shields.io/badge/server-2.7.3-blue)](VERSION)
 [![Версия агента](https://img.shields.io/badge/agent-2.1.4-blue)](agent/VERSION)
 
 ## Возможности
@@ -17,7 +17,7 @@
 
 | Компонент | Версия | Стек |
 |-----------|--------|------|
-| Сервер | 2.7.2 (`VERSION`) | Python 3.11+, FastAPI, PostgreSQL, nginx |
+| Сервер | 2.7.3 (`VERSION`) | Python 3.11+, FastAPI, PostgreSQL, nginx |
 | Агент | 2.1.4 (`agent/VERSION`) | .NET 8 self-contained, служба Windows, WiX MSI |
 | Деплой | — | `deploy/debian/install.sh` (Debian 12) |
 
@@ -30,7 +30,7 @@
 | [API v1](docs/api-v1.md) | интеграции (например, 1C Itilium) |
 | [Агенты и карта репозитория](docs/agents.md) | разработка |
 | [Правила разработки и релиз MSI](docs/guideline.md) | разработка и релизы |
-| [Release notes](docs/) | [2.7.2](docs/release-notes-2.7.2.md), [2.7.1](docs/release-notes-2.7.1.md), [2.7.0](docs/release-notes-2.7.0.md), [агент 2.3.1](docs/release-notes-agent-2.3.1.md), [2.3.6](docs/release-notes-2.3.6.md); архив: [агент 2.0.2](docs/release-notes-agent-2.0.2.md), [2.2.5](docs/release-notes-2.2.5.md) |
+| [Release notes](docs/) | [2.7.3](docs/release-notes-2.7.3.md), [2.7.2](docs/release-notes-2.7.2.md), [2.7.1](docs/release-notes-2.7.1.md), [2.7.0](docs/release-notes-2.7.0.md), [агент 2.3.1](docs/release-notes-agent-2.3.1.md), [2.3.6](docs/release-notes-2.3.6.md); архив: [агент 2.0.2](docs/release-notes-agent-2.0.2.md), [2.2.5](docs/release-notes-2.2.5.md) |
 
 Если вы администрируете сервер, начните с [руководства оператора](docs/operator-guide.md).
 
