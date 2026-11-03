@@ -4,18 +4,17 @@
 {% block title %}Обзор — bAD{% endblock %}
 {% block content %}
 <section class="page overview-admin overview-command">
-  <header class="overview-top">
-    <div class="overview-top-side">
-      <div class="overview-top-title">
-        <h1 class="overview-hero-title">Обзор</h1>
-        <p class="page-lead overview-cmd-lead">Оперативный пульт парка</p>
-      </div>
+  <header class="page-header">
+    <h1 class="with-icon">{{ icon('overview') }}Обзор</h1>
+    <p class="page-lead muted">Оперативный пульт парка</p>
+  </header>
+  <div class="overview-top">
+    <div class="overview-attention-slot">
       {% if attention %}
-      <div class="overview-attention-slot">
-        <details class="attention-queue card-surface" {% if attention|length <= 2 %}open{% endif %}>
-          <summary>
-            Рекомендации и действия <span class="mono">({{ attention|length }})</span>
-          </summary>
+      <details class="attention-queue card-surface">
+        <summary>
+          Рекомендации и действия <span class="mono">({{ attention|length }})</span>
+        </summary>
           <ul class="attention-list">
             {% for item in attention %}
             <li class="attention-item severity-{{ item.severity }}">
@@ -27,8 +26,7 @@
             </li>
             {% endfor %}
           </ul>
-        </details>
-      </div>
+      </details>
       {% endif %}
     </div>
     <div class="overview-search-hero overview-search-spotlight card-surface">
@@ -118,7 +116,7 @@
       </div>
     </details>
     </div>
-  </header>
+  </div>
 
   {% if (bootstrap_progress and not bootstrap_progress.complete) or (bootstrap and bootstrap.visible) %}
   <section class="overview-setup">
