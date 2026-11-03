@@ -337,6 +337,155 @@ def _badge_html(polarity: Polarity) -> str:
     )
 
 
+_CHASSIS_CAPTION = {
+    "laptop": "Ноутбук",
+    "desktop": "СБ",
+    "server": "Сервер",
+    "vm": "ВМ",
+}
+
+# Табличные значки: настольный Outlook не рисует SVG из панели.
+_CHASSIS_ICON_HTML = {
+    "laptop": (
+        '<table role="presentation" cellpadding="0" cellspacing="0" '
+        'style="border-collapse:collapse">'
+        '<tr><td width="24" height="14" bgcolor="#ffffff" '
+        'style="border:1px solid #0067c0;font-size:1px;line-height:14px">&nbsp;</td></tr>'
+        '<tr><td height="2" style="font-size:1px;line-height:2px">&nbsp;</td></tr>'
+        '<tr><td height="4" bgcolor="#0067c0" '
+        'style="font-size:1px;line-height:4px">&nbsp;</td></tr>'
+        "</table>"
+    ),
+    "desktop": (
+        '<table role="presentation" cellpadding="0" cellspacing="0" '
+        'style="border-collapse:collapse">'
+        '<tr><td width="14" bgcolor="#0067c0" style="padding:2px;font-size:1px;line-height:1px">'
+        '<table role="presentation" cellpadding="0" cellspacing="0" width="10" '
+        'style="border-collapse:collapse">'
+        '<tr><td height="4" bgcolor="#ffffff" style="font-size:1px;line-height:4px">&nbsp;</td></tr>'
+        '<tr><td height="2" bgcolor="#0067c0" style="font-size:1px;line-height:2px">&nbsp;</td></tr>'
+        '<tr><td height="4" bgcolor="#ffffff" style="font-size:1px;line-height:4px">&nbsp;</td></tr>'
+        '<tr><td height="2" bgcolor="#0067c0" style="font-size:1px;line-height:2px">&nbsp;</td></tr>'
+        '<tr><td height="4" bgcolor="#ffffff" style="font-size:1px;line-height:4px">&nbsp;</td></tr>'
+        "</table></td></tr></table>"
+    ),
+    "server": (
+        '<table role="presentation" cellpadding="0" cellspacing="0" '
+        'style="border-collapse:collapse">'
+        '<tr><td width="22" height="5" bgcolor="#0067c0" '
+        'style="font-size:1px;line-height:5px">&nbsp;</td></tr>'
+        '<tr><td height="2" style="font-size:1px;line-height:2px">&nbsp;</td></tr>'
+        '<tr><td width="22" height="5" bgcolor="#0067c0" '
+        'style="font-size:1px;line-height:5px">&nbsp;</td></tr>'
+        "</table>"
+    ),
+    "vm": (
+        '<table role="presentation" cellpadding="0" cellspacing="0" '
+        'style="border-collapse:collapse">'
+        '<tr><td width="20" height="14" bgcolor="#ffffff" '
+        'style="border:1px solid #0067c0;font-size:11px;line-height:14px;'
+        'color:#0067c0;text-align:center;font-family:Consolas,monospace">VM</td></tr>'
+        "</table>"
+    ),
+}
+
+
+def _chassis_key(raw: object) -> str:
+    key = str(raw or "").strip().casefold()
+    return key if key in _CHASSIS_CAPTION else ""
+
+
+def _mail_font() -> str:
+    return "Segoe UI, Tahoma, Arial, sans-serif"
+
+
+def _event_row_html(polarity: Polarity, summary: str) -> str:
+    fg = {"added": "#0f7b0f", "removed": "#c42b1c", "changed": "#0067c0"}.get(
+        polarity, "#0067c0"
+    )
+    bg = {"added": "#f3faf3", "removed": "#fdf6f5", "changed": "#f3f8fc"}.get(
+        polarity, "#f3f8fc"
+    )
+    label = _POLARITY_LABEL_RU.get(polarity, "Изменилось")
+    return (
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        'style="border-collapse:collapse;margin-top:8px">'
+        "<tr>"
+        f'<td width="4" bgcolor="{fg}" style="width:4px;font-size:1px;line-height:1px">&nbsp;</td>'
+        f'<td bgcolor="{bg}" style="padding:8px 12px;font-family:{_mail_font()}">'
+        f'<div style="font-size:11px;line-height:16px;font-weight:700;color:{fg}">'
+        f"{html.escape(label)}</div>"
+        f'<div style="font-size:14px;line-height:20px;color:#1a1a1a;padding-top:2px">'
+        f"{html.escape(summary)}</div>"
+        "</td></tr></table>"
+    )
+
+
+def _device_card_html(group: dict[str, Any]) -> str:
+    hostname = str(group.get("hostname") or "Компьютер")
+    bad_id = str(group.get("bad_id") or "").strip()
+    model = str(group.get("hardware_model") or "").strip() or "—"
+    owner = str(group.get("user_display_name") or "").strip() or "—"
+    chassis = _chassis_key(group.get("chassis_type"))
+    caption = _CHASSIS_CAPTION.get(chassis, "")
+    icon = _CHASSIS_ICON_HTML.get(chassis, "")
+    icon_cell = (
+        f'<td width="36" valign="middle" style="width:36px;padding:14px 0 14px 14px">{icon}</td>'
+        if icon
+        else '<td width="14" style="width:14px;font-size:1px">&nbsp;</td>'
+    )
+    caption_html = (
+        f'<div style="font-size:12px;line-height:16px;color:#5b5b5b;padding-top:2px">'
+        f"{html.escape(caption)}</div>"
+        if caption
+        else ""
+    )
+    bad_html = (
+        f'<div style="font-family:Consolas,\'Courier New\',monospace;font-size:12px;'
+        f'line-height:16px;color:#0067c0;padding-top:2px">{html.escape(bad_id)}</div>'
+        if bad_id
+        else ""
+    )
+    events_html = "".join(
+        _event_row_html(
+            event_visual(str(ev.get("type") or ""))["polarity"],  # type: ignore[arg-type]
+            str(ev.get("summary") or ""),
+        )
+        for ev in (group.get("events") or [])
+    )
+    font = _mail_font()
+    return (
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        'style="border-collapse:collapse;border:1px solid #e5e5e5;background:#ffffff;'
+        'margin:0 0 16px">'
+        "<tr>"
+        f"{icon_cell}"
+        f'<td valign="middle" style="padding:12px 14px;font-family:{font}">'
+        f'<div style="font-size:16px;line-height:22px;font-weight:600;color:#1a1a1a">'
+        f"{html.escape(hostname)}</div>"
+        f"{bad_html}{caption_html}"
+        "</td></tr>"
+        '<tr><td colspan="2" style="padding:0 14px 12px">'
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        'style="border-collapse:collapse">'
+        "<tr>"
+        '<td width="50%" valign="top" bgcolor="#f9f9f9" '
+        f'style="width:50%;padding:8px 10px;font-family:{font}">'
+        '<div style="font-size:11px;line-height:14px;color:#8a8a8a">Модель</div>'
+        f'<div style="font-size:13px;line-height:18px;color:#1a1a1a;padding-top:2px">'
+        f"{html.escape(model)}</div></td>"
+        '<td width="8" style="width:8px;font-size:1px">&nbsp;</td>'
+        '<td width="50%" valign="top" bgcolor="#f9f9f9" '
+        f'style="width:50%;padding:8px 10px;font-family:{font}">'
+        '<div style="font-size:11px;line-height:14px;color:#8a8a8a">Пользователь</div>'
+        f'<div style="font-size:13px;line-height:18px;color:#1a1a1a;padding-top:2px">'
+        f"{html.escape(owner)}</div></td>"
+        "</tr></table>"
+        f"{events_html}"
+        "</td></tr></table>"
+    )
+
+
 def build_inventory_digest_email(
     *,
     devices_groups: list[dict[str, Any]],
@@ -355,83 +504,77 @@ def build_inventory_digest_email(
         f"Сводка уведомлений ({window_label}).",
         "",
     ]
-    html_parts = [
-        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body "
-        'style="font-family:Segoe UI,system-ui,sans-serif;font-size:14px;'
-        'color:#1f2937;line-height:1.45;margin:0;padding:16px">',
-        f"<p style=\"margin:0 0 16px\">Сводка уведомлений "
-        f"({html.escape(window_label)}).</p>",
-    ]
+    font = _mail_font()
+    park_html = ""
     if park_stats:
         total = int(park_stats.get("total_active") or 0)
         online = int(park_stats.get("online") or 0)
-        plain_lines.extend(
-            [f"Парк: всего хостов {total}, онлайн {online}", ""]
-        )
-        html_parts.append(
-            '<table role="presentation" cellpadding="8" cellspacing="0" '
-            'style="margin:0 0 16px;border-collapse:collapse;border:1px solid #e5e7eb">'
-            "<tr>"
-            '<td style="background:#f9fafb;font-weight:600;border:1px solid #e5e7eb">'
-            "Всего хостов</td>"
-            f'<td style="border:1px solid #e5e7eb">{total}</td>'
-            '<td style="background:#f9fafb;font-weight:600;border:1px solid #e5e7eb">'
-            "Онлайн</td>"
-            f'<td style="border:1px solid #e5e7eb">{online}</td>'
-            "</tr></table>"
-        )
-    for group in devices_groups:
-        device_id = group.get("device_id") or "—"
-        hostname = group.get("hostname") or device_id
-        model = (group.get("hardware_model") or "").strip()
-        owner = (group.get("user_display_name") or "").strip()
-        presence = (group.get("user_presence_caption") or "").strip()
-        meta_bits: list[str] = []
-        if model:
-            meta_bits.append(f"модель: {model}")
-        if owner:
-            pres = f" ({presence})" if presence else ""
-            meta_bits.append(f"пользователь: {owner}{pres}")
-        meta_plain = " · ".join(meta_bits)
-        plain_lines.append(f"=== {hostname} ({device_id}) ===")
-        if meta_plain:
-            plain_lines.append(f"  {meta_plain}")
-        sub_lines = [html.escape(device_id)]
-        if meta_bits:
-            sub_lines.append(html.escape(" · ".join(meta_bits)))
-        sub_html = "<br>".join(
-            f'<span style="color:#6b7280;font-weight:400;font-size:12px">{line}</span>'
-            for line in sub_lines
-        )
-        html_parts.append(
+        plain_lines.extend([f"Парк: в сети {online}, всего {total}", ""])
+        park_html = (
             '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
-            'style="margin:0 0 20px;border:1px solid #e5e7eb;border-radius:8px;'
-            'border-collapse:separate;overflow:hidden">'
-            f'<tr><td colspan="2" style="padding:10px 12px;background:#f3f4f6;'
-            f'font-weight:600">{html.escape(hostname)} {sub_html}</td></tr>'
+            'style="border-collapse:collapse;margin-top:12px">'
+            "<tr>"
+            f'<td width="50%" bgcolor="#f3f8fc" style="width:50%;padding:10px 12px;font-family:{font}">'
+            '<div style="font-size:11px;line-height:14px;color:#5b5b5b">В сети</div>'
+            f'<div style="font-size:20px;line-height:26px;font-weight:600;color:#1a1a1a">{online}</div>'
+            "</td>"
+            '<td width="8" style="width:8px;font-size:1px">&nbsp;</td>'
+            f'<td width="50%" bgcolor="#f9f9f9" style="width:50%;padding:10px 12px;font-family:{font}">'
+            '<div style="font-size:11px;line-height:14px;color:#5b5b5b">Всего</div>'
+            f'<div style="font-size:20px;line-height:26px;font-weight:600;color:#1a1a1a">{total}</div>'
+            "</td></tr></table>"
         )
+    html_parts = [
+        '<!DOCTYPE html><html><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        "</head>"
+        f'<body style="margin:0;padding:0;background:#f3f3f3;font-family:{font};color:#1a1a1a">'
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        'style="border-collapse:collapse;background:#f3f3f3">'
+        '<tr><td align="center" style="padding:24px 12px">'
+        '<table role="presentation" width="640" cellpadding="0" cellspacing="0" '
+        'style="border-collapse:collapse;width:640px;max-width:640px;background:#ffffff;'
+        'border:1px solid #e5e5e5">'
+        '<tr><td bgcolor="#0067c0" style="padding:16px 20px;font-family:'
+        f'{font};color:#ffffff">'
+        '<div style="font-size:18px;line-height:24px;font-weight:600">bAD</div>'
+        '<div style="font-size:13px;line-height:18px;color:#d6e8f8;padding-top:2px">'
+        f"Сводка уведомлений · {html.escape(window_label)}</div>"
+        "</td></tr>"
+        f'<tr><td style="padding:16px 20px 8px">{park_html}</td></tr>'
+        '<tr><td style="padding:8px 20px 4px">',
+    ]
+    for group in devices_groups:
+        hostname = str(group.get("hostname") or "Компьютер")
+        bad_id = str(group.get("bad_id") or "").strip()
+        model = str(group.get("hardware_model") or "").strip()
+        owner = str(group.get("user_display_name") or "").strip()
+        caption = _CHASSIS_CAPTION.get(_chassis_key(group.get("chassis_type")), "")
+        plain_lines.append(hostname)
+        if bad_id:
+            plain_lines.append(bad_id)
+        if caption:
+            plain_lines.append(caption)
+        if model:
+            plain_lines.append(f"Модель: {model}")
+        if owner:
+            plain_lines.append(f"Пользователь: {owner}")
         for ev in group.get("events") or []:
-            vis = event_visual(str(ev.get("type") or ""))
-            polarity = vis["polarity"]  # type: ignore[assignment]
+            polarity = event_visual(str(ev.get("type") or ""))["polarity"]
             badge_plain = _POLARITY_LABEL_RU[polarity]
             summary = str(ev.get("summary") or "")
-            plain_lines.append(f"  [{badge_plain}] {summary}")
-            marker = _polarity_marker_html(polarity)
-            html_parts.append(
-                "<tr><td style=\"padding:8px 12px;width:28px;vertical-align:top;"
-                'text-align:center">'
-                f"{marker}</td>"
-                f'<td style="padding:8px 12px;vertical-align:top">'
-                f"{_badge_html(polarity)} "
-                f'<span style="margin-left:6px">{html.escape(summary)}</span>'
-                "</td></tr>"
-            )
-        html_parts.append("</table>")
+            plain_lines.append(f"  {badge_plain}")
+            plain_lines.append(f"  {summary}")
         plain_lines.append("")
+        html_parts.append(_device_card_html(group))
     plain_lines.extend(["—", "Сообщение сформировано сервером bAD."])
     html_parts.append(
-        '<p style="margin:16px 0 0;color:#9ca3af;font-size:12px">'
-        "Сообщение сформировано сервером bAD.</p></body></html>"
+        "</td></tr>"
+        '<tr><td style="padding:8px 20px 18px;font-family:'
+        f'{font};font-size:12px;line-height:16px;color:#8a8a8a;'
+        'border-top:1px solid #eeeeee">'
+        "Сообщение сформировано сервером bAD.</td></tr>"
+        "</table></td></tr></table></body></html>"
     )
     msg = EmailMessage()
     msg["Subject"] = subject
@@ -454,10 +597,11 @@ def build_hardware_email(
     sample_groups = [
         {
             "device_id": device_id,
+            "bad_id": "BAD-7K2M9Q4XNP",
             "hostname": hostname or "WORKSTATION-01",
+            "chassis_type": "desktop",
             "hardware_model": "Dell OptiPlex 7090 (пример)",
             "user_display_name": "ivanov",
-            "user_presence_caption": "в системе",
             "events": [
                 {
                     "type": "disk_added",
@@ -475,10 +619,11 @@ def build_hardware_email(
         },
         {
             "device_id": "sample-device-2",
+            "bad_id": "BAD-3H8R5T6WCD",
             "hostname": "LAPTOP-02",
+            "chassis_type": "laptop",
             "hardware_model": "Lenovo ThinkPad T14",
             "user_display_name": "petrov",
-            "user_presence_caption": "последний",
             "events": [
                 {
                     "type": "hostname_change",
@@ -536,20 +681,23 @@ def _mail_group_from_device(device: Optional[dict[str, Any]]) -> dict[str, Any]:
     if presence == "online":
         names = normalize_logged_on_list(meta.get("logged_on"))
         user_display_name = names[0] if names else None
-        user_presence_caption = "в системе"
     else:
         user_display_name = meta.get("last_logged_on") or None
-        user_presence_caption = "последний" if user_display_name else ""
     out: dict[str, Any] = {}
     model = (meta.get("hardware_model") or "").strip()
     if model:
         out["hardware_model"] = model
     if user_display_name:
         out["user_display_name"] = user_display_name
-        out["user_presence_caption"] = user_presence_caption
     host = device.get("hostname")
     if host:
         out["hostname"] = host
+    bad_id = str(device.get("bad_id") or "").strip()
+    if bad_id:
+        out["bad_id"] = bad_id
+    chassis = str(device.get("chassis_type") or meta.get("chassis_type") or "").strip()
+    if chassis:
+        out["chassis_type"] = chassis
     return out
 
 

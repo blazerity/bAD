@@ -190,6 +190,7 @@
         <th class="col-device-model">Модель</th>
         <th class="col-device-cpu">CPU</th>
         <th class="col-device-ram">ОЗУ</th>
+        <th class="col-device-disk">Диск</th>
         <th class="col-device-os">ОС</th>
         <th class="col-device-ip">IP</th>
         <th class="col-device-seen">Контакт</th>
@@ -236,6 +237,7 @@
         {% set cpu_short = d.cpu_display if d.cpu_display and d.cpu_display != '—' else '' %}
         <td class="device-col-cpu muted" title="{{ cpu_raw or cpu_short }}"><span class="device-col-cpu-text">{% if cpu_short %}{{ cpu_short }}{% elif cpu_raw %}{{ cpu_raw }}{% else %}—{% endif %}</span></td>
         <td class="device-col-ram muted" title="{{ d.ram_display }}">{{ d.ram_display }}</td>
+        <td class="device-col-disk muted" title="{{ d.disk_display }}">{{ d.disk_display }}</td>
         <td class="device-col-os-cell" title="{{ meta.os_caption or meta.os or os_line }}">
           <span>{{ os_line }}</span>
           <span class="mono muted device-col-sub">bAD Agent {{ d.agent_version or '—' }}</span>

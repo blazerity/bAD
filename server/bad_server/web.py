@@ -1336,6 +1336,7 @@ def _enrich_device_row(device: dict, *, stale_after_seconds: int) -> dict:
     if not ram_list or ram_list == "—":
         ram_list = meta.get("ram_bucket") or meta.get("ram_display") or "—"
     device["ram_display"] = ram_list
+    device["disk_display"] = meta.get("disk_bucket") or "—"
     raw_os = meta.get("os_caption") or meta.get("os") or ""
     device["os_display"] = normalize_os_caption(raw_os) if raw_os else "—"
     cpu_raw = meta.get("cpu_name")
