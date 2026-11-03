@@ -28,7 +28,7 @@
 
   <div class="card-surface filter-card devices-filter-card">
     <form method="get" action="/devices" class="devices-filter-form" data-live-submit data-live-delay="300">
-      {% set secondary_filters_active = tag_filter or wave or cpu_vendor_filter or agent_filter or show_archive %}
+      {% set secondary_filters_active = tag_filter or wave or cpu_vendor_filter or agent_filter or show_archive or model_filter or chassis_filter %}
       <div class="devices-toolbar">
         <div class="search-input-wrap devices-toolbar-search card-surface filter-search-surface">
           <span class="search-input-icon" aria-hidden="true">{{ icon('search') }}</span>
@@ -100,12 +100,41 @@
             </select>
           </div>
         </div>
-        <details class="devices-more-filters{% if secondary_filters_active %} has-active{% endif %}">
-          <summary>
-            Ещё фильтры
-            {% if secondary_filters_active %}<span class="devices-more-filters-badge" aria-label="есть активные фильтры"></span>{% endif %}
-          </summary>
-          <div class="devices-more-filters-body">
+        <button type="button" class="devices-more-toggle{% if secondary_filters_active %} has-active{% endif %}"
+          aria-expanded="{% if secondary_filters_active %}true{% else %}false{% endif %}" aria-controls="devices-more-panel">
+          Ещё фильтры
+          {% if secondary_filters_active %}<span class="devices-more-filters-badge" aria-label="есть активные фильтры"></span>{% endif %}
+        </button>
+        {% if filters_active %}
+        <a class="filter-reset-link devices-toolbar-reset" href="/devices">Сбросить</a>
+        {% endif %}
+        <a class="btn secondary btn-compact devices-toolbar-csv" href="/devices/export.csv{% if export_qs %}?{{ export_qs }}{% endif %}">CSV</a>
+      </div>
+      <div id="devices-more-panel" class="devices-more-filters-body"{% if not secondary_filters_active %} hidden{% endif %}>
+            <div class="devices-facet devices-facet-compact">
+              <label class="devices-facet-label" for="model">Модель</label>
+              <select id="model" name="model" class="filter-select-inline devices-facet-select devices-facet-select-compact devices-facet-select-model{% if model_filter %} is-active{% endif %}">
+                <option value="">все</option>
+                {% for v in catalog_filter_options.model %}
+                <option value="{{ v }}" {% if model_filter == v %}selected{% endif %}>{{ v }}</option>
+                {% endfor %}
+                {% if model_filter and model_filter not in catalog_filter_options.model %}
+                <option value="{{ model_filter }}" selected>{{ model_filter }}</option>
+                {% endif %}
+              </select>
+            </div>
+            <div class="devices-facet devices-facet-compact">
+              <label class="devices-facet-label" for="chassis">Тип</label>
+              <select id="chassis" name="chassis" class="filter-select-inline devices-facet-select devices-facet-select-compact{% if chassis_filter %} is-active{% endif %}">
+                <option value="">все</option>
+                {% for v in catalog_filter_options.chassis %}
+                <option value="{{ v }}" {% if chassis_filter == v %}selected{% endif %}>{{ chassis_labels.get(v, v) }}</option>
+                {% endfor %}
+                {% if chassis_filter and chassis_filter not in catalog_filter_options.chassis %}
+                <option value="{{ chassis_filter }}" selected>{{ chassis_labels.get(chassis_filter, chassis_filter) }}</option>
+                {% endif %}
+              </select>
+            </div>
             <div class="devices-facet devices-facet-compact">
               <label class="devices-facet-label" for="cpu_vendor">Вендор</label>
               <select id="cpu_vendor" name="cpu_vendor" class="filter-select-inline devices-facet-select devices-facet-select-compact{% if cpu_vendor_filter %} is-active{% endif %}">
@@ -130,32 +159,30 @@
                 {% endif %}
               </select>
             </div>
-            <label class="sr-only" for="tag">Тег</label>
-            <select id="tag" name="tag" class="filter-select-inline devices-facet-select-compact">
-              <option value="">Все теги</option>
-              {% for t in all_tags %}
-              <option value="{{ t }}" {% if tag_filter == t %}selected{% endif %}>{{ t }}</option>
-              {% endfor %}
-            </select>
-            <label class="sr-only" for="wave">Волна</label>
-            <select id="wave" name="wave" class="filter-select-inline devices-facet-select-compact">
-              <option value="" {% if not wave %}selected{% endif %}>Все волны</option>
-              <option value="drift" {% if wave == 'drift' %}selected{% endif %}>отстают по версии</option>
-              <option value="revoked" {% if wave == 'revoked' %}selected{% endif %}>доступ отозван</option>
-              <option value="agent_local" {% if wave == 'agent_local' %}selected{% endif %}>настройка на ПК</option>
-              <option value="stale" {% if wave == 'stale' %}selected{% endif %}>давно без связи</option>
-              <option value="dup" {% if wave == 'dup' %}selected{% endif %}>дубли</option>
-            </select>
+            <div class="devices-facet devices-facet-compact">
+              <label class="devices-facet-label" for="tag">Тег</label>
+              <select id="tag" name="tag" class="filter-select-inline devices-facet-select devices-facet-select-compact{% if tag_filter %} is-active{% endif %}">
+                <option value="">все</option>
+                {% for t in all_tags %}
+                <option value="{{ t }}" {% if tag_filter == t %}selected{% endif %}>{{ t }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="devices-facet devices-facet-compact">
+              <label class="devices-facet-label" for="wave">Волна</label>
+              <select id="wave" name="wave" class="filter-select-inline devices-facet-select devices-facet-select-compact{% if wave %} is-active{% endif %}">
+                <option value="" {% if not wave %}selected{% endif %}>все</option>
+                <option value="drift" {% if wave == 'drift' %}selected{% endif %}>отстают по версии</option>
+                <option value="revoked" {% if wave == 'revoked' %}selected{% endif %}>доступ отозван</option>
+                <option value="agent_local" {% if wave == 'agent_local' %}selected{% endif %}>настройка на ПК</option>
+                <option value="stale" {% if wave == 'stale' %}selected{% endif %}>давно без связи</option>
+                <option value="dup" {% if wave == 'dup' %}selected{% endif %}>дубли</option>
+              </select>
+            </div>
             <label class="check devices-archive-check">
               <input type="checkbox" name="archive" value="1" {% if show_archive %}checked{% endif %}>
               Архив
             </label>
-          </div>
-        </details>
-        {% if filters_active %}
-        <a class="filter-reset-link devices-toolbar-reset" href="/devices">Сбросить</a>
-        {% endif %}
-        <a class="btn secondary btn-compact devices-toolbar-csv" href="/devices/export.csv{% if export_qs %}?{{ export_qs }}{% endif %}">CSV</a>
       </div>
       {% if filter_chips %}
       <div class="filter-chips devices-active-filters" role="group" aria-label="Активные фильтры">

@@ -1457,11 +1457,19 @@ def _devices_catalog_filter_options(
         if _facet_catalog_label_ok(label):
             cpu_vals.append(label)
     vendor_vals: set[str] = set()
+    model_vals: set[str] = set()
+    chassis_present: set[str] = set()
     for d in fleet:
         meta = d.get("meta") if isinstance(d.get("meta"), dict) else {}
         vendor = str(meta.get("cpu_vendor") or "").strip()
         if vendor and _facet_catalog_label_ok(vendor):
             vendor_vals.add(vendor)
+        model = str(meta.get("hardware_model") or "").strip()
+        if model and _facet_catalog_label_ok(model):
+            model_vals.add(model)
+        chassis = str(meta.get("chassis_type") or "").strip().casefold()
+        if chassis in _CHASSIS_LABELS_RU:
+            chassis_present.add(chassis)
     agent_vals: set[str] = set()
     for row in stats.get("agent_versions") or []:
         ver = str(row.get("version") or "").strip()
@@ -1479,6 +1487,8 @@ def _devices_catalog_filter_options(
         "cpu": sorted(set(cpu_vals), key=sort_key),
         "cpu_vendor": sorted(vendor_vals, key=sort_key),
         "agent": sorted(agent_vals, key=sort_key),
+        "model": sorted(model_vals, key=sort_key),
+        "chassis": [key for key in _CHASSIS_LABELS_RU if key in chassis_present],
     }
 
 
@@ -1550,9 +1560,10 @@ def _devices_filter_chips(
     chips: list[dict[str, str]] = []
     chassis_label = {
         "laptop": "Ноутбуки",
-        "desktop": "ПК",
+        "desktop": "Десктоп",
         "server": "Серверы",
         "vm": "ВМ",
+        "other": "Другое",
     }.get(chassis_filter or "", chassis_filter or "")
     specs: list[tuple[str, Optional[str], str]] = [
         ("tag", tag_filter, tag_filter or ""),
@@ -1906,6 +1917,7 @@ def devices_page(
             ),
             "filters_active": bool(filter_chips),
             "catalog_filter_options": catalog_filter_options,
+            "chassis_labels": _CHASSIS_LABELS_RU,
         },
     )
 
