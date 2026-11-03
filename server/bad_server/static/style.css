@@ -2755,14 +2755,42 @@ body.global-search-open { overflow: hidden; }
 .overview-command { gap: 0.95rem; }
 .overview-top {
   display: grid;
-  grid-template-columns: minmax(8.5rem, 1fr) minmax(20rem, 42rem) minmax(16rem, 1fr);
-  align-items: start;
+  grid-template-columns: minmax(16rem, 1fr) minmax(20rem, 42rem) minmax(16rem, 1fr);
+  align-items: stretch;
   gap: 0.85rem 1rem;
 }
+.overview-top-side {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  min-width: 0;
+  min-height: 0;
+  align-self: stretch;
+}
 .overview-top-title {
-  align-self: start;
+  flex: 0 0 auto;
   min-width: 0;
   padding-top: 0.15rem;
+}
+.overview-attention-slot {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.overview-attention-slot > .attention-queue {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  overflow: auto;
+  box-sizing: border-box;
+}
+.overview-top-side .attention-body { min-width: 0; }
+.overview-top-side .attention-item {
+  align-items: flex-start;
+}
+.overview-top-side .attention-item .btn {
+  flex-shrink: 0;
 }
 .overview-cmd-lead {
   margin: 0.2rem 0 0;
@@ -2862,7 +2890,11 @@ body.global-search-open { overflow: hidden; }
   width: 100%;
   margin: 0;
   justify-self: center;
+  align-self: stretch;
   min-height: 26rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   padding: 1.15rem 1.25rem 1.25rem;
   border: 1px solid var(--border-strong, var(--control-stroke));
   box-shadow: var(--shadow-md);
@@ -3322,9 +3354,9 @@ body.global-search-open { overflow: hidden; }
 .devices-table-modern .col-device-state { width: 8rem; }
 .devices-table-modern .col-device-host { width: 10.5%; }
 .devices-table-modern .col-device-user { width: 12.5%; }
-.devices-table-modern .col-device-model { width: 15%; }
-.devices-table-modern .col-device-cpu { width: 15%; }
-.devices-table-modern .col-device-ram { width: 5.5rem; }
+.devices-table-modern .col-device-model { width: 13%; }
+.devices-table-modern .col-device-cpu { width: 13%; }
+.devices-table-modern .col-device-ram { width: 11rem; }
 .devices-table-modern .col-device-disk { width: 5.75rem; }
 .devices-table-modern .col-device-os { width: 11%; }
 .devices-table-modern .col-device-ip { width: 11.5%; }
@@ -3388,16 +3420,55 @@ body.global-search-open { overflow: hidden; }
 .dash-card-full {
   margin-top: 0.75rem;
 }
-.dash-os-card .chart-donut--wide {
+.dash-fleet-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0.75rem 0 1rem;
+  align-items: stretch;
+}
+.dash-fleet-row > .dash-card {
+  margin: 0;
+  min-width: 0;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+.dash-fleet-row .chart-donut--stack {
+  flex: 1;
+  flex-direction: column;
+  align-items: stretch;
   justify-content: center;
-  gap: 1.5rem 2.5rem;
+  gap: 0.65rem;
 }
-.dash-os-card .chart-donut--wide .chart-donut__ring-wrap {
-  width: 9rem;
-  height: 9rem;
+.dash-fleet-row .chart-donut--stack .chart-donut__ring-wrap {
+  width: 6.25rem;
+  height: 6.25rem;
+  margin: 0 auto;
 }
-.dash-os-card .chart-donut--wide .chart-donut__legend {
-  min-width: 14rem;
+.dash-fleet-row .chart-donut--stack .chart-donut__legend {
+  min-width: 0;
+  width: 100%;
+}
+.dash-fleet-row .chart-donut--stack .chart-donut__legend li {
+  flex-wrap: nowrap;
+}
+.dash-fleet-row .chart-donut--stack .chart-donut__legend-link {
+  flex: 0 1 auto;
+  flex-wrap: nowrap;
+  min-width: 0;
+  max-width: 100%;
+}
+.dash-fleet-row .chart-donut--stack .chart-donut__label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.dash-fleet-row .chart-donut--stack .chart-donut__legend-link > .tnum {
+  margin-left: 0.35rem;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .dash-treemap-card .dash-treemap--mosaic {
   margin-top: 0.5rem;
@@ -4614,6 +4685,7 @@ table.devices.devices-list td {
   .overview-grid-2,
   .dash-grid-2,
   .dash-grid-3,
+  .dash-fleet-row,
   .dash-treemap-pair { grid-template-columns: 1fr; }
   .event-feed-row {
     grid-template-columns: 5.5rem minmax(0, 1fr) auto;
@@ -4631,13 +4703,19 @@ table.devices.devices-list td {
   .dash-drift-row {
     grid-template-columns: 1fr auto;
   }
-  .dash-os-card .chart-donut--wide .chart-donut__legend {
-    grid-template-columns: 1fr;
+  .dash-fleet-row .chart-donut--stack {
+    flex-direction: row;
+    align-items: center;
+  }
+  .dash-fleet-row .chart-donut--stack .chart-donut__legend {
     max-width: none;
   }
   .overview-top {
     grid-template-columns: 1fr;
   }
+  .overview-top-side { overflow: visible; }
+  .overview-attention-slot { overflow: visible; }
+  .overview-attention-slot > .attention-queue { min-height: 0; }
   .overview-top .overview-search-spotlight { max-width: none; min-height: 0; }
   .server-status-facts { grid-template-columns: 1fr 1fr; }
   .overview-server-slot {
