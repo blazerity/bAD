@@ -45,17 +45,15 @@
     </a>
   </div>
 
-  {# ОС — на всю ширину #}
-  <article class="dash-card card-surface dash-card-full dash-os-card">
-    <h2>ОС</h2>
-    {% set osb = dashboard.os_bars %}
-    {% if osb and osb['items'] %}
-    {{ conic_donut(osb['items'], 'chart-donut chart-donut--wide', osb['center_total'] if osb['center_total'] is defined else stats.total_active, osb['center_label'] if osb['center_label'] is defined else 'ПК') }}
-    {% else %}<p class="muted">Нет данных</p>{% endif %}
-  </article>
-
-  {# ОЗУ и диски рядом #}
-  <div class="dash-grid-2 dash-bars-row">
+  {# ОС, ОЗУ и диски — один ряд, карточки одной высоты #}
+  <div class="dash-fleet-row">
+    <article class="dash-card card-surface dash-os-card">
+      <h2>ОС</h2>
+      {% set osb = dashboard.os_bars %}
+      {% if osb and osb['items'] %}
+      {{ conic_donut(osb['items'], 'chart-donut chart-donut--stack', osb['center_total'] if osb['center_total'] is defined else stats.total_active, osb['center_label'] if osb['center_label'] is defined else 'ПК') }}
+      {% else %}<p class="muted">Нет данных</p>{% endif %}
+    </article>
     <article class="dash-card card-surface">
       <h2>ОЗУ в парке</h2>
       {% set rb = dashboard.ram_bars %}

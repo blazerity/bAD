@@ -918,11 +918,13 @@ def build_dashboard_stats(
         "center_label": "ПК",
     }
 
-    def _hbar_block(counts: dict[str, int], param: str) -> Optional[dict[str, Any]]:
+    def _hbar_block(
+        counts: dict[str, int], param: str, *, top: int = OS_DOMAIN_BAR_TOP
+    ) -> Optional[dict[str, Any]]:
         if not counts:
             return None
         total = sum(counts.values())
-        items = _top_bars(counts, top=OS_DOMAIN_BAR_TOP, total=max(total, 1))
+        items = _top_bars(counts, top=top, total=max(total, 1))
         for row in items:
             row["bar_pct"] = max(float(row.get("pct") or 0), 4.0)
             if int(row.get("count") or 0) > 0 and not row.get("is_other"):
@@ -935,7 +937,10 @@ def build_dashboard_stats(
         }
 
     ram_bars = _hbar_block(ram_counts, "ram")
-    storage_bars = _hbar_block(storage_counts, "disk")
+    # Все объёмы дисков отдельными полосами: свёртка «прочие» не ведёт в список.
+    storage_bars = _hbar_block(
+        storage_counts, "disk", top=max(len(storage_counts), 1)
+    )
 
     cpu_family_counts: dict[str, int] = {}
     laptop_model_counts: dict[str, int] = {}
