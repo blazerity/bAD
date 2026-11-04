@@ -145,6 +145,39 @@ html[data-theme="dark"] {
 .hcp-rail-nav a[aria-current="page"]::after {
   display: none;
 }
+.hcp-rail-nav a span {
+  white-space: nowrap;
+}
+html.rail-collapsed .hcp-rail {
+  width: 3.35rem;
+}
+html.rail-collapsed .hcp-rail-nav a span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+html.rail-collapsed .hcp-rail-nav a {
+  justify-content: center;
+  padding-left: 0.45rem;
+  padding-right: 0.45rem;
+}
+html.rail-collapsed .rail-toggle .icon {
+  transform: rotate(180deg);
+}
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.rail-toggle .icon {
+  transition: transform var(--dur-nav) var(--ease);
+}
+.hcp-rail-backdrop {
+  display: none;
+}
 .top-inner-hcp {
   grid-template-columns: 1fr auto;
 }
@@ -165,26 +198,58 @@ body.hcp-panel .brand-mark {
   background: transparent;
   box-shadow: none;
 }
-@media (max-width: 900px) {
+@media (max-width: 767px) {
   .hcp-shell {
-    flex-direction: column;
-    min-height: 0;
+    flex-direction: row;
+    min-height: calc(100vh - 3.5rem);
+  }
+  .hcp-rail-backdrop {
+    position: fixed;
+    inset: 0;
+    top: 3.5rem;
+    z-index: 25;
+    background: rgba(0, 0, 0, 0.4);
+    border: none;
+  }
+  html[data-theme="dark"] .hcp-rail-backdrop {
+    background: rgba(0, 0, 0, 0.55);
+  }
+  body.rail-mobile-open .hcp-rail-backdrop {
+    display: block;
   }
   .hcp-rail {
-    width: 100%;
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-    padding: 0.35rem 0;
+    position: fixed;
+    top: 3.5rem;
+    left: 0;
+    bottom: 0;
+    z-index: 30;
+    width: min(15.5rem, 88vw);
+    transform: translateX(-105%);
+    transition: transform var(--dur-nav) var(--ease);
+    border-right: 1px solid var(--border);
+    border-bottom: none;
+    box-shadow: var(--shadow-md);
+  }
+  body.rail-mobile-open .hcp-rail {
+    transform: translateX(0);
   }
   .hcp-rail-nav {
-    flex-direction: row;
-    flex-wrap: wrap;
-    gap: 0.2rem;
+    flex-direction: column;
+    flex-wrap: nowrap;
   }
   .hcp-rail-nav a {
-    flex: 1 1 auto;
-    justify-content: center;
+    justify-content: flex-start;
     min-height: 2.75rem;
+  }
+  html.rail-collapsed .hcp-rail {
+    width: min(15.5rem, 88vw);
+  }
+  html.rail-collapsed .hcp-rail-nav a span {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip: auto;
   }
 }
 
@@ -816,8 +881,8 @@ table.devices {
   width: 3.5rem;
   height: 3.5rem;
   border-radius: 12px;
-  background: var(--accent);
-  box-shadow: var(--shadow-md);
+  background: transparent;
+  box-shadow: none;
   margin-bottom: 1rem;
 }
 .login-logo .icon {
@@ -825,6 +890,12 @@ table.devices {
   height: 1.75rem;
   margin: 0;
   color: var(--fg-on-accent);
+}
+.login-logo img {
+  display: block;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
 }
 .login-product {
   margin: 0;

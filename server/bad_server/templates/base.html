@@ -7,6 +7,13 @@
   <link rel="icon" href="/static/favicon.ico" sizes="any">
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/theme-toggle.js"></script>
+  <script>
+    try {
+      if (window.matchMedia("(min-width: 768px)").matches && localStorage.getItem("bad-panel-rail-collapsed") === "1") {
+        document.documentElement.classList.add("rail-collapsed");
+      }
+    } catch (e) {}
+  </script>
 </head>
 <body class="{% block body_class %}mica-noise hcp-panel{% endblock %}">
   {% from "macros/icons.html" import icon %}
@@ -14,13 +21,19 @@
   {% set show_rail = user is defined and user and (not user.must_change_password or qa_ui) %}
   <header class="top acrylic-bar">
     <div class="top-inner top-inner-hcp">
-    <a class="brand-lockup" href="{% if user is defined and user and user.must_change_password and not qa_ui %}/account/password{% else %}/{% endif %}">
-      <span class="brand-mark" aria-hidden="true"><img src="/static/favicon.ico" width="32" height="32" alt=""></span>
-      <span class="brand-text">
-        <span class="brand-title">bAD</span>
-        <span class="brand-sub">blazerity Asset Discovery</span>
-      </span>
-    </a>
+    <div class="brand-row">
+      <a class="brand-lockup" href="{% if user is defined and user and user.must_change_password and not qa_ui %}/account/password{% else %}/{% endif %}">
+        <span class="brand-mark" aria-hidden="true"><img src="/static/favicon.ico" width="32" height="32" alt=""></span>
+        <span class="brand-text">
+          <span class="brand-title">bAD</span>
+          <span class="brand-sub">blazerity Asset Discovery</span>
+        </span>
+      </a>
+      {% if show_rail %}
+      <button type="button" class="icon-btn rail-toggle" id="rail-toggle"
+              aria-controls="hcp-rail" aria-expanded="true" title="Свернуть меню">{{ icon('chevron-left') }}<span class="sr-only">Меню</span></button>
+      {% endif %}
+    </div>
     {% if user is defined and user and user.must_change_password and not qa_ui %}
       <nav class="nav nav-header-compact" aria-label="Смена пароля">
         {% if user.source == 'local' %}
@@ -54,7 +67,8 @@
   </header>
   {% if show_rail %}
   <div class="hcp-shell">
-    <aside class="hcp-rail card-surface" aria-label="Основная навигация">
+    <div class="hcp-rail-backdrop" id="hcp-rail-backdrop" hidden></div>
+    <aside class="hcp-rail card-surface" id="hcp-rail" aria-label="Основная навигация">
       <nav class="nav hcp-rail-nav">
         <a href="/" {% if path in ['/', '/overview'] %}aria-current="page"{% endif %}>{{ icon('overview') }}<span>Обзор</span></a>
         <a href="/dashboard" {% if path == '/dashboard' %}aria-current="page"{% endif %}>{{ icon('dashboard') }}<span>Дашборд</span></a>
@@ -103,6 +117,7 @@
     </div>
   </div>
   {% endif %}
+  <script src="/static/rail-collapse.js" defer></script>
   <script src="/static/panel-settings-hits.js" defer></script>
   <script src="/static/panel-search.js" defer></script>
   <script src="/static/global-search.js" defer></script>
