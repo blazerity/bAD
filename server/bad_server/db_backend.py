@@ -135,7 +135,16 @@ CREATE TABLE IF NOT EXISTS devices (
   meta_json TEXT,
   tags_json TEXT NOT NULL DEFAULT '[]',
   revoked INTEGER NOT NULL DEFAULT 0,
-  archived INTEGER NOT NULL DEFAULT 0
+  archived INTEGER NOT NULL DEFAULT 0,
+  signing_pubkey TEXT,
+  signing_key_fingerprint TEXT
+);
+
+CREATE TABLE IF NOT EXISTS enrollment_grants (
+  code_hash TEXT PRIMARY KEY,
+  device_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  used_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_devices_api_key_lookup

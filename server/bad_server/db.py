@@ -154,6 +154,29 @@ class Database:
         with self.connection() as conn:
             conn.execute("DELETE FROM site_secrets WHERE key = ?", (key,))
 
+    def enrollment_grant_usable(self, code_hash: str, device_id: str) -> bool:
+        with self.connection() as conn:
+            row = conn.execute(
+                """
+                SELECT device_id, used_at FROM enrollment_grants
+                WHERE code_hash = ?
+                """,
+                (code_hash,),
+            ).fetchone()
+        return bool(
+            row and row["device_id"] == device_id and not row["used_at"]
+        )
+
+    def create_enrollment_grant(self, device_id: str, code_hash: str) -> None:
+        with self.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO enrollment_grants(code_hash, device_id, created_at)
+                VALUES (?, ?, ?)
+                """,
+                (code_hash, device_id, utc_now()),
+            )
+
     def get_device_auth_row(self, device_id: str) -> Optional[dict[str, Any]]:
         with self.connection() as conn:
             row = conn.execute(
@@ -172,6 +195,9 @@ class Database:
         *,
         api_key_lookup: Optional[str] = None,
         allow_existing: bool = False,
+        grant_code_hash: Optional[str] = None,
+        signing_pubkey: Optional[str] = None,
+        signing_key_fingerprint: Optional[str] = None,
     ) -> bool:
         """Создать устройство или (при allow_existing) обновить ключ.
 
@@ -180,6 +206,17 @@ class Database:
         """
         now = utc_now()
         with self.connection() as conn:
+            if grant_code_hash:
+                spent = conn.execute(
+                    """
+                    UPDATE enrollment_grants
+                    SET used_at = ?
+                    WHERE code_hash = ? AND device_id = ? AND used_at IS NULL
+                    """,
+                    (now, grant_code_hash, device_id),
+                )
+                if spent.rowcount != 1:
+                    raise ValueError("grant_invalid")
             existing = conn.execute(
                 """
                 SELECT device_id, revoked FROM devices WHERE device_id = ?
@@ -226,8 +263,8 @@ class Database:
                 INSERT INTO devices(
                   device_id, bad_id, hostname, api_key_hash, api_key_lookup,
                   enrolled_at, last_seen_at, agent_version, meta_json,
-                  revoked, archived
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
+                  revoked, archived, signing_pubkey, signing_key_fingerprint
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
                 """,
                 (
                     device_id,
@@ -239,6 +276,8 @@ class Database:
                     now,
                     agent_version,
                     None,
+                    signing_pubkey,
+                    signing_key_fingerprint,
                 ),
             )
             return True

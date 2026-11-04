@@ -23,6 +23,12 @@ class EnrollRequest(BaseModel):
 class EnrollResponse(BaseModel):
     api_key: str
     device_id: str
+    # Только новому устройству. Старый агент поле игнорирует.
+    signing_key: Optional[str] = None
+
+
+class EnrollmentGrantBody(BaseModel):
+    device_id: str = Field(min_length=1, max_length=128)
 
 
 class ConfigLocalPayload(BaseModel):
@@ -72,6 +78,8 @@ class InventoryRequest(BaseModel):
     security: Optional[dict[str, Any]] = None
     minidumps: Optional[dict[str, Any]] = None
     collector_errors: list[Any] = Field(default_factory=list)
+    # Ed25519 подпись канонического JSON без этого поля. Нет поля — окно миграции.
+    signature: Optional[str] = None
 
     model_config = {"extra": "allow"}
 

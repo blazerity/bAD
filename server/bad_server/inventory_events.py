@@ -15,6 +15,31 @@ VOLUME_FREE_DROP_REL = 0.20
 VOLUME_FREE_CRITICAL_ABS = 10 * 1024**3  # 10 ГиБ
 VOLUME_FREE_CRITICAL_REL = 0.05  # 5% от размера тома
 
+# Агент режет software на 500 (InventoryCollector.MaxSoftwarePrograms). Потолок выше.
+MAX_SOFTWARE_PROGRAMS = 600
+# У агента нет капа на диски; 64 выше любой обычной машины, которую он шлёт целиком.
+MAX_DISKS = 64
+# Ниже nginx client_max_body_size 5m, выше снимка с 500 программами.
+MAX_INVENTORY_JSON_BYTES = 1_500_000
+
+INVENTORY_TOP_KEYS = frozenset(
+    {
+        "schema_version",
+        "device_id",
+        "collected_at",
+        "agent_version",
+        "host",
+        "hardware",
+        "network",
+        "users",
+        "software",
+        "security",
+        "minidumps",
+        "collector_errors",
+        "signature",
+    }
+)
+
 
 def _as_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
@@ -79,6 +104,28 @@ def _minidump_files_by_name(minidumps: dict[str, Any]) -> dict[str, dict[str, An
 
 def _bugcheck_code(file_row: dict[str, Any]) -> str:
     return _norm_str(file_row.get("bugcheck_code"))
+
+
+def inventory_budget_error(payload: dict[str, Any]) -> Optional[tuple[int, str]]:
+    """400 — слишком много элементов, 413 — слишком большой JSON. None — можно писать."""
+    import json
+
+    software = payload.get("software")
+    if isinstance(software, dict):
+        programs = software.get("programs")
+        if isinstance(programs, list) and len(programs) > MAX_SOFTWARE_PROGRAMS:
+            return 400, f"software.programs exceeds {MAX_SOFTWARE_PROGRAMS}"
+    hardware = payload.get("hardware")
+    if isinstance(hardware, dict):
+        disks = hardware.get("disks")
+        if isinstance(disks, list) and len(disks) > MAX_DISKS:
+            return 400, f"hardware.disks exceeds {MAX_DISKS}"
+    encoded = json.dumps(
+        payload, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    if len(encoded) > MAX_INVENTORY_JSON_BYTES:
+        return 413, "inventory JSON exceeds budget"
+    return None
 
 
 def sanitize_inventory_payload(payload: dict[str, Any]) -> dict[str, Any]:

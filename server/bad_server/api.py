@@ -28,7 +28,12 @@ from .agent_config import (
     sanitize_settings,
 )
 from .agent_update import check_update, sync_from_github
-from .auth import get_db, require_admin_token, require_api_key, require_enrollment_token
+from .auth import (
+    get_db,
+    require_admin_token,
+    require_api_key,
+    shared_enrollment_token_ok,
+)
 from .integrations import require_device_reader as _device_reader
 from .device_refresh import (
     clear_refresh_meta_patch,
@@ -49,15 +54,29 @@ from .schemas import (
     DeviceTagsBody,
     EnrollRequest,
     EnrollResponse,
+    EnrollmentGrantBody,
     HeartbeatRequest,
     IntegrationLookupBody,
     IntegrationRequestBody,
     InventoryRequest,
 )
 from .http_bootstrap import ENROLL_CLEARTEXT_MSG, client_ip, enroll_cleartext_blocked
-from .security import api_key_lookup, generate_token, hash_secret, verify_secret
+from .security import (
+    api_key_lookup,
+    enrollment_code_hash,
+    extract_bearer,
+    generate_token,
+    hash_secret,
+    new_device_signing_key,
+    verify_inventory_signature,
+    verify_secret,
+)
 from .device_meta import inventory_meta_cache
-from .inventory_events import sanitize_inventory_payload
+from .inventory_events import (
+    INVENTORY_TOP_KEYS,
+    inventory_budget_error,
+    sanitize_inventory_payload,
+)
 from .smtp_mail import notify_enroll
 
 logger = logging.getLogger(__name__)
@@ -78,11 +97,22 @@ def health() -> dict[str, str]:
     return {"status": "ok", "version": __version__}
 
 
+@router.post("/enrollment-grants")
+def create_enrollment_grant(
+    body: EnrollmentGrantBody,
+    _admin: str = Depends(require_admin_token),
+    db: Database = Depends(get_db),
+) -> dict[str, str]:
+    """Заявка админа: одноразовый код, привязанный к device_id. Второй enroll — отказ."""
+    code = generate_token("bad_ot_")
+    db.create_enrollment_grant(body.device_id, enrollment_code_hash(code))
+    return {"code": code, "device_id": body.device_id}
+
+
 @router.post("/enroll", response_model=EnrollResponse)
 def enroll(
     body: EnrollRequest,
     request: Request,
-    _enrollment: str = Depends(require_enrollment_token),
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> EnrollResponse:
@@ -97,6 +127,31 @@ def enroll(
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Enrollment rate limit exceeded",
+        )
+    bearer = extract_bearer(request.headers.get("authorization"))
+    grant_hash: Optional[str] = None
+    if bearer:
+        # Не сжигаем код здесь: upsert сожжёт его в той же транзакции, что и INSERT.
+        grant_hash = enrollment_code_hash(bearer)
+    shared_ok = bool(
+        bearer and shared_enrollment_token_ok(bearer, settings, db)
+    )
+    if shared_ok and settings.allow_shared_enrollment:
+        grant_hash = None
+        logger.warning(
+            "shared enrollment token accepted for device_id=%s "
+            "(BAD_ALLOW_SHARED_ENROLLMENT=1)",
+            body.device_id,
+        )
+    elif not bearer:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing enrollment token",
+        )
+    elif not db.enrollment_grant_usable(grant_hash or "", body.device_id):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or spent enrollment code",
         )
 
     # SEC-001: enrollment token alone cannot un-revoke (early + DB TOCTOU guard).
@@ -129,6 +184,11 @@ def enroll(
     api_key_hash = hash_secret(api_key)
     data_key = getattr(request.app.state, "data_key", "") or ""
     lookup = api_key_lookup(data_key, api_key) if data_key else None
+    signing_private: Optional[str] = None
+    signing_public: Optional[str] = None
+    signing_fingerprint: Optional[str] = None
+    if not existing:
+        signing_private, signing_public, signing_fingerprint = new_device_signing_key()
     try:
         created = db.upsert_device_on_enroll(
             device_id=body.device_id,
@@ -137,9 +197,17 @@ def enroll(
             agent_version=body.agent_version,
             api_key_lookup=lookup,
             allow_existing=allow_existing,
+            grant_code_hash=grant_hash,
+            signing_pubkey=signing_public,
+            signing_key_fingerprint=signing_fingerprint,
         )
     except ValueError as exc:
         code = str(exc)
+        if code == "grant_invalid":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or spent enrollment code",
+            ) from exc
         if code == "device_revoked":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -172,7 +240,11 @@ def enroll(
             )
         except Exception:  # noqa: BLE001
             logger.exception("SMTP enroll alert failed (ignored)")
-    return EnrollResponse(api_key=api_key, device_id=body.device_id)
+    return EnrollResponse(
+        api_key=api_key,
+        device_id=body.device_id,
+        signing_key=signing_private if created else None,
+    )
 
 
 @router.post("/heartbeat")
@@ -275,6 +347,28 @@ def inventory(
 
     # Additive schema_version=2; strip dump bodies if agent ever sends them.
     payload = sanitize_inventory_payload(body.model_dump())
+    # schema 1/2: неизвестные верхние ключи оставляем (текущие снимки). 3 — режем.
+    if body.schema_version >= 3:
+        payload = {key: value for key, value in payload.items() if key in INVENTORY_TOP_KEYS}
+    budget = inventory_budget_error(payload)
+    if budget is not None:
+        code, detail = budget
+        raise HTTPException(status_code=code, detail=detail)
+    signature = payload.pop("signature", None)
+    if isinstance(signature, str):
+        signature = signature.strip() or None
+    pubkey = (device.get("signing_pubkey") or "").strip()
+    if signature:
+        if not pubkey or not verify_inventory_signature(pubkey, payload, signature):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid inventory signature",
+            )
+    elif settings.require_inventory_signature:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Inventory signature required",
+        )
     hostname = None
     host = payload.get("host") if isinstance(payload.get("host"), dict) else None
     if host:

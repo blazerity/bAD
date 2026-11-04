@@ -44,13 +44,19 @@ class Settings(BaseSettings):
     allow_sensitive_over_http: bool = False
     # Lab opt-out: /v1/enroll on cleartext when managed TLS is already active.
     allow_enroll_over_http: bool = False
+    # Этот релиз: общий enrollment token ещё принимается (warning в лог). 0 — только заявка.
+    allow_shared_enrollment: bool = _env_bool("BAD_ALLOW_SHARED_ENROLLMENT", True)
+    # 0 — снимок без подписи принимается. 1 — подпись обязательна (старые агенты отвалятся).
+    require_inventory_signature: bool = _env_bool(
+        "BAD_REQUIRE_INVENTORY_SIGNATURE", False
+    )
     # После волны MSI: reminder ротации, если enrolls since rotate ≥ N (default 5).
     enrollment_rotate_after_enrolls: int = 5
     enroll_rate_limit_per_minute: int = 30
     login_rate_limit_per_minute: int = 10
     login_username_rate_limit_per_minute: int = 5
     snapshot_retention: int = 30
-    known_schema_versions: frozenset[int] = frozenset({1, 2})
+    known_schema_versions: frozenset[int] = frozenset({1, 2, 3})
     # Web silence badge: last_seen older than this → stale (default 1h).
     device_stale_after_seconds: int = 3600
     # Seeded only when no local users exist (fresh DB / first boot).
