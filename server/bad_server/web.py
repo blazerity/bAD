@@ -960,9 +960,40 @@ def _normalize_overview_priority_feed(
 _OVERVIEW_SEV_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "offline": 4}
 
 
+def _overview_feed_event_rows(
+    db: Database,
+    fleet_by_id: dict[str, dict[str, Any]],
+    *,
+    limit: int = 80,
+) -> list[dict[str, Any]]:
+    """Строки для «Сейчас требует действия» из реальных событий (точный уровень)."""
+    out: list[dict[str, Any]] = []
+    for e in db.list_device_events(importance="all", limit=limit, include_detail=False):
+        if not isinstance(e, dict):
+            continue
+        imp = event_importance(str(e.get("type") or ""))
+        if imp not in ("critical", "high", "medium", "low"):
+            continue
+        did = str(e.get("device_id") or "")
+        dev = fleet_by_id.get(did) or {}
+        host = str(dev.get("hostname") or dev.get("bad_id") or did or "—")
+        eid = e.get("id")
+        href = f"/events/{eid}" if eid is not None else "/events"
+        out.append(
+            {
+                **dict(e),
+                "importance": imp,
+                "hostname": host,
+                "href": href,
+                "summary": str(e.get("summary") or e.get("type") or ""),
+            }
+        )
+    return out
+
+
 def _overview_action_rows(
     attention: list[dict[str, Any]],
-    priority_feed: list[dict[str, Any]],
+    event_rows: list[dict[str, Any]],
     *,
     limit: int = 48,
 ) -> list[dict[str, Any]]:
@@ -981,7 +1012,20 @@ def _overview_action_rows(
                 "sort_time": "",
             }
         )
-    for e in priority_feed:
+    for e in event_rows:
+        if e.get("severity"):
+            rows.append(
+                {
+                    "severity": str(e.get("severity") or "low"),
+                    "hostname": str(e.get("hostname") or "—"),
+                    "summary": str(e.get("summary") or ""),
+                    "detail": str(e.get("detail") or ""),
+                    "href": str(e.get("href") or "#"),
+                    "created_at": str(e.get("created_at") or ""),
+                    "sort_time": str(e.get("created_at") or ""),
+                }
+            )
+            continue
         imp = str(e.get("importance") or "low")
         rows.append(
             {
@@ -1001,7 +1045,8 @@ def _overview_action_rows(
             str(row.get("sort_time") or ""),
         )
 
-    rows.sort(key=_sort_key)
+    rows.sort(key=_sort_key, reverse=True)
+    rows.sort(key=lambda r: _OVERVIEW_SEV_ORDER.get(str(r.get("severity") or ""), 9))
     return rows[:limit]
 
 
@@ -1099,12 +1144,20 @@ def _overview_page_context(
     )
     server_current = server_read_current(releases_dir(settings))
     events_total = db.count_device_events(importance="all")
-    critical_event_count = db.count_device_events(importance="critical")
-    high_event_count = db.count_device_events(importance="high")
-    medium_event_count = db.count_device_events(importance="medium")
-    low_event_count = db.count_device_events(importance="low")
+    critical_event_count = db.count_device_events_exact_importance("critical")
+    high_event_count = db.count_device_events_exact_importance("high")
+    medium_event_count = db.count_device_events_exact_importance("medium")
+    low_event_count = db.count_device_events_exact_importance("low")
     offline_device_count = int(stats.get("stale") or 0)
-    overview_action_rows = _overview_action_rows(attention, priority_feed)
+    feed_event_rows = _overview_feed_event_rows(db, fleet_by_id)
+    overview_action_rows = _overview_action_rows(attention, feed_event_rows)
+    overview_sev_total = (
+        critical_event_count
+        + high_event_count
+        + medium_event_count
+        + low_event_count
+        + offline_device_count
+    )
     server_runtime = build_server_runtime(db)
     total_active = int(stats.get("total_active") or 0)
     drift_n = int(ops.get("version_drift_count") or 0)
@@ -1131,6 +1184,7 @@ def _overview_page_context(
         "low_event_count": low_event_count,
         "offline_device_count": offline_device_count,
         "overview_action_rows": overview_action_rows,
+        "overview_sev_total": overview_sev_total,
         "server_runtime": server_runtime,
         "ops": ops,
         "security": security,

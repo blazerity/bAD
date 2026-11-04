@@ -104,27 +104,86 @@ html[data-theme="dark"] {
 }
 
 /* Левый rail — основная навигация (beta). */
-.hcp-shell {
+body.hcp-panel .hcp-app {
   display: flex;
   align-items: stretch;
-  min-height: calc(100vh - 3.5rem);
+  min-height: 100vh;
 }
-.hcp-main {
+body.hcp-panel .hcp-app-body {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
 }
 .hcp-rail {
   width: 13.25rem;
   flex-shrink: 0;
-  align-self: stretch;
+  display: flex;
+  flex-direction: column;
   border-radius: 0;
   border-right: 1px solid var(--border);
   border-left: none;
   border-top: none;
   border-bottom: none;
   box-shadow: none;
-  padding: 0.65rem 0 1rem;
+  padding: 0;
   background: var(--bg-solid);
+}
+.hcp-rail-brand {
+  display: none;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.65rem 0.55rem;
+  border-bottom: 1px solid var(--divider);
+  flex-shrink: 0;
+  min-width: 0;
+}
+.hcp-rail-brand .brand-lockup {
+  flex: 1;
+  min-width: 0;
+}
+.hcp-rail-brand .brand-text {
+  min-width: 0;
+}
+.hcp-rail-brand .brand-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hcp-rail-nav {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.brand-row-mobile {
+  display: none;
+}
+@media (min-width: 768px) {
+  body.hcp-panel .hcp-rail {
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+    height: 100vh;
+    max-height: 100vh;
+  }
+  body.hcp-panel .hcp-rail-brand {
+    display: flex;
+  }
+  body.hcp-panel .top-with-rail .brand-row-mobile {
+    display: none;
+  }
+  html.rail-collapsed .hcp-rail-brand .brand-text,
+  html.rail-collapsed .hcp-rail-brand .brand-sub {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+  }
+  html.rail-collapsed .hcp-rail-brand .brand-lockup {
+    flex: 0;
+  }
 }
 .hcp-rail-nav {
   flex-direction: column;
@@ -199,9 +258,15 @@ body.hcp-panel .brand-mark {
   box-shadow: none;
 }
 @media (max-width: 767px) {
-  .hcp-shell {
-    flex-direction: row;
-    min-height: calc(100vh - 3.5rem);
+  body.hcp-panel .hcp-app {
+    display: block;
+    min-height: 0;
+  }
+  body.hcp-panel .hcp-app-body {
+    min-height: 0;
+  }
+  body.hcp-panel .brand-row-mobile {
+    display: flex;
   }
   .hcp-rail-backdrop {
     position: fixed;
@@ -284,7 +349,11 @@ html, body {
 body.mica-noise > header,
 body.mica-noise > main,
 body.mica-noise > footer,
-body.mica-noise > .banner {
+body.mica-noise > .banner,
+body.mica-noise .hcp-app-body > header,
+body.mica-noise .hcp-app-body > main,
+body.mica-noise .hcp-app-body > footer,
+body.mica-noise .hcp-app-body > .banner {
   position: relative;
   z-index: 1;
 }
@@ -5202,19 +5271,23 @@ table.devices.devices-list td {
   .overview-console .page-lead { display: none; }
   .overview-console-header { margin-bottom: 0.35rem; }
   .prob-severity-bar {
-    display: flex;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 0.35rem;
     margin-bottom: 0.45rem;
     padding: 0.45rem 0.55rem;
   }
   .prob-sev-chip {
-    flex: 0 0 auto;
-    min-width: 7.25rem;
+    width: 100%;
+    min-width: 0;
     justify-content: space-between;
     min-height: 2.35rem;
+  }
+  .prob-sev-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
   }
   .prob-sev-count {
     font-size: 1rem;

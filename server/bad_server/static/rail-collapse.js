@@ -7,8 +7,14 @@
     return MQ.matches;
   }
 
-  function toggleBtn() {
-    return document.getElementById("rail-toggle");
+  function toggleButtons() {
+    var ids = ["rail-toggle", "rail-toggle-mobile"];
+    var out = [];
+    ids.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) out.push(el);
+    });
+    return out;
   }
 
   function backdrop() {
@@ -18,20 +24,19 @@
   function setDesktopCollapsed(collapsed) {
     document.documentElement.classList.toggle("rail-collapsed", collapsed);
     document.body.classList.remove("rail-mobile-open");
-    var btn = toggleBtn();
-    if (btn) {
+    toggleButtons().forEach(function (btn) {
+      if (btn.id === "rail-toggle-mobile") return;
       btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
       btn.title = collapsed ? "Развернуть меню" : "Свернуть меню";
-    }
+    });
   }
 
   function setMobileOpen(open) {
     document.body.classList.toggle("rail-mobile-open", open);
-    var btn = toggleBtn();
-    if (btn) {
+    toggleButtons().forEach(function (btn) {
       btn.setAttribute("aria-expanded", open ? "true" : "false");
       btn.title = open ? "Закрыть меню" : "Открыть меню";
-    }
+    });
     var bd = backdrop();
     if (bd) bd.hidden = !open;
   }
@@ -45,7 +50,7 @@
   }
 
   function applyLayout() {
-    if (!toggleBtn()) return;
+    if (!toggleButtons().length) return;
     if (isMobile()) {
       document.documentElement.classList.remove("rail-collapsed");
       setMobileOpen(false);
@@ -68,8 +73,9 @@
 
   function init() {
     applyLayout();
-    var btn = toggleBtn();
-    if (btn) btn.addEventListener("click", onToggleClick);
+    toggleButtons().forEach(function (btn) {
+      btn.addEventListener("click", onToggleClick);
+    });
     var bd = backdrop();
     if (bd) {
       bd.addEventListener("click", function () {

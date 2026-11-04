@@ -66,6 +66,7 @@
   <div class="prob-severity-bar card-surface" role="group" aria-label="Серьёзность проблем">
     <button type="button" class="prob-sev-chip is-active" data-sev-filter="all">
       <span class="prob-sev-label">Все</span>
+      <span class="prob-sev-count tnum">{{ events_total }}</span>
     </button>
     <button type="button" class="prob-sev-chip prob-sev-critical" data-sev-filter="critical">
       <span class="prob-sev-label">Критичные</span>
@@ -122,10 +123,12 @@
       {% endfor %}
     </ul>
     <p class="muted overview-problems-empty" data-problems-empty hidden>Нет строк для выбранной серьёзности.</p>
-    {% else %}
+    {% elif overview_sev_total == 0 %}
     <p class="overview-ok-banner">
       <span class="overview-ok-ico" aria-hidden="true">✓</span> Система в норме — действий не требуется
     </p>
+    {% else %}
+    <p class="muted overview-problems-empty">Нет строк для отображения.</p>
     {% endif %}
   </section>
 

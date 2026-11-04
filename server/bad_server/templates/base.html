@@ -19,21 +19,49 @@
   {% from "macros/icons.html" import icon %}
   {% set path = request.url.path if request is defined and request else '' %}
   {% set show_rail = user is defined and user and (not user.must_change_password or qa_ui) %}
-  <header class="top acrylic-bar">
+  {% macro brand_lockup() %}
+  <a class="brand-lockup" href="{% if user is defined and user and user.must_change_password and not qa_ui %}/account/password{% else %}/{% endif %}">
+    <span class="brand-mark" aria-hidden="true"><img src="/static/favicon.ico" width="32" height="32" alt=""></span>
+    <span class="brand-text">
+      <span class="brand-title">bAD</span>
+      <span class="brand-sub">blazerity Asset Discovery</span>
+    </span>
+  </a>
+  {% endmacro %}
+  {% if show_rail %}
+  <div class="hcp-app">
+    <div class="hcp-rail-backdrop" id="hcp-rail-backdrop" hidden></div>
+    <aside class="hcp-rail" id="hcp-rail" aria-label="Основная навигация">
+      <div class="hcp-rail-brand">
+        {{ brand_lockup() }}
+        <button type="button" class="icon-btn rail-toggle" id="rail-toggle"
+                aria-controls="hcp-rail" aria-expanded="true" title="Свернуть меню">{{ icon('chevron-left') }}<span class="sr-only">Меню</span></button>
+      </div>
+      <nav class="nav hcp-rail-nav">
+        <a href="/" {% if path in ['/', '/overview'] %}aria-current="page"{% endif %}>{{ icon('overview') }}<span>Обзор</span></a>
+        <a href="/dashboard" {% if path == '/dashboard' %}aria-current="page"{% endif %}>{{ icon('dashboard') }}<span>Дашборд</span></a>
+        <a href="/devices" {% if path.startswith('/devices') %}aria-current="page"{% endif %}>{{ icon('devices') }}<span>Устройства</span></a>
+        <a href="/events" {% if path == '/events' %}aria-current="page"{% endif %}>{{ icon('events') }}<span>События</span></a>
+        {% if user.is_admin %}
+        <a href="/settings" {% if path.startswith('/settings') or path.startswith('/account') %}aria-current="page"{% endif %}>{{ icon('settings') }}<span>Параметры</span></a>
+        {% endif %}
+      </nav>
+    </aside>
+    <div class="hcp-app-body">
+  {% endif %}
+  <header class="top acrylic-bar{% if show_rail %} top-with-rail{% endif %}">
     <div class="top-inner top-inner-hcp">
+    {% if not show_rail %}
     <div class="brand-row">
-      <a class="brand-lockup" href="{% if user is defined and user and user.must_change_password and not qa_ui %}/account/password{% else %}/{% endif %}">
-        <span class="brand-mark" aria-hidden="true"><img src="/static/favicon.ico" width="32" height="32" alt=""></span>
-        <span class="brand-text">
-          <span class="brand-title">bAD</span>
-          <span class="brand-sub">blazerity Asset Discovery</span>
-        </span>
-      </a>
-      {% if show_rail %}
-      <button type="button" class="icon-btn rail-toggle" id="rail-toggle"
-              aria-controls="hcp-rail" aria-expanded="true" title="Свернуть меню">{{ icon('chevron-left') }}<span class="sr-only">Меню</span></button>
-      {% endif %}
+      {{ brand_lockup() }}
     </div>
+    {% else %}
+    <div class="brand-row brand-row-mobile">
+      {{ brand_lockup() }}
+      <button type="button" class="icon-btn rail-toggle rail-toggle-mobile" id="rail-toggle-mobile"
+              aria-controls="hcp-rail" aria-expanded="false" title="Открыть меню">{{ icon('chevron-left') }}<span class="sr-only">Меню</span></button>
+    </div>
+    {% endif %}
     {% if user is defined and user and user.must_change_password and not qa_ui %}
       <nav class="nav nav-header-compact" aria-label="Смена пароля">
         {% if user.source == 'local' %}
@@ -65,22 +93,6 @@
     {% endif %}
     </div>
   </header>
-  {% if show_rail %}
-  <div class="hcp-rail-backdrop" id="hcp-rail-backdrop" hidden></div>
-  <aside class="hcp-rail card-surface" id="hcp-rail" aria-label="Основная навигация">
-    <nav class="nav hcp-rail-nav">
-      <a href="/" {% if path in ['/', '/overview'] %}aria-current="page"{% endif %}>{{ icon('overview') }}<span>Обзор</span></a>
-      <a href="/dashboard" {% if path == '/dashboard' %}aria-current="page"{% endif %}>{{ icon('dashboard') }}<span>Дашборд</span></a>
-      <a href="/devices" {% if path.startswith('/devices') %}aria-current="page"{% endif %}>{{ icon('devices') }}<span>Устройства</span></a>
-      <a href="/events" {% if path == '/events' %}aria-current="page"{% endif %}>{{ icon('events') }}<span>События</span></a>
-      {% if user.is_admin %}
-      <a href="/settings" {% if path.startswith('/settings') or path.startswith('/account') %}aria-current="page"{% endif %}>{{ icon('settings') }}<span>Параметры</span></a>
-      {% endif %}
-    </nav>
-  </aside>
-  <div class="hcp-shell">
-    <div class="hcp-main">
-  {% endif %}
   {% if tls_mode is defined and tls_mode == 'http' and not qa_ui %}
   <div class="banner banner-http" role="status">
     Сайт пока без защищённого соединения — только доверенная сеть.
