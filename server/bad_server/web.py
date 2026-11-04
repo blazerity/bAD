@@ -133,7 +133,7 @@ from .server_update import (
     set_preferred_branch,
     status_panel as server_status_panel,
     trigger_msi_workflow,
-    wait_for_apply as server_wait_for_apply,
+    outcome_for_apply_request as server_outcome_for_apply_request,
 )
 from .event_importance import FILTER_PRESET_LABELS_RU, IMPORTANCE_LABELS_RU, event_importance
 from .smtp_mail import (
@@ -4643,18 +4643,14 @@ def _server_update_wait_outcome(
     ok_default: str,
     fail_default: str,
     pending: str,
-    timeout_seconds: float = 180.0,
 ) -> tuple[Optional[str], Optional[str], int]:
-    apply = server_wait_for_apply(
+    return server_outcome_for_apply_request(
         root,
-        since=str(req.get("requested_at") or ""),
-        timeout_seconds=timeout_seconds,
+        req,
+        ok_default=ok_default,
+        fail_default=fail_default,
+        pending=pending,
     )
-    if apply.get("ok") is True:
-        return apply.get("message") or ok_default, None, 200
-    if apply.get("ok") is False:
-        return None, apply.get("message") or fail_default, 502
-    return pending, None, 200
 
 
 @router.get("/settings/server-update", response_class=HTMLResponse)
@@ -4806,18 +4802,16 @@ def server_update_set_token(
     root = releases_dir(settings)
     try:
         req = request_set_github_token(token, directory=root)
-        apply = server_wait_for_apply(
-            root, since=str(req.get("requested_at") or ""), timeout_seconds=30.0
+        message, error, code = server_outcome_for_apply_request(
+            root,
+            req,
+            ok_default="Токен для обновлений сохранён (значение больше не показывается).",
+            fail_default="не удалось записать токен",
+            pending=(
+                "Токен передан helper; обновите страницу через несколько секунд."
+            ),
         )
         get_settings.cache_clear()
-        if apply.get("ok") is False:
-            message = None
-            error = apply.get("message") or "не удалось записать токен"
-            code = 502
-        else:
-            message = "Токен для обновлений сохранён (значение больше не показывается)."
-            error = None
-            code = 200
     except ValueError as exc:
         message = None
         error = str(exc)

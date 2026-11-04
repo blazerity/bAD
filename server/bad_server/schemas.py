@@ -134,3 +134,9 @@ class IntegrationRequestBody(BaseModel):
 
 class IntegrationLookupBody(BaseModel):
     device_id: str = Field(min_length=1, max_length=128)
+
+
+class EnrollmentRotateBody(BaseModel):
+    """Optional custom enrollment token (JSON body only — not query)."""
+
+    token: Optional[str] = Field(default=None, max_length=256)

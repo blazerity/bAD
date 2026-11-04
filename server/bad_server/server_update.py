@@ -306,6 +306,26 @@ def read_apply_status(directory: Optional[Path] = None) -> dict[str, Any]:
     return data
 
 
+def outcome_for_apply_request(
+    directory: Optional[Path],
+    req: dict[str, Any],
+    *,
+    ok_default: str,
+    fail_default: str,
+    pending: str,
+) -> tuple[Optional[str], Optional[str], int]:
+    """One read of apply.status — no sleep (safe for single uvicorn worker)."""
+    since = str(req.get("requested_at") or "")
+    st = read_apply_status(directory)
+    applied = str(st.get("applied_at") or "")
+    if since and applied >= since:
+        if st.get("ok") is True:
+            return st.get("message") or ok_default, None, 200
+        if st.get("ok") is False:
+            return None, st.get("message") or fail_default, 502
+    return pending, None, 200
+
+
 def wait_for_apply(
     directory: Optional[Path] = None,
     *,

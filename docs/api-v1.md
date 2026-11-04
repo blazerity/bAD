@@ -87,7 +87,7 @@
 | `DELETE` | `/v1/devices/{device_id}` | безвозвратно удаляет устройство |
 | `GET`, `POST`, `PUT`, `DELETE` | `/v1/admin/policies*` | управление политиками |
 | `PUT`, `DELETE` | `/v1/admin/devices/{id}/config-override` | индивидуальные настройки устройства |
-| `POST` | `/v1/admin/enrollment/rotate` | новый токен регистрации (показывается один раз, только по HTTPS) |
+| `POST` | `/v1/admin/enrollment/rotate` | новый токен регистрации (JSON body `{"token":"…"}` опционально; не query) |
 | `POST` | `/v1/admin/agent-update/sync` | синхронизация зеркала MSI с GitHub |
 
 ### Подключение программы
