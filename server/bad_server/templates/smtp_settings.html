@@ -1,9 +1,10 @@
 {% extends "settings_base.html" %}
+{% from "macros/icons.html" import icon %}
 {% set settings_section = 'mail' %}
 {% block title %}Почта и уведомления — bAD{% endblock %}
 {% block settings_content %}
 <section class="settings">
-  <h1>Почта и уведомления</h1>
+  <h1 class="with-icon">{{ icon('mail') }}Почта и уведомления</h1>
   <p class="muted">
     Письма администраторам о важных событиях. Сбой почты не мешает работе агентов.
   </p>

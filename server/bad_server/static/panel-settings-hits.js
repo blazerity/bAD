@@ -9,6 +9,7 @@
     { label: "Политики агента", href: "/settings/policies", keys: "политики policy агент" },
     { label: "Обновления агента", href: "/settings/updates", keys: "агент msi обновление enrollment" },
     { label: "Обновление сервера", href: "/settings/server-update", keys: "сервер обновление release" },
+    { label: "Интеграции", href: "/settings/integrations", keys: "integrations api интеграции" },
   ];
 
   w.badPanelSettingsHits = function (q) {

@@ -1,9 +1,10 @@
 {% extends "settings_base.html" %}
+{% from "macros/icons.html" import icon %}
 {% set settings_section = 'ldap' %}
 {% block title %}Доступ / LDAP — bAD{% endblock %}
 {% block settings_content %}
 <section class="settings">
-  <h1>Доступ / LDAP</h1>
+  <h1 class="with-icon">{{ icon('ldap') }}Доступ / LDAP</h1>
   <p class="muted">Вход через каталог организации (по желанию). Локальный admin всегда остаётся запасным входом.</p>
   {% if message %}<p class="ok">{{ message }}</p>{% endif %}
   {% if error %}<p class="error">{{ error }}</p>{% endif %}

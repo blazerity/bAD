@@ -1,10 +1,11 @@
 {% extends "settings_base.html" %}
+{% from "macros/icons.html" import icon %}
 {% from "macros/ui.html" import local_time %}
 {% set settings_section = 'integrations' %}
 {% block title %}Интеграции — bAD{% endblock %}
 {% block settings_content %}
 <section class="settings">
-  <h1>Интеграции</h1>
+  <h1 class="with-icon">{{ icon('link') }}Интеграции</h1>
   <p class="muted">
     Программы, которым разрешено читать карточки устройств.
     Программа сама присылает заявку. Пока заявку не подтвердите, она данные не получает.

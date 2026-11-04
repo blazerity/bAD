@@ -1,9 +1,10 @@
 {% extends "settings_base.html" %}
+{% from "macros/icons.html" import icon %}
 {% set settings_section = 'tls' %}
 {% block title %}Сертификат TLS — bAD{% endblock %}
 {% block settings_content %}
 <section class="settings">
-  <h1>Сертификат TLS</h1>
+  <h1 class="with-icon">{{ icon('tls') }}Сертификат TLS</h1>
   <p class="muted">
     Сертификат не ставят при установке сервера — загрузите его здесь.
     После установки откройте панель по https-адресу. Закрытый ключ на странице не показывается.

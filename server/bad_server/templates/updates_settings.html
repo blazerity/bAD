@@ -1,11 +1,12 @@
 {% extends "settings_base.html" %}
 {% from "macros/icons.html" import icon %}
+{% from "macros/icons.html" import icon %}
 {% from "macros/ui.html" import copyable, local_time %}
 {% set settings_section = 'updates' %}
 {% block title %}Обновления агента — bAD{% endblock %}
 {% block settings_content %}
 <section class="settings">
-  <h1>Обновления агента</h1>
+  <h1 class="with-icon">{{ icon('updates') }}Обновления агента</h1>
   <p class="muted">
     Каталог установщиков агента на этом сервере. Агенты обновляются только отсюда;
     целевую версию задают политики.

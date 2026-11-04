@@ -1,9 +1,10 @@
 {% extends "settings_base.html" %}
+{% from "macros/icons.html" import icon %}
 {% set settings_section = 'retention' %}
 {% block title %}Хранение и очистка — bAD{% endblock %}
 {% block settings_content %}
 <section class="settings">
-  <h1>Хранение и очистка</h1>
+  <h1 class="with-icon">{{ icon('retention') }}Хранение и очистка</h1>
   <p class="muted">
     Сколько хранить события и историю устройств. Последний снимок каждого устройства не удаляется.
   </p>

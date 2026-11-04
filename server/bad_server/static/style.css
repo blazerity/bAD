@@ -1,32 +1,30 @@
-/* bAD web panel — Windows 11 / Fluent-aligned light shell (0.8.0)
-   Tokens shared conceptually with agent HtmlReportWriter embedded CSS. */
+/* bAD web panel — beta: HashiCorp-inspired enterprise shell (getdesign.md/hashicorp) */
 :root {
-  /* Surfaces (light layered / mica-like) */
-  --bg: #f3f3f3;
-  --bg-tint: #e8f1fb;
-  /* Чуть плотнее: «стекло» без live backdrop-filter на больших блоках (GPU при скролле) */
-  --bg-elev: rgba(255, 255, 255, 0.94);
+  /* Surfaces */
+  --bg: #f1f2f3;
+  --bg-tint: #efeff1;
+  --bg-elev: #ffffff;
   --bg-solid: #ffffff;
-  --bg-subtle: #f9f9f9;
+  --bg-subtle: #f1f2f3;
   --smoke: rgba(0, 0, 0, 0.04);
 
   /* Text */
-  --fg: #1a1a1a;
-  --muted: #5b5b5b;
-  --fg-tertiary: #8a8a8a;
-  --fg-on-accent: #ffffff;
+  --fg: #000000;
+  --muted: #656a76;
+  --fg-tertiary: #3b3d45;
+  --fg-on-accent: #efeff1;
 
-  /* Accent — Fluent blue family */
-  --accent: #0067c0;
-  --accent-hover: #005da8;
-  --accent-soft: rgba(0, 103, 192, 0.12);
-  --accent-ring: rgba(0, 103, 192, 0.45);
+  /* Accent — HCP link / action */
+  --accent: #2264d6;
+  --accent-hover: #1060ff;
+  --accent-soft: rgba(34, 100, 214, 0.12);
+  --accent-ring: rgba(43, 137, 255, 0.45);
 
-  /* Borders & elevation */
-  --border: rgba(0, 0, 0, 0.08);
-  --border-strong: rgba(0, 0, 0, 0.14);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.06);
+  /* Borders & elevation (whisper shadow) */
+  --border: rgba(178, 182, 189, 0.4);
+  --border-strong: rgba(178, 182, 189, 0.65);
+  --shadow-sm: rgba(97, 104, 117, 0.05) 0px 1px 1px, rgba(97, 104, 117, 0.05) 0px 2px 2px;
+  --shadow-md: rgba(97, 104, 117, 0.08) 0px 2px 4px, rgba(97, 104, 117, 0.06) 0px 6px 16px;
 
   /* Status */
   --ok: #0f7b0f;
@@ -42,12 +40,12 @@
   --error-bg: rgba(196, 43, 28, 0.08);
 
   /* Geometry (Win11: controls 4px, overlays/surfaces 8px) */
-  --radius-control: 4px;
+  --radius-control: 5px;
   --radius-surface: 8px;
   --radius-large: 12px;
 
   /* Type */
-  --sans: "Segoe UI Variable", "Segoe UI", "Segoe UI Web", system-ui, sans-serif;
+  --sans: system-ui, -apple-system, "Segoe UI", "Helvetica", Arial, sans-serif;
   --mono: "Cascadia Mono", "Cascadia Code", "Consolas", "Segoe UI Mono", monospace;
 
   /* Motion */
@@ -72,11 +70,128 @@
   --control-stroke: rgba(0, 0, 0, 0.08);
   --subtle-bg-hover: rgba(0, 0, 0, 0.04);
   --subtle-bg: rgba(255, 255, 255, 0.5);
-  --mica-bg:
-    radial-gradient(circle at 18% 8%, rgba(0, 103, 192, 0.07), transparent 42%),
-    radial-gradient(circle at 82% 92%, rgba(0, 103, 192, 0.05), transparent 38%),
-    linear-gradient(135deg, #eef2f6 0%, #dde6ef 45%, #d9e4f0 100%);
-  --divider: rgba(0, 0, 0, 0.06);
+  --mica-bg: var(--bg);
+  --divider: rgba(178, 182, 189, 0.35);
+}
+
+html[data-theme="dark"] {
+  --bg: #15181e;
+  --bg-tint: #0d0e12;
+  --bg-elev: #1c2129;
+  --bg-solid: #0d0e12;
+  --bg-subtle: #15181e;
+  --smoke: rgba(255, 255, 255, 0.06);
+  --fg: #efeff1;
+  --muted: #b2b6bd;
+  --fg-tertiary: #656a76;
+  --fg-on-accent: #efeff1;
+  --accent: #2b89ff;
+  --accent-hover: #1060ff;
+  --accent-soft: rgba(43, 137, 255, 0.16);
+  --accent-ring: rgba(43, 137, 255, 0.5);
+  --border: rgba(178, 182, 189, 0.25);
+  --border-strong: rgba(178, 182, 189, 0.4);
+  --card-bg: #15181e;
+  --stroke-default: rgba(178, 182, 189, 0.2);
+  --control-bg: #0d0e12;
+  --control-stroke: rgba(178, 182, 189, 0.35);
+  --subtle-bg-hover: rgba(255, 255, 255, 0.06);
+  --subtle-bg: rgba(255, 255, 255, 0.04);
+  --mica-bg: var(--bg);
+  --divider: rgba(178, 182, 189, 0.22);
+  --surface-hover: rgba(255, 255, 255, 0.06);
+  --mark-bg: rgba(255, 207, 37, 0.35);
+}
+
+/* Левый rail — основная навигация (beta). */
+.hcp-shell {
+  display: flex;
+  align-items: stretch;
+  min-height: calc(100vh - 3.5rem);
+}
+.hcp-main {
+  flex: 1;
+  min-width: 0;
+}
+.hcp-rail {
+  width: 13.25rem;
+  flex-shrink: 0;
+  align-self: stretch;
+  border-radius: 0;
+  border-right: 1px solid var(--border);
+  border-left: none;
+  border-top: none;
+  border-bottom: none;
+  box-shadow: none;
+  padding: 0.65rem 0 1rem;
+  background: var(--bg-solid);
+}
+.hcp-rail-nav {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.15rem;
+  padding: 0 0.45rem;
+}
+.hcp-rail-nav a {
+  justify-content: flex-start;
+  border-radius: var(--radius-control);
+  padding: 0.55rem 0.65rem;
+  margin: 0;
+}
+.hcp-rail-nav a[aria-current="page"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.hcp-rail-nav a[aria-current="page"]::after {
+  display: none;
+}
+.top-inner-hcp {
+  grid-template-columns: 1fr auto;
+}
+.top-inner-hcp > .top-actions {
+  grid-column: 2;
+}
+.nav-header-compact {
+  justify-self: end;
+  grid-column: 2;
+}
+body.hcp-panel .top.acrylic-bar {
+  background: var(--bg-solid);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: var(--shadow-sm);
+}
+body.hcp-panel .brand-mark {
+  background: #000000;
+}
+html[data-theme="dark"] body.hcp-panel .brand-mark {
+  background: #efeff1;
+  color: #000000;
+}
+html[data-theme="dark"] body.hcp-panel .brand-mark .icon {
+  color: #000000;
+}
+@media (max-width: 900px) {
+  .hcp-shell {
+    flex-direction: column;
+    min-height: 0;
+  }
+  .hcp-rail {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding: 0.35rem 0;
+  }
+  .hcp-rail-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.2rem;
+  }
+  .hcp-rail-nav a {
+    flex: 1 1 auto;
+    justify-content: center;
+    min-height: 2.75rem;
+  }
 }
 
 * { box-sizing: border-box; }
@@ -4745,4 +4860,132 @@ table.devices.devices-list td {
 }
 @media (max-width: 520px) {
   .kpi-grid { grid-template-columns: 1fr; }
+}
+
+/* Узкий экран: списки карточек вместо широких таблиц (без горизонтального скролла). */
+.devices-stack-list,
+.events-stack-list {
+  display: none;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.devices-stack-item,
+.events-stack-item {
+  padding: 0;
+}
+.devices-stack-link,
+.events-stack-link {
+  display: block;
+  padding: 0.85rem 0.9rem;
+  color: inherit;
+  text-decoration: none;
+}
+.devices-stack-link:hover,
+.events-stack-link:hover {
+  text-decoration: none;
+}
+.devices-stack-head,
+.events-stack-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+}
+.devices-stack-host,
+.events-stack-summary {
+  flex: 1 1 8rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+  line-height: 1.35;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+  word-break: break-word;
+}
+.devices-stack-chevron {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 1.15rem;
+  line-height: 1;
+}
+.devices-stack-id {
+  margin: 0.25rem 0 0.5rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  word-break: break-all;
+}
+.devices-stack-badges {
+  margin: 0 0 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.devices-stack-meta {
+  display: grid;
+  gap: 0.45rem 0.75rem;
+  margin: 0;
+  font-size: 0.85rem;
+}
+.devices-stack-meta div {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  gap: 0.35rem 0.65rem;
+  align-items: start;
+}
+.devices-stack-meta dt {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.devices-stack-meta dd {
+  margin: 0;
+  white-space: normal;
+  overflow: visible;
+  word-break: break-word;
+}
+.events-stack-day {
+  margin: 0.35rem 0 0.15rem;
+  padding: 0.35rem 0.15rem 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  list-style: none;
+}
+.events-stack-type {
+  margin: 0.2rem 0 0.35rem;
+  font-size: 0.82rem;
+}
+.events-stack-device {
+  margin: 0;
+  font-size: 0.88rem;
+}
+.events-stack-time {
+  margin-left: auto;
+  font-size: 0.78rem;
+  white-space: normal;
+}
+@media (max-width: 767px) {
+  .devices-page .devices-table-card,
+  .events-page .events-table-card {
+    display: none;
+  }
+  .devices-stack-list,
+  .events-stack-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+  }
+  .devices-page .table-scroll > table.devices-list,
+  .events-page .table-scroll > table.events-table-modern {
+    min-width: 0;
+  }
+}
+@media (min-width: 768px) {
+  .devices-stack-list,
+  .events-stack-list {
+    display: none !important;
+  }
 }

@@ -7,11 +7,14 @@
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="icon" href="/static/favicon.ico" sizes="any">
   <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/theme-toggle.js"></script>
 </head>
-<body class="{% block body_class %}mica-noise{% endblock %}">
+<body class="{% block body_class %}mica-noise hcp-panel{% endblock %}">
   {% from "macros/icons.html" import icon %}
+  {% set path = request.url.path if request is defined and request else '' %}
+  {% set show_rail = user is defined and user and (not user.must_change_password or qa_ui) %}
   <header class="top acrylic-bar">
-    <div class="top-inner">
+    <div class="top-inner top-inner-hcp">
     <a class="brand-lockup" href="{% if user is defined and user and user.must_change_password and not qa_ui %}/account/password{% else %}/{% endif %}">
       <span class="brand-mark" aria-hidden="true">{{ icon('cpu') }}</span>
       <span class="brand-text">
@@ -19,28 +22,17 @@
         <span class="brand-sub">blazerity Asset Discovery</span>
       </span>
     </a>
-    {% if user is defined and user %}
-      {% if user.must_change_password and not qa_ui %}
-      {# SEC-004: no nav to other pages until password is changed #}
-      <nav class="nav" aria-label="Смена пароля">
+    {% if user is defined and user and user.must_change_password and not qa_ui %}
+      <nav class="nav nav-header-compact" aria-label="Смена пароля">
         {% if user.source == 'local' %}
         <a href="/account/password">{{ icon('password') }}<span>Пароль</span></a>
         {% endif %}
       </nav>
-      {% else %}
-      <nav class="nav" aria-label="Основная навигация">
-        {% set path = request.url.path if request is defined and request else '' %}
-        <a href="/" {% if path in ['/', '/overview'] %}aria-current="page"{% endif %}>{{ icon('overview') }}<span>Обзор</span></a>
-        <a href="/dashboard" {% if path == '/dashboard' %}aria-current="page"{% endif %}>{{ icon('dashboard') }}<span>Дашборд</span></a>
-        <a href="/devices" {% if path.startswith('/devices') %}aria-current="page"{% endif %}>{{ icon('devices') }}<span>Устройства</span></a>
-        <a href="/events" {% if path == '/events' %}aria-current="page"{% endif %}>{{ icon('events') }}<span>События</span></a>
-        {% if user.is_admin %}
-        <a href="/settings" {% if path.startswith('/settings') %}aria-current="page"{% endif %}>{{ icon('settings') }}<span>Параметры</span></a>
-        {% endif %}
-      </nav>
-      {% endif %}
+    {% endif %}
+    {% if user is defined and user %}
     <div class="top-actions">
-      {% if not user.must_change_password or qa_ui %}
+      {% if show_rail %}
+      <button type="button" class="icon-btn" id="theme-toggle" title="Тёмная тема">{{ icon('moon') }}<span class="sr-only">Тема</span></button>
       <button type="button" class="icon-btn" id="global-search-open" title="Поиск по парку">{{ icon('search') }}<span class="sr-only">Поиск</span></button>
       <a class="icon-btn icon-btn-link" href="/events?importance=high" title="Важные события">{{ icon('bell') }}<span class="sr-only">События</span></a>
       <div class="user-meta">
@@ -61,6 +53,21 @@
     {% endif %}
     </div>
   </header>
+  {% if show_rail %}
+  <div class="hcp-shell">
+    <aside class="hcp-rail card-surface" aria-label="Основная навигация">
+      <nav class="nav hcp-rail-nav">
+        <a href="/" {% if path in ['/', '/overview'] %}aria-current="page"{% endif %}>{{ icon('overview') }}<span>Обзор</span></a>
+        <a href="/dashboard" {% if path == '/dashboard' %}aria-current="page"{% endif %}>{{ icon('dashboard') }}<span>Дашборд</span></a>
+        <a href="/devices" {% if path.startswith('/devices') %}aria-current="page"{% endif %}>{{ icon('devices') }}<span>Устройства</span></a>
+        <a href="/events" {% if path == '/events' %}aria-current="page"{% endif %}>{{ icon('events') }}<span>События</span></a>
+        {% if user.is_admin %}
+        <a href="/settings" {% if path.startswith('/settings') or path.startswith('/account') %}aria-current="page"{% endif %}>{{ icon('settings') }}<span>Параметры</span></a>
+        {% endif %}
+      </nav>
+    </aside>
+    <div class="hcp-main">
+  {% endif %}
   {% if tls_mode is defined and tls_mode == 'http' and not qa_ui %}
   <div class="banner banner-http" role="status">
     Сайт пока без защищённого соединения — только доверенная сеть.
@@ -81,7 +88,11 @@
   <footer class="foot">
     Версия сервера {{ app_version }}
   </footer>
-  {% if user is defined and user and (not user.must_change_password or qa_ui) %}
+  {% if show_rail %}
+    </div>
+  </div>
+  {% endif %}
+  {% if user is defined and user and show_rail %}
   <div id="global-search-modal" class="global-search-modal" hidden>
     <div class="global-search-backdrop" data-global-search-close tabindex="-1"></div>
     <div class="global-search-dialog card-surface" role="dialog" aria-label="Поиск по парку">
