@@ -162,14 +162,8 @@ body.hcp-panel .top.acrylic-bar {
   box-shadow: var(--shadow-sm);
 }
 body.hcp-panel .brand-mark {
-  background: #000000;
-}
-html[data-theme="dark"] body.hcp-panel .brand-mark {
-  background: #efeff1;
-  color: #000000;
-}
-html[data-theme="dark"] body.hcp-panel .brand-mark .icon {
-  color: #000000;
+  background: transparent;
+  box-shadow: none;
 }
 @media (max-width: 900px) {
   .hcp-shell {
@@ -312,6 +306,12 @@ select:focus-visible {
   height: 1.1rem;
   margin: 0;
   color: var(--fg-on-accent);
+}
+.brand-mark img {
+  display: block;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
 }
 
 .brand-text {

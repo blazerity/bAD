@@ -4,7 +4,6 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}bAD{% endblock %}</title>
-  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="icon" href="/static/favicon.ico" sizes="any">
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/theme-toggle.js"></script>
@@ -16,7 +15,7 @@
   <header class="top acrylic-bar">
     <div class="top-inner top-inner-hcp">
     <a class="brand-lockup" href="{% if user is defined and user and user.must_change_password and not qa_ui %}/account/password{% else %}/{% endif %}">
-      <span class="brand-mark" aria-hidden="true">{{ icon('cpu') }}</span>
+      <span class="brand-mark" aria-hidden="true"><img src="/static/favicon.ico" width="32" height="32" alt=""></span>
       <span class="brand-text">
         <span class="brand-title">bAD</span>
         <span class="brand-sub">blazerity Asset Discovery</span>
