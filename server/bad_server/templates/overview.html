@@ -3,120 +3,24 @@
 {% from "macros/ui.html" import local_time, device_link %}
 {% block title %}Обзор — bAD{% endblock %}
 {% block content %}
-<section class="page overview-admin overview-command">
-  <header class="page-header">
-    <h1 class="with-icon">{{ icon('overview') }}Обзор</h1>
-    <p class="page-lead muted">Оперативный пульт парка</p>
-  </header>
-  <div class="overview-top">
-    <div class="overview-attention-slot">
-      {% if attention %}
-      <details class="attention-queue card-surface">
-        <summary>
-          Рекомендации и действия <span class="mono">({{ attention|length }})</span>
-        </summary>
-          <ul class="attention-list">
-            {% for item in attention %}
-            <li class="attention-item severity-{{ item.severity }}">
-              <div class="attention-body">
-                <strong>{{ item.title }}</strong>
-                <span class="muted attention-detail-short">{{ item.detail }}</span>
-              </div>
-              <a class="btn secondary" href="{{ item.href }}">{{ item.cta }}</a>
-            </li>
-            {% endfor %}
-          </ul>
-      </details>
+<section class="page overview-admin overview-command overview-console">
+  <header class="page-header overview-console-header">
+    <div class="overview-console-head-main">
+      <h1 class="with-icon">{{ icon('overview') }}Обзор</h1>
+      <p class="page-lead muted">Оперативный пульт парка</p>
+    </div>
+    <div class="overview-server-strip" role="status">
+      <span class="overview-server-strip-label">{{ icon('host') }} Сервер bAD</span>
+      {% if security and security.https_first and security.https_first.tls_mode == 'https' %}
+      <span class="badge-pill badge-pill-ok"><span class="badge-pill-dot" aria-hidden="true"></span>HTTPS</span>
+      {% else %}
+      <span class="badge-pill badge-pill-warn"><span class="badge-pill-dot" aria-hidden="true"></span>HTTP</span>
       {% endif %}
+      <span class="muted mono">{{ (server_current.version if server_current else None) or app_version }}</span>
+      <span class="muted tnum">{{ stats.online }}/{{ stats.total_active }}</span>
+      <a class="muted overview-server-more" href="/settings/updates">MSI {{ ops.latest_version or "—" }}</a>
     </div>
-    <div class="overview-search-hero overview-search-spotlight card-surface">
-      <label class="overview-search-label" for="overview-search-q">{{ icon('search') }} Поиск по парку</label>
-      <div class="search-input-wrap overview-search-field">
-        <span class="search-input-icon" aria-hidden="true">{{ icon('search') }}</span>
-        <input id="overview-search-q" class="panel-search-input overview-search-input" type="search"
-          placeholder="Хост, пользователь, событие, serial ПК/монитора/диска…"
-          maxlength="128" autocomplete="off" data-overview-search>
-      </div>
-      <div class="filter-chips overview-search-chips" data-overview-search-cats role="group" aria-label="Категории поиска">
-        <button type="button" class="filter-chip is-active" data-cat="devices">Устройства</button>
-        <button type="button" class="filter-chip is-active" data-cat="events">События</button>
-        <button type="button" class="filter-chip is-active" data-cat="settings">Параметры</button>
-        <button type="button" class="filter-chip is-active" data-cat="serial">Serial</button>
-      </div>
-      <div id="overview-search-results" class="card-surface overview-search-hits" hidden></div>
-      <p class="panel-search-hint muted">От 2 символов · устройства, события, параметры</p>
-    </div>
-    <div class="overview-server-slot">
-    <details class="server-status-bar card-surface">
-      <summary class="server-status-summary">
-        <span class="server-status-title">{{ icon('host') }} Сервер bAD</span>
-        {% if security and security.https_first and security.https_first.tls_mode == 'https' %}
-        <span class="badge-pill badge-pill-ok"><span class="badge-pill-dot" aria-hidden="true"></span>HTTPS</span>
-        {% else %}
-        <span class="badge-pill badge-pill-warn"><span class="badge-pill-dot" aria-hidden="true"></span>HTTP</span>
-        {% endif %}
-        <span class="muted mono server-status-ver">{{ (server_current.version if server_current else None) or app_version }}</span>
-        <span class="muted tnum">{{ stats.online }}/{{ stats.total_active }}</span>
-      </summary>
-      <div class="server-status-body">
-        <dl class="server-status-facts">
-          <div>
-            <dt>События</dt>
-            <dd><a class="tnum" href="/events">{{ events_total }}</a></dd>
-          </div>
-          <div>
-            <dt>Каталог MSI</dt>
-            <dd><a href="/settings/updates"><span class="mono">{{ ops.latest_version or "—" }}</span>{% if ops.mirror_count %} · {{ ops.mirror_count }}{% endif %}</a></dd>
-          </div>
-          <div>
-            <dt>На версии</dt>
-            <dd class="tnum">{{ update_progress.current }}/{{ update_progress.total }}</dd>
-          </div>
-          {% for chip in (wave_chips or ops.wave_chips or []) %}
-          <div>
-            <dt>{{ chip.label }}</dt>
-            <dd><a class="tnum{% if chip.count %} is-hot{% endif %}" href="{{ chip.href }}">{{ chip.count }}</a></dd>
-          </div>
-          {% endfor %}
-          {% if server_runtime and server_runtime.uptime_seconds %}
-          <div>
-            <dt>Аптайм</dt>
-            <dd class="tnum">{{ server_runtime.uptime_seconds // 3600 }}ч {{ (server_runtime.uptime_seconds % 3600) // 60 }}м</dd>
-          </div>
-          {% endif %}
-          {% if server_runtime and server_runtime.db_ok is not none %}
-          <div>
-            <dt>База</dt>
-            <dd>{% if server_runtime.db_ok %}ок{% else %}нет связи{% endif %}{% if server_runtime.db_ok and server_runtime.db_latency_ms %} <span class="muted tnum">{{ server_runtime.db_latency_ms }} мс</span>{% endif %}</dd>
-          </div>
-          {% endif %}
-          {% if server_runtime and server_runtime.process_memory_bytes %}
-          <div>
-            <dt>Память</dt>
-            <dd class="mono tnum">{{ server_runtime.process_memory_bytes|format_bytes }}</dd>
-          </div>
-          {% endif %}
-          <div>
-            <dt>Токен</dt>
-            <dd><a href="/settings/updates#enrollment">Подключение</a></dd>
-          </div>
-          {% if security and security.https_first and security.https_first.tls_mode != 'https' %}
-          <div>
-            <dt>Сертификат</dt>
-            <dd><a href="/settings/tls">Нужен HTTPS</a></dd>
-          </div>
-          {% endif %}
-          {% if ops.enrollment_rotation_due %}
-          <div>
-            <dt>Токен</dt>
-            <dd><a href="/settings/updates#enrollment">Пора сменить</a></dd>
-          </div>
-          {% endif %}
-        </dl>
-      </div>
-    </details>
-    </div>
-  </div>
+  </header>
 
   {% if (bootstrap_progress and not bootstrap_progress.complete) or (bootstrap and bootstrap.visible) %}
   <section class="overview-setup">
@@ -159,6 +63,72 @@
   </section>
   {% endif %}
 
+  <div class="prob-severity-bar card-surface" role="group" aria-label="Серьёзность проблем">
+    <button type="button" class="prob-sev-chip is-active" data-sev-filter="all">
+      <span class="prob-sev-label">Все</span>
+    </button>
+    <button type="button" class="prob-sev-chip prob-sev-critical" data-sev-filter="critical">
+      <span class="prob-sev-label">Критичные</span>
+      <span class="prob-sev-count tnum">{{ critical_event_count }}</span>
+    </button>
+    <button type="button" class="prob-sev-chip prob-sev-high" data-sev-filter="high">
+      <span class="prob-sev-label">Высокие</span>
+      <span class="prob-sev-count tnum">{{ high_event_count }}</span>
+    </button>
+    <button type="button" class="prob-sev-chip prob-sev-medium" data-sev-filter="medium">
+      <span class="prob-sev-label">Средние</span>
+      <span class="prob-sev-count tnum">{{ medium_event_count }}</span>
+    </button>
+    <button type="button" class="prob-sev-chip prob-sev-low" data-sev-filter="low">
+      <span class="prob-sev-label">Низкие</span>
+      <span class="prob-sev-count tnum">{{ low_event_count }}</span>
+    </button>
+    <button type="button" class="prob-sev-chip prob-sev-offline" data-sev-filter="offline">
+      <span class="prob-sev-label">Нет на связи</span>
+      <span class="prob-sev-count tnum">{{ offline_device_count }}</span>
+    </button>
+  </div>
+
+  <div class="overview-search-compact">
+    <div class="search-input-wrap overview-search-field">
+      <span class="search-input-icon" aria-hidden="true">{{ icon('search') }}</span>
+      <input id="overview-search-q" class="panel-search-input overview-search-input" type="search"
+        placeholder="Поиск по парку…" maxlength="128" autocomplete="off" data-overview-search
+        aria-label="Поиск по парку">
+    </div>
+    <div class="filter-chips overview-search-chips overview-search-chips-compact" data-overview-search-cats role="group" aria-label="Категории поиска">
+      <button type="button" class="filter-chip is-active" data-cat="devices">Устройства</button>
+      <button type="button" class="filter-chip is-active" data-cat="events">События</button>
+      <button type="button" class="filter-chip is-active" data-cat="settings">Параметры</button>
+    </div>
+    <div id="overview-search-results" class="card-surface overview-search-hits" hidden></div>
+  </div>
+
+  <section class="overview-problems card-surface" aria-labelledby="overview-problems-title">
+    <h2 id="overview-problems-title" class="overview-problems-title">Сейчас требует действия</h2>
+    {% if overview_action_rows %}
+    <ul class="overview-problems-list" data-problems-list>
+      {% for row in overview_action_rows %}
+      <li class="overview-problem-row" data-problem-row data-severity="{{ row.severity }}">
+        <span class="badge {% if row.severity == 'offline' %}badge-stale{% else %}badge-importance badge-importance-{{ row.severity }}{% endif %}">
+          {% if row.severity == 'offline' %}Нет связи{% else %}{{ row.severity|importance_label_ru }}{% endif %}
+        </span>
+        <a href="{{ row.href }}" class="overview-problem-host">{{ row.hostname }}</a>
+        <a href="{{ row.href }}" class="overview-problem-summary" title="{{ row.summary }}">{{ row.summary }}</a>
+        <span class="overview-problem-when mono muted">
+          {% if row.created_at %}{{ local_time(row.created_at) }}{% else %}—{% endif %}
+        </span>
+      </li>
+      {% endfor %}
+    </ul>
+    <p class="muted overview-problems-empty" data-problems-empty hidden>Нет строк для выбранной серьёзности.</p>
+    {% else %}
+    <p class="overview-ok-banner">
+      <span class="overview-ok-ico" aria-hidden="true">✓</span> Система в норме — действий не требуется
+    </p>
+    {% endif %}
+  </section>
+
   <div class="overview-ops-full">
     <article class="dash-card card-surface">
       <div class="dash-card-head">
@@ -180,26 +150,14 @@
     <article class="dash-card card-surface overview-priority-feed" data-overview-feed>
       <div class="dash-card-head dash-card-head--feed">
         <h2 class="with-icon">{{ icon('events') }}Лента событий</h2>
-        {% if priority_feed %}
-        <div class="feed-imp-toggle" role="group" aria-label="Фильтр ленты" data-feed-imp-toggle>
-          <button type="button" data-feed-imp="critical">Критичные</button>
-          <button type="button" data-feed-imp="all" class="is-active">Все</button>
-        </div>
-        {% endif %}
       </div>
-
       {% if priority_feed %}
-      <p class="overview-ok-banner" data-feed-empty-critical hidden>
-        <span class="overview-ok-ico" aria-hidden="true">✓</span>
-        Нет критичных событий в ленте
-      </p>
       <ul class="dash-incident-list" data-feed-list>
-        {% for e in priority_feed %}
+        {% for e in priority_feed[:7] %}
         {% set imp = e.importance or 'low' %}
         <li class="event-feed-row dash-incident-row" data-importance="{{ imp }}">
           <span class="badge badge-importance badge-importance-{{ imp }}">{{ imp|importance_label_ru }}</span>
           <a href="{{ e.device_href }}" class="event-feed-host dash-incident-host" title="{{ e.hostname }}">{{ e.hostname }}</a>
-          <span class="event-feed-user muted" {% if e.user %}title="{{ e.user }}"{% endif %}>{% if e.user %}{{ e.user }}{% else %}—{% endif %}</span>
           <a href="{{ e.href }}" class="event-feed-summary dash-incident-summary" title="{{ e.summary or (e.type|format_event_type) }}">
             {{ e.summary or (e.type|format_event_type) }}
             {% if e.count and e.count > 1 %}<span class="dash-agg-count">×{{ e.count }}</span>{% endif %}
@@ -210,21 +168,16 @@
       </ul>
       {% else %}
       <p class="overview-ok-banner">
-        <span class="overview-ok-ico" aria-hidden="true">✓</span> Система в норме — событий в ленте нет
+        <span class="overview-ok-ico" aria-hidden="true">✓</span> Событий в ленте нет
       </p>
       {% endif %}
-
       <p class="dash-card-actions overview-feed-more">
-        <a href="/events?importance=critical">Все критичные ({{ critical_event_count }})</a>
-        {% if high_event_count and high_event_count != critical_event_count %}
-        · <a href="/events?importance=high">высокая и выше ({{ high_event_count }})</a>
-        {% endif %}
-        · <a href="/events">все события</a>
+        <a href="/events">Все события</a>
       </p>
     </article>
   </div>
 </section>
+<script src="/static/overview-problems.js" defer></script>
 <script src="/static/overview-search.js" defer></script>
-<script src="/static/overview-feed.js" defer></script>
 <script src="/static/dashboard-charts.js" defer></script>
 {% endblock %}

@@ -66,19 +66,19 @@
     </div>
   </header>
   {% if show_rail %}
+  <div class="hcp-rail-backdrop" id="hcp-rail-backdrop" hidden></div>
+  <aside class="hcp-rail card-surface" id="hcp-rail" aria-label="Основная навигация">
+    <nav class="nav hcp-rail-nav">
+      <a href="/" {% if path in ['/', '/overview'] %}aria-current="page"{% endif %}>{{ icon('overview') }}<span>Обзор</span></a>
+      <a href="/dashboard" {% if path == '/dashboard' %}aria-current="page"{% endif %}>{{ icon('dashboard') }}<span>Дашборд</span></a>
+      <a href="/devices" {% if path.startswith('/devices') %}aria-current="page"{% endif %}>{{ icon('devices') }}<span>Устройства</span></a>
+      <a href="/events" {% if path == '/events' %}aria-current="page"{% endif %}>{{ icon('events') }}<span>События</span></a>
+      {% if user.is_admin %}
+      <a href="/settings" {% if path.startswith('/settings') or path.startswith('/account') %}aria-current="page"{% endif %}>{{ icon('settings') }}<span>Параметры</span></a>
+      {% endif %}
+    </nav>
+  </aside>
   <div class="hcp-shell">
-    <div class="hcp-rail-backdrop" id="hcp-rail-backdrop" hidden></div>
-    <aside class="hcp-rail card-surface" id="hcp-rail" aria-label="Основная навигация">
-      <nav class="nav hcp-rail-nav">
-        <a href="/" {% if path in ['/', '/overview'] %}aria-current="page"{% endif %}>{{ icon('overview') }}<span>Обзор</span></a>
-        <a href="/dashboard" {% if path == '/dashboard' %}aria-current="page"{% endif %}>{{ icon('dashboard') }}<span>Дашборд</span></a>
-        <a href="/devices" {% if path.startswith('/devices') %}aria-current="page"{% endif %}>{{ icon('devices') }}<span>Устройства</span></a>
-        <a href="/events" {% if path == '/events' %}aria-current="page"{% endif %}>{{ icon('events') }}<span>События</span></a>
-        {% if user.is_admin %}
-        <a href="/settings" {% if path.startswith('/settings') or path.startswith('/account') %}aria-current="page"{% endif %}>{{ icon('settings') }}<span>Параметры</span></a>
-        {% endif %}
-      </nav>
-    </aside>
     <div class="hcp-main">
   {% endif %}
   {% if tls_mode is defined and tls_mode == 'http' and not qa_ui %}

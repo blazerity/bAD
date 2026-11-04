@@ -957,6 +957,54 @@ def _normalize_overview_priority_feed(
     return out
 
 
+_OVERVIEW_SEV_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "offline": 4}
+
+
+def _overview_action_rows(
+    attention: list[dict[str, Any]],
+    priority_feed: list[dict[str, Any]],
+    *,
+    limit: int = 48,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for a in attention:
+        aid = str(a.get("id") or "")
+        sev = "offline" if aid == "stale" else str(a.get("severity") or "high")
+        rows.append(
+            {
+                "severity": sev,
+                "hostname": "Панель",
+                "summary": str(a.get("title") or ""),
+                "detail": str(a.get("detail") or ""),
+                "href": str(a.get("href") or "#"),
+                "created_at": "",
+                "sort_time": "",
+            }
+        )
+    for e in priority_feed:
+        imp = str(e.get("importance") or "low")
+        rows.append(
+            {
+                "severity": imp,
+                "hostname": str(e.get("hostname") or "—"),
+                "summary": str(e.get("summary") or e.get("type") or ""),
+                "detail": "",
+                "href": str(e.get("href") or "#"),
+                "created_at": str(e.get("created_at") or ""),
+                "sort_time": str(e.get("created_at") or ""),
+            }
+        )
+
+    def _sort_key(row: dict[str, Any]) -> tuple[int, str]:
+        return (
+            _OVERVIEW_SEV_ORDER.get(str(row.get("severity") or ""), 9),
+            str(row.get("sort_time") or ""),
+        )
+
+    rows.sort(key=_sort_key)
+    return rows[:limit]
+
+
 def _overview_page_context(
     *,
     user: WebUser,
@@ -1053,6 +1101,10 @@ def _overview_page_context(
     events_total = db.count_device_events(importance="all")
     critical_event_count = db.count_device_events(importance="critical")
     high_event_count = db.count_device_events(importance="high")
+    medium_event_count = db.count_device_events(importance="medium")
+    low_event_count = db.count_device_events(importance="low")
+    offline_device_count = int(stats.get("stale") or 0)
+    overview_action_rows = _overview_action_rows(attention, priority_feed)
     server_runtime = build_server_runtime(db)
     total_active = int(stats.get("total_active") or 0)
     drift_n = int(ops.get("version_drift_count") or 0)
@@ -1075,6 +1127,10 @@ def _overview_page_context(
         "events_total": events_total,
         "critical_event_count": critical_event_count,
         "high_event_count": high_event_count,
+        "medium_event_count": medium_event_count,
+        "low_event_count": low_event_count,
+        "offline_device_count": offline_device_count,
+        "overview_action_rows": overview_action_rows,
         "server_runtime": server_runtime,
         "ops": ops,
         "security": security,
