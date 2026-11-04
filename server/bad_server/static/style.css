@@ -261,6 +261,9 @@ body.hcp-panel .brand-mark {
     width: 100%;
     box-sizing: border-box;
   }
+  .hcp-rail-nav {
+    padding: 0 0.65rem;
+  }
 }
 
 * { box-sizing: border-box; }
@@ -5196,19 +5199,37 @@ table.devices.devices-list td {
 }
 .overview-problems-empty { margin: 0.5rem 0 0; font-size: 0.85rem; }
 @media (max-width: 767px) {
+  .overview-console .page-lead { display: none; }
+  .overview-console-header { margin-bottom: 0.35rem; }
   .prob-severity-bar {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    gap: 0.35rem;
+    margin-bottom: 0.45rem;
+    padding: 0.45rem 0.55rem;
   }
   .prob-sev-chip {
+    flex: 0 0 auto;
+    min-width: 7.25rem;
     justify-content: space-between;
-    min-height: 2.5rem;
+    min-height: 2.35rem;
   }
-  .prob-sev-count { font-size: 1.05rem; }
+  .prob-sev-count {
+    font-size: 1rem;
+    flex-shrink: 0;
+  }
+  .overview-search-compact { margin-bottom: 0.45rem; }
+  .overview-problems {
+    padding: 0.65rem 0.75rem;
+    margin-bottom: 0.55rem;
+  }
   .overview-problem-row {
     grid-template-columns: 1fr;
     gap: 0.25rem;
   }
   .overview-problem-when { text-align: left; }
   .overview-server-strip { width: 100%; }
+  .overview-ops-full .dash-card { margin-top: 0.5rem; }
 }
