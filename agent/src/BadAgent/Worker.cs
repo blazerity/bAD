@@ -83,7 +83,7 @@ public sealed class Worker : BackgroundService
                 {
                     if (_enrollmentRequestPending)
                     {
-                        // Опрос enrollment-requests — см. интервал в конце цикла (~15 с).
+                        // Повтор POST /v1/enrollment-requests — пауза в конце цикла (2 мин).
                     }
                     else
                     {
@@ -175,7 +175,11 @@ public sealed class Worker : BackgroundService
 
             try
             {
-                await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken);
+                await Task.Delay(
+                    _enrollmentRequestPending
+                        ? TimeSpan.FromMinutes(2)
+                        : TimeSpan.FromSeconds(15),
+                    stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
