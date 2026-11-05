@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using Org.BouncyCastle.Crypto.Parameters;
+using Org.BouncyCastle.Crypto.Signers;
 
 namespace BadAgent;
 
@@ -48,11 +50,7 @@ public static class AgentSigningKey
             throw new InvalidOperationException("signing_key must be 32-byte Ed25519 private key (base64)");
         }
 
-        if (!Ed25519.TryGetPublicKey(privateKey, out var publicKey) || publicKey.Length != 32)
-        {
-            throw new InvalidOperationException("invalid Ed25519 private key");
-        }
-
+        var publicKey = Ed25519PublicKeyBytes(privateKey);
         return Convert.ToHexString(SHA256.HashData(publicKey)).ToLowerInvariant();
     }
 
@@ -84,7 +82,7 @@ public static class AgentSigningKey
     public static async Task EnsureFromServerAsync(
         BadApiClient client,
         string apiKey,
-        ILogger logger,
+        ILogger? logger,
         CancellationToken ct)
     {
         if (TryLoadPrivateKeyBase64(out _))
@@ -137,7 +135,7 @@ public static class AgentSigningKey
             return false;
         }
 
-        var sig = Ed25519.Sign(bytes, privateKey);
+        var sig = Ed25519Sign(bytes, privateKey);
         signatureBase64 = Convert.ToBase64String(sig);
         snapshot.Signature = signatureBase64;
         return true;
@@ -212,6 +210,22 @@ public static class AgentSigningKey
                 writer.WriteRawValue(element.GetRawText());
                 break;
         }
+    }
+
+    private static byte[] Ed25519PublicKeyBytes(byte[] seed32)
+    {
+        var privateParams = new Ed25519PrivateKeyParameters(seed32, 0);
+        var publicParams = (Ed25519PublicKeyParameters)privateParams.GeneratePublicKey();
+        return publicParams.GetEncoded();
+    }
+
+    private static byte[] Ed25519Sign(byte[] message, byte[] seed32)
+    {
+        var privateParams = new Ed25519PrivateKeyParameters(seed32, 0);
+        var signer = new Ed25519Signer();
+        signer.Init(true, privateParams);
+        signer.BlockUpdate(message, 0, message.Length);
+        return signer.GenerateSignature();
     }
 
     private static void TryDelete(string path)
