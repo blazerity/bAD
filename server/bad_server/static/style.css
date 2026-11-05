@@ -115,6 +115,16 @@ body.hcp-panel .hcp-app-body {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  align-items: stretch;
+}
+/* margin:auto на main во flex-колонке сжимает блок до ширины контента — только rail+узкая колонка */
+body.hcp-panel .hcp-app-body > main,
+body.hcp-panel .hcp-app-body > footer.foot {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  align-self: stretch;
+  box-sizing: border-box;
 }
 .hcp-rail {
   width: 13.25rem;
