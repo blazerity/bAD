@@ -42,6 +42,11 @@ public sealed class InventorySnapshot
 
     [JsonPropertyName("collector_errors")]
     public List<CollectorError> CollectorErrors { get; set; } = new();
+
+    /// <summary>Ed25519 подпись канонического JSON без этого поля (secure-channel 3).</summary>
+    [JsonPropertyName("signature")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Signature { get; set; }
 }
 
 public sealed class CollectorError

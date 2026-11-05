@@ -11,6 +11,10 @@ public sealed class AgentConfig
     [JsonPropertyName("enrollment_token")]
     public string? EnrollmentToken { get; set; }
 
+    /// <summary>Одноразовый код enroll (bad_ot_…); приоритет над <see cref="EnrollmentToken"/>.</summary>
+    [JsonPropertyName("enrollment_code")]
+    public string? EnrollmentCode { get; set; }
+
     [JsonPropertyName("api_key")]
     public string? ApiKey { get; set; }
 
@@ -543,6 +547,12 @@ public static class ConfigStore
         if (!string.IsNullOrWhiteSpace(enroll) && string.IsNullOrWhiteSpace(cfg.ApiKey))
         {
             cfg.EnrollmentToken = enroll.Trim();
+        }
+
+        var enrollCode = Environment.GetEnvironmentVariable("BAD_ENROLLMENT_CODE");
+        if (!string.IsNullOrWhiteSpace(enrollCode) && string.IsNullOrWhiteSpace(cfg.ApiKey))
+        {
+            cfg.EnrollmentCode = enrollCode.Trim();
         }
 
         var apiKey = Environment.GetEnvironmentVariable("BAD_API_KEY");

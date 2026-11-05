@@ -68,6 +68,8 @@ public static class PushCli
             using var ct = new CancellationTokenSource(TimeSpan.FromMinutes(10));
             var token = ct.Token;
 
+            await AgentSigningKey.EnsureFromServerAsync(client, config.ApiKey!, null, token);
+
             DateTime? lastInventoryAt = null;
             bool? lastInventoryOk = null;
             string? lastInventoryError = null;

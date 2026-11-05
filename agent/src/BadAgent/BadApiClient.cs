@@ -38,14 +38,14 @@ public sealed class BadApiClient : IDisposable
         _http.DefaultRequestHeaders.UserAgent.ParseAdd($"bad-agent/{agentVersion}");
     }
 
-    public async Task<(string ApiKey, string DeviceId)> EnrollAsync(
-        string enrollmentToken,
+    public async Task<EnrollResult> EnrollAsync(
+        string enrollmentBearer,
         string deviceId,
         string hostname,
         CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/enroll");
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", enrollmentToken);
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", enrollmentBearer);
         req.Content = JsonContent.Create(new
         {
             device_id = deviceId,
@@ -64,7 +64,54 @@ public sealed class BadApiClient : IDisposable
         var apiKey = doc.RootElement.GetProperty("api_key").GetString()
                      ?? throw new InvalidOperationException("enroll response missing api_key");
         var returnedId = doc.RootElement.GetProperty("device_id").GetString() ?? deviceId;
-        return (apiKey, returnedId);
+        string? signingKey = null;
+        if (doc.RootElement.TryGetProperty("signing_key", out var skEl)
+            && skEl.ValueKind == JsonValueKind.String)
+        {
+            signingKey = skEl.GetString();
+        }
+
+        return new EnrollResult(apiKey, returnedId, signingKey);
+    }
+
+    /// <summary>Один раз выдать ключ подписи для уже enrolled устройства (secure-channel 3).</summary>
+    public async Task<SigningKeyFetchResult> RequestSigningKeyAsync(string apiKey, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/agent/signing-key");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        req.Content = new StringContent("{}", System.Text.Encoding.UTF8, "application/json");
+
+        using var resp = await _http.SendAsync(req, ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return new SigningKeyFetchResult(null, RouteMissing: true);
+        }
+
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            throw new AgentApiException(resp.StatusCode, $"Signing key request failed: {(int)resp.StatusCode} {body}");
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.TryGetProperty("signing_key", out var el)
+                && el.ValueKind == JsonValueKind.String)
+            {
+                var key = el.GetString();
+                if (!string.IsNullOrWhiteSpace(key))
+                {
+                    return new SigningKeyFetchResult(key.Trim(), RouteMissing: false);
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // Пустое/не JSON тело — как «секрет не выдан».
+        }
+
+        return new SigningKeyFetchResult(null, RouteMissing: false);
     }
 
     public async Task<HeartbeatServerResponse?> SendHeartbeatAsync(
@@ -134,10 +181,12 @@ public sealed class BadApiClient : IDisposable
 
     public async Task SendInventoryAsync(string apiKey, InventorySnapshot snapshot, CancellationToken ct)
     {
+        AgentSigningKey.TrySignInventory(snapshot, out _);
+
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/inventory");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
         req.Content = new StringContent(
-            JsonSerializer.Serialize(snapshot, JsonOptions),
+            JsonSerializer.Serialize(snapshot, AgentSigningKey.InventoryJsonOptions),
             System.Text.Encoding.UTF8,
             "application/json");
 
@@ -194,3 +243,5 @@ public sealed class BadApiClient : IDisposable
 
     public void Dispose() => _http.Dispose();
 }
+
+public readonly record struct EnrollResult(string ApiKey, string DeviceId, string? SigningKeyBase64);
