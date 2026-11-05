@@ -4392,6 +4392,9 @@ body.global-search-open { overflow: hidden; }
   margin: 0.35rem 0 0;
   font-size: 0.875rem;
 }
+.device-signing-line {
+  margin-top: 0.25rem;
+}
 .device-identity-meta {
   margin-bottom: 1rem;
 }

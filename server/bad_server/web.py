@@ -2495,6 +2495,7 @@ def _device_config_context(
     return {
         "device": detail,
         "device_href": device_href,
+        "inventory_signing": _device_inventory_signing_line(detail),
         "pending_reboot_visible": _pending_reboot_visible(host_info),
         "reboot_reason_labels": _REBOOT_REASON_LABELS_RU,
         "user_display_name": user_display_name,
@@ -2565,6 +2566,15 @@ _UNINSTALL_CANCEL_MESSAGE = "Снятие агента отменено."
 _UNINSTALL_CONFIRM_MISMATCH = (
     "Подтверждение не совпало — введите точное имя узла или идентификатор."
 )
+
+
+def _device_inventory_signing_line(device: dict[str, Any]) -> dict[str, str]:
+    """Строка доверия подписи инвентаря (devices.signing_key_fingerprint)."""
+    fp = str(device.get("signing_key_fingerprint") or "").strip()
+    if not fp:
+        return {"state": "none", "label": "ключ не выдан"}
+    short = fp if len(fp) <= 16 else f"{fp[:16]}…"
+    return {"state": "issued", "label": f"ключ · {short}"}
 
 
 @router.get("/devices/{device_id}", response_class=HTMLResponse)

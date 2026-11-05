@@ -40,6 +40,12 @@ class Database:
                 "ALTER TABLE device_events ADD COLUMN IF NOT EXISTS mailed_at TEXT"
             )
             conn.execute(
+                "ALTER TABLE devices ADD COLUMN IF NOT EXISTS signing_pubkey TEXT"
+            )
+            conn.execute(
+                "ALTER TABLE devices ADD COLUMN IF NOT EXISTS signing_key_fingerprint TEXT"
+            )
+            conn.execute(
                 """
                 ALTER TABLE smtp_settings
                 ADD COLUMN IF NOT EXISTS digest_interval_hours INTEGER NOT NULL DEFAULT 3

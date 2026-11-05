@@ -32,6 +32,14 @@
         {% if ip_line %}<span>{% if device.bad_id or logged %} · {% endif %}<span class="mono">{{ ip_line }}</span></span>{% endif %}
         {% if serial_line %}<span>{% if device.bad_id or logged or ip_line %} · {% endif %}<span class="mono">{{ serial_line }}</span></span>{% endif %}
       </p>
+      <p class="muted device-detail-subline device-signing-line">
+        Подпись инвентаря:
+        {% if inventory_signing.state == 'issued' %}
+        <span class="mono">{{ inventory_signing.label }}</span>
+        {% else %}
+        {{ inventory_signing.label }}
+        {% endif %}
+      </p>
     </div>
   </header>
   {% if device.meta and device.meta.refresh_requested_at %}
