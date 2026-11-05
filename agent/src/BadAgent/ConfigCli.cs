@@ -235,6 +235,8 @@ public static class ConfigCli
             $"  api_key={(string.IsNullOrWhiteSpace(cfg.ApiKey) ? "(нет)" : "(задан, скрыт)")}");
         Console.WriteLine(
             $"  enrollment_token={(string.IsNullOrWhiteSpace(cfg.EnrollmentToken) ? "(нет)" : "(задан, скрыт)")}");
+        Console.WriteLine(
+            $"  enrollment_code={(string.IsNullOrWhiteSpace(cfg.EnrollmentCode) ? "(нет)" : "(задан, скрыт)")}");
         return 0;
     }
 
@@ -247,10 +249,10 @@ public static class ConfigCli
         }
 
         var key = NormalizeKey(args[0]);
-        if (key is "api_key" or "enrollment_token")
+        if (key is "api_key" or "enrollment_token" or "enrollment_code")
         {
             Console.Error.WriteLine(
-                "error: значения api_key / enrollment_token CLI не печатает (см. bad config — только «нет»/«задан, скрыт»).");
+                "error: значения api_key / enrollment_token / enrollment_code CLI не печатает (см. bad config — только «нет»/«задан, скрыт»).");
             return 2;
         }
 
@@ -360,7 +362,7 @@ public static class ConfigCli
             return 2;
         }
 
-        if (key is "api_key" or "enrollment_token" || ForbiddenKeys.Contains(key))
+        if (key is "api_key" or "enrollment_token" or "enrollment_code" || ForbiddenKeys.Contains(key))
         {
             // Не эхоить valueRaw — даже при попытке set секрета.
             Console.Error.WriteLine(

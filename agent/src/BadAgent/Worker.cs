@@ -83,6 +83,8 @@ public sealed class Worker : BackgroundService
 
                 using var client = new BadApiClient(config.ServerUrl, _agentVersion);
 
+                await AgentSigningKey.EnsureFromServerAsync(client, config.ApiKey!, _logger, stoppingToken);
+
                 // Сначала слить offline queue (если сервер снова доступен).
                 await FlushOfflineQueueAsync(client, config, stoppingToken);
                 config = ConfigStore.LoadOrCreate();
@@ -178,11 +180,11 @@ public sealed class Worker : BackgroundService
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(config.EnrollmentToken))
+        if (string.IsNullOrWhiteSpace(ResolveEnrollmentBearer(config)))
         {
-            _logger.LogError("No api_key and no enrollment_token; cannot enroll");
+            _logger.LogError("No api_key and no enrollment code/token; cannot enroll");
             WindowsEventLog.WriteError(
-                "bAD: нет api_key и enrollment_token — требуется re-enroll или переустановка MSI.");
+                "bAD: нет api_key и enrollment (код или token) — требуется re-enroll или переустановка MSI.");
             _authBackoffUntil = DateTime.UtcNow.AddHours(1);
             return;
         }
@@ -196,18 +198,24 @@ public sealed class Worker : BackgroundService
         using var client = new BadApiClient(config.ServerUrl, _agentVersion);
         try
         {
-            var (apiKey, deviceId) = await client.EnrollAsync(
-                config.EnrollmentToken!,
+            var enrollResult = await client.EnrollAsync(
+                ResolveEnrollmentBearer(config)!,
                 config.DeviceId!,
                 Environment.MachineName,
                 ct);
-            config.ApiKey = apiKey;
-            config.DeviceId = deviceId;
-            config.EnrollmentToken = null; // очищаем после успеха
+            config.ApiKey = enrollResult.ApiKey;
+            config.DeviceId = enrollResult.DeviceId;
+            config.EnrollmentToken = null;
+            config.EnrollmentCode = null;
+            if (!string.IsNullOrWhiteSpace(enrollResult.SigningKeyBase64))
+            {
+                AgentSigningKey.SavePrivateKeyBase64(enrollResult.SigningKeyBase64);
+            }
+
             ConfigStore.Save(config);
             _apiKeyRevoked = false;
-            _logger.LogInformation("Enrollment succeeded; enrollment token cleared from config");
-            WindowsEventLog.WriteInfo($"bAD: устройство {deviceId} успешно зарегистрировано.");
+            _logger.LogInformation("Enrollment succeeded; enrollment secrets cleared from config");
+            WindowsEventLog.WriteInfo($"bAD: устройство {enrollResult.DeviceId} успешно зарегистрировано.");
         }
         catch (Exception ex)
         {
@@ -450,6 +458,7 @@ public sealed class Worker : BackgroundService
 
         config.ApiKey = null;
         ConfigStore.Save(config);
+        AgentSigningKey.ClearLocal();
         _apiKeyRevoked = true;
         _authBackoffUntil = DateTime.UtcNow.AddHours(1);
 
@@ -493,5 +502,20 @@ public sealed class Worker : BackgroundService
         }
 
         return text[..max];
+    }
+
+    private static string? ResolveEnrollmentBearer(AgentConfig config)
+    {
+        if (!string.IsNullOrWhiteSpace(config.EnrollmentCode))
+        {
+            return config.EnrollmentCode.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(config.EnrollmentToken))
+        {
+            return config.EnrollmentToken.Trim();
+        }
+
+        return null;
     }
 }
