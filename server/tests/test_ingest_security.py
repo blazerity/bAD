@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 
 os.environ.setdefault(
     "BAD_DATABASE_URL",
@@ -37,8 +38,12 @@ def _snap_count(client: TestClient, device_id: str) -> int:
     return int(row["n"])
 
 
+def _device_id(prefix: str) -> str:
+    return f"{prefix}-{uuid.uuid4().hex[:8]}"
+
+
 def test_old_agent_shared_token_without_signature() -> None:
-    device_id = "legacy-agent-1"
+    device_id = _device_id("legacy-agent")
     with TestClient(create_app()) as client:
         enrolled = client.post(
             "/v1/enroll",
@@ -67,7 +72,7 @@ def test_old_agent_shared_token_without_signature() -> None:
 
 
 def test_one_time_code_burns() -> None:
-    device_id = "granted-pc-1"
+    device_id = _device_id("granted-pc")
     with TestClient(create_app()) as client:
         grant = client.post(
             "/v1/enrollment-grants",
@@ -91,7 +96,7 @@ def test_one_time_code_burns() -> None:
 
 
 def test_fat_inventory_does_not_write() -> None:
-    device_id = "fat-pc-1"
+    device_id = _device_id("fat-pc")
     with TestClient(create_app()) as client:
         enrolled = client.post(
             "/v1/enroll",
