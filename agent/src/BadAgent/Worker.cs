@@ -14,6 +14,8 @@ public sealed class Worker : BackgroundService
     private DateTime _nextUpdateCheck = DateTime.MinValue;
     /// <summary>Ключ отозван/отклонён — не долбить API до re-enroll / reinstall.</summary>
     private bool _apiKeyRevoked;
+    /// <summary>Ждём «Разрешить» в панели (POST /v1/enrollment-requests → pending).</summary>
+    private bool _enrollmentRequestPending;
 
     public Worker(
         ILogger<Worker> logger,
@@ -67,16 +69,33 @@ public sealed class Worker : BackgroundService
 
                 if (_apiKeyRevoked && string.IsNullOrWhiteSpace(config.ApiKey))
                 {
-                    _logger.LogWarning(
-                        "API key revoked/cleared; waiting for re-enroll or reinstall (device_id={DeviceId})",
-                        config.DeviceId);
-                    await Task.Delay(TimeSpan.FromMinutes(30), stoppingToken);
-                    continue;
+                    if (!string.IsNullOrWhiteSpace(config.EnrollmentCode))
+                    {
+                        _logger.LogWarning(
+                            "API key revoked/cleared; waiting for re-enroll with enrollment code (device_id={DeviceId})",
+                            config.DeviceId);
+                        await Task.Delay(TimeSpan.FromMinutes(30), stoppingToken);
+                        continue;
+                    }
                 }
 
-                if (string.IsNullOrWhiteSpace(config.ApiKey) || string.IsNullOrWhiteSpace(config.DeviceId))
+                if (string.IsNullOrWhiteSpace(config.ApiKey))
                 {
-                    _logger.LogError("Missing api_key or device_id after enroll attempt");
+                    if (_enrollmentRequestPending)
+                    {
+                        // Опрос enrollment-requests — см. интервал в конце цикла (~15 с).
+                    }
+                    else
+                    {
+                        _logger.LogError("Missing api_key or device_id after enroll attempt");
+                        await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
+                        continue;
+                    }
+                }
+
+                if (string.IsNullOrWhiteSpace(config.DeviceId))
+                {
+                    _logger.LogError("Missing device_id after enroll attempt");
                     await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
                     continue;
                 }
@@ -172,6 +191,7 @@ public sealed class Worker : BackgroundService
         if (!string.IsNullOrWhiteSpace(config.ApiKey))
         {
             _apiKeyRevoked = false;
+            _enrollmentRequestPending = false;
             return;
         }
 
@@ -180,42 +200,21 @@ public sealed class Worker : BackgroundService
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(ResolveEnrollmentBearer(config)))
-        {
-            _logger.LogError("No api_key and no enrollment code/token; cannot enroll");
-            WindowsEventLog.WriteError(
-                "bAD: нет api_key и enrollment (код или token) — требуется re-enroll или переустановка MSI.");
-            _authBackoffUntil = DateTime.UtcNow.AddHours(1);
-            return;
-        }
-
         if (string.IsNullOrWhiteSpace(config.DeviceId))
         {
             config.DeviceId = DeviceIdentity.ResolveDeviceId();
         }
 
-        _logger.LogInformation("Enrolling device {DeviceId}", config.DeviceId);
         using var client = new BadApiClient(config.ServerUrl, _agentVersion);
         try
         {
-            var enrollResult = await client.EnrollAsync(
-                ResolveEnrollmentBearer(config)!,
-                config.DeviceId!,
-                Environment.MachineName,
-                ct);
-            config.ApiKey = enrollResult.ApiKey;
-            config.DeviceId = enrollResult.DeviceId;
-            config.EnrollmentToken = null;
-            config.EnrollmentCode = null;
-            if (!string.IsNullOrWhiteSpace(enrollResult.SigningKeyBase64))
+            if (!string.IsNullOrWhiteSpace(config.EnrollmentCode))
             {
-                AgentSigningKey.SavePrivateKeyBase64(enrollResult.SigningKeyBase64);
+                await EnrollWithCodeAsync(client, config, ct);
+                return;
             }
 
-            ConfigStore.Save(config);
-            _apiKeyRevoked = false;
-            _logger.LogInformation("Enrollment succeeded; enrollment secrets cleared from config");
-            WindowsEventLog.WriteInfo($"bAD: устройство {enrollResult.DeviceId} успешно зарегистрировано.");
+            await PollEnrollmentRequestAsync(client, config, ct);
         }
         catch (Exception ex)
         {
@@ -223,6 +222,93 @@ public sealed class Worker : BackgroundService
             WindowsEventLog.WriteError("bAD: ошибка enroll", ex);
             _authBackoffUntil = DateTime.UtcNow.AddMinutes(15);
             throw;
+        }
+    }
+
+    private async Task EnrollWithCodeAsync(BadApiClient client, AgentConfig config, CancellationToken ct)
+    {
+        _enrollmentRequestPending = false;
+        _logger.LogInformation("Enrolling device {DeviceId} with enrollment code", config.DeviceId);
+        var enrollResult = await client.EnrollAsync(
+            config.EnrollmentCode!.Trim(),
+            config.DeviceId!,
+            Environment.MachineName,
+            ct);
+        ApplyEnrollmentSecrets(config, enrollResult.ApiKey, enrollResult.DeviceId, enrollResult.SigningKeyBase64);
+        config.EnrollmentCode = null;
+        config.EnrollmentToken = null;
+        ConfigStore.Save(config);
+        _apiKeyRevoked = false;
+        _logger.LogInformation("Enrollment succeeded; enrollment secrets cleared from config");
+        WindowsEventLog.WriteInfo($"bAD: устройство {enrollResult.DeviceId} успешно зарегистрировано.");
+    }
+
+    private async Task PollEnrollmentRequestAsync(BadApiClient client, AgentConfig config, CancellationToken ct)
+    {
+        var (hostname, ip, serial) = EnrollmentHints.ForRequest();
+        var result = await client.SubmitEnrollmentRequestAsync(hostname, ip, serial, ct);
+        if (result.RouteMissing)
+        {
+            _enrollmentRequestPending = false;
+            _logger.LogError(
+                "Server has no /v1/enrollment-requests; set enrollment_code or upgrade server");
+            WindowsEventLog.WriteError(
+                "bAD: сервер без enrollment-requests — нужен одноразовый код или обновление сервера.");
+            _authBackoffUntil = DateTime.UtcNow.AddHours(1);
+            return;
+        }
+
+        if (string.Equals(result.Status, "pending", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!_enrollmentRequestPending)
+            {
+                _logger.LogInformation(
+                    "Enrollment request submitted for {Hostname}; waiting for admin approval",
+                    hostname);
+                WindowsEventLog.WriteInfo(
+                    "bAD: заявка на регистрацию отправлена — ожидание «Разрешить» в панели.");
+            }
+
+            _enrollmentRequestPending = true;
+            return;
+        }
+
+        if (string.Equals(result.Status, "approved", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(result.ApiKey)
+            && !string.IsNullOrWhiteSpace(result.DeviceId))
+        {
+            ApplyEnrollmentSecrets(config, result.ApiKey!, result.DeviceId!, result.SigningKeyBase64);
+            config.EnrollmentToken = null;
+            ConfigStore.Save(config);
+            _apiKeyRevoked = false;
+            _enrollmentRequestPending = false;
+            _logger.LogInformation("Enrollment approved for device {DeviceId}", config.DeviceId);
+            WindowsEventLog.WriteInfo($"bAD: регистрация разрешена, устройство {config.DeviceId}.");
+            return;
+        }
+
+        if (string.Equals(result.Status, "approved", StringComparison.OrdinalIgnoreCase))
+        {
+            _enrollmentRequestPending = true;
+            _logger.LogDebug("Enrollment approved but secrets not ready; will retry");
+            return;
+        }
+
+        _logger.LogWarning("Unexpected enrollment-requests status {Status}", result.Status);
+        _enrollmentRequestPending = true;
+    }
+
+    private void ApplyEnrollmentSecrets(
+        AgentConfig config,
+        string apiKey,
+        string deviceId,
+        string? signingKeyBase64)
+    {
+        config.ApiKey = apiKey;
+        config.DeviceId = deviceId;
+        if (!string.IsNullOrWhiteSpace(signingKeyBase64))
+        {
+            AgentSigningKey.SavePrivateKeyBase64(signingKeyBase64);
         }
     }
 
@@ -453,16 +539,15 @@ public sealed class Worker : BackgroundService
             config.DeviceId);
         WindowsEventLog.WriteError(
             $"bAD: API key отклонён ({operation}, 401/403). Ключ очищен, device_id сохранён. " +
-            "Нужен re-enroll (enrollment token) или переустановка MSI.",
+            "Нужна повторная регистрация (заявка в панели или enrollment_code).",
             ex);
 
         config.ApiKey = null;
         ConfigStore.Save(config);
         AgentSigningKey.ClearLocal();
         _apiKeyRevoked = true;
+        _enrollmentRequestPending = false;
         _authBackoffUntil = DateTime.UtcNow.AddHours(1);
-
-        // Если MSI снова дал enrollment_token — попробуем на следующем витке EnsureEnrolled.
     }
 
     /// <summary>Свободные байты системного диска через DriveInfo (без WMI).</summary>
@@ -502,20 +587,5 @@ public sealed class Worker : BackgroundService
         }
 
         return text[..max];
-    }
-
-    private static string? ResolveEnrollmentBearer(AgentConfig config)
-    {
-        if (!string.IsNullOrWhiteSpace(config.EnrollmentCode))
-        {
-            return config.EnrollmentCode.Trim();
-        }
-
-        if (!string.IsNullOrWhiteSpace(config.EnrollmentToken))
-        {
-            return config.EnrollmentToken.Trim();
-        }
-
-        return null;
     }
 }

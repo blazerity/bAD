@@ -74,6 +74,63 @@ public sealed class BadApiClient : IDisposable
         return new EnrollResult(apiKey, returnedId, signingKey);
     }
 
+    /// <summary>POST /v1/enrollment-requests — без Bearer; секреты только после approve.</summary>
+    public async Task<EnrollmentRequestResult> SubmitEnrollmentRequestAsync(
+        string hostname,
+        string ip,
+        string serial,
+        CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/enrollment-requests");
+        req.Content = JsonContent.Create(new
+        {
+            hostname,
+            ip = ip ?? "",
+            serial = serial ?? ""
+        }, options: JsonOptions);
+
+        using var resp = await _http.SendAsync(req, ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return new EnrollmentRequestResult("missing", null, null, null, RouteMissing: true);
+        }
+
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            throw new AgentApiException(resp.StatusCode, $"Enrollment request failed: {(int)resp.StatusCode} {body}");
+        }
+
+        using var doc = JsonDocument.Parse(body);
+        var status = doc.RootElement.TryGetProperty("status", out var stEl)
+                       && stEl.ValueKind == JsonValueKind.String
+            ? stEl.GetString() ?? "pending"
+            : "pending";
+
+        string? deviceId = null;
+        string? apiKey = null;
+        string? signingKey = null;
+        if (doc.RootElement.TryGetProperty("device_id", out var idEl)
+            && idEl.ValueKind == JsonValueKind.String)
+        {
+            deviceId = idEl.GetString();
+        }
+
+        if (doc.RootElement.TryGetProperty("api_key", out var keyEl)
+            && keyEl.ValueKind == JsonValueKind.String)
+        {
+            apiKey = keyEl.GetString();
+        }
+
+        if (doc.RootElement.TryGetProperty("signing_key", out var skEl)
+            && skEl.ValueKind == JsonValueKind.String)
+        {
+            signingKey = skEl.GetString();
+        }
+
+        return new EnrollmentRequestResult(status, deviceId, apiKey, signingKey, RouteMissing: false);
+    }
+
     /// <summary>Один раз выдать ключ подписи для уже enrolled устройства (secure-channel 3).</summary>
     public async Task<SigningKeyFetchResult> RequestSigningKeyAsync(string apiKey, CancellationToken ct)
     {
