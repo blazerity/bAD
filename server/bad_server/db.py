@@ -1107,6 +1107,38 @@ class Database:
             row = conn.execute(sql, params).fetchone()
         return int(row["c"] if row else 0)
 
+    def count_device_events_exact_importance(self, level: str) -> int:
+        """События ровно этого уровня (не «и выше»)."""
+        from .event_importance import _EVENT_IMPORTANCE, types_exact_importance
+
+        lvl = str(level or "").strip().casefold()
+        types = sorted(types_exact_importance(lvl))
+        if lvl == "medium":
+            known = sorted(_EVENT_IMPORTANCE.keys())
+            parts: list[str] = []
+            params: list[Any] = []
+            if types:
+                ph = ",".join("?" for _ in types)
+                parts.append(f"e.type IN ({ph})")
+                params.extend(types)
+            if known:
+                ph = ",".join("?" for _ in known)
+                parts.append(f"e.type NOT IN ({ph})")
+                params.extend(known)
+            if not parts:
+                return 0
+            where = " OR ".join(parts)
+        else:
+            if not types:
+                return 0
+            ph = ",".join("?" for _ in types)
+            where = f"e.type IN ({ph})"
+            params = list(types)
+        sql = f"SELECT COUNT(*) AS c FROM device_events e WHERE {where}"
+        with self.connection() as conn:
+            row = conn.execute(sql, params).fetchone()
+        return int(row["c"] if row else 0)
+
     def get_device_detail(self, device_id: str) -> Optional[dict[str, Any]]:
         with self.connection() as conn:
             device = conn.execute(

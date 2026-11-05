@@ -64,3 +64,8 @@ def types_at_least(min_level: str) -> frozenset[str]:
     return frozenset(
         t for t, lvl in _EVENT_IMPORTANCE.items() if importance_rank(lvl) >= need
     )
+
+
+def types_exact_importance(level: str) -> frozenset[str]:
+    want = str(level or "").strip().casefold()
+    return frozenset(t for t, lvl in _EVENT_IMPORTANCE.items() if lvl == want)
