@@ -55,6 +55,59 @@ def clear_refresh_meta_patch() -> dict[str, None]:
     return {key: None for key in REFRESH_META_KEYS}
 
 
+def _utc_iso_ge(later: Optional[str], earlier: Optional[str]) -> bool:
+    """True if both parse and later >= earlier (implicit heartbeat ack)."""
+    if not later or not earlier:
+        return False
+    a = _parse_utc_iso(str(later))
+    b = _parse_utc_iso(str(earlier))
+    if a is None or b is None:
+        return False
+    return a >= b
+
+
+def heartbeat_refresh_meta_patch(
+    meta: dict[str, Any],
+    *,
+    last_inventory_at: Optional[str],
+    config_version: Optional[str],
+    effective_version: str,
+) -> Optional[dict[str, Any]]:
+    """Clear refresh meta only from existing heartbeat fields (no new protocol).
+
+    ``last_inventory_at`` acks ``refresh_inventory``; ``config_version`` acks
+    policy config. ``refresh_update_check`` has no ack field — meta expires at TTL.
+    """
+    if not meta.get("refresh_requested_at"):
+        return None
+    if not refresh_request_pending(meta):
+        return clear_refresh_meta_patch()
+
+    requested_at = meta.get("refresh_requested_at")
+    if not isinstance(requested_at, str):
+        return None
+
+    want_inv = meta.get("refresh_inventory", True) is not False
+    want_upd = meta.get("refresh_update_check", True) is not False
+    inv_ok = not want_inv or _utc_iso_ge(last_inventory_at, requested_at)
+    cfg_ok = bool(
+        config_version
+        and effective_version
+        and config_version == effective_version
+    )
+
+    patch: dict[str, Any] = {}
+    if want_inv and inv_ok:
+        patch["refresh_inventory"] = None
+
+    if inv_ok and cfg_ok and not want_upd:
+        for key, value in clear_refresh_meta_patch().items():
+            patch[key] = value
+        return patch
+
+    return patch or None
+
+
 def set_device_refresh_request(
     db: Database,
     device_id: str,

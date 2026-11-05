@@ -36,8 +36,8 @@ from .auth import (
 )
 from .integrations import require_device_reader as _device_reader
 from .device_refresh import (
-    clear_refresh_meta_patch,
     heartbeat_actions_for_refresh,
+    heartbeat_refresh_meta_patch,
     refresh_request_pending,
     set_device_refresh_request,
 )
@@ -56,6 +56,7 @@ from .schemas import (
     EnrollResponse,
     EnrollmentGrantBody,
     EnrollmentRequestBody,
+    EnrollmentRotateBody,
     HeartbeatRequest,
     IntegrationLookupBody,
     IntegrationRequestBody,
@@ -111,6 +112,14 @@ def create_enrollment_grant(
     return {"code": code, "device_id": body.device_id}
 
 
+def _enforce_enroll_rate(request: Request) -> None:
+    if not request.app.state.enroll_limiter.allow(client_ip(request)):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Enrollment rate limit exceeded",
+        )
+
+
 def _enrollment_request_id(hostname: str, ip: str, serial: str) -> str:
     import hashlib
 
@@ -129,12 +138,7 @@ def submit_enrollment_request(
     db: Database = Depends(get_db),
 ) -> dict[str, Any]:
     """Заявка без токена. api_key только после «Разрешить», и только один раз."""
-    limiter = request.app.state.enroll_limiter
-    if not limiter.allow(client_ip(request)):
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Enrollment rate limit exceeded",
-        )
+    _enforce_enroll_rate(request)
     hostname = body.hostname.strip()
     ip = (body.ip or "").strip()
     serial = (body.serial or "").strip()
@@ -170,13 +174,7 @@ def enroll(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=ENROLL_CLEARTEXT_MSG,
         )
-    client = client_ip(request)
-    limiter = request.app.state.enroll_limiter
-    if not limiter.allow(client):
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Enrollment rate limit exceeded",
-        )
+    _enforce_enroll_rate(request)
     bearer = extract_bearer(request.headers.get("authorization"))
     grant_hash: Optional[str] = None
     if bearer:
@@ -327,7 +325,6 @@ def heartbeat(
     )
     meta = db.get_device_meta(body.device_id) or {}
     meta = expire_uninstall_request_if_needed(db, body.device_id, meta)
-    had_refresh_flag = bool(meta.get("refresh_requested_at"))
     refresh_pending = refresh_request_pending(meta)
     send_uninstall = heartbeat_should_send_uninstall(meta)
     effective = db.compute_device_effective_config(
@@ -342,27 +339,32 @@ def heartbeat(
         "status": "ok",
         "config_version": effective["version"],
     }
-    push_config = (
-        refresh_pending
-        or not body.config_version
-        or body.config_version != effective["version"]
+    config_matches = bool(
+        body.config_version and body.config_version == effective["version"]
     )
     actions: dict[str, bool] = {}
-    if push_config:
+    if refresh_pending:
+        actions.update(heartbeat_actions_for_refresh(meta))
+    if send_uninstall:
+        actions["uninstall"] = True
+    if not config_matches:
         resp["config"] = {
             "version": effective["version"],
             "settings": effective["settings"],
         }
-        if refresh_pending:
-            actions.update(heartbeat_actions_for_refresh(meta))
-    if send_uninstall:
-        actions["uninstall"] = True
     if actions:
         resp["actions"] = actions
-    if had_refresh_flag:
-        db.patch_device_meta(body.device_id, clear_refresh_meta_patch())
+
+    ack_patch = heartbeat_refresh_meta_patch(
+        meta,
+        last_inventory_at=body.last_inventory_at,
+        config_version=body.config_version,
+        effective_version=effective["version"],
+    )
     if send_uninstall:
-        db.patch_device_meta(body.device_id, mark_uninstall_sent_patch())
+        ack_patch = {**(ack_patch or {}), **mark_uninstall_sent_patch()}
+    if ack_patch:
+        db.patch_device_meta(body.device_id, ack_patch)
     return resp
 
 
@@ -1001,7 +1003,7 @@ def _admin_server_update_request(
 def admin_server_update_apply(
     branch: str = Query(default="", max_length=200),
     sha: str = Query(default="", max_length=40),
-    wait: bool = Query(default=True),
+    wait: bool = Query(default=False),
     _admin: str = Depends(require_admin_token),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
@@ -1014,7 +1016,7 @@ def admin_server_update_apply(
 @router.post("/admin/server-update/rollback")
 def admin_server_update_rollback(
     slot_id: str = Query(..., max_length=120),
-    wait: bool = Query(default=True),
+    wait: bool = Query(default=False),
     _admin: str = Depends(require_admin_token),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
@@ -1036,7 +1038,7 @@ def admin_server_update_apply_status(
 @router.post("/admin/server-update/token")
 def admin_server_update_set_token(
     token: str = Form(...),
-    wait: bool = Form(True),
+    wait: bool = Form(False),
     _admin: str = Depends(require_admin_token),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
@@ -1113,16 +1115,22 @@ def admin_server_update_msi_poll(
 
 @router.post("/admin/enrollment/rotate")
 def admin_enrollment_rotate(
+    request: Request,
+    body: EnrollmentRotateBody,
     _admin: str = Depends(require_admin_token),
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    token: str = Query(default="", max_length=256),
 ) -> dict[str, Any]:
-    """Сменить enrollment token. Plaintext в ответе один раз; query token= — свой."""
+    """Сменить enrollment token. Plaintext в ответе один раз; token только в JSON body."""
     from .enrollment_ops import rotate_enrollment_token
 
+    if request.query_params.get("token"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Pass enrollment token in JSON body, not query string",
+        )
     result = rotate_enrollment_token(
-        db, settings, new_token=(token or "").strip() or None
+        db, settings, new_token=(body.token or "").strip() or None
     )
     return {
         "status": "ok",

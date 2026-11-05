@@ -64,14 +64,7 @@ public sealed class BadApiClient : IDisposable
         var apiKey = doc.RootElement.GetProperty("api_key").GetString()
                      ?? throw new InvalidOperationException("enroll response missing api_key");
         var returnedId = doc.RootElement.GetProperty("device_id").GetString() ?? deviceId;
-        string? signingKey = null;
-        if (doc.RootElement.TryGetProperty("signing_key", out var skEl)
-            && skEl.ValueKind == JsonValueKind.String)
-        {
-            signingKey = skEl.GetString();
-        }
-
-        return new EnrollResult(apiKey, returnedId, signingKey);
+        return new EnrollResult(apiKey, returnedId, JsonString(doc.RootElement, "signing_key"));
     }
 
     /// <summary>POST /v1/enrollment-requests — без Bearer; секреты только после approve.</summary>
@@ -107,28 +100,12 @@ public sealed class BadApiClient : IDisposable
             ? stEl.GetString() ?? "pending"
             : "pending";
 
-        string? deviceId = null;
-        string? apiKey = null;
-        string? signingKey = null;
-        if (doc.RootElement.TryGetProperty("device_id", out var idEl)
-            && idEl.ValueKind == JsonValueKind.String)
-        {
-            deviceId = idEl.GetString();
-        }
-
-        if (doc.RootElement.TryGetProperty("api_key", out var keyEl)
-            && keyEl.ValueKind == JsonValueKind.String)
-        {
-            apiKey = keyEl.GetString();
-        }
-
-        if (doc.RootElement.TryGetProperty("signing_key", out var skEl)
-            && skEl.ValueKind == JsonValueKind.String)
-        {
-            signingKey = skEl.GetString();
-        }
-
-        return new EnrollmentRequestResult(status, deviceId, apiKey, signingKey, RouteMissing: false);
+        return new EnrollmentRequestResult(
+            status,
+            JsonString(doc.RootElement, "device_id"),
+            JsonString(doc.RootElement, "api_key"),
+            JsonString(doc.RootElement, "signing_key"),
+            RouteMissing: false);
     }
 
     /// <summary>Один раз выдать ключ подписи для уже enrolled устройства (secure-channel 3).</summary>
@@ -153,14 +130,10 @@ public sealed class BadApiClient : IDisposable
         try
         {
             using var doc = JsonDocument.Parse(body);
-            if (doc.RootElement.TryGetProperty("signing_key", out var el)
-                && el.ValueKind == JsonValueKind.String)
+            var key = JsonString(doc.RootElement, "signing_key");
+            if (!string.IsNullOrWhiteSpace(key))
             {
-                var key = el.GetString();
-                if (!string.IsNullOrWhiteSpace(key))
-                {
-                    return new SigningKeyFetchResult(key.Trim(), RouteMissing: false);
-                }
+                return new SigningKeyFetchResult(key.Trim(), RouteMissing: false);
             }
         }
         catch (JsonException)
@@ -299,6 +272,16 @@ public sealed class BadApiClient : IDisposable
     }
 
     public void Dispose() => _http.Dispose();
+
+    private static string? JsonString(JsonElement root, string name)
+    {
+        if (root.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.String)
+        {
+            return el.GetString();
+        }
+
+        return null;
+    }
 }
 
 public readonly record struct EnrollResult(string ApiKey, string DeviceId, string? SigningKeyBase64);
