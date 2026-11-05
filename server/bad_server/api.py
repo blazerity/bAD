@@ -314,6 +314,18 @@ def heartbeat(
     return resp
 
 
+@router.post("/agent/signing-key")
+def issue_agent_signing_key(
+    device=Depends(require_api_key),
+    db: Database = Depends(get_db),
+) -> dict[str, Optional[str]]:
+    """Уже выданный api_key получает ключ подписи один раз. Повтор секрет не отдаёт."""
+    private, public, fingerprint = new_device_signing_key()
+    if not db.claim_device_signing_key(device["device_id"], public, fingerprint):
+        return {"signing_key": None}
+    return {"signing_key": private}
+
+
 @router.get("/agent/config")
 def agent_config(
     device=Depends(require_api_key),

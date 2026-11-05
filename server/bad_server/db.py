@@ -186,6 +186,22 @@ class Database:
             ).fetchone()
         return dict(row) if row else None
 
+    def claim_device_signing_key(
+        self, device_id: str, pubkey: str, fingerprint: str
+    ) -> bool:
+        """Записать ключ один раз. Повтор (отпечаток уже есть) не обновляет строку."""
+        with self.connection() as conn:
+            updated = conn.execute(
+                """
+                UPDATE devices
+                SET signing_pubkey = ?, signing_key_fingerprint = ?
+                WHERE device_id = ?
+                  AND (signing_key_fingerprint IS NULL OR signing_key_fingerprint = '')
+                """,
+                (pubkey, fingerprint, device_id),
+            )
+        return updated.rowcount == 1
+
     def upsert_device_on_enroll(
         self,
         device_id: str,

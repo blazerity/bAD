@@ -95,6 +95,50 @@ def test_one_time_code_burns() -> None:
         assert second.status_code == 401, second.text
 
 
+def test_unsigned_snapshot_and_signing_key_once() -> None:
+    device_id = _device_id("old-sign")
+    with TestClient(create_app()) as client:
+        enrolled = client.post(
+            "/v1/enroll",
+            headers={"Authorization": "Bearer test-enrollment-token-change-me-please"},
+            json={"device_id": device_id, "hostname": "OLD"},
+        )
+        assert enrolled.status_code == 200, enrolled.text
+        api_key = enrolled.json()["api_key"]
+        db = client.app.state.db
+        with db.connection() as conn:
+            conn.execute(
+                """
+                UPDATE devices
+                SET signing_pubkey = NULL, signing_key_fingerprint = NULL
+                WHERE device_id = ?
+                """,
+                (device_id,),
+            )
+        inv = client.post(
+            "/v1/inventory",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={
+                "schema_version": 2,
+                "device_id": device_id,
+                "software": {"programs": [{"name": "notepad"}]},
+            },
+        )
+        assert inv.status_code == 200, inv.text
+        first = client.post(
+            "/v1/agent/signing-key",
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+        assert first.status_code == 200, first.text
+        assert first.json().get("signing_key")
+        second = client.post(
+            "/v1/agent/signing-key",
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+        assert second.status_code == 200, second.text
+        assert not second.json().get("signing_key")
+
+
 def test_fat_inventory_does_not_write() -> None:
     device_id = _device_id("fat-pc")
     with TestClient(create_app()) as client:
