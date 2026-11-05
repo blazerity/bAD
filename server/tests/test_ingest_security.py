@@ -196,6 +196,114 @@ def test_inventory_signature_uses_agent_canon() -> None:
         assert denied.status_code == 401, denied.text
 
 
+def test_enrollment_request_waits_for_admin() -> None:
+    import base64
+
+    from bad_server.crypto_util import encrypt_secret
+    from bad_server.security import generate_token, hash_secret, new_device_signing_key
+
+    body = {"hostname": "NEW-PC", "ip": "10.1.1.5", "serial": _device_id("sn")}
+    with TestClient(create_app()) as client:
+        first = client.post("/v1/enrollment-requests", json=body)
+        assert first.status_code == 200, first.text
+        assert first.json() == {"status": "pending"}
+        assert "api_key" not in first.json()
+        again = client.post("/v1/enrollment-requests", json=body)
+        assert again.json() == {"status": "pending"}
+        db = client.app.state.db
+        with db.connection() as conn:
+            row = conn.execute(
+                "SELECT id FROM enrollment_requests WHERE serial = ?",
+                (body["serial"],),
+            ).fetchone()
+        device_id = "req-" + generate_token("")[:12]
+        api_key = generate_token("bad_ak_")
+        private, public, fingerprint = new_device_signing_key()
+        data_key = client.app.state.data_key
+        db.upsert_device_on_enroll(
+            device_id=device_id,
+            hostname=body["hostname"],
+            api_key_hash=hash_secret(api_key),
+            agent_version=None,
+            signing_pubkey=public,
+            signing_key_fingerprint=fingerprint,
+        )
+        assert db.mark_enrollment_request_approved(
+            row["id"],
+            device_id,
+            encrypt_secret(data_key, api_key),
+            encrypt_secret(data_key, private),
+        )
+        claimed = client.post("/v1/enrollment-requests", json=body)
+        assert claimed.status_code == 200, claimed.text
+        assert claimed.json()["api_key"] == api_key
+        assert len(base64.b64decode(claimed.json()["signing_key"])) == 32
+        repeat = client.post("/v1/enrollment-requests", json=body)
+        assert "api_key" not in repeat.json()
+        assert "signing_key" not in repeat.json()
+
+
+def test_unbound_install_code_once() -> None:
+    from bad_server.security import enrollment_code_hash, generate_token
+
+    device_id = _device_id("install")
+    code = generate_token("bad_ot_")
+    with TestClient(create_app()) as client:
+        client.app.state.db.create_enrollment_grant("", enrollment_code_hash(code))
+        first = client.post(
+            "/v1/enroll",
+            headers={"Authorization": f"Bearer {code}"},
+            json={"device_id": device_id, "hostname": "INSTALL"},
+        )
+        assert first.status_code == 200, first.text
+        assert first.json()["api_key"]
+        second = client.post(
+            "/v1/enroll",
+            headers={"Authorization": f"Bearer {code}"},
+            json={"device_id": _device_id("install2")},
+        )
+        assert second.status_code == 401, second.text
+
+
+def test_panel_flags_override_defaults() -> None:
+    device_id = _device_id("flagged")
+    with TestClient(create_app()) as client:
+        enrolled = client.post(
+            "/v1/enroll",
+            headers={"Authorization": "Bearer test-enrollment-token-change-me-please"},
+            json={"device_id": device_id},
+        )
+        assert enrolled.status_code == 200, enrolled.text
+        api_key = enrolled.json()["api_key"]
+        db = client.app.state.db
+        db.set_site_secret("require_inventory_signature", "1")
+        try:
+            denied = client.post(
+                "/v1/inventory",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={"schema_version": 2, "device_id": device_id},
+            )
+            assert denied.status_code == 401, denied.text
+        finally:
+            db.set_site_secret("require_inventory_signature", "0")
+        ok = client.post(
+            "/v1/inventory",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={"schema_version": 2, "device_id": device_id},
+        )
+        assert ok.status_code == 200, ok.text
+        db.set_site_secret("allow_shared_enrollment", "0")
+        try:
+            blocked = client.post(
+                "/v1/enroll",
+                headers={"Authorization": "Bearer test-enrollment-token-change-me-please"},
+                json={"device_id": _device_id("shared-off")},
+            )
+            assert blocked.status_code == 401, blocked.text
+        finally:
+            db.set_site_secret("allow_shared_enrollment", "1")
+
+
 def test_fat_inventory_does_not_write() -> None:
     device_id = _device_id("fat-pc")
     with TestClient(create_app()) as client:

@@ -51,7 +51,14 @@ from .device_health import (
     parse_utc,
 )
 from .ldap_client import settings_from_row, test_connection
-from .security import api_key_lookup, generate_token, hash_secret, verify_secret
+from .security import (
+    api_key_lookup,
+    enrollment_code_hash,
+    generate_token,
+    hash_secret,
+    new_device_signing_key,
+    verify_secret,
+)
 from .sessions import SESSION_COOKIE, SESSION_MAX_AGE, WebUser, dump_session
 from .agent_update import (
     delete_msi_version,
@@ -1964,7 +1971,7 @@ def devices_page(
         model_filter=model_filter,
         chassis_filter=chassis_filter,
     )
-    flash_msg = (flash or "").strip() or None
+    flash_msg = (flash or "").strip() or getattr(request.state, "devices_flash", None)
     if flash_msg and len(flash_msg) > 200:
         flash_msg = flash_msg[:200]
     active_fleet, _archived, fleet_stats, fleet_ops = _fleet_snapshot(db, settings)
@@ -2008,6 +2015,10 @@ def devices_page(
             "page_size": DEVICES_PAGE_SIZE,
             "export_qs": qs,
             "flash": flash_msg,
+            "enrollment_requests": db.list_pending_enrollment_requests()
+            if user.is_admin
+            else [],
+            "issued_code": getattr(request.state, "issued_enrollment_code", None),
             "filter_chips": filter_chips,
             "park_empty": total == 0
             and not (
@@ -2030,6 +2041,63 @@ def devices_page(
             "chassis_labels": _CHASSIS_LABELS_RU,
         },
     )
+
+
+@router.post("/devices/enrollment-code")
+def devices_issue_enrollment_code(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    code = generate_token("bad_ot_")
+    db.create_enrollment_grant("", enrollment_code_hash(code))
+    request.state.issued_enrollment_code = code
+    return devices_page(request, user=user, db=db, settings=settings)
+
+
+@router.post("/devices/enrollment-requests/{request_id}/allow")
+def devices_allow_enrollment_request(
+    request_id: str,
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    from .crypto_util import encrypt_secret
+
+    row = db.get_enrollment_request(request_id)
+    if not row or row["status"] != "pending":
+        request.state.devices_flash = "Заявка уже не ждёт разрешения."
+        return devices_page(request, user=user, db=db, settings=settings)
+    device_id = "req-" + generate_token("")[:12]
+    api_key = generate_token("bad_ak_")
+    private, public, fingerprint = new_device_signing_key()
+    data_key = getattr(request.app.state, "data_key", "") or ""
+    lookup = api_key_lookup(data_key, api_key) if data_key else None
+    try:
+        db.upsert_device_on_enroll(
+            device_id=device_id,
+            hostname=row.get("hostname"),
+            api_key_hash=hash_secret(api_key),
+            agent_version=None,
+            api_key_lookup=lookup,
+            signing_pubkey=public,
+            signing_key_fingerprint=fingerprint,
+        )
+    except ValueError:
+        request.state.devices_flash = "Не удалось выпустить ключ."
+        return devices_page(request, user=user, db=db, settings=settings)
+    if not db.mark_enrollment_request_approved(
+        request_id,
+        device_id,
+        encrypt_secret(data_key, api_key),
+        encrypt_secret(data_key, private),
+    ):
+        request.state.devices_flash = "Заявка уже не ждёт разрешения."
+        return devices_page(request, user=user, db=db, settings=settings)
+    request.state.devices_flash = "Разрешено. Агент заберёт ключ при следующем подключении."
+    return devices_page(request, user=user, db=db, settings=settings)
 
 
 @router.get("/devices/export.csv")
@@ -4499,6 +4567,12 @@ def _updates_context(
         "message": message,
         "error": error,
         "new_enrollment_token": new_enrollment_token,
+        "allow_shared_enrollment": db.get_bool_setting(
+            "allow_shared_enrollment", settings.allow_shared_enrollment
+        ),
+        "require_inventory_signature": db.get_bool_setting(
+            "require_inventory_signature", settings.require_inventory_signature
+        ),
         "enrollment_server_url": enrollment_server_url,
         "enrollment_msi_name": enrollment_msi_name,
         "enrollment_msiexec_script": enrollment_msiexec_script,
@@ -4646,6 +4720,30 @@ def updates_settings_set_latest(
         "updates_settings.html",
         _updates_context(db, settings, user=user, message=message, error=error),
         status_code=code,
+    )
+
+
+@router.post("/settings/updates/access")
+def updates_access_save(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    allow_shared_enrollment: str = Form(""),
+    require_inventory_signature: str = Form(""),
+):
+    db.set_site_secret(
+        "allow_shared_enrollment",
+        "1" if (allow_shared_enrollment or "").strip() in {"1", "on", "true"} else "0",
+    )
+    db.set_site_secret(
+        "require_inventory_signature",
+        "1" if (require_inventory_signature or "").strip() in {"1", "on", "true"} else "0",
+    )
+    return _html(
+        request,
+        "updates_settings.html",
+        _updates_context(db, settings, user=user, message="Сохранено"),
     )
 
 

@@ -25,6 +25,43 @@
     </p>
   </header>
   {% if flash %}<p class="ok">{{ flash }}</p>{% endif %}
+  {% if user.is_admin %}
+  <div class="card-surface">
+    <h2>Заявки на подключение</h2>
+    <form method="post" action="/devices/enrollment-code">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit">Выпустить код</button>
+    </form>
+    {% if issued_code %}
+    <p>Код установки, показать один раз: <span class="mono">{{ issued_code }}</span></p>
+    {% endif %}
+    {% if enrollment_requests %}
+    <table>
+      <thead>
+        <tr><th>Имя</th><th>IP</th><th>Серийник</th><th>Статус</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for row in enrollment_requests %}
+        <tr>
+          <td>{{ row.hostname }}</td>
+          <td class="mono">{{ row.ip or "—" }}</td>
+          <td class="mono">{{ row.serial or "—" }}</td>
+          <td>Ожидает разрешения</td>
+          <td>
+            <form method="post" action="/devices/enrollment-requests/{{ row.id }}/allow">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button type="submit">Разрешить</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted">Заявок нет.</p>
+    {% endif %}
+  </div>
+  {% endif %}
 
   <div class="card-surface filter-card devices-filter-card">
     <form method="get" action="/devices" class="devices-filter-form" data-live-submit data-live-delay="300">

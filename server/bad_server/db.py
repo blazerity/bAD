@@ -135,6 +135,12 @@ class Database:
         finally:
             conn.close()
 
+    def get_bool_setting(self, key: str, default: bool) -> bool:
+        raw = self.get_site_secret(key)
+        if raw is None or str(raw).strip() == "":
+            return default
+        return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
     def get_site_secret(self, key: str) -> Optional[str]:
         with self.connection() as conn:
             row = conn.execute(
@@ -163,9 +169,10 @@ class Database:
                 """,
                 (code_hash,),
             ).fetchone()
-        return bool(
-            row and row["device_id"] == device_id and not row["used_at"]
-        )
+        if not row or row["used_at"]:
+            return False
+        bound = row["device_id"] or ""
+        return bound == device_id or bound == ""
 
     def create_enrollment_grant(self, device_id: str, code_hash: str) -> None:
         with self.connection() as conn:
@@ -176,6 +183,106 @@ class Database:
                 """,
                 (code_hash, device_id, utc_now()),
             )
+
+    def save_enrollment_request(
+        self, request_id: str, hostname: str, ip: str, serial: str
+    ) -> str:
+        """Создать или обновить заявку. Возвращает текущий status."""
+        now = utc_now()
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT status FROM enrollment_requests WHERE id = ?",
+                (request_id,),
+            ).fetchone()
+            if row:
+                if row["status"] == "pending":
+                    conn.execute(
+                        """
+                        UPDATE enrollment_requests
+                        SET hostname = ?, ip = ?, serial = ?
+                        WHERE id = ?
+                        """,
+                        (hostname, ip, serial, request_id),
+                    )
+                return str(row["status"])
+            conn.execute(
+                """
+                INSERT INTO enrollment_requests(
+                  id, hostname, ip, serial, created_at, status
+                ) VALUES (?, ?, ?, ?, ?, 'pending')
+                """,
+                (request_id, hostname, ip, serial, now),
+            )
+        return "pending"
+
+    def list_pending_enrollment_requests(self) -> list[dict[str, Any]]:
+        with self.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, hostname, ip, serial, created_at
+                FROM enrollment_requests
+                WHERE status = 'pending'
+                ORDER BY created_at
+                """
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_enrollment_request(self, request_id: str) -> Optional[dict[str, Any]]:
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM enrollment_requests WHERE id = ?",
+                (request_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def mark_enrollment_request_approved(
+        self,
+        request_id: str,
+        device_id: str,
+        api_key_enc: str,
+        signing_key_enc: str,
+    ) -> bool:
+        with self.connection() as conn:
+            updated = conn.execute(
+                """
+                UPDATE enrollment_requests
+                SET status = 'approved', device_id = ?,
+                    api_key_enc = ?, signing_key_enc = ?
+                WHERE id = ? AND status = 'pending'
+                """,
+                (device_id, api_key_enc, signing_key_enc, request_id),
+            )
+        return updated.rowcount == 1
+
+    def take_enrollment_secrets(self, request_id: str) -> Optional[dict[str, Any]]:
+        """Один раз отдать сохранённые секреты одобренной заявки."""
+        with self.connection() as conn:
+            row = conn.execute(
+                """
+                SELECT device_id, status, api_key_enc, signing_key_enc
+                FROM enrollment_requests WHERE id = ?
+                FOR UPDATE
+                """,
+                (request_id,),
+            ).fetchone()
+            if not row:
+                return None
+            if row["status"] != "approved" or not row["api_key_enc"]:
+                return {"status": row["status"], "device_id": row["device_id"]}
+            conn.execute(
+                """
+                UPDATE enrollment_requests
+                SET api_key_enc = NULL, signing_key_enc = NULL, claimed_at = ?
+                WHERE id = ?
+                """,
+                (utc_now(), request_id),
+            )
+        return {
+            "status": "approved",
+            "device_id": row["device_id"],
+            "api_key_enc": row["api_key_enc"],
+            "signing_key_enc": row["signing_key_enc"],
+        }
 
     def get_device_auth_row(self, device_id: str) -> Optional[dict[str, Any]]:
         with self.connection() as conn:
@@ -225,12 +332,14 @@ class Database:
             if grant_code_hash:
                 spent = conn.execute(
                     """
-                    UPDATE enrollment_grants
-                    SET used_at = ?
-                    WHERE code_hash = ? AND device_id = ? AND used_at IS NULL
-                    """,
-                    (now, grant_code_hash, device_id),
-                )
+                UPDATE enrollment_grants
+                SET used_at = ?,
+                    device_id = CASE WHEN device_id = '' THEN ? ELSE device_id END
+                WHERE code_hash = ? AND used_at IS NULL
+                  AND (device_id = ? OR device_id = '')
+                """,
+                (now, device_id, grant_code_hash, device_id),
+            )
                 if spent.rowcount != 1:
                     raise ValueError("grant_invalid")
             existing = conn.execute(

@@ -119,7 +119,24 @@
     </div>
   </form>
 
-  <h2 id="enrollment">Токен подключения агентов</h2>
+  <h2 id="enrollment">Регистрация агентов</h2>
+  <form method="post" action="/settings/updates/access" class="settings-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>
+      <input type="checkbox" name="allow_shared_enrollment" value="1"
+        {% if allow_shared_enrollment %}checked{% endif %}>
+      Разрешить общий токен регистрации
+    </label>
+    <label>
+      <input type="checkbox" name="require_inventory_signature" value="1"
+        {% if require_inventory_signature %}checked{% endif %}>
+      Требовать подпись снимка
+    </label>
+    <div class="form-actions">
+      <button type="submit">Сохранить</button>
+    </div>
+  </form>
+  <h2>Токен подключения агентов</h2>
   {% if enrollment_rotation and enrollment_rotation.rotation_due and not new_enrollment_token %}
   <div class="warn-box" role="status">
     <strong>После волны установок смените токен</strong>

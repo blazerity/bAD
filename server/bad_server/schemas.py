@@ -31,6 +31,12 @@ class EnrollmentGrantBody(BaseModel):
     device_id: str = Field(min_length=1, max_length=128)
 
 
+class EnrollmentRequestBody(BaseModel):
+    hostname: str = Field(min_length=1, max_length=255)
+    ip: Optional[str] = Field(default="", max_length=64)
+    serial: Optional[str] = Field(default="", max_length=128)
+
+
 class ConfigLocalPayload(BaseModel):
     """Agent-reported manual knobs (agent_local). Strip secrets; keys ⊆ ALLOWED_SETTING_KEYS."""
 

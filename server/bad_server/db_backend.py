@@ -147,6 +147,19 @@ CREATE TABLE IF NOT EXISTS enrollment_grants (
   used_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS enrollment_requests (
+  id TEXT PRIMARY KEY,
+  hostname TEXT,
+  ip TEXT,
+  serial TEXT,
+  created_at TEXT NOT NULL,
+  status TEXT NOT NULL,
+  device_id TEXT,
+  api_key_enc TEXT,
+  signing_key_enc TEXT,
+  claimed_at TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_devices_api_key_lookup
   ON devices(api_key_lookup);
 

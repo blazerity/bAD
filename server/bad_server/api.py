@@ -55,12 +55,14 @@ from .schemas import (
     EnrollRequest,
     EnrollResponse,
     EnrollmentGrantBody,
+    EnrollmentRequestBody,
     HeartbeatRequest,
     IntegrationLookupBody,
     IntegrationRequestBody,
     InventoryRequest,
 )
 from .http_bootstrap import ENROLL_CLEARTEXT_MSG, client_ip, enroll_cleartext_blocked
+from .crypto_util import decrypt_secret
 from .security import (
     api_key_lookup,
     enrollment_code_hash,
@@ -109,6 +111,53 @@ def create_enrollment_grant(
     return {"code": code, "device_id": body.device_id}
 
 
+def _enrollment_request_id(hostname: str, ip: str, serial: str) -> str:
+    import hashlib
+
+    serial = serial.strip()
+    if serial:
+        raw = "serial:" + serial.casefold()
+    else:
+        raw = "name:" + hostname.casefold() + "|" + ip.strip()
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
+
+
+@router.post("/enrollment-requests")
+def submit_enrollment_request(
+    body: EnrollmentRequestBody,
+    request: Request,
+    db: Database = Depends(get_db),
+) -> dict[str, Any]:
+    """Заявка без токена. api_key только после «Разрешить», и только один раз."""
+    limiter = request.app.state.enroll_limiter
+    if not limiter.allow(client_ip(request)):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Enrollment rate limit exceeded",
+        )
+    hostname = body.hostname.strip()
+    ip = (body.ip or "").strip()
+    serial = (body.serial or "").strip()
+    request_id = _enrollment_request_id(hostname, ip, serial)
+    status_name = db.save_enrollment_request(request_id, hostname, ip, serial)
+    if status_name != "approved":
+        return {"status": "pending"}
+    taken = db.take_enrollment_secrets(request_id)
+    if not taken or not taken.get("api_key_enc"):
+        return {"status": "approved"}
+    data_key = getattr(request.app.state, "data_key", "") or ""
+    api_key = decrypt_secret(data_key, taken["api_key_enc"])
+    signing_key = decrypt_secret(data_key, taken["signing_key_enc"] or "")
+    if not api_key or not signing_key:
+        return {"status": "approved"}
+    return {
+        "status": "approved",
+        "device_id": taken["device_id"],
+        "api_key": api_key,
+        "signing_key": signing_key,
+    }
+
+
 @router.post("/enroll", response_model=EnrollResponse)
 def enroll(
     body: EnrollRequest,
@@ -136,7 +185,10 @@ def enroll(
     shared_ok = bool(
         bearer and shared_enrollment_token_ok(bearer, settings, db)
     )
-    if shared_ok and settings.allow_shared_enrollment:
+    allow_shared = db.get_bool_setting(
+        "allow_shared_enrollment", settings.allow_shared_enrollment
+    )
+    if shared_ok and allow_shared:
         grant_hash = None
         logger.warning(
             "shared enrollment token accepted for device_id=%s "
@@ -369,7 +421,9 @@ def inventory(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid inventory signature",
             )
-    elif settings.require_inventory_signature:
+    elif db.get_bool_setting(
+        "require_inventory_signature", settings.require_inventory_signature
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Inventory signature required",
