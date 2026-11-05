@@ -139,6 +139,63 @@ def test_unsigned_snapshot_and_signing_key_once() -> None:
         assert not second.json().get("signing_key")
 
 
+def test_inventory_signature_uses_agent_canon() -> None:
+    import base64
+    import hashlib
+    import json
+
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    device_id = _device_id("signed")
+    with TestClient(create_app()) as client:
+        enrolled = client.post(
+            "/v1/enroll",
+            headers={"Authorization": "Bearer test-enrollment-token-change-me-please"},
+            json={"device_id": device_id, "hostname": "SIGNED"},
+        )
+        assert enrolled.status_code == 200, enrolled.text
+        secret = enrolled.json()["signing_key"]
+        raw_private = base64.b64decode(secret)
+        assert len(raw_private) == 32
+        private = Ed25519PrivateKey.from_private_bytes(raw_private)
+        raw_public = private.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw,
+        )
+        fingerprint = hashlib.sha256(raw_public).hexdigest()
+        assert fingerprint == fingerprint.lower()
+        with client.app.state.db.connection() as conn:
+            row = conn.execute(
+                "SELECT signing_key_fingerprint FROM devices WHERE device_id = ?",
+                (device_id,),
+            ).fetchone()
+        assert row["signing_key_fingerprint"] == fingerprint
+        payload = {
+            "schema_version": 2,
+            "device_id": device_id,
+            "software": {"programs": [{"name": "блокнот"}]},
+        }
+        canon = json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+        signature = base64.b64encode(private.sign(canon)).decode("ascii")
+        ok = client.post(
+            "/v1/inventory",
+            headers={"Authorization": f"Bearer {enrolled.json()['api_key']}"},
+            json={**payload, "signature": signature},
+        )
+        assert ok.status_code == 200, ok.text
+        spaced = json.dumps(payload, sort_keys=True).encode("utf-8")
+        bad = base64.b64encode(private.sign(spaced)).decode("ascii")
+        denied = client.post(
+            "/v1/inventory",
+            headers={"Authorization": f"Bearer {enrolled.json()['api_key']}"},
+            json={**payload, "signature": bad},
+        )
+        assert denied.status_code == 401, denied.text
+
+
 def test_fat_inventory_does_not_write() -> None:
     device_id = _device_id("fat-pc")
     with TestClient(create_app()) as client:

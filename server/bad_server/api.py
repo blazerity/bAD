@@ -357,21 +357,14 @@ def inventory(
             detail=f"Unsupported schema_version: {body.schema_version}",
         )
 
-    # Additive schema_version=2; strip dump bodies if agent ever sends them.
-    payload = sanitize_inventory_payload(body.model_dump())
-    # schema 1/2: неизвестные верхние ключи оставляем (текущие снимки). 3 — режем.
-    if body.schema_version >= 3:
-        payload = {key: value for key, value in payload.items() if key in INVENTORY_TOP_KEYS}
-    budget = inventory_budget_error(payload)
-    if budget is not None:
-        code, detail = budget
-        raise HTTPException(status_code=code, detail=detail)
-    signature = payload.pop("signature", None)
+    # Агент подписывает отправленный JSON без signature, не полный dump с null.
+    signed = body.model_dump(exclude_unset=True)
+    signature = signed.pop("signature", None)
     if isinstance(signature, str):
         signature = signature.strip() or None
     pubkey = (device.get("signing_pubkey") or "").strip()
     if signature:
-        if not pubkey or not verify_inventory_signature(pubkey, payload, signature):
+        if not pubkey or not verify_inventory_signature(pubkey, signed, signature):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid inventory signature",
@@ -381,6 +374,17 @@ def inventory(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Inventory signature required",
         )
+
+    # Additive schema_version=2; strip dump bodies if agent ever sends them.
+    payload = sanitize_inventory_payload(body.model_dump())
+    # schema 1/2: неизвестные верхние ключи оставляем (текущие снимки). 3 — режем.
+    if body.schema_version >= 3:
+        payload = {key: value for key, value in payload.items() if key in INVENTORY_TOP_KEYS}
+    payload.pop("signature", None)
+    budget = inventory_budget_error(payload)
+    if budget is not None:
+        code, detail = budget
+        raise HTTPException(status_code=code, detail=detail)
     hostname = None
     host = payload.get("host") if isinstance(payload.get("host"), dict) else None
     if host:
