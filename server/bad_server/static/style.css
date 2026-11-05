@@ -45,8 +45,8 @@
   --radius-large: 12px;
 
   /* Type */
-  --sans: system-ui, -apple-system, "Segoe UI", "Helvetica", Arial, sans-serif;
-  --mono: "Cascadia Mono", "Cascadia Code", "Consolas", "Segoe UI Mono", monospace;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", "Helvetica", Arial, sans-serif;
+  --mono: "IBM Plex Mono", "Cascadia Mono", "Cascadia Code", "Consolas", "Segoe UI Mono", monospace;
 
   /* Motion */
   --ease: cubic-bezier(0.1, 0.9, 0.2, 1);
