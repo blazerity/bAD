@@ -250,7 +250,8 @@ public sealed class Worker : BackgroundService
     private async Task PollEnrollmentRequestAsync(BadApiClient client, AgentConfig config, CancellationToken ct)
     {
         var (hostname, ip, serial) = EnrollmentHints.ForRequest();
-        var result = await client.SubmitEnrollmentRequestAsync(hostname, ip, serial, ct);
+        var result = await client.SubmitEnrollmentRequestAsync(
+            hostname, ip, serial, EnrollmentHints.ProofFingerprint(), ct);
         if (result.RouteMissing)
         {
             _enrollmentRequestPending = false;

@@ -196,13 +196,24 @@ def test_inventory_signature_uses_agent_canon() -> None:
         assert denied.status_code == 401, denied.text
 
 
+def _fingerprint(label: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(label.encode("utf-8")).hexdigest()
+
+
 def test_enrollment_request_waits_for_admin() -> None:
     import base64
 
     from bad_server.crypto_util import encrypt_secret
     from bad_server.security import generate_token, hash_secret, new_device_signing_key
 
-    body = {"hostname": "NEW-PC", "ip": "10.1.1.5", "serial": _device_id("sn")}
+    body = {
+        "hostname": "NEW-PC",
+        "ip": "10.1.1.5",
+        "serial": _device_id("sn"),
+        "fingerprint": _fingerprint("owner"),
+    }
     with TestClient(create_app()) as client:
         first = client.post("/v1/enrollment-requests", json=body)
         assert first.status_code == 200, first.text
@@ -241,6 +252,134 @@ def test_enrollment_request_waits_for_admin() -> None:
         repeat = client.post("/v1/enrollment-requests", json=body)
         assert "api_key" not in repeat.json()
         assert "signing_key" not in repeat.json()
+
+
+def test_stranger_same_serial_gets_no_key() -> None:
+    from bad_server.crypto_util import encrypt_secret
+    from bad_server.security import generate_token, hash_secret, new_device_signing_key
+
+    serial = _device_id("shared-sn")
+    owner = {
+        "hostname": "OWNER-PC",
+        "ip": "10.1.1.5",
+        "serial": serial,
+        "fingerprint": _fingerprint("owner-" + serial),
+    }
+    stranger = {
+        "hostname": "STRANGER-PC",
+        "ip": "10.9.9.9",
+        "serial": serial,
+        "fingerprint": _fingerprint("stranger-" + serial),
+    }
+    with TestClient(create_app()) as client:
+        assert client.post("/v1/enrollment-requests", json=owner).json()["status"] == "pending"
+        assert client.post("/v1/enrollment-requests", json=stranger).json()["status"] == "pending"
+        db = client.app.state.db
+        with db.connection() as conn:
+            owner_row = conn.execute(
+                "SELECT hostname FROM enrollment_requests WHERE id = ?",
+                (owner["fingerprint"],),
+            ).fetchone()
+        assert owner_row["hostname"] == "OWNER-PC"
+        device_id = "req-" + generate_token("")[:12]
+        api_key = generate_token("bad_ak_")
+        private, public, fingerprint = new_device_signing_key()
+        data_key = client.app.state.data_key
+        db.upsert_device_on_enroll(
+            device_id=device_id,
+            hostname=owner["hostname"],
+            api_key_hash=hash_secret(api_key),
+            agent_version=None,
+            signing_pubkey=public,
+            signing_key_fingerprint=fingerprint,
+        )
+        assert db.mark_enrollment_request_approved(
+            owner["fingerprint"],
+            device_id,
+            encrypt_secret(data_key, api_key),
+            encrypt_secret(data_key, private),
+        )
+        stolen = client.post("/v1/enrollment-requests", json=stranger)
+        assert stolen.status_code == 200, stolen.text
+        assert "api_key" not in stolen.json()
+        assert "signing_key" not in stolen.json()
+        with db.connection() as conn:
+            card = conn.execute(
+                "SELECT hostname FROM devices WHERE device_id = ?",
+                (device_id,),
+            ).fetchone()
+        assert card["hostname"] == "OWNER-PC"
+        claimed = client.post("/v1/enrollment-requests", json=owner)
+        assert claimed.json()["api_key"] == api_key
+
+
+def test_pending_queue_expires_and_caps() -> None:
+    from bad_server.db import PENDING_ENROLLMENT_CAP, utc_now
+
+    fresh = _fingerprint("queue-fresh")
+    with TestClient(create_app()) as client:
+        db = client.app.state.db
+        now = utc_now()
+        with db.connection() as conn:
+            conn.execute("DELETE FROM enrollment_requests WHERE status = 'pending'")
+            conn.execute(
+                """
+                INSERT INTO enrollment_requests(
+                  id, hostname, ip, serial, created_at, status
+                ) VALUES (?, 'OLD', '', '', '2000-01-01T00:00:00Z', 'pending')
+                """,
+                ("a" * 64,),
+            )
+            for i in range(PENDING_ENROLLMENT_CAP - 1):
+                conn.execute(
+                    """
+                    INSERT INTO enrollment_requests(
+                      id, hostname, ip, serial, created_at, status
+                    ) VALUES (?, 'Q', '', '', ?, 'pending')
+                    """,
+                    (f"{i:064x}", now),
+                )
+        opened = client.post(
+            "/v1/enrollment-requests",
+            json={
+                "hostname": "NEW",
+                "ip": "",
+                "serial": "To Be Filled By O.E.M.",
+                "fingerprint": fresh,
+            },
+        )
+        assert opened.json()["status"] == "pending"
+        with db.connection() as conn:
+            gone = conn.execute(
+                "SELECT id FROM enrollment_requests WHERE id = ?",
+                ("a" * 64,),
+            ).fetchone()
+            stored = conn.execute(
+                "SELECT serial FROM enrollment_requests WHERE id = ?",
+                (fresh,),
+            ).fetchone()
+            pending = conn.execute(
+                "SELECT COUNT(*) AS n FROM enrollment_requests WHERE status = 'pending'"
+            ).fetchone()
+        assert gone is None
+        assert stored["serial"] == ""
+        assert int(pending["n"]) == PENDING_ENROLLMENT_CAP
+        blocked = client.post(
+            "/v1/enrollment-requests",
+            json={
+                "hostname": "OVERFLOW",
+                "ip": "",
+                "serial": "SN-OVERFLOW",
+                "fingerprint": _fingerprint("overflow"),
+            },
+        )
+        assert blocked.json() == {"status": "busy"}
+        with db.connection() as conn:
+            extra = conn.execute(
+                "SELECT id FROM enrollment_requests WHERE id = ?",
+                (_fingerprint("overflow"),),
+            ).fetchone()
+        assert extra is None
 
 
 def test_unbound_install_code_once() -> None:

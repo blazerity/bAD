@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterator, Optional
 
 from .db_backend import (
@@ -14,6 +14,10 @@ from .db_backend import (
 from .postgres_ddl import ensure_trgm_search_indexes, set_lock_timeout
 
 logger = logging.getLogger(__name__)
+
+# Очередь «Ожидает разрешения»: старые pending снимаются, сверх потолка новая не пишется.
+PENDING_ENROLLMENT_CAP = 200
+PENDING_ENROLLMENT_TTL = timedelta(days=7)
 
 
 def utc_now() -> str:
@@ -186,10 +190,20 @@ class Database:
 
     def save_enrollment_request(
         self, request_id: str, hostname: str, ip: str, serial: str
-    ) -> str:
-        """Создать или обновить заявку. Возвращает текущий status."""
+    ) -> Optional[str]:
+        """Создать или обновить заявку по отпечатку. None — pending уже на потолке."""
         now = utc_now()
+        cutoff = (
+            datetime.now(timezone.utc) - PENDING_ENROLLMENT_TTL
+        ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
         with self.connection() as conn:
+            conn.execute(
+                """
+                DELETE FROM enrollment_requests
+                WHERE status = 'pending' AND created_at < ?
+                """,
+                (cutoff,),
+            )
             row = conn.execute(
                 "SELECT status FROM enrollment_requests WHERE id = ?",
                 (request_id,),
@@ -200,11 +214,16 @@ class Database:
                         """
                         UPDATE enrollment_requests
                         SET hostname = ?, ip = ?, serial = ?
-                        WHERE id = ?
+                        WHERE id = ? AND status = 'pending'
                         """,
                         (hostname, ip, serial, request_id),
                     )
                 return str(row["status"])
+            pending = conn.execute(
+                "SELECT COUNT(*) AS n FROM enrollment_requests WHERE status = 'pending'"
+            ).fetchone()
+            if int(pending["n"]) >= PENDING_ENROLLMENT_CAP:
+                return None
             conn.execute(
                 """
                 INSERT INTO enrollment_requests(

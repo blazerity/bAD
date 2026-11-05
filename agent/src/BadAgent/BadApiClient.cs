@@ -72,6 +72,7 @@ public sealed class BadApiClient : IDisposable
         string hostname,
         string ip,
         string serial,
+        string fingerprint,
         CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/enrollment-requests");
@@ -79,7 +80,8 @@ public sealed class BadApiClient : IDisposable
         {
             hostname,
             ip = ip ?? "",
-            serial = serial ?? ""
+            serial = serial ?? "",
+            fingerprint
         }, options: JsonOptions);
 
         using var resp = await _http.SendAsync(req, ct);

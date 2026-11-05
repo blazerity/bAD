@@ -120,15 +120,34 @@ def _enforce_enroll_rate(request: Request) -> None:
         )
 
 
-def _enrollment_request_id(hostname: str, ip: str, serial: str) -> str:
-    import hashlib
+_SERIAL_PLACEHOLDERS = {
+    "none",
+    "n/a",
+    "na",
+    "default string",
+    "system serial number",
+    "to be filled by o.e.m.",
+    "o.e.m.",
+    "oem",
+    "unknown",
+    "not specified",
+    "not available",
+    "0",
+}
 
-    serial = serial.strip()
-    if serial:
-        raw = "serial:" + serial.casefold()
-    else:
-        raw = "name:" + hostname.casefold() + "|" + ip.strip()
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
+
+def _display_serial(serial: str) -> str:
+    """Серийник только для панели. Заглушка BIOS не идентифицирует заявку."""
+    text = serial.strip()
+    if not text:
+        return ""
+    lower = text.casefold()
+    if lower in _SERIAL_PLACEHOLDERS or lower.startswith("to be filled"):
+        return ""
+    compact = "".join(ch for ch in lower if ch not in "-_. ")
+    if compact and (set(compact) <= {"0"} or set(compact) <= {"f"}):
+        return ""
+    return text
 
 
 @router.post("/enrollment-requests")
@@ -136,16 +155,27 @@ def submit_enrollment_request(
     body: EnrollmentRequestBody,
     request: Request,
     db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
-    """Заявка без токена. api_key только после «Разрешить», и только один раз."""
+    """Заявка без токена. Секрет забирает только опрос с тем же отпечатком."""
     _enforce_enroll_rate(request)
+    request_id = body.fingerprint.strip().lower()
     hostname = body.hostname.strip()
     ip = (body.ip or "").strip()
-    serial = (body.serial or "").strip()
-    request_id = _enrollment_request_id(hostname, ip, serial)
+    serial = _display_serial(body.serial or "")
     status_name = db.save_enrollment_request(request_id, hostname, ip, serial)
+    if status_name is None:
+        return {"status": "busy"}
     if status_name != "approved":
         return {"status": "pending"}
+    row = db.get_enrollment_request(request_id)
+    if not row or not row.get("api_key_enc"):
+        return {"status": "approved"}
+    if enroll_cleartext_blocked(request, settings):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ENROLL_CLEARTEXT_MSG,
+        )
     taken = db.take_enrollment_secrets(request_id)
     if not taken or not taken.get("api_key_enc"):
         return {"status": "approved"}
