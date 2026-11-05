@@ -117,15 +117,6 @@ body.hcp-panel .hcp-app-body {
   min-height: 100vh;
   align-items: stretch;
 }
-/* margin:auto на main во flex-колонке сжимает блок до ширины контента — только rail+узкая колонка */
-body.hcp-panel .hcp-app-body > main,
-body.hcp-panel .hcp-app-body > footer.foot {
-  width: 100%;
-  max-width: none;
-  margin: 0;
-  align-self: stretch;
-  box-sizing: border-box;
-}
 .hcp-rail {
   width: 13.25rem;
   flex-shrink: 0;
@@ -732,6 +723,40 @@ main {
   margin: 0 auto;
   padding: 1.5rem 1.5rem 3.5rem;
   animation: page-in var(--dur-nav) var(--ease);
+}
+
+/* Rail shell: margin:auto на main во flex-колонке сжимает до ~640px (повтор после base main). */
+body.hcp-panel .hcp-app-body > main,
+body.hcp-panel .hcp-app-body > footer.foot {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  align-self: stretch;
+  box-sizing: border-box;
+}
+
+@media (min-width: 1280px) {
+  body.hcp-panel .hcp-app-body > main > .page,
+  body.hcp-panel .overview-console,
+  body.hcp-panel .overview-console .card-surface,
+  body.hcp-panel .overview-ops-full,
+  body.hcp-panel .overview-search-compact,
+  body.hcp-panel .prob-severity-bar,
+  body.hcp-panel .device-card,
+  body.hcp-panel .device-shell.settings-shell {
+    width: 100%;
+    max-width: none;
+    box-sizing: border-box;
+  }
+  body.hcp-panel .device-shell.settings-shell {
+    display: grid;
+    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  }
+  body.hcp-panel .settings-pane,
+  body.hcp-panel .device-panel.is-active {
+    width: 100%;
+    max-width: none;
+  }
 }
 
 .page-header {
