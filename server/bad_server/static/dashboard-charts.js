@@ -141,11 +141,14 @@
     return rects;
   }
 
-  function placeCell(root, cell, gap, forceLabel) {
+  function placeCell(root, cell, gap, forceLabel, modelMode) {
     var item = cell.item;
     var a = document.createElement(item.href ? "a" : "div");
     if (item.href) a.href = item.href;
     a.className = "dash-treemap-cell vendor-" + (item.vendor || "neutral");
+    if (modelMode) {
+      a.classList.add("is-model-tile");
+    }
     var left = cell.x + gap / 2;
     var top = cell.y + gap / 2;
     var cw = Math.max(0, cell.w - gap);
@@ -156,7 +159,7 @@
     a.style.height = ch + "px";
     a.title = item.label + ": " + item.count;
 
-    var showLabel = forceLabel || (cw >= 72 && ch >= 36);
+    var showLabel = modelMode || forceLabel || (cw >= 72 && ch >= 36);
     var showCount = forceLabel || (cw >= 40 && ch >= 28);
     var labelHtml = showLabel
       ? '<span class="dash-treemap-label">' + item.label + "</span>"
@@ -357,6 +360,11 @@
       return b.count - a.count || String(a.label).localeCompare(String(b.label));
     });
 
+    if (root.classList && root.classList.contains("dash-treemap--cpu")) {
+      renderCpuGenerations(root, items);
+      return;
+    }
+
     var gap = 3;
     var width = Math.max(root.clientWidth || root.offsetWidth || 320, 160);
     var few = items.length <= 2;
@@ -375,9 +383,60 @@
     var layout = few
       ? layoutFew(items, width, height)
       : layoutSquarified(items, width, height);
+    var modelMode = root.classList && root.classList.contains("dash-treemap--model");
     layout.forEach(function (cell) {
-      placeCell(root, cell, gap, few);
+      placeCell(root, cell, gap, few, modelMode);
     });
+  }
+
+  /** Поколения CPU: одна полоса на строку с подписью (без залитых прямоугольников treemap). */
+  function renderCpuGenerations(root, items) {
+    root.style.height = "auto";
+    root.style.position = "static";
+    root.classList.remove("dash-treemap--few");
+    var total = 0;
+    items.forEach(function (it) {
+      total += Math.max(0, Number(it.count) || 0);
+    });
+    if (total <= 0) total = 1;
+    var ul = document.createElement("ul");
+    ul.className = "hbar-list dash-cpu-gen-list";
+    items.forEach(function (it) {
+      var n = Math.max(0, Number(it.count) || 0);
+      var pct = Math.round((100.0 * n) / total * 10) / 10;
+      var li = document.createElement("li");
+      li.className = "hbar-row dash-cpu-gen-row";
+      var inner;
+      if (it.href) {
+        inner = document.createElement("a");
+        inner.href = it.href;
+        inner.className = "hbar-link-row";
+      } else {
+        inner = document.createElement("div");
+        inner.className = "hbar-link-row";
+      }
+      var meta = document.createElement("div");
+      meta.className = "hbar-meta";
+      var lab = document.createElement("span");
+      lab.className = "dash-cpu-gen-label";
+      lab.textContent = it.label;
+      var cnt = document.createElement("span");
+      cnt.className = "muted tnum";
+      cnt.textContent = n + " · " + pct + "%";
+      meta.appendChild(lab);
+      meta.appendChild(cnt);
+      var track = document.createElement("div");
+      track.className = "hbar-track";
+      var fill = document.createElement("span");
+      fill.className = "hbar-fill dash-cpu-gen-fill";
+      fill.style.width = pct + "%";
+      track.appendChild(fill);
+      inner.appendChild(meta);
+      inner.appendChild(track);
+      li.appendChild(inner);
+      ul.appendChild(li);
+    });
+    root.appendChild(ul);
   }
 
   function renderAllTreemaps() {

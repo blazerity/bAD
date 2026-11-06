@@ -93,7 +93,7 @@
   <article class="dash-card card-surface dash-card-full dash-treemap-card">
     <h2>Поколения CPU <span class="muted tnum">({{ cpu_items|length }})</span></h2>
     {% if cpu_items %}
-    <div id="dash-cpu-treemap" class="dash-treemap dash-treemap--mosaic" data-treemap='{{ cpu_items|tojson }}'></div>
+    <div id="dash-cpu-treemap" class="dash-treemap dash-treemap--mosaic dash-treemap--cpu" data-treemap='{{ cpu_items|tojson }}'></div>
     {% else %}<p class="muted">Нет данных</p>{% endif %}
   </article>
 
@@ -102,7 +102,7 @@
     <article class="dash-card card-surface dash-treemap-card">
       <h2>Модели ноутбуков <span class="muted tnum">({{ laptop_items|length }})</span></h2>
       {% if laptop_items %}
-      <div id="dash-laptop-treemap" class="dash-treemap dash-treemap--mosaic" data-treemap='{{ laptop_items|tojson }}'></div>
+      <div id="dash-laptop-treemap" class="dash-treemap dash-treemap--mosaic dash-treemap--model" data-treemap='{{ laptop_items|tojson }}'></div>
       {% else %}<p class="muted">Нет данных</p>{% endif %}
     </article>
 
@@ -110,7 +110,7 @@
     <article class="dash-card card-surface dash-treemap-card">
       <h2>Модели СБ <span class="muted tnum">({{ desktop_items|length }})</span></h2>
       {% if desktop_items %}
-      <div id="dash-desktop-treemap" class="dash-treemap dash-treemap--mosaic" data-treemap='{{ desktop_items|tojson }}'></div>
+      <div id="dash-desktop-treemap" class="dash-treemap dash-treemap--mosaic dash-treemap--model" data-treemap='{{ desktop_items|tojson }}'></div>
       {% else %}<p class="muted">Нет данных</p>{% endif %}
     </article>
   </div>

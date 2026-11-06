@@ -73,7 +73,7 @@
       <dt>Установлено</dt>
       <dd class="mono">
         {{ panel.current.branch or "—" }}
-        @ {{ (panel.current.sha or "")[:12] or "sha неизвестен" }}
+        @ {% if panel.current.sha %}{{ (panel.current.sha or "")[:12] }}{% else %}сборка не записана{% endif %}
       </dd>
     </div>
     {% if panel.current.installed_at %}

@@ -109,6 +109,13 @@ def sanitize_settings(raw: Any) -> dict[str, Any]:
                 n = int(value)
             except (TypeError, ValueError):
                 continue
+            if n == -1 and key in (
+                "inventory_interval_hours",
+                "heartbeat_interval_minutes",
+                "update_check_interval_hours",
+            ):
+                out[key] = -1
+                continue
             if n >= 1:
                 out[key] = n
             continue

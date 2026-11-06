@@ -47,7 +47,32 @@
 
   <h2>Каталог версий агента</h2>
   {% if msi_versions %}
-  <div class="table-scroll">
+  <div class="updates-catalog-cards" aria-label="Каталог версий агента">
+    {% for v in msi_versions %}
+    <article class="updates-version-card card-surface">
+      <h3 class="updates-version-title mono">{{ v.version }}{% if agent_update and v.version == agent_update.version %} · основная{% endif %}</h3>
+      <p class="muted updates-version-file mono">{{ v.msi_name }}</p>
+      <p class="muted updates-version-meta"><span class="mono">{{ v.source or "—" }}</span>
+        {% if v.sha256 %} · SHA256 <span class="mono">{{ v.sha256[:16] }}…</span>{% endif %}
+      </p>
+      <p class="muted mono">{{ local_time(v.mirrored_at or v.synced_at) }}</p>
+      <div class="updates-version-actions">
+        <form method="post" action="/settings/updates/set-latest">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="version" value="{{ v.version }}">
+          <button type="submit" class="secondary btn-block">Сделать основной</button>
+        </form>
+        <form method="post" action="/settings/updates/delete"
+          onsubmit="return confirm('Удалить {{ v.version }} из каталога?');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="version" value="{{ v.version }}">
+          <button type="submit" class="secondary btn-block">Удалить</button>
+        </form>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  <div class="table-scroll updates-catalog-table">
   <table class="devices">
     <thead>
       <tr>
@@ -100,13 +125,23 @@
     Файл <span class="mono">bad-agent-X.Y.Z.msi</span> и при желании манифест.
     Контрольную сумму можно не указывать — посчитаем сами.
   </p>
-  <form method="post" action="/settings/updates/upload" enctype="multipart/form-data" class="settings-form">
+  <form method="post" action="/settings/updates/upload" enctype="multipart/form-data" class="settings-form updates-upload-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label for="msi">Файл установки (.msi)</label>
-    <input id="msi" name="msi" type="file" accept=".msi,application/octet-stream" required>
+    <span class="file-input-ru">
+      <input id="msi" name="msi" type="file" accept=".msi,application/octet-stream" required
+        data-empty-label="файл не выбран">
+      <button type="button" class="btn secondary file-input-ru-btn" tabindex="-1">Выбрать файл</button>
+      <span class="file-input-ru-name muted" data-file-empty="файл не выбран">файл не выбран</span>
+    </span>
 
     <label for="manifest">Описание версии (необязательно)</label>
-    <input id="manifest" name="manifest" type="file" accept=".json,application/json">
+    <span class="file-input-ru">
+      <input id="manifest" name="manifest" type="file" accept=".json,application/json"
+        data-empty-label="файл не выбран">
+      <button type="button" class="btn secondary file-input-ru-btn" tabindex="-1">Выбрать файл</button>
+      <span class="file-input-ru-name muted" data-file-empty="файл не выбран">файл не выбран</span>
+    </span>
 
     <label for="version">Версия агента (если не в имени файла или описании)</label>
     <input id="version" name="version" type="text" placeholder="1.0.0" autocomplete="off">
@@ -180,5 +215,6 @@
   </form>
   {% endif %}
 
+  <script src="/static/file-input-ru.js" defer></script>
 </section>
 {% endblock %}

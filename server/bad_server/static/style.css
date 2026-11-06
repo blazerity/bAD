@@ -5571,6 +5571,16 @@ body.hcp-panel .hcp-app-body > main > .page {
     white-space: nowrap;
     min-width: 0;
   }
+  /* «Нет на связи» — целиком на узком экране (не «Нет на с…»). */
+  .prob-sev-chip.prob-sev-offline {
+    grid-column: 1 / -1;
+  }
+  .prob-sev-chip.prob-sev-offline .prob-sev-label {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
+    line-height: 1.2;
+  }
   .prob-sev-count {
     font-size: 1rem;
     flex-shrink: 0;
@@ -5587,4 +5597,265 @@ body.hcp-panel .hcp-app-body > main > .page {
   .overview-problem-when { text-align: left; }
   .overview-server-strip { width: 100%; }
   .overview-ops-full .dash-card { margin-top: 0.5rem; }
+}
+
+.event-digest-card.event-digest-card--wide {
+  max-width: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+.event-detail-links {
+  margin: 0.75rem 0 0.25rem;
+}
+.event-detail-metafoot {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+}
+.event-detail-foot {
+  margin: 1rem 0 0;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--divider);
+  font-size: 0.82rem;
+}
+
+.dash-cpu-gen-list {
+  margin: 0.25rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.dash-cpu-gen-row .hbar-meta {
+  align-items: baseline;
+}
+.dash-cpu-gen-label {
+  font-weight: 600;
+  word-break: keep-all;
+  overflow-wrap: normal;
+}
+.dash-cpu-gen-fill {
+  min-width: 4%;
+}
+
+.dash-treemap-cell.is-model-tile {
+  justify-content: flex-end;
+  padding-bottom: 0.55rem;
+}
+.dash-treemap-cell.is-model-tile .dash-treemap-label {
+  -webkit-line-clamp: unset;
+  display: block;
+  overflow: visible;
+  line-height: 1.25;
+  font-size: 0.78rem;
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+
+.device-hero-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
+  margin: 0.45rem 0 0;
+  font-size: 0.85rem;
+}
+.device-hero-facts > div {
+  min-width: 0;
+  flex: 1 1 9rem;
+}
+.device-hero-facts dt {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.device-hero-facts dd {
+  margin: 0.1rem 0 0;
+}
+.device-hero-serial {
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.device-hero-badid {
+  margin-top: 0.35rem;
+}
+@media (max-width: 640px) {
+  .device-detail-title-row h1 {
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+  }
+}
+
+.device-events-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.device-events-row {
+  padding: 0.65rem 0.75rem;
+}
+.device-events-row-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  align-items: baseline;
+}
+.device-events-time {
+  font-size: 0.82rem;
+  flex: 0 0 auto;
+}
+.device-events-type {
+  font-size: 0.82rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.device-events-summary {
+  margin: 0.35rem 0 0;
+  font-size: 0.9rem;
+}
+
+.config-provenance-table .config-param-name {
+  white-space: nowrap;
+}
+@media (max-width: 640px) {
+  .config-provenance-table .config-param-name {
+    white-space: normal;
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+  }
+}
+
+.policy-settings-kv {
+  list-style: none;
+  margin: 0.35rem 0 0;
+  padding: 0;
+}
+.policy-settings-kv li {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  gap: 0.35rem 0.65rem;
+  align-items: baseline;
+  padding: 0.2rem 0;
+  border-top: 1px solid var(--divider);
+}
+.policy-settings-kv li:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+.policy-setting-name {
+  font-weight: 600;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.policy-setting-val {
+  justify-self: end;
+  text-align: right;
+}
+
+.updates-catalog-cards {
+  display: none;
+}
+.updates-catalog-table {
+  display: block;
+}
+.file-input-ru {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0.25rem 0 0.75rem;
+}
+.file-input-ru input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.file-input-ru-name {
+  flex: 1 1 8rem;
+  min-width: 0;
+  font-size: 0.85rem;
+  word-break: break-word;
+}
+.btn-block {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: center;
+}
+.updates-version-card {
+  padding: 0.85rem 1rem;
+  margin-bottom: 0.65rem;
+}
+.updates-version-title {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+}
+.updates-version-file {
+  margin: 0 0 0.25rem;
+  word-break: break-word;
+}
+.updates-version-meta {
+  margin: 0 0 0.5rem;
+  word-break: break-word;
+}
+.updates-version-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+@media (max-width: 640px) {
+  .updates-catalog-cards {
+    display: block;
+  }
+  .updates-catalog-table {
+    display: none;
+  }
+  .updates-upload-form .file-input-ru-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 640px) {
+  .settings-page .settings-nav-rail .settings-nav-item.active {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .device-card .device-shell .settings-nav-item.active {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .settings-page .settings-shell {
+    padding-bottom: 1.5rem;
+  }
+  .settings-page .settings-pane {
+    padding-bottom: 1rem;
+    border-bottom: 1px dashed var(--divider);
+  }
+}
+
+.events-stack-row {
+  display: none;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.35rem 0.65rem;
+  align-items: baseline;
+}
+.events-stack-type-label {
+  min-width: 0;
+  font-size: 0.82rem;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 767px) {
+  .events-stack-row {
+    display: grid;
+  }
 }

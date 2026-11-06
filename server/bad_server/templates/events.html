@@ -8,7 +8,12 @@
 <section class="page events-page">
   <header class="page-header">
     <h1 class="with-icon">{{ icon('events') }}События</h1>
-    <p class="page-lead muted">Изменения inventory · показано {{ events|length }} из {{ total }}</p>
+    <p class="page-lead muted">
+      Изменения inventory · показано {{ events|length }} из {{ shown_total if shown_total is defined else total }}
+      {% if importance and chip_narrow_href is defined and chip_narrow_href %}
+        <span class="muted"> (все по фильтру: <a href="{{ chip_narrow_href }}">{{ total }}</a>)</span>
+      {% endif %}
+    </p>
   </header>
 
   <div class="card-surface filter-card events-filter-card">
@@ -85,13 +90,11 @@
     {% endif %}
     <li class="events-stack-item card-surface">
       <a class="events-stack-link" href="/events/{{ e.id }}">
-        <div class="events-stack-head">
-          <span class="event-type-icon event-imp-{{ imp }}" aria-hidden="true">{{ icon(e.event_icon|default('events')) }}</span>
-          <span class="badge badge-importance badge-importance-{{ imp }}">{{ imp|importance_label_ru }}</span>
-          <span class="events-stack-time mono muted">{{ local_time(e.created_at) }}</span>
+        <div class="events-stack-row">
+          <span class="events-stack-time mono muted">{{ local_time(e.created_at, mode='stack') }}</span>
+          <span class="events-stack-type-label muted">{{ e.type|format_event_type }}</span>
         </div>
         <p class="events-stack-summary">{{ e.summary }}</p>
-        <p class="muted events-stack-type">{{ e.type|format_event_type }}</p>
         <p class="events-stack-device">{{ device_link(e.device_id, e.hostname or e.device_id, e.chassis_type) }}</p>
       </a>
     </li>
@@ -136,7 +139,7 @@
         </td>
         <td>{{ device_link(e.device_id, e.hostname or e.device_id, e.chassis_type) }}</td>
         <td><span class="badge badge-importance badge-importance-{{ imp }}">{{ imp|importance_label_ru }}</span></td>
-        <td class="mono muted">{{ local_time(e.created_at) }}</td>
+        <td class="mono muted">{{ local_time(e.created_at, mode='stack') }}</td>
         <td class="col-chevron"><a class="row-chevron" href="/events/{{ e.id }}" aria-label="Открыть событие"></a></td>
       </tr>
       {% endfor %}

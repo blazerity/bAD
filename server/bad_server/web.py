@@ -293,10 +293,22 @@ def _format_event_type(value: object, empty: str = "") -> str:
     return _EVENT_TYPE_LABELS_RU.get(key, key)
 
 
+def _format_config_interval(value: object, empty: str = "—") -> str:
+    """Числовой интервал настроек агента: -1 → «не задан»."""
+    if value is None:
+        return empty
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return "не задан" if n < 0 else str(n)
+
+
 templates.env.filters["format_bytes"] = _format_bytes
 templates.env.filters["format_os"] = _format_os
 templates.env.filters["format_chassis"] = _format_chassis
 templates.env.filters["format_event_type"] = _format_event_type
+templates.env.filters["format_config_interval"] = _format_config_interval
 
 
 def _importance_label_ru(level: object, empty: str = "") -> str:
@@ -973,13 +985,13 @@ def _overview_feed_event_rows(
     *,
     limit: int = 80,
 ) -> list[dict[str, Any]]:
-    """Строки для «Сейчас требует действия» из реальных событий (точный уровень)."""
+    """Строки для «Сейчас требует действия»: только критичные и высокие (без «шума» inventory)."""
     out: list[dict[str, Any]] = []
     for e in db.list_device_events(importance="all", limit=limit, include_detail=False):
         if not isinstance(e, dict):
             continue
         imp = event_importance(str(e.get("type") or ""))
-        if imp not in ("critical", "high", "medium", "low"):
+        if imp not in ("critical", "high"):
             continue
         did = str(e.get("device_id") or "")
         dev = fleet_by_id.get(did) or {}
@@ -2403,6 +2415,23 @@ def events_page(
         "high": db.count_device_events(**chip_kw, importance="high"),
         "critical": db.count_device_events(**chip_kw, importance="critical"),
     }
+    shown_total = total
+    chip_narrow = None
+    if imp:
+        narrow_kw = {**count_kw, "importance": None}
+        shown_total = db.count_device_events(**narrow_kw)
+        p: dict[str, str] = {}
+        if device_filter:
+            p["device_id"] = device_filter
+        if q_filter:
+            p["q"] = q_filter
+        if type_filter:
+            p["type"] = type_filter
+        if date_from_f:
+            p["date_from"] = date_from_f
+        if date_to_f:
+            p["date_to"] = date_to_f
+        chip_narrow = "/events?" + urlencode(p) if p else "/events"
     return _html(
         request,
         "events.html",
@@ -2418,6 +2447,8 @@ def events_page(
             "page": page_i,
             "pages": pages,
             "total": total,
+            "shown_total": shown_total,
+            "chip_narrow_href": chip_narrow,
             "page_size": page_size,
             "today_utc": today_d.isoformat(),
             "yesterday_utc": yesterday_d.isoformat(),

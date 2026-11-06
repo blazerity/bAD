@@ -28,7 +28,10 @@
 
 {% macro local_time(value, fallback='—', extra_class='', mode='relative') -%}
 {%- if value -%}
-<time class="local-time{% if extra_class %} {{ extra_class }}{% endif %}" datetime="{{ value }}"{% if mode == 'absolute' %} data-time-mode="absolute"{% endif %}>{{ value }}</time>
+<time class="local-time{% if extra_class %} {{ extra_class }}{% endif %}" datetime="{{ value }}"
+  {%- if mode == 'absolute' %} data-time-mode="absolute"
+  {%- elif mode == 'stack' %} data-time-mode="stack"
+  {%- endif %}>{{ value }}</time>
 {%- else -%}
 {{ fallback }}
 {%- endif -%}

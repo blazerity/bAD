@@ -34,11 +34,11 @@
           {% endif %}
         </p>
         {% if p.settings %}
-        <p class="policy-meta">
+        <ul class="policy-settings-kv">
           {% for k, v in p.settings.items() %}
-            {{ k }}=<span class="mono">{{ v }}</span>{% if not loop.last %}, {% endif %}
+          <li><span class="policy-setting-name">{{ k }}</span><span class="mono policy-setting-val">{{ v }}</span></li>
           {% endfor %}
-        </p>
+        </ul>
         {% endif %}
       </div>
       <div class="policy-actions">
@@ -124,23 +124,24 @@
       <legend>Что задать (пусто = не менять)</legend>
       <p class="muted" style="margin-top:0">
         Только перечисленные параметры. Адрес сервера и секреты задаются при установке агента.
+        Для интервалов значение <span class="mono">-1</span> означает «не задан» (как на устройстве).
       </p>
       <div class="policy-form-grid">
         <div>
           <label for="inventory_interval_hours">Интервал inventory (часы)</label>
-          <input id="inventory_interval_hours" name="inventory_interval_hours" type="number" min="1"
+          <input id="inventory_interval_hours" name="inventory_interval_hours" type="number" min="-1"
             value="{{ s.inventory_interval_hours if s.inventory_interval_hours is defined else '' }}"
             placeholder="по умолчанию {{ defaults.inventory_interval_hours }}">
         </div>
         <div>
           <label for="heartbeat_interval_minutes">Heartbeat (минуты)</label>
-          <input id="heartbeat_interval_minutes" name="heartbeat_interval_minutes" type="number" min="1"
+          <input id="heartbeat_interval_minutes" name="heartbeat_interval_minutes" type="number" min="-1"
             value="{{ s.heartbeat_interval_minutes if s.heartbeat_interval_minutes is defined else '' }}"
             placeholder="по умолчанию {{ defaults.heartbeat_interval_minutes }}">
         </div>
         <div>
           <label for="update_check_interval_hours">Проверка обновлений (часы)</label>
-          <input id="update_check_interval_hours" name="update_check_interval_hours" type="number" min="1"
+          <input id="update_check_interval_hours" name="update_check_interval_hours" type="number" min="-1"
             value="{{ s.update_check_interval_hours if s.update_check_interval_hours is defined else '' }}"
             placeholder="по умолчанию {{ defaults.update_check_interval_hours }}">
         </div>

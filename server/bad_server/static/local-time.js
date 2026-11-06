@@ -23,6 +23,15 @@
     );
   }
 
+  /** Только время суток (дата уже в заголовке группы на странице событий). */
+  function formatClock(iso) {
+    var d = new Date(iso);
+    if (Number.isNaN(d.getTime())) {
+      return iso;
+    }
+    return pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+  }
+
   /** one / few (2–4) / many (5+) — формы после числа */
   function pluralRu(n, one, few, many) {
     var mod10 = n % 10;
@@ -131,6 +140,14 @@
         el.textContent = absolute;
         el.removeAttribute("title");
         el.removeAttribute("aria-label");
+        return;
+      }
+
+      if (mode === "stack") {
+        var clock = formatClock(iso);
+        el.textContent = clock;
+        el.setAttribute("title", absolute);
+        el.setAttribute("aria-label", clock + ", полное время: " + absolute);
         return;
       }
 

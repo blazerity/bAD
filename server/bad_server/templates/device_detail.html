@@ -26,12 +26,31 @@
         </form>
         {% endif %}
       </div>
-      <p class="muted device-detail-subline">
-        {% if device.bad_id %}<span class="mono">{{ copyable(device.bad_id) }}</span>{% endif %}
-        {% if logged %}<span>{% if device.bad_id %} · {% endif %}{{ logged }}</span>{% endif %}
-        {% if ip_line %}<span>{% if device.bad_id or logged %} · {% endif %}<span class="mono">{{ ip_line }}</span></span>{% endif %}
-        {% if serial_line %}<span>{% if device.bad_id or logged or ip_line %} · {% endif %}<span class="mono">{{ serial_line }}</span></span>{% endif %}
+      <dl class="device-hero-facts muted">
+        {% if logged %}
+        <div>
+          <dt>Пользователь</dt>
+          <dd class="device-hero-fact-value">{{ logged }}</dd>
+        </div>
+        {% endif %}
+        {% if ip_line %}
+        <div>
+          <dt>IP</dt>
+          <dd class="device-hero-fact-value mono">{{ ip_line }}</dd>
+        </div>
+        {% endif %}
+        {% if serial_line %}
+        <div>
+          <dt>Серийный номер</dt>
+          <dd class="device-hero-fact-value mono device-hero-serial">{{ serial_line }}</dd>
+        </div>
+        {% endif %}
+      </dl>
+      {% if device.bad_id %}
+      <p class="muted device-detail-subline device-hero-badid">
+        <span class="mono">{{ copyable(device.bad_id) }}</span>
       </p>
+      {% endif %}
       <p class="muted device-detail-subline device-signing-line">
         Подпись инвентаря:
         {% if inventory_signing.state == 'issued' %}
@@ -578,20 +597,17 @@
       <div class="device-panel {% if view == 'events' %}is-active{% endif %}" data-device-panel="events">
         <h2 class="with-icon">{{ icon('events') }}Недавние события</h2>
         {% if recent_events %}
-        <div class="table-scroll">
-        <table class="devices">
-          <thead><tr><th>Когда</th><th>Тип</th><th>Кратко</th></tr></thead>
-          <tbody>
-            {% for e in recent_events %}
-            <tr>
-              <td class="mono">{{ local_time(e.created_at) }}</td>
-              <td title="{{ e.type }}">{{ e.type|format_event_type }}</td>
-              <td>{{ e.summary }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-        </div>
+        <ul class="device-events-list" aria-label="События устройства">
+          {% for e in recent_events %}
+          <li class="device-events-row card-surface">
+            <div class="device-events-row-head">
+              <span class="mono muted device-events-time">{{ local_time(e.created_at, mode='stack') }}</span>
+              <span class="muted device-events-type">{{ e.type|format_event_type }}</span>
+            </div>
+            <p class="device-events-summary">{{ e.summary }}</p>
+          </li>
+          {% endfor %}
+        </ul>
         <p class="muted"><a href="/events?device_id={{ device.device_id }}">Все события этого устройства</a></p>
         {% else %}
         <p class="muted">Событий изменений пока нет.</p>
@@ -651,8 +667,8 @@
           <tbody>
             {% for row in config_winner.rows %}
             <tr class="{% if row.conflict %}is-conflict{% endif %}">
-              <td>{{ row.label }}</td>
-              <td class="mono">{{ row.value }}</td>
+              <td class="config-param-name">{{ row.label }}</td>
+              <td class="mono">{% if row.key in ('inventory_interval_hours', 'heartbeat_interval_minutes', 'update_check_interval_hours') %}{{ row.value|format_config_interval }}{% else %}{{ row.value }}{% endif %}</td>
               <td>{{ row.remote_label }}</td>
               <td>
                 {% if row.panel == 'agent_local' %}
@@ -692,17 +708,17 @@
           {% endif %}
           <div>
             <dt>Инвентаризация</dt>
-            <dd>{{ effective.inventory_interval_hours }} ч
+            <dd>{% if effective.inventory_interval_hours is not none and (effective.inventory_interval_hours|int) < 0 %}не задан{% else %}{{ effective.inventory_interval_hours }} ч{% endif %}
               {{ config_source_mark('inventory_interval_hours', sources, agent_local_keys) }}</dd>
           </div>
           <div>
             <dt>Связь с сервером</dt>
-            <dd>{{ effective.heartbeat_interval_minutes }} мин
+            <dd>{% if effective.heartbeat_interval_minutes is not none and (effective.heartbeat_interval_minutes|int) < 0 %}не задан{% else %}{{ effective.heartbeat_interval_minutes }} мин{% endif %}
               {{ config_source_mark('heartbeat_interval_minutes', sources, agent_local_keys) }}</dd>
           </div>
           <div>
             <dt>Проверка обновлений</dt>
-            <dd>{{ effective.update_check_interval_hours }} ч
+            <dd>{% if effective.update_check_interval_hours is not none and (effective.update_check_interval_hours|int) < 0 %}не задан{% else %}{{ effective.update_check_interval_hours }} ч{% endif %}
               {{ config_source_mark('update_check_interval_hours', sources, agent_local_keys) }}</dd>
           </div>
           <div>
@@ -738,19 +754,19 @@
 
           <label for="inventory_interval_hours">Интервал инвентаризации (часы)
             {{ config_source_mark('inventory_interval_hours', sources, agent_local_keys, mode='agent') }}</label>
-          <input id="inventory_interval_hours" name="inventory_interval_hours" type="number" min="1"
+          <input id="inventory_interval_hours" name="inventory_interval_hours" type="number" min="-1"
             value="{{ override_settings.inventory_interval_hours if override_settings.inventory_interval_hours is defined else '' }}"
             placeholder="по умолчанию {{ defaults.inventory_interval_hours }}">
 
           <label for="heartbeat_interval_minutes">Интервал связи (минуты)
             {{ config_source_mark('heartbeat_interval_minutes', sources, agent_local_keys, mode='agent') }}</label>
-          <input id="heartbeat_interval_minutes" name="heartbeat_interval_minutes" type="number" min="1"
+          <input id="heartbeat_interval_minutes" name="heartbeat_interval_minutes" type="number" min="-1"
             value="{{ override_settings.heartbeat_interval_minutes if override_settings.heartbeat_interval_minutes is defined else '' }}"
             placeholder="по умолчанию {{ defaults.heartbeat_interval_minutes }}">
 
           <label for="update_check_interval_hours">Проверка обновлений (часы)
             {{ config_source_mark('update_check_interval_hours', sources, agent_local_keys, mode='agent') }}</label>
-          <input id="update_check_interval_hours" name="update_check_interval_hours" type="number" min="1"
+          <input id="update_check_interval_hours" name="update_check_interval_hours" type="number" min="-1"
             value="{{ override_settings.update_check_interval_hours if override_settings.update_check_interval_hours is defined else '' }}"
             placeholder="по умолчанию {{ defaults.update_check_interval_hours }}">
 

@@ -3,15 +3,11 @@
 {% from "macros/ui.html" import local_time, device_link, copyable %}
 {% block title %}Событие #{{ event.id }} — bAD{% endblock %}
 {% block content %}
-<section class="event-detail-page">
-  <p class="crumb"><a href="/events">События</a> / #{{ event.id }}</p>
+<section class="event-detail-page page">
+  <p class="crumb"><a href="/events">События</a> / <span class="mono">#{{ event.id }}</span></p>
   <h1 class="with-icon">{{ icon('events') }}Событие <span class="mono">#{{ event.id }}</span></h1>
 
-  <p class="event-permalink muted">
-    Ссылка: {{ copyable(permalink, display=permalink) }}
-  </p>
-
-  <article class="event-digest-card polarity-{{ visual.polarity }}">
+  <article class="event-digest-card polarity-{{ visual.polarity }} event-digest-card--wide">
     <header class="event-digest-card__device">
       <div class="event-digest-card__device-head">
         {{ device_link(event.device_id, event.hostname or event.device_id, chassis_type) }}
@@ -53,9 +49,13 @@
     {% endif %}
   </article>
 
-  <p class="muted">
+  <p class="muted event-detail-links">
     <a href="/devices/{{ event.device_id }}">Карточка устройства</a>
     · <a href="/events?device_id={{ event.device_id }}">Все события устройства</a>
+  </p>
+  <p class="muted event-detail-metafoot">
+    Событие <span class="mono">#{{ event.id }}</span>
+    · ссылка: {{ copyable(permalink, display=permalink) }}
   </p>
 </section>
 {% endblock %}

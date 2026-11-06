@@ -914,7 +914,7 @@ def build_dashboard_stats(
         "scanned": scanned,
         "capped": capped,
         "href": "/devices",
-        "center_total": total_active,
+        "center_total": scanned,
         "center_label": "ПК",
     }
 
