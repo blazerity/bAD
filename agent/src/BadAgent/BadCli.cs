@@ -156,7 +156,6 @@ public static class BadCli
     private static int RunHtml(string? pathArg, IInventoryCollector? collector)
     {
         var (snap, config) = Collect(collector);
-        var html = HtmlReportWriter.Write(snap, config);
         var path = ReportPathResolver.ResolveHtmlPath(pathArg, DateTime.Now);
         var dir = Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(dir))
@@ -164,6 +163,35 @@ public static class BadCli
             Directory.CreateDirectory(dir);
         }
 
+        if (!string.IsNullOrWhiteSpace(config.ServerUrl) && !string.IsNullOrWhiteSpace(config.ApiKey))
+        {
+            try
+            {
+                var version = VersionUtil.GetAgentVersion();
+                using var client = new BadApiClient(config.ServerUrl, version);
+                using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+                var serverHtml = client.TryPostReportHtmlAsync(config.ApiKey!, snap, cts.Token)
+                    .GetAwaiter()
+                    .GetResult();
+                if (!string.IsNullOrEmpty(serverHtml))
+                {
+                    File.WriteAllText(path, serverHtml);
+                    Console.WriteLine($"HTML-отчёт записан: {path}");
+                    return 0;
+                }
+            }
+            catch (InvalidOperationException ex) when (ServerUrlRules.IsCleartextRejectedException(ex))
+            {
+                Console.Error.WriteLine($"error: {ServerUrlRules.CleartextHttpRejectedMessage}");
+                return 1;
+            }
+            catch
+            {
+                // Сервер без маршрута / не HTML / сеть — локальный HtmlReportWriter.
+            }
+        }
+
+        var html = HtmlReportWriter.Write(snap, config);
         File.WriteAllText(path, html);
         Console.WriteLine($"HTML-отчёт записан: {path}");
         return 0;
@@ -200,6 +228,7 @@ public static class BadCli
   bad service …            Управление службой Windows (от администратора)
 
 HTML (-r): без path — рабочий стол, bad_report_yyyyMMdd_HHmmss.html
+При заданных server_url и api_key — POST /v1/agent/report.html (иначе локальная генерация).
 
 Служба:
   bad service status|start|stop|restart

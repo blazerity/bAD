@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -253,6 +254,40 @@ public sealed class BadApiClient : IDisposable
             var body = await resp.Content.ReadAsStringAsync(ct);
             throw new AgentApiException(resp.StatusCode, $"Inventory failed: {(int)resp.StatusCode} {body}");
         }
+    }
+
+    /// <summary>HTML отчёт с сервера (панель): тот же snapshot, что inventory.</summary>
+    public async Task<string?> TryPostReportHtmlAsync(string apiKey, InventorySnapshot snapshot, CancellationToken ct)
+    {
+        AgentSigningKey.TrySignInventory(snapshot, out _);
+        var json = JsonSerializer.Serialize(snapshot, AgentSigningKey.InventoryJsonOptions);
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/agent/report.html");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        req.Headers.Accept.ParseAdd("text/html");
+        req.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+        using var resp = await _http.SendAsync(req, ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        var media = resp.Content.Headers.ContentType?.MediaType;
+        if (!string.IsNullOrEmpty(media)
+            && media.Contains("html", StringComparison.OrdinalIgnoreCase))
+        {
+            return body;
+        }
+
+        var trimmed = body.TrimStart();
+        if (trimmed.StartsWith("<!DOCTYPE", StringComparison.OrdinalIgnoreCase)
+            || trimmed.StartsWith("<html", StringComparison.OrdinalIgnoreCase))
+        {
+            return body;
+        }
+
+        return null;
     }
 
     public async Task<UpdateCheckResponse> CheckUpdateAsync(
