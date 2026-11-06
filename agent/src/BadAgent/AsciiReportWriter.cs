@@ -23,7 +23,7 @@ public static class AsciiReportWriter
 
         if (useBox)
         {
-            sb.AppendLine(BoxTop(title));
+            sb.Append(BoxTop(title));
             Row(sb, useBox, "device_id", snap.DeviceId);
             Row(sb, useBox, "Собрано", TimeFormat.FormatForReport(snap.CollectedAt));
             Row(sb, useBox, "Агент", snap.AgentVersion);
@@ -321,7 +321,7 @@ public static class AsciiReportWriter
     {
         if (useBox)
         {
-            sb.AppendLine(BoxMid(title));
+            sb.Append(BoxMid(title));
         }
         else
         {
