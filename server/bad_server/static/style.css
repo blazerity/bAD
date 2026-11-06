@@ -192,6 +192,17 @@ body.hcp-panel .hcp-app-body {
     min-width: 0;
     max-width: 100%;
   }
+  /* Узкая рейка: бренд и кнопка столбцом — не наезжают друг на друга. */
+  html.rail-collapsed .hcp-rail-brand {
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+    padding-left: 0.35rem;
+    padding-right: 0.35rem;
+  }
+  html.rail-collapsed .hcp-rail-brand .rail-toggle {
+    margin-left: 0;
+  }
 }
 .hcp-rail-nav {
   flex-direction: column;
@@ -4098,7 +4109,7 @@ body.global-search-open { overflow: hidden; }
     max-width: 100%;
     overflow: hidden;
   }
-  .settings-page .settings-nav-list {
+  .settings-page .settings-nav-rail .settings-nav-list {
     display: flex;
     flex-direction: row;
     flex-wrap: nowrap;
@@ -4109,7 +4120,7 @@ body.global-search-open { overflow: hidden; }
     padding-bottom: 0.15rem;
     scroll-snap-type: x proximity;
   }
-  .settings-page .settings-nav-item {
+  .settings-page .settings-nav-rail .settings-nav-item {
     flex: 0 0 auto;
     min-width: 0;
     max-width: 9.5rem;
@@ -4120,10 +4131,49 @@ body.global-search-open { overflow: hidden; }
     gap: 0.2rem;
     text-align: center;
   }
-  .settings-page .settings-nav-icon {
+  .settings-page .settings-nav-rail .settings-nav-icon {
     margin-top: 0;
   }
-  .settings-page .settings-nav-item .settings-nav-label {
+  .settings-page .settings-nav-rail .settings-nav-item .settings-nav-label {
+    font-size: 0.72rem;
+    line-height: 1.15;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  /* Карточка устройства: та же компактная полоса вкладок, без «пол-экрана». */
+  .device-card .device-shell .settings-nav {
+    padding: 0.35rem 0.25rem;
+    max-width: 100%;
+    overflow: hidden;
+  }
+  .device-card .device-shell .settings-nav-list {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 0.35rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 0.15rem;
+    scroll-snap-type: x proximity;
+  }
+  .device-card .device-shell .settings-nav-item {
+    flex: 0 0 auto;
+    min-width: 0;
+    max-width: 9.5rem;
+    padding: 0.45rem 0.55rem;
+    scroll-snap-align: start;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.2rem;
+    text-align: center;
+  }
+  .device-card .device-shell .settings-nav-icon {
+    margin-top: 0;
+  }
+  .device-card .device-shell .settings-nav-item .settings-nav-label {
     font-size: 0.72rem;
     line-height: 1.15;
     display: -webkit-box;
@@ -4351,7 +4401,7 @@ body.global-search-open { overflow: hidden; }
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  align-self: end;
+  align-self: center;
   gap: 0.35rem;
   padding: 0.4rem 0.65rem;
   border-radius: var(--radius-control);
