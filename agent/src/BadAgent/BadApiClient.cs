@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -220,21 +221,88 @@ public sealed class BadApiClient : IDisposable
             if (root.TryGetProperty("actions", out var actionsEl)
                 && actionsEl.ValueKind == JsonValueKind.Object)
             {
-                actions = JsonSerializer.Deserialize<HeartbeatActions>(actionsEl.GetRawText());
+                actions = ParseHeartbeatActions(actionsEl);
             }
 
-            if (config is null && actions is null)
+            if (config is not null)
             {
-                return null;
+                return new HeartbeatServerResponse { Config = config, Actions = actions };
             }
 
-            return new HeartbeatServerResponse { Config = config, Actions = actions };
+            if (actions is not null
+                && (actions.Inventory
+                    || actions.UpdateCheck
+                    || actions.Uninstall
+                    || !string.IsNullOrWhiteSpace(actions.UploadMinidump)))
+            {
+                return new HeartbeatServerResponse { Config = null, Actions = actions };
+            }
+
+            return null;
         }
         catch (JsonException)
         {
             // Heartbeat успешен; разбор тела — best-effort.
             return null;
         }
+    }
+
+    private static HeartbeatActions ParseHeartbeatActions(JsonElement actionsEl)
+    {
+        var a = new HeartbeatActions();
+        if (actionsEl.TryGetProperty("inventory", out var inv) && inv.ValueKind == JsonValueKind.True)
+        {
+            a.Inventory = true;
+        }
+
+        if (actionsEl.TryGetProperty("update_check", out var uc) && uc.ValueKind == JsonValueKind.True)
+        {
+            a.UpdateCheck = true;
+        }
+
+        if (actionsEl.TryGetProperty("uninstall", out var un) && un.ValueKind == JsonValueKind.True)
+        {
+            a.Uninstall = true;
+        }
+
+        if (actionsEl.TryGetProperty("upload_minidump", out var um)
+            && um.ValueKind == JsonValueKind.String)
+        {
+            var s = um.GetString();
+            if (!string.IsNullOrWhiteSpace(s))
+            {
+                a.UploadMinidump = s.Trim();
+            }
+        }
+
+        return a;
+    }
+
+    /// <summary>Один minidump по запросу heartbeat: multipart, тот же Bearer.</summary>
+    public async Task<bool> TryPostMinidumpAsync(string apiKey, string localFilePath, CancellationToken ct)
+    {
+        await using var fs = File.OpenRead(localFilePath);
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/agent/minidump");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        var mp = new MultipartFormDataContent();
+        var streamContent = new StreamContent(fs);
+        streamContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        mp.Add(streamContent, "file", Path.GetFileName(localFilePath));
+        req.Content = mp;
+
+        using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+
+        if (!resp.IsSuccessStatusCode)
+        {
+            _ = await resp.Content.ReadAsStringAsync(ct);
+            return false;
+        }
+
+        return true;
     }
 
     public async Task SendInventoryAsync(string apiKey, InventorySnapshot snapshot, CancellationToken ct)

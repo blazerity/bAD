@@ -425,6 +425,13 @@ public sealed class Worker : BackgroundService
                 ApplyRemoteConfig(config, response.Config);
             }
 
+            await MinidumpHeartbeatUpload.RunAsync(
+                client,
+                config.ApiKey!,
+                response?.Actions?.UploadMinidump,
+                _logger,
+                ct);
+
             config = ConfigStore.LoadOrCreate();
 
             if (response?.Actions?.Uninstall == true)
