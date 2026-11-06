@@ -500,8 +500,8 @@ public static class ConfigCli
         if (!string.Equals(previous, current, StringComparison.OrdinalIgnoreCase))
         {
             output.WriteLine(
-                "Смена server_url может потребовать повторный enroll на новом сервере " +
-                "(при 401/403 служба очистит api_key).");
+                "Смена server_url может потребовать повторный enroll на новом сервере. " +
+                "При 401/403 служба api_key не удаляет.");
         }
     }
 

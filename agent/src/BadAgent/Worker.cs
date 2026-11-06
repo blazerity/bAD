@@ -64,6 +64,18 @@ public sealed class Worker : BackgroundService
                     continue;
                 }
 
+                if (DateTime.UtcNow < _authBackoffUntil)
+                {
+                    var wait = _authBackoffUntil - DateTime.UtcNow;
+                    if (wait > TimeSpan.FromMinutes(1))
+                    {
+                        wait = TimeSpan.FromMinutes(1);
+                    }
+
+                    await Task.Delay(wait, stoppingToken);
+                    continue;
+                }
+
                 await EnsureEnrolledAsync(config, stoppingToken);
                 config = ConfigStore.LoadOrCreate();
 
@@ -521,24 +533,20 @@ public sealed class Worker : BackgroundService
     }
 
     /// <summary>
-    /// 401/403: очистить api_key (device_id оставить), очередь не трогаем (после re-enroll flush).
-    /// Не долбить сервер, ждать re-enroll/reinstall.
+    /// 401/403: api_key и device_id не трогаем. Иначе уже зарегистрированная машина
+    /// после MSI теряет ключ и <c>bad push</c> пишет «нет api_key».
     /// </summary>
     private void HandleAuthFailure(AgentConfig config, string operation, Exception? ex = null)
     {
         _logger.LogError(
             ex,
-            "Auth failure ({Operation}): clearing api_key, keeping device_id={DeviceId}; stop posting until re-enroll",
+            "Auth failure ({Operation}): keeping api_key and device_id={DeviceId}; backing off",
             operation,
             config.DeviceId);
         WindowsEventLog.WriteError(
-            $"bAD: API key отклонён ({operation}, 401/403). Ключ очищен, device_id сохранён. " +
-            "Нужна повторная регистрация (заявка в панели или enrollment_code).",
+            $"bAD: API key отклонён ({operation}, 401/403). Ключ в config.json сохранён, device_id={config.DeviceId}.",
             ex);
 
-        config.ApiKey = null;
-        ConfigStore.Save(config);
-        AgentSigningKey.ClearLocal();
         _apiKeyRevoked = true;
         _enrollmentRequestPending = false;
         _authBackoffUntil = DateTime.UtcNow.AddHours(1);

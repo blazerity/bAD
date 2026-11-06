@@ -86,33 +86,55 @@ try {
 
     $configPath = $BadConfigPath
     $existing = $null
+    $rawConfig = $null
     if (Test-Path $configPath) {
         try {
-            $existing = Get-Content -Raw -Path $configPath | ConvertFrom-Json
+            $rawConfig = Get-Content -Raw -Path $configPath
+            $existing = $rawConfig | ConvertFrom-Json
             Write-BadMsiLog "INFO existing config.json loaded"
         } catch {
-            Write-BadMsiLog "WARN existing config.json unreadable, recreating: $($_.Exception.Message)"
-            $existing = $null
+            # Не подменять зарегистрированный конфиг пустым: api_key иначе пропадает.
+            Fail-BadMsi -Code "BAD_MSI_003" -Message "Cannot read existing config.json: $($_.Exception.Message)" -ExitCode 3
         }
     }
 
-    $obj = [ordered]@{
-        server_url                 = if ($ServerUrl) { $ServerUrl.TrimEnd('/') } elseif ($existing) { $existing.server_url } else { "" }
-        inventory_interval_hours   = 6
-        heartbeat_interval_minutes = 15
-    }
+    if ($existing) {
+        # Весь прежний объект, не новый с тремя полями: api_key / device_id остаются.
+        if ($ServerUrl) {
+            $existing.server_url = $ServerUrl.TrimEnd('/')
+        }
 
-    # Сохранять api_key / device_id при апгрейдах
-    if ($existing -and $existing.api_key) {
-        $obj.api_key = $existing.api_key
-    }
-    if ($existing -and $existing.device_id) {
-        $obj.device_id = $existing.device_id
-    }
+        $apiKey = $null
+        if ($existing.PSObject.Properties.Name -contains "api_key" -and $existing.api_key) {
+            $apiKey = [string]$existing.api_key
+        } elseif ($rawConfig -match '"api_key"\s*:\s*"((?:\\.|[^"\\])*)"') {
+            $apiKey = [regex]::Unescape($Matches[1])
+            if ($existing.PSObject.Properties.Name -contains "api_key") {
+                $existing.api_key = $apiKey
+            } else {
+                $existing | Add-Member -NotePropertyName "api_key" -NotePropertyValue $apiKey
+            }
+            Write-BadMsiLog "INFO api_key restored from raw config.json"
+        }
 
-    # Ставить enrollment token только если ещё нет API key (первая установка / re-enroll)
-    if (-not $obj.api_key -and $EnrollmentToken) {
-        $obj.enrollment_token = $EnrollmentToken
+        if (-not $apiKey -and $EnrollmentToken) {
+            if ($existing.PSObject.Properties.Name -contains "enrollment_token") {
+                $existing.enrollment_token = $EnrollmentToken
+            } else {
+                $existing | Add-Member -NotePropertyName "enrollment_token" -NotePropertyValue $EnrollmentToken
+            }
+        }
+
+        $obj = $existing
+    } else {
+        $obj = [ordered]@{
+            server_url                 = if ($ServerUrl) { $ServerUrl.TrimEnd('/') } else { "" }
+            inventory_interval_hours   = 6
+            heartbeat_interval_minutes = 15
+        }
+        if ($EnrollmentToken) {
+            $obj.enrollment_token = $EnrollmentToken
+        }
     }
 
     try {
