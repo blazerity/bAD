@@ -1,17 +1,5 @@
 /** Live search: устройства и события (debounce 300 ms). */
 (function () {
-  function debounce(fn, ms) {
-    var t;
-    return function () {
-      var args = arguments;
-      var self = this;
-      clearTimeout(t);
-      t = setTimeout(function () {
-        fn.apply(self, args);
-      }, ms);
-    };
-  }
-
   function initDeviceLiveSearch() {
     var input = document.getElementById("device-live-q");
     var box = document.getElementById("device-live-results");
@@ -65,7 +53,7 @@
 
     input.addEventListener(
       "input",
-      debounce(function () {
+      badDebounce(function () {
         var q = (input.value || "").trim();
         if (q.length < 1) {
           clear();
@@ -129,7 +117,7 @@
         }
         el.addEventListener(
           "input",
-          debounce(function () {
+          badDebounce(function () {
             form.requestSubmit();
           }, delay)
         );
@@ -137,15 +125,9 @@
     });
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", function () {
-      initDeviceLiveSearch();
-      initDebouncedForms();
-      initMoreFilters();
-    });
-  } else {
+  badOnReady(function () {
     initDeviceLiveSearch();
     initDebouncedForms();
     initMoreFilters();
-  }
+  });
 })();

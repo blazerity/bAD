@@ -57,6 +57,17 @@ def parse_utc(ts: Optional[str]) -> Optional[datetime]:
     return dt.astimezone(timezone.utc)
 
 
+def parse_iso(raw: object) -> Optional[datetime]:
+    """ISO-8601 as written: Z → +00:00, naive stays naive."""
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
 def device_silence_status(
     last_seen_at: Optional[str],
     *,

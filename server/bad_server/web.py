@@ -51,6 +51,7 @@ from .device_health import (
     effective_stale_after_seconds,
     health_snippet,
     normalize_tags,
+    parse_iso,
     parse_site_stale_seconds,
     parse_utc,
 )
@@ -946,6 +947,42 @@ class SmtpFormData:
         self.digest_wd_6 = digest_wd_6
 
 
+class PolicyFormData:
+    """Общие Form-поля создания и правки политики агента."""
+
+    def __init__(
+        self,
+        name: str = Form(""),
+        enabled: Optional[str] = Form(None),
+        priority: str = Form("100"),
+        cond_field: str = Form("hostname"),
+        cond_op: str = Form("contains"),
+        cond_value: str = Form(""),
+        inventory_interval_hours: str = Form(""),
+        heartbeat_interval_minutes: str = Form(""),
+        update_check_interval_hours: str = Form(""),
+        update_enabled: str = Form(""),
+        update_target: str = Form(""),
+        collect_hardware: str = Form(""),
+        collect_users: str = Form(""),
+        collect_software: str = Form(""),
+    ):
+        self.name = name
+        self.enabled = enabled
+        self.priority = priority
+        self.cond_field = cond_field
+        self.cond_op = cond_op
+        self.cond_value = cond_value
+        self.inventory_interval_hours = inventory_interval_hours
+        self.heartbeat_interval_minutes = heartbeat_interval_minutes
+        self.update_check_interval_hours = update_check_interval_hours
+        self.update_enabled = update_enabled
+        self.update_target = update_target
+        self.collect_hardware = collect_hardware
+        self.collect_users = collect_users
+        self.collect_software = collect_software
+
+
 _FLEET_SNAPSHOT_TTL_SEC = 8.0
 _fleet_snapshot_cache: dict[str, Any] = {"ts": 0.0, "data": None}
 
@@ -982,16 +1019,6 @@ def _fleet_snapshot(
     return result
 
 
-def _parse_event_ts(raw: object) -> Optional[datetime]:
-    text = str(raw or "").strip()
-    if not text:
-        return None
-    try:
-        return datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-
-
 def _normalize_overview_priority_feed(
     events: list[dict[str, Any]],
     *,
@@ -1008,7 +1035,7 @@ def _normalize_overview_priority_feed(
             continue
         etype = str(ev.get("type") or "")
         did = str(ev.get("device_id") or "")
-        ts = _parse_event_ts(ev.get("created_at"))
+        ts = parse_iso(ev.get("created_at"))
         merged = dict(ev)
         if etype in disk_pair and did and ts is not None:
             partner_idx = None
@@ -1020,7 +1047,7 @@ def _normalize_overview_priority_feed(
                     continue
                 if str(other.get("type") or "") != want:
                     continue
-                ots = _parse_event_ts(other.get("created_at"))
+                ots = parse_iso(other.get("created_at"))
                 if ots is None:
                     continue
                 if abs((ts - ots).total_seconds()) <= window:
@@ -2802,6 +2829,26 @@ def _device_inventory_signing_line(device: dict[str, Any]) -> dict[str, str]:
     return {"state": "issued", "label": f"ключ · {short}"}
 
 
+def _missing_device(request: Request, device_id: str, user: WebUser):
+    return _html(
+        request,
+        "device_missing.html",
+        {"device_id": device_id, "user": user},
+        status_code=404,
+    )
+
+
+def _archive_device(db: Database, device_id: str, archived: bool):
+    canonical = resolve_device_ref(db, device_id)
+    if not canonical:
+        return RedirectResponse(url="/devices", status_code=303)
+    detail = db.get_device_detail(canonical) or {}
+    panel_ref = device_panel_href(detail.get("bad_id"), canonical)
+    if not db.set_device_archived(canonical, archived):
+        return RedirectResponse(url="/devices", status_code=303)
+    return RedirectResponse(url=f"{panel_ref}?view=admin", status_code=303)
+
+
 @router.get("/devices/{device_id}", response_class=HTMLResponse)
 def device_detail_page(
     device_id: str,
@@ -2816,14 +2863,9 @@ def device_detail_page(
     uninstall_error: Optional[str] = None,
     delete_error: Optional[str] = None,
 ):
-    canonical = resolve_device_ref(db, (device_id or "").strip())
+    canonical = resolve_device_ref(db, device_id)
     if not canonical:
-        return _html(
-            request,
-            "device_missing.html",
-            {"device_id": device_id, "user": user},
-            status_code=404,
-        )
+        return _missing_device(request, device_id, user)
     device_id = canonical
     flash_message = None
     error = None
@@ -2845,12 +2887,7 @@ def device_detail_page(
         active_view=view or ("admin" if uninstall_error == "1" else None),
     )
     if not ctx:
-        return _html(
-            request,
-            "device_missing.html",
-            {"device_id": device_id, "user": user},
-            status_code=404,
-        )
+        return _missing_device(request, device_id, user)
     return _html(request, "device_detail.html", ctx)
 
 
@@ -2860,7 +2897,7 @@ def device_request_refresh(
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
 ):
-    canonical = resolve_device_ref(db, (device_id or "").strip())
+    canonical = resolve_device_ref(db, device_id)
     if not canonical:
         return RedirectResponse(url="/devices", status_code=303)
     device_id = canonical
@@ -2892,7 +2929,7 @@ def device_minidump_request(
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
 ):
-    canonical = resolve_device_ref(db, (device_id or "").strip())
+    canonical = resolve_device_ref(db, device_id)
     if not canonical:
         return RedirectResponse(url="/devices", status_code=303)
     wanted = (name or "").strip()
@@ -2913,7 +2950,7 @@ def device_uninstall_order(
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    canonical = resolve_device_ref(db, (device_id or "").strip())
+    canonical = resolve_device_ref(db, device_id)
     if not canonical:
         return RedirectResponse(url="/devices", status_code=303)
     device_id = canonical
@@ -2946,7 +2983,7 @@ def device_uninstall_cancel(
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
 ):
-    canonical = resolve_device_ref(db, (device_id or "").strip())
+    canonical = resolve_device_ref(db, device_id)
     if not canonical:
         return RedirectResponse(url="/devices", status_code=303)
     device_id = canonical
@@ -2968,22 +3005,12 @@ def device_revoke(
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    canonical = resolve_device_ref(db, (device_id or "").strip())
+    canonical = resolve_device_ref(db, device_id)
     if not canonical:
-        return _html(
-            request,
-            "device_missing.html",
-            {"device_id": device_id, "user": user},
-            status_code=404,
-        )
+        return _missing_device(request, device_id, user)
     device_id = canonical
     if not db.set_device_revoked(device_id, True):
-        return _html(
-            request,
-            "device_missing.html",
-            {"device_id": device_id, "user": user},
-            status_code=404,
-        )
+        return _missing_device(request, device_id, user)
     ctx = _device_config_context(
         db,
         device_id,
@@ -3004,22 +3031,12 @@ def device_rotate_key(
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    canonical = resolve_device_ref(db, (device_id or "").strip())
+    canonical = resolve_device_ref(db, device_id)
     if not canonical:
-        return _html(
-            request,
-            "device_missing.html",
-            {"device_id": device_id, "user": user},
-            status_code=404,
-        )
+        return _missing_device(request, device_id, user)
     device_id = canonical
     if not db.get_device_detail(device_id):
-        return _html(
-            request,
-            "device_missing.html",
-            {"device_id": device_id, "user": user},
-            status_code=404,
-        )
+        return _missing_device(request, device_id, user)
     api_key = generate_token("bad_ak_")
     data_key = getattr(request.app.state, "data_key", "") or ""
     lookup = api_key_lookup(data_key, api_key) if data_key else None
@@ -3045,15 +3062,7 @@ def device_archive(
     user: WebUser = Depends(require_web_user),
     db: Database = Depends(get_db),
 ):
-    canonical = resolve_device_ref(db, (device_id or "").strip())
-    if not canonical:
-        return RedirectResponse(url="/devices", status_code=303)
-    device_id = canonical
-    detail = db.get_device_detail(device_id) or {}
-    panel_ref = device_panel_href(detail.get("bad_id"), device_id)
-    if not db.set_device_archived(device_id, True):
-        return RedirectResponse(url="/devices", status_code=303)
-    return RedirectResponse(url=f"{panel_ref}?view=admin", status_code=303)
+    return _archive_device(db, device_id, True)
 
 
 @router.post("/devices/{device_id}/restore")
@@ -3062,15 +3071,7 @@ def device_restore(
     user: WebUser = Depends(require_web_user),
     db: Database = Depends(get_db),
 ):
-    canonical = resolve_device_ref(db, (device_id or "").strip())
-    if not canonical:
-        return RedirectResponse(url="/devices", status_code=303)
-    device_id = canonical
-    detail = db.get_device_detail(device_id) or {}
-    panel_ref = device_panel_href(detail.get("bad_id"), device_id)
-    if not db.set_device_archived(device_id, False):
-        return RedirectResponse(url="/devices", status_code=303)
-    return RedirectResponse(url=f"{panel_ref}?view=admin", status_code=303)
+    return _archive_device(db, device_id, False)
 
 
 @router.post("/devices/{device_id}/delete")
@@ -3080,7 +3081,7 @@ def device_delete(
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
 ):
-    canonical = resolve_device_ref(db, (device_id or "").strip())
+    canonical = resolve_device_ref(db, device_id)
     if not canonical:
         return RedirectResponse(url="/devices", status_code=303)
     device_id = canonical
@@ -3130,12 +3131,7 @@ def _device_merge_page(
         active_view="admin",
     )
     if not ctx:
-        return _html(
-            request,
-            "device_missing.html",
-            {"device_id": survivor_id, "user": user},
-            status_code=404,
-        )
+        return _missing_device(request, survivor_id, user)
     if merge_result is not None:
         ctx["merge_result"] = merge_result
     return _html(request, "device_detail.html", ctx)
@@ -3151,17 +3147,12 @@ def device_merge(
     settings: Settings = Depends(get_settings),
 ):
     """Явный admin merge дублей. Не /v1; ключ донора отзывает merge_devices (DB)."""
-    survivor_canonical = resolve_device_ref(db, (survivor_id or "").strip())
+    survivor_canonical = resolve_device_ref(db, survivor_id)
     if not survivor_canonical:
-        return _html(
-            request,
-            "device_missing.html",
-            {"device_id": survivor_id, "user": user},
-            status_code=404,
-        )
+        return _missing_device(request, survivor_id, user)
     survivor_id = survivor_canonical
     donor = (donor_id or "").strip()
-    donor_resolved = resolve_device_ref(db, (donor or "").strip()) if donor else None
+    donor_resolved = resolve_device_ref(db, donor) if donor else None
     if donor and donor_resolved:
         donor = donor_resolved
     if not donor:
@@ -3218,24 +3209,14 @@ def device_tags_save(
     settings: Settings = Depends(get_settings),
     tags: str = Form(""),
 ):
-    canonical = resolve_device_ref(db, (device_id or "").strip())
+    canonical = resolve_device_ref(db, device_id)
     if not canonical:
-        return _html(
-            request,
-            "device_missing.html",
-            {"device_id": device_id, "user": user},
-            status_code=404,
-        )
+        return _missing_device(request, device_id, user)
     device_id = canonical
     try:
         db.set_device_tags(device_id, tags)
     except KeyError:
-        return _html(
-            request,
-            "device_missing.html",
-            {"device_id": device_id, "user": user},
-            status_code=404,
-        )
+        return _missing_device(request, device_id, user)
     ctx = _device_config_context(
         db,
         device_id,
@@ -3265,23 +3246,13 @@ def device_config_override_save(
     collect_software: str = Form(""),
     clear_override: Optional[str] = Form(None),
 ):
-    canonical = resolve_device_ref(db, (device_id or "").strip())
+    canonical = resolve_device_ref(db, device_id)
     if not canonical:
-        return _html(
-            request,
-            "device_missing.html",
-            {"device_id": device_id, "user": user},
-            status_code=404,
-        )
+        return _missing_device(request, device_id, user)
     device_id = canonical
     if clear_override is not None:
         if not db.get_device_detail(device_id):
-            return _html(
-                request,
-                "device_missing.html",
-                {"device_id": device_id, "user": user},
-                status_code=404,
-            )
+            return _missing_device(request, device_id, user)
         db.delete_device_config_override(device_id)
         ctx = _device_config_context(
             db,
@@ -3316,12 +3287,7 @@ def device_config_override_save(
             active_view="config",
         )
         if not ctx:
-            return _html(
-                request,
-                "device_missing.html",
-                {"device_id": device_id, "user": user},
-                status_code=404,
-            )
+            return _missing_device(request, device_id, user)
         return _html(
             request, "device_detail.html", ctx, status_code=400
         )
@@ -3340,12 +3306,7 @@ def device_config_override_save(
     try:
         db.set_device_config_override(device_id, cleaned)
     except KeyError:
-        return _html(
-            request,
-            "device_missing.html",
-            {"device_id": device_id, "user": user},
-            status_code=404,
-        )
+        return _missing_device(request, device_id, user)
     ctx = _device_config_context(
         db,
         device_id,
@@ -3598,6 +3559,33 @@ def _parse_policy_form(
     }, None
 
 
+def _accept_policy(
+    db: Database, form: PolicyFormData
+) -> tuple[Optional[dict], Optional[str]]:
+    parsed, err = _parse_policy_form(
+        name=form.name,
+        enabled=form.enabled,
+        priority=form.priority,
+        cond_field=form.cond_field,
+        cond_op=form.cond_op,
+        cond_value=form.cond_value,
+        inventory_interval_hours=form.inventory_interval_hours,
+        heartbeat_interval_minutes=form.heartbeat_interval_minutes,
+        update_check_interval_hours=form.update_check_interval_hours,
+        update_enabled=form.update_enabled,
+        update_target=form.update_target,
+        collect_hardware=form.collect_hardware,
+        collect_users=form.collect_users,
+        collect_software=form.collect_software,
+    )
+    if err or not parsed:
+        return None, err
+    pin_err = _validate_update_target_pin(db, parsed["settings"])
+    if pin_err:
+        return None, pin_err
+    return parsed, None
+
+
 def _validate_update_target_pin(db: Database, settings: dict) -> Optional[str]:
     """Reject pin на версию, которой нет в зеркале (контракт 0.10)."""
     target = sanitize_update_target(settings.get("update_target"))
@@ -3684,50 +3672,14 @@ def policy_create(
     request: Request,
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
-    name: str = Form(""),
-    enabled: Optional[str] = Form(None),
-    priority: str = Form("100"),
-    cond_field: str = Form("hostname"),
-    cond_op: str = Form("contains"),
-    cond_value: str = Form(""),
-    inventory_interval_hours: str = Form(""),
-    heartbeat_interval_minutes: str = Form(""),
-    update_check_interval_hours: str = Form(""),
-    update_enabled: str = Form(""),
-    update_target: str = Form(""),
-    collect_hardware: str = Form(""),
-    collect_users: str = Form(""),
-    collect_software: str = Form(""),
+    form: PolicyFormData = Depends(),
 ):
-    parsed, err = _parse_policy_form(
-        name=name,
-        enabled=enabled,
-        priority=priority,
-        cond_field=cond_field,
-        cond_op=cond_op,
-        cond_value=cond_value,
-        inventory_interval_hours=inventory_interval_hours,
-        heartbeat_interval_minutes=heartbeat_interval_minutes,
-        update_check_interval_hours=update_check_interval_hours,
-        update_enabled=update_enabled,
-        update_target=update_target,
-        collect_hardware=collect_hardware,
-        collect_users=collect_users,
-        collect_software=collect_software,
-    )
+    parsed, err = _accept_policy(db, form)
     if err or not parsed:
         return _html(
             request,
             "policies.html",
             _policies_context(db, user, error=err),
-            status_code=400,
-        )
-    pin_err = _validate_update_target_pin(db, parsed["settings"])
-    if pin_err:
-        return _html(
-            request,
-            "policies.html",
-            _policies_context(db, user, error=pin_err),
             status_code=400,
         )
     db.create_agent_policy(**parsed)
@@ -3744,53 +3696,15 @@ def policy_update(
     request: Request,
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
-    name: str = Form(""),
-    enabled: Optional[str] = Form(None),
-    priority: str = Form("100"),
-    cond_field: str = Form("hostname"),
-    cond_op: str = Form("contains"),
-    cond_value: str = Form(""),
-    inventory_interval_hours: str = Form(""),
-    heartbeat_interval_minutes: str = Form(""),
-    update_check_interval_hours: str = Form(""),
-    update_enabled: str = Form(""),
-    update_target: str = Form(""),
-    collect_hardware: str = Form(""),
-    collect_users: str = Form(""),
-    collect_software: str = Form(""),
+    form: PolicyFormData = Depends(),
 ):
-    parsed, err = _parse_policy_form(
-        name=name,
-        enabled=enabled,
-        priority=priority,
-        cond_field=cond_field,
-        cond_op=cond_op,
-        cond_value=cond_value,
-        inventory_interval_hours=inventory_interval_hours,
-        heartbeat_interval_minutes=heartbeat_interval_minutes,
-        update_check_interval_hours=update_check_interval_hours,
-        update_enabled=update_enabled,
-        update_target=update_target,
-        collect_hardware=collect_hardware,
-        collect_users=collect_users,
-        collect_software=collect_software,
-    )
+    parsed, err = _accept_policy(db, form)
     if err or not parsed:
         return _html(
             request,
             "policies.html",
             _policies_context(
                 db, user, error=err, edit=db.get_agent_policy(policy_id)
-            ),
-            status_code=400,
-        )
-    pin_err = _validate_update_target_pin(db, parsed["settings"])
-    if pin_err:
-        return _html(
-            request,
-            "policies.html",
-            _policies_context(
-                db, user, error=pin_err, edit=db.get_agent_policy(policy_id)
             ),
             status_code=400,
         )

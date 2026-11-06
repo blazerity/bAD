@@ -1,16 +1,5 @@
 /** Глобальный поиск из шапки → /overview/search.json */
 (function () {
-  function debounce(fn, ms) {
-    var t;
-    return function () {
-      var args = arguments;
-      clearTimeout(t);
-      t = setTimeout(function () {
-        fn.apply(null, args);
-      }, ms);
-    };
-  }
-
   function init() {
     var openBtn = document.getElementById("global-search-open");
     var modal = document.getElementById("global-search-modal");
@@ -117,7 +106,7 @@
 
     input.addEventListener(
       "input",
-      debounce(function () {
+      badDebounce(function () {
         var q = (input.value || "").trim();
         if (q.length < 2) {
           clear();
@@ -137,9 +126,5 @@
     );
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
-  }
+  badOnReady(init);
 })();

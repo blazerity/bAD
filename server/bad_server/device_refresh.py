@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from .db import Database, utc_now
+from .device_health import parse_utc
 
 REFRESH_META_KEYS = (
     "refresh_requested_at",
@@ -16,26 +17,11 @@ REFRESH_META_KEYS = (
 REFRESH_TTL = timedelta(hours=24)
 
 
-def _parse_utc_iso(raw: str) -> Optional[datetime]:
-    s = (raw or "").strip()
-    if not s:
-        return None
-    try:
-        if s.endswith("Z"):
-            s = s[:-1] + "+00:00"
-        dt = datetime.fromisoformat(s)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc)
-    except ValueError:
-        return None
-
-
 def refresh_request_pending(meta: dict[str, Any], *, now: Optional[datetime] = None) -> bool:
     raw = meta.get("refresh_requested_at")
     if not raw or not isinstance(raw, str):
         return False
-    requested_at = _parse_utc_iso(raw)
+    requested_at = parse_utc(raw)
     if not requested_at:
         return False
     now = now or datetime.now(timezone.utc)
@@ -59,8 +45,8 @@ def _utc_iso_ge(later: Optional[str], earlier: Optional[str]) -> bool:
     """True if both parse and later >= earlier (implicit heartbeat ack)."""
     if not later or not earlier:
         return False
-    a = _parse_utc_iso(str(later))
-    b = _parse_utc_iso(str(earlier))
+    a = parse_utc(str(later))
+    b = parse_utc(str(earlier))
     if a is None or b is None:
         return False
     return a >= b

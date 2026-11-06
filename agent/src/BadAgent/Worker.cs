@@ -376,13 +376,13 @@ public sealed class Worker : BackgroundService
         catch (AgentApiException ex) when (ex.IsAuthFailure)
         {
             _lastInventoryOk = false;
-            _lastInventoryError = Truncate("auth_failed", 200);
+            _lastInventoryError = TextLimit.Truncate("auth_failed", 200);
             HandleAuthFailure(config, "inventory", ex);
         }
         catch (Exception ex)
         {
             _lastInventoryOk = false;
-            _lastInventoryError = Truncate(ex.Message, 200);
+            _lastInventoryError = TextLimit.Truncate(ex.Message, 200);
             try
             {
                 OfflineQueue.EnqueueInventory(snap);
@@ -500,20 +500,7 @@ public sealed class Worker : BackgroundService
 
     private void ApplyRemoteConfig(AgentConfig config, RemoteAgentConfigResponse remote)
     {
-        if (remote.Settings is null)
-        {
-            return;
-        }
-
-        var changed = ConfigStore.ApplyRemoteSettings(config, remote.Settings);
-        if (!string.IsNullOrWhiteSpace(remote.Version)
-            && !string.Equals(config.RemoteConfigVersion, remote.Version, StringComparison.Ordinal))
-        {
-            config.RemoteConfigVersion = remote.Version;
-            changed = true;
-        }
-
-        if (!changed)
+        if (!ConfigStore.TakeRemoteConfig(config, remote))
         {
             return;
         }
@@ -586,13 +573,4 @@ public sealed class Worker : BackgroundService
         }
     }
 
-    private static string Truncate(string text, int max)
-    {
-        if (string.IsNullOrEmpty(text) || text.Length <= max)
-        {
-            return text;
-        }
-
-        return text[..max];
-    }
 }

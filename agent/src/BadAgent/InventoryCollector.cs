@@ -242,11 +242,7 @@ public sealed class InventoryCollector : IInventoryCollector
         }
         catch (Exception ex)
         {
-            errors.Add(new CollectorError
-            {
-                Section = "host.ad_ou",
-                Error = Truncate(ex.Message, 200)
-            });
+            AddError(errors, "host.ad_ou", ex);
         }
     }
 
@@ -299,7 +295,7 @@ public sealed class InventoryCollector : IInventoryCollector
             }
             catch (Exception ex)
             {
-                errors.Add(new CollectorError { Section = "hardware", Error = Truncate(ex.Message, 200) });
+                AddError(errors, "hardware", ex);
             }
 
             return hw;
@@ -361,7 +357,7 @@ public sealed class InventoryCollector : IInventoryCollector
         }
         catch (Exception ex)
         {
-            errors.Add(new CollectorError { Section = "hardware.cpu", Error = Truncate(ex.Message, 200) });
+            AddError(errors, "hardware.cpu", ex);
         }
     }
 
@@ -382,7 +378,7 @@ public sealed class InventoryCollector : IInventoryCollector
         }
         catch (Exception ex)
         {
-            errors.Add(new CollectorError { Section = "hardware.ram", Error = Truncate(ex.Message, 200) });
+            AddError(errors, "hardware.ram", ex);
         }
     }
 
@@ -472,11 +468,7 @@ public sealed class InventoryCollector : IInventoryCollector
         }
         catch (Exception ex)
         {
-            errors.Add(new CollectorError
-            {
-                Section = "hardware.system",
-                Error = Truncate(ex.Message, 200)
-            });
+            AddError(errors, "hardware.system", ex);
         }
     }
 
@@ -529,11 +521,7 @@ public sealed class InventoryCollector : IInventoryCollector
         }
         catch (Exception ex)
         {
-            errors.Add(new CollectorError
-            {
-                Section = "hardware.chassis",
-                Error = Truncate(ex.Message, 200)
-            });
+            AddError(errors, "hardware.chassis", ex);
         }
     }
 
@@ -572,11 +560,7 @@ public sealed class InventoryCollector : IInventoryCollector
         }
         catch (Exception ex)
         {
-            errors.Add(new CollectorError
-            {
-                Section = "hardware.battery",
-                Error = Truncate(ex.Message, 200)
-            });
+            AddError(errors, "hardware.battery", ex);
         }
     }
 
@@ -679,11 +663,7 @@ public sealed class InventoryCollector : IInventoryCollector
         }
         catch (Exception ex)
         {
-            errors.Add(new CollectorError
-            {
-                Section = "hardware.monitors",
-                Error = Truncate(ex.Message, 200)
-            });
+            AddError(errors, "hardware.monitors", ex);
             hw.Monitors = null;
         }
     }
@@ -857,11 +837,7 @@ public sealed class InventoryCollector : IInventoryCollector
         }
         catch (Exception ex)
         {
-            errors.Add(new CollectorError
-            {
-                Section = "minidumps",
-                Error = Truncate(ex.Message, 200)
-            });
+            AddError(errors, "minidumps", ex);
             return null;
         }
     }
@@ -914,7 +890,7 @@ public sealed class InventoryCollector : IInventoryCollector
         }
         catch (Exception ex)
         {
-            errors.Add(new CollectorError { Section = "hardware.disks", Error = Truncate(ex.Message, 200) });
+            AddError(errors, "hardware.disks", ex);
             hw.Disks = null;
         }
     }
@@ -942,11 +918,7 @@ public sealed class InventoryCollector : IInventoryCollector
         }
         catch (Exception ex)
         {
-            errors.Add(new CollectorError
-            {
-                Section = "hardware.volumes",
-                Error = Truncate(ex.Message, 200)
-            });
+            AddError(errors, "hardware.volumes", ex);
             hw.Volumes = null;
         }
     }
@@ -997,7 +969,7 @@ public sealed class InventoryCollector : IInventoryCollector
         }
         catch (Exception ex)
         {
-            errors.Add(new CollectorError { Section = "hardware.gpus", Error = Truncate(ex.Message, 200) });
+            AddError(errors, "hardware.gpus", ex);
             hw.Gpus = null;
         }
     }
@@ -1030,11 +1002,7 @@ public sealed class InventoryCollector : IInventoryCollector
         }
         catch (Exception ex)
         {
-            errors.Add(new CollectorError
-            {
-                Section = "hardware.ram_modules",
-                Error = Truncate(ex.Message, 200)
-            });
+            AddError(errors, "hardware.ram_modules", ex);
             hw.RamModules = null;
         }
     }
@@ -1196,7 +1164,7 @@ public sealed class InventoryCollector : IInventoryCollector
         }
         catch (Exception ex)
         {
-            errors.Add(new CollectorError { Section = "software", Error = Truncate(ex.Message, 200) });
+            AddError(errors, "software", ex);
             software.Programs = null;
         }
 
@@ -1367,11 +1335,7 @@ public sealed class InventoryCollector : IInventoryCollector
         }
         catch (Exception ex)
         {
-            errors.Add(new CollectorError
-            {
-                Section = "security.tpm",
-                Error = Truncate(ex.Message, 200)
-            });
+            AddError(errors, "security.tpm", ex);
         }
     }
 
@@ -1397,11 +1361,7 @@ public sealed class InventoryCollector : IInventoryCollector
         }
         catch (Exception ex)
         {
-            errors.Add(new CollectorError
-            {
-                Section = "security.secure_boot",
-                Error = Truncate(ex.Message, 200)
-            });
+            AddError(errors, "security.secure_boot", ex);
         }
     }
 
@@ -1442,11 +1402,7 @@ public sealed class InventoryCollector : IInventoryCollector
         }
         catch (Exception ex)
         {
-            errors.Add(new CollectorError
-            {
-                Section = "security.antivirus",
-                Error = Truncate(ex.Message, 200)
-            });
+            AddError(errors, "security.antivirus", ex);
         }
     }
 
@@ -1471,11 +1427,7 @@ public sealed class InventoryCollector : IInventoryCollector
         }
         catch (Exception ex)
         {
-            errors.Add(new CollectorError
-            {
-                Section = "host.pending_reboot",
-                Error = Truncate(ex.Message, 200)
-            });
+            AddError(errors, "host.pending_reboot", ex);
             return (null, null);
         }
     }
@@ -1788,15 +1740,9 @@ public sealed class InventoryCollector : IInventoryCollector
         return Convert.ToInt64(value);
     }
 
-    private static string Truncate(string text, int max)
-    {
-        if (string.IsNullOrEmpty(text) || text.Length <= max)
-        {
-            return text;
-        }
+    private static void AddError(List<CollectorError> errors, string section, Exception ex) =>
+        errors.Add(new CollectorError { Section = section, Error = TextLimit.Truncate(ex.Message, 200) });
 
-        return text[..max];
-    }
 
     private SoftwareInfo CollectSoftwareWithCache(List<CollectorError> errors)
     {

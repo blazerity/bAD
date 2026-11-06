@@ -7,9 +7,11 @@ import json
 import logging
 import smtplib
 import ssl
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from email.message import EmailMessage
 from typing import Any, Literal, Optional, TYPE_CHECKING
+
+from .db import utc_now
 
 if TYPE_CHECKING:
     from .db import Database
@@ -656,21 +658,6 @@ def _mail_digest_enabled(flags: dict[str, bool]) -> bool:
     return any(merged.values())
 
 
-def _parse_utc_iso(ts: str) -> Optional[datetime]:
-    raw = (ts or "").strip()
-    if not raw:
-        return None
-    try:
-        if raw.endswith("Z"):
-            raw = raw[:-1] + "+00:00"
-        dt = datetime.fromisoformat(raw)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc)
-    except ValueError:
-        return None
-
-
 def _mail_group_from_device(device: Optional[dict[str, Any]]) -> dict[str, Any]:
     from .device_meta import normalize_logged_on_list
 
@@ -705,14 +692,8 @@ def _finalize_digest_send(
     db: "Database", event_ids: list[int], slot_key: str
 ) -> None:
     if event_ids:
-        db.mark_device_events_mailed(event_ids, utc_now_iso())
+        db.mark_device_events_mailed(event_ids, utc_now())
     db.set_site_secret(INVENTORY_MAIL_LAST_DIGEST_KEY, slot_key)
-
-
-def utc_now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace(
-        "+00:00", "Z"
-    )
 
 
 def flush_inventory_mail_digest(

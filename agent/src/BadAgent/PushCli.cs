@@ -9,7 +9,7 @@ public static class PushCli
     {
         foreach (var arg in args)
         {
-            if (IsHelpToken(arg))
+            if (BadCli.IsHelpToken(arg))
             {
                 PrintHelp();
                 return 0;
@@ -125,7 +125,7 @@ public static class PushCli
             catch (Exception ex)
             {
                 lastInventoryOk = false;
-                lastInventoryError = Truncate(ex.Message, 200);
+                lastInventoryError = TextLimit.Truncate(ex.Message, 200);
                 try
                 {
                     OfflineQueue.EnqueueInventory(snap);
@@ -208,36 +208,10 @@ public static class PushCli
 
     private static void ApplyRemoteConfig(AgentConfig config, RemoteAgentConfigResponse remote)
     {
-        if (remote.Settings is null)
-        {
-            return;
-        }
-
-        var changed = ConfigStore.ApplyRemoteSettings(config, remote.Settings);
-        if (!string.IsNullOrWhiteSpace(remote.Version)
-            && !string.Equals(config.RemoteConfigVersion, remote.Version, StringComparison.Ordinal))
-        {
-            config.RemoteConfigVersion = remote.Version;
-            changed = true;
-        }
-
-        if (changed)
+        if (ConfigStore.TakeRemoteConfig(config, remote))
         {
             ConfigStore.Save(config);
         }
-    }
-
-    private static bool IsHelpToken(string s) =>
-        s is "-h" or "--help" or "-?" or "/?" or "help";
-
-    private static string Truncate(string text, int max)
-    {
-        if (string.IsNullOrEmpty(text) || text.Length <= max)
-        {
-            return text;
-        }
-
-        return text[..max];
     }
 
     public static void PrintHelp()

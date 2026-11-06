@@ -11,7 +11,7 @@ import re
 from typing import Any, Optional
 
 from .agent_config import ALLOWED_SETTING_KEYS, compute_setting_sources
-from .device_health import device_silence_status
+from .device_health import device_silence_status, parse_iso
 from .enrollment_ops import enrollment_status
 from .event_importance import event_importance
 from .fleet_buckets import normalize_os_caption, resolve_cpu_family
@@ -693,14 +693,24 @@ def aggregate_incident_feed(
     """
     from datetime import datetime, timedelta, timezone
 
-    def _parse_ts(raw: object) -> Optional[datetime]:
-        text = str(raw or "").strip()
-        if not text:
-            return None
-        try:
-            return datetime.fromisoformat(text.replace("Z", "+00:00"))
-        except ValueError:
-            return None
+    def _fresh(
+        ev: dict[str, Any],
+        created: Optional[datetime],
+        device_id: str,
+        event_type: str,
+    ) -> dict[str, Any]:
+        return {
+            "id": ev.get("id"),
+            "device_id": device_id,
+            "type": event_type,
+            "summary": ev.get("summary"),
+            "created_at": ev.get("created_at"),
+            "importance": ev.get("importance") or event_importance(event_type),
+            "bad_id": ev.get("bad_id"),
+            "device_href": ev.get("device_href"),
+            "count": 1,
+            "_ts": created,
+        }
 
     now = datetime.now(timezone.utc)
     window = now - timedelta(hours=24)
@@ -710,20 +720,9 @@ def aggregate_incident_feed(
         did = str(ev.get("device_id") or "")
         etype = str(ev.get("type") or "")
         key = (did, etype)
-        created = _parse_ts(ev.get("created_at"))
+        created = parse_iso(ev.get("created_at"))
         if key not in groups:
-            groups[key] = {
-                "id": ev.get("id"),
-                "device_id": did,
-                "type": etype,
-                "summary": ev.get("summary"),
-                "created_at": ev.get("created_at"),
-                "importance": ev.get("importance") or event_importance(etype),
-                "bad_id": ev.get("bad_id"),
-                "device_href": ev.get("device_href"),
-                "count": 1,
-                "_ts": created,
-            }
+            groups[key] = _fresh(ev, created, did, etype)
             order.append(key)
             continue
         g = groups[key]
@@ -736,18 +735,7 @@ def aggregate_incident_feed(
                 g["summary"] = ev.get("summary")
         else:
             alt = (did, f"{etype}#{ev.get('id')}")
-            groups[alt] = {
-                "id": ev.get("id"),
-                "device_id": did,
-                "type": etype,
-                "summary": ev.get("summary"),
-                "created_at": ev.get("created_at"),
-                "importance": ev.get("importance") or event_importance(etype),
-                "bad_id": ev.get("bad_id"),
-                "device_href": ev.get("device_href"),
-                "count": 1,
-                "_ts": created,
-            }
+            groups[alt] = _fresh(ev, created, did, etype)
             order.append(alt)
 
     out: list[dict[str, Any]] = []

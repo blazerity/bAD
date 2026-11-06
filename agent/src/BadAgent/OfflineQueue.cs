@@ -88,19 +88,19 @@ public static class OfflineQueue
             }
             catch
             {
-                TryDelete(file);
+                QuietFiles.TryDelete(file);
                 continue;
             }
 
             if (item is null || string.IsNullOrWhiteSpace(item.Body))
             {
-                TryDelete(file);
+                QuietFiles.TryDelete(file);
                 continue;
             }
 
             if (IsTooOld(item))
             {
-                TryDelete(file);
+                QuietFiles.TryDelete(file);
                 continue;
             }
 
@@ -120,11 +120,11 @@ public static class OfflineQueue
                 }
                 else
                 {
-                    TryDelete(file);
+                    QuietFiles.TryDelete(file);
                     continue;
                 }
 
-                TryDelete(file);
+                QuietFiles.TryDelete(file);
                 sent++;
                 meta.ConsecutiveFailures = 0;
                 meta.NextRetryUtc = null;
@@ -207,20 +207,20 @@ public static class OfflineQueue
                 var item = JsonSerializer.Deserialize<QueueItem>(File.ReadAllText(file));
                 if (item is not null && IsTooOld(item))
                 {
-                    TryDelete(file);
+                    QuietFiles.TryDelete(file);
                     files.Remove(file);
                 }
             }
             catch
             {
-                TryDelete(file);
+                QuietFiles.TryDelete(file);
                 files.Remove(file);
             }
         }
 
         while (files.Count > MaxItems)
         {
-            TryDelete(files[0]);
+            QuietFiles.TryDelete(files[0]);
             files.RemoveAt(0);
         }
     }
@@ -257,18 +257,6 @@ public static class OfflineQueue
         var tmp = MetaPath + ".tmp";
         File.WriteAllText(tmp, JsonSerializer.Serialize(meta, JsonOptions));
         File.Move(tmp, MetaPath, overwrite: true);
-    }
-
-    private static void TryDelete(string path)
-    {
-        try
-        {
-            File.Delete(path);
-        }
-        catch
-        {
-            // ignore
-        }
     }
 
     private sealed class QueueItem

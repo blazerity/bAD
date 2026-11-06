@@ -364,6 +364,25 @@ public static class ConfigStore
         return changed;
     }
 
+    /// <summary>Allowlisted knobs plus remote version. Does not write config.json.</summary>
+    public static bool TakeRemoteConfig(AgentConfig config, RemoteAgentConfigResponse remote)
+    {
+        if (remote.Settings is null)
+        {
+            return false;
+        }
+
+        var changed = ApplyRemoteSettings(config, remote.Settings);
+        if (!string.IsNullOrWhiteSpace(remote.Version)
+            && !string.Equals(config.RemoteConfigVersion, remote.Version, StringComparison.Ordinal))
+        {
+            config.RemoteConfigVersion = remote.Version;
+            changed = true;
+        }
+
+        return changed;
+    }
+
     private static bool ApplyRemoteUpdateTarget(AgentConfig config, RemoteAgentSettings settings)
     {
         if (IsAgentLocalKey(config, "update_target"))
@@ -389,25 +408,26 @@ public static class ConfigStore
     }
 
     private static bool ApplyRemoteInt(
-        AgentConfig config, string key, int? incoming, Func<int> get, Action<int> set)
-    {
-        if (!RemoteSettingsAllowlist.Contains(key)
-            || incoming is not int v || v < 1
-            || IsAgentLocalKey(config, key) || get() == v)
-        {
-            return false;
-        }
-
-        set(v);
-        return true;
-    }
+        AgentConfig config, string key, int? incoming, Func<int> get, Action<int> set) =>
+        ApplyRemoteValue(config, key, incoming, get, set, v => v < 1);
 
     private static bool ApplyRemoteBool(
-        AgentConfig config, string key, bool? incoming, Func<bool> get, Action<bool> set)
+        AgentConfig config, string key, bool? incoming, Func<bool> get, Action<bool> set) =>
+        ApplyRemoteValue(config, key, incoming, get, set);
+
+    private static bool ApplyRemoteValue<T>(
+        AgentConfig config,
+        string key,
+        T? incoming,
+        Func<T> get,
+        Action<T> set,
+        Func<T, bool>? invalid = null) where T : struct
     {
         if (!RemoteSettingsAllowlist.Contains(key)
-            || incoming is not bool v
-            || IsAgentLocalKey(config, key) || get() == v)
+            || incoming is not T v
+            || (invalid is not null && invalid(v))
+            || IsAgentLocalKey(config, key)
+            || EqualityComparer<T>.Default.Equals(get(), v))
         {
             return false;
         }

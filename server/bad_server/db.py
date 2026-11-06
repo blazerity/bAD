@@ -24,6 +24,10 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def _compact_json(value: object) -> str:
+    return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+
+
 class Database:
     """Persistence hub — Postgres через `BAD_DATABASE_URL`."""
 
@@ -503,7 +507,7 @@ class Database:
         conn.execute(
             "UPDATE devices SET meta_json = ? WHERE device_id = ?",
             (
-                json.dumps(meta, separators=(",", ":"), ensure_ascii=False),
+                _compact_json(meta),
                 device_id,
             ),
         )
@@ -581,6 +585,7 @@ class Database:
         health = {k: v for k, v in (health or {}).items() if v is not None}
         touch_meta = bool(last_inventory_at or health or config_local_provided)
         with self.connection() as conn:
+            meta = None
             if touch_meta:
                 meta = self._lock_device_meta(conn, device_id)
                 if last_inventory_at:
@@ -596,26 +601,17 @@ class Database:
                         block = dict(cleaned)
                         block["reported_at"] = now
                         meta["config_local"] = block
-                conn.execute(
-                    """
-                    UPDATE devices
-                    SET last_seen_at = ?,
-                        agent_version = COALESCE(?, agent_version)
-                    WHERE device_id = ?
-                    """,
-                    (now, agent_version, device_id),
-                )
+            conn.execute(
+                """
+                UPDATE devices
+                SET last_seen_at = ?,
+                    agent_version = COALESCE(?, agent_version)
+                WHERE device_id = ?
+                """,
+                (now, agent_version, device_id),
+            )
+            if meta is not None:
                 self._save_device_meta(conn, device_id, meta)
-            else:
-                conn.execute(
-                    """
-                    UPDATE devices
-                    SET last_seen_at = ?,
-                        agent_version = COALESCE(?, agent_version)
-                    WHERE device_id = ?
-                    """,
-                    (now, agent_version, device_id),
-                )
 
     def store_inventory(
         self,
@@ -630,25 +626,12 @@ class Database:
         from .inventory_events import diff_inventory_snapshots
 
         now = utc_now()
-        payload_json = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+        payload_json = _compact_json(payload)
         with self.connection() as conn:
-            prev_row = conn.execute(
-                """
-                SELECT payload_json FROM inventory_snapshots
-                WHERE device_id = ?
-                ORDER BY received_at DESC, id DESC
-                LIMIT 1
-                """,
-                (device_id,),
-            ).fetchone()
-            previous: Optional[dict[str, Any]] = None
-            if prev_row:
-                try:
-                    parsed = json.loads(prev_row["payload_json"])
-                    if isinstance(parsed, dict):
-                        previous = parsed
-                except json.JSONDecodeError:
-                    previous = None
+            prev_row = self._latest_snapshot_row(conn, device_id)
+            previous = (
+                self._snapshot_payload(prev_row["payload_json"]) if prev_row else None
+            )
 
             merged_meta = self._lock_device_meta(conn, device_id)
             merged_meta.update(meta or {})
@@ -662,9 +645,7 @@ class Database:
             apply_user_presence_patch(
                 merged_meta, users_block, existing=merged_meta
             )
-            meta_json = json.dumps(
-                merged_meta, separators=(",", ":"), ensure_ascii=False
-            )
+            meta_json = _compact_json(merged_meta)
             conn.execute(
                 """
                 UPDATE devices
@@ -691,24 +672,13 @@ class Database:
             events = diff_inventory_snapshots(previous, payload)
             for event in events:
                 detail = event.get("detail")
-                detail_payload = json.dumps(
-                    detail if detail is not None else {},
-                    separators=(",", ":"),
-                    ensure_ascii=False,
-                )
-                conn.execute(
-                    """
-                    INSERT INTO device_events(
-                      device_id, type, summary, detail_json, created_at
-                    ) VALUES (?, ?, ?, ?, ?)
-                    """,
-                    (
-                        device_id,
-                        event["type"],
-                        event["summary"],
-                        detail_payload,
-                        now,
-                    ),
+                self._insert_device_event(
+                    conn,
+                    device_id,
+                    event["type"],
+                    event["summary"],
+                    _compact_json(detail if detail is not None else {}),
+                    now,
                 )
 
             # удалить старше лимита retention по числу на устройство (env BAD_SNAPSHOT_RETENTION)
@@ -849,7 +819,7 @@ class Database:
         from .device_health import normalize_tags
 
         clean = normalize_tags(tags)
-        payload = json.dumps(clean, separators=(",", ":"), ensure_ascii=False)
+        payload = _compact_json(clean)
         with self.connection() as conn:
             cur = conn.execute(
                 "UPDATE devices SET tags_json = ? WHERE device_id = ?",
@@ -973,20 +943,52 @@ class Database:
         detail: Optional[dict[str, Any]] = None,
     ) -> None:
         now = utc_now()
-        detail_payload = json.dumps(
-            detail if detail is not None else {},
-            separators=(",", ":"),
-            ensure_ascii=False,
-        )
         with self.connection() as conn:
-            conn.execute(
-                """
-                INSERT INTO device_events(
-                  device_id, type, summary, detail_json, created_at
-                ) VALUES (?, ?, ?, ?, ?)
-                """,
-                (device_id, event_type, summary, detail_payload, now),
+            self._insert_device_event(
+                conn,
+                device_id,
+                event_type,
+                summary,
+                _compact_json(detail if detail is not None else {}),
+                now,
             )
+
+    def _insert_device_event(
+        self,
+        conn: CompatConnection,
+        device_id: str,
+        event_type: str,
+        summary: str,
+        detail_json: str,
+        created_at: str,
+    ) -> None:
+        conn.execute(
+            """
+            INSERT INTO device_events(
+              device_id, type, summary, detail_json, created_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (device_id, event_type, summary, detail_json, created_at),
+        )
+
+    def _latest_snapshot_row(self, conn: CompatConnection, device_id: str) -> Any:
+        return conn.execute(
+            """
+            SELECT payload_json FROM inventory_snapshots
+            WHERE device_id = ?
+            ORDER BY received_at DESC, id DESC
+            LIMIT 1
+            """,
+            (device_id,),
+        ).fetchone()
+
+    @staticmethod
+    def _snapshot_payload(raw: Any) -> Optional[dict[str, Any]]:
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+        return parsed if isinstance(parsed, dict) else None
 
     @staticmethod
     def _device_event_rows(
@@ -1339,62 +1341,52 @@ class Database:
         bind_password_enc: Optional[str] = None,
     ) -> None:
         now = utc_now()
+        sets = [
+            "enabled = ?",
+            "host = ?",
+            "port = ?",
+            "use_ssl = ?",
+            "start_tls = ?",
+            "bind_dn = ?",
+        ]
+        params: list[Any] = [
+            1 if enabled else 0,
+            host,
+            port,
+            1 if use_ssl else 0,
+            1 if start_tls else 0,
+            bind_dn,
+        ]
+        if bind_password_enc is not None:
+            sets.append("bind_password_enc = ?")
+            params.append(bind_password_enc)
+        sets.extend(
+            [
+                "user_search_base = ?",
+                "user_filter_template = ?",
+                "display_name_attr = ?",
+                "default_role = ?",
+                "allowed_group = ?",
+                "tls_insecure = ?",
+                "updated_at = ?",
+            ]
+        )
+        params.extend(
+            [
+                user_search_base,
+                user_filter_template,
+                display_name_attr,
+                default_role,
+                allowed_group,
+                1 if tls_insecure else 0,
+                now,
+            ]
+        )
         with self.connection() as conn:
-            if bind_password_enc is not None:
-                conn.execute(
-                    """
-                    UPDATE ldap_settings SET
-                      enabled = ?, host = ?, port = ?, use_ssl = ?, start_tls = ?,
-                      bind_dn = ?, bind_password_enc = ?,
-                      user_search_base = ?, user_filter_template = ?,
-                      display_name_attr = ?, default_role = ?,
-                      allowed_group = ?, tls_insecure = ?, updated_at = ?
-                    WHERE id = 1
-                    """,
-                    (
-                        1 if enabled else 0,
-                        host,
-                        port,
-                        1 if use_ssl else 0,
-                        1 if start_tls else 0,
-                        bind_dn,
-                        bind_password_enc,
-                        user_search_base,
-                        user_filter_template,
-                        display_name_attr,
-                        default_role,
-                        allowed_group,
-                        1 if tls_insecure else 0,
-                        now,
-                    ),
-                )
-            else:
-                conn.execute(
-                    """
-                    UPDATE ldap_settings SET
-                      enabled = ?, host = ?, port = ?, use_ssl = ?, start_tls = ?,
-                      bind_dn = ?,
-                      user_search_base = ?, user_filter_template = ?,
-                      display_name_attr = ?, default_role = ?,
-                      allowed_group = ?, tls_insecure = ?, updated_at = ?
-                    WHERE id = 1
-                    """,
-                    (
-                        1 if enabled else 0,
-                        host,
-                        port,
-                        1 if use_ssl else 0,
-                        1 if start_tls else 0,
-                        bind_dn,
-                        user_search_base,
-                        user_filter_template,
-                        display_name_attr,
-                        default_role,
-                        allowed_group,
-                        1 if tls_insecure else 0,
-                        now,
-                    ),
-                )
+            conn.execute(
+                f"UPDATE ldap_settings SET {', '.join(sets)} WHERE id = 1",
+                params,
+            )
 
     # --- зеркало agent update (каталог версий + указатель latest) ---
 
@@ -1695,8 +1687,8 @@ class Database:
                     name,
                     1 if enabled else 0,
                     priority,
-                    json.dumps(conditions, separators=(",", ":"), ensure_ascii=False),
-                    json.dumps(settings, separators=(",", ":"), ensure_ascii=False),
+                    _compact_json(conditions),
+                    _compact_json(settings),
                     now,
                     now,
                 ),
@@ -1730,8 +1722,8 @@ class Database:
                     name,
                     1 if enabled else 0,
                     priority,
-                    json.dumps(conditions, separators=(",", ":"), ensure_ascii=False),
-                    json.dumps(settings, separators=(",", ":"), ensure_ascii=False),
+                    _compact_json(conditions),
+                    _compact_json(settings),
                     now,
                     policy_id,
                 ),
@@ -1788,7 +1780,7 @@ class Database:
         self, device_id: str, settings: dict[str, Any]
     ) -> dict[str, Any]:
         now = utc_now()
-        payload = json.dumps(settings, separators=(",", ":"), ensure_ascii=False)
+        payload = _compact_json(settings)
         with self.connection() as conn:
             exists = conn.execute(
                 "SELECT device_id FROM devices WHERE device_id = ?", (device_id,)
@@ -1819,22 +1811,10 @@ class Database:
 
     def latest_inventory_payload(self, device_id: str) -> Optional[dict[str, Any]]:
         with self.connection() as conn:
-            snap = conn.execute(
-                """
-                SELECT payload_json FROM inventory_snapshots
-                WHERE device_id = ?
-                ORDER BY received_at DESC, id DESC
-                LIMIT 1
-                """,
-                (device_id,),
-            ).fetchone()
+            snap = self._latest_snapshot_row(conn, device_id)
         if not snap:
             return None
-        try:
-            payload = json.loads(snap["payload_json"])
-        except json.JSONDecodeError:
-            return None
-        return payload if isinstance(payload, dict) else None
+        return self._snapshot_payload(snap["payload_json"])
 
     def latest_inventory_payloads(
         self, device_ids: list[str], *, cap: int = 500
@@ -2463,7 +2443,7 @@ class Database:
             "hostname": donor_hostname,
             "matched": matched,
         }
-        detail_json = json.dumps(detail, separators=(",", ":"), ensure_ascii=False)
+        detail_json = _compact_json(detail)
         summary = (
             f"Склейка с {donor_hostname}"
             if donor_hostname
@@ -2513,19 +2493,8 @@ class Database:
                 """,
                 (donor_id,),
             )
-            conn.execute(
-                """
-                INSERT INTO device_events(
-                  device_id, type, summary, detail_json, created_at
-                ) VALUES (?, ?, ?, ?, ?)
-                """,
-                (
-                    survivor_id,
-                    "device_merged",
-                    summary,
-                    detail_json,
-                    now,
-                ),
+            self._insert_device_event(
+                conn, survivor_id, "device_merged", summary, detail_json, now
             )
             snapshots_moved = int(snap_cur.rowcount or 0)
             events_moved = int(ev_cur.rowcount or 0)
@@ -2935,38 +2904,38 @@ class Database:
                     meta[key] = value
             self._save_device_meta(conn, device_id, meta)
 
+    def _active_silence(
+        self, stale_after_seconds: int
+    ) -> list[tuple[dict[str, Any], dict[str, str], dict[str, Any]]]:
+        from .device_health import device_silence_status
+
+        rows: list[tuple[dict[str, Any], dict[str, str], dict[str, Any]]] = []
+        for device in self.list_devices(archived=False):
+            silence = device_silence_status(
+                device.get("last_seen_at"), stale_after_seconds=stale_after_seconds
+            )
+            meta = device.get("meta") or {}
+            rows.append((device, silence, meta))
+        return rows
+
     def devices_needing_stale_alert(
         self, *, stale_after_seconds: int
     ) -> list[dict[str, Any]]:
-        from .device_health import device_silence_status
-
-        out: list[dict[str, Any]] = []
-        for d in self.list_devices(archived=False):
-            silence = device_silence_status(
-                d.get("last_seen_at"), stale_after_seconds=stale_after_seconds
-            )
-            meta = d.get("meta") or {}
-            if silence["status"] == "stale":
-                if meta.get("stale_notified_at"):
-                    continue
-                out.append(d)
-        return out
+        return [
+            device
+            for device, silence, meta in self._active_silence(stale_after_seconds)
+            if silence["status"] == "stale" and not meta.get("stale_notified_at")
+        ]
 
     def devices_recovered_from_stale(
         self, *, stale_after_seconds: int
     ) -> list[dict[str, Any]]:
         """Было stale_notified_at, снова heartbeat — для device_back_online."""
-        from .device_health import device_silence_status
-
-        out: list[dict[str, Any]] = []
-        for d in self.list_devices(archived=False):
-            silence = device_silence_status(
-                d.get("last_seen_at"), stale_after_seconds=stale_after_seconds
-            )
-            meta = d.get("meta") or {}
-            if silence["status"] != "stale" and meta.get("stale_notified_at"):
-                out.append(d)
-        return out
+        return [
+            device
+            for device, silence, meta in self._active_silence(stale_after_seconds)
+            if silence["status"] != "stale" and meta.get("stale_notified_at")
+        ]
 
 
 

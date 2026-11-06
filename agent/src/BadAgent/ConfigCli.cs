@@ -61,7 +61,7 @@ public static class ConfigCli
             return RunShow();
         }
 
-        if (IsHelpToken(args[0]))
+        if (BadCli.IsHelpToken(args[0]))
         {
             PrintHelp();
             return 0;
@@ -519,9 +519,6 @@ public static class ConfigCli
         key == "server_url" || ConfigStore.CliManualSettingKeys.Contains(key);
 
     private static string NormalizeKey(string key) => key.Trim().ToLowerInvariant();
-
-    private static bool IsHelpToken(string s) =>
-        s is "-h" or "--help" or "-?" or "/?" or "help";
 
     private static bool TryParsePositiveInt(string value, out int n) =>
         int.TryParse(value.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out n) && n >= 1;

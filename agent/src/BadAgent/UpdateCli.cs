@@ -11,7 +11,7 @@ public static class UpdateCli
     {
         foreach (var arg in args)
         {
-            if (IsHelpToken(arg))
+            if (BadCli.IsHelpToken(arg))
             {
                 PrintHelp();
                 return 0;
@@ -87,9 +87,6 @@ public static class UpdateCli
             return 1;
         }
     }
-
-    private static bool IsHelpToken(string s) =>
-        s is "-h" or "--help" or "-?" or "/?" or "help";
 
     public static void PrintHelp()
     {

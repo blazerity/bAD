@@ -62,10 +62,13 @@ public static class BadCli
         }
     }
 
+    public static bool IsHelpToken(string s) =>
+        s is "-h" or "--help" or "-?" or "/?" or "help";
+
     /// <summary>Глаголы/флаги первого аргумента: всегда локальный report CLI (не service host).</summary>
     public static bool IsExplicitCliArg(string arg) =>
-        arg is "-?" or "--help" or "help" or "/?" or "-h"
-            or "-c" or "--configure"
+        IsHelpToken(arg)
+            || arg is "-c" or "--configure"
             or "-r" or "--report" or "--html" or "html"
             or "report" or "info" or "ascii"
             or "config" or "settings"
@@ -74,7 +77,7 @@ public static class BadCli
             or "uninstall" or "unistall";
 
     private static bool IsHelp(string[] args) =>
-        args.Length > 0 && args[0] is "-?" or "--help" or "help" or "/?" or "-h";
+        args.Length > 0 && IsHelpToken(args[0]);
 
     private static bool IsInteractiveConfig(string[] args) =>
         args.Length > 0 && args[0] is "-c" or "--configure";
@@ -82,56 +85,37 @@ public static class BadCli
     private static bool IsAsciiCommand(string cmd) =>
         cmd is "report" or "info" or "ascii";
 
-    private static bool IsConfigCommand(string[] args, out string[] rest)
+    private static bool TakeCommand(
+        string[] args, out string[] rest, StringComparison comparison, params string[] verbs)
     {
-        if (args.Length > 0 && args[0] is "config" or "settings")
+        if (args.Length > 0)
         {
-            rest = args.AsSpan(1).ToArray();
-            return true;
+            foreach (var verb in verbs)
+            {
+                if (string.Equals(args[0], verb, comparison))
+                {
+                    rest = args.AsSpan(1).ToArray();
+                    return true;
+                }
+            }
         }
 
         rest = [];
         return false;
     }
 
-    private static bool IsPushCommand(string[] args, out string[] rest)
-    {
-        if (args.Length > 0 && string.Equals(args[0], "push", StringComparison.OrdinalIgnoreCase))
-        {
-            rest = args.AsSpan(1).ToArray();
-            return true;
-        }
+    private static bool IsConfigCommand(string[] args, out string[] rest) =>
+        TakeCommand(args, out rest, StringComparison.Ordinal, "config", "settings");
 
-        rest = [];
-        return false;
-    }
+    private static bool IsPushCommand(string[] args, out string[] rest) =>
+        TakeCommand(args, out rest, StringComparison.OrdinalIgnoreCase, "push");
 
-    private static bool IsUpdateCommand(string[] args, out string[] rest)
-    {
-        if (args.Length > 0 && string.Equals(args[0], "update", StringComparison.OrdinalIgnoreCase))
-        {
-            rest = args.AsSpan(1).ToArray();
-            return true;
-        }
+    private static bool IsUpdateCommand(string[] args, out string[] rest) =>
+        TakeCommand(args, out rest, StringComparison.OrdinalIgnoreCase, "update");
 
-        rest = [];
-        return false;
-    }
-
-    private static bool IsUninstallCommand(string[] args, out string[] rest)
-    {
-        // unistall — частая опечатка
-        if (args.Length > 0
-            && (string.Equals(args[0], "uninstall", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(args[0], "unistall", StringComparison.OrdinalIgnoreCase)))
-        {
-            rest = args.AsSpan(1).ToArray();
-            return true;
-        }
-
-        rest = [];
-        return false;
-    }
+    // unistall — частая опечатка
+    private static bool IsUninstallCommand(string[] args, out string[] rest) =>
+        TakeCommand(args, out rest, StringComparison.OrdinalIgnoreCase, "uninstall", "unistall");
 
     private static bool IsHtml(string[] args, out string? pathArg)
     {

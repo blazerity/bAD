@@ -60,7 +60,7 @@ public static class AgentSigningKey
         var tmp = KeyPath + ".tmp";
         File.WriteAllText(tmp, privateKeyBase64.Trim());
         File.Move(tmp, KeyPath, overwrite: true);
-        TryDelete(SkipFetchPath);
+        QuietFiles.TryDelete(SkipFetchPath);
     }
 
     public static void MarkFetchUnavailable()
@@ -71,9 +71,9 @@ public static class AgentSigningKey
 
     public static void ClearLocal()
     {
-        TryDelete(KeyPath);
-        TryDelete(SkipFetchPath);
-        TryDelete(KeyPath + ".tmp");
+        QuietFiles.TryDelete(KeyPath);
+        QuietFiles.TryDelete(SkipFetchPath);
+        QuietFiles.TryDelete(KeyPath + ".tmp");
     }
 
     /// <summary>
@@ -226,21 +226,6 @@ public static class AgentSigningKey
         signer.Init(true, privateParams);
         signer.BlockUpdate(message, 0, message.Length);
         return signer.GenerateSignature();
-    }
-
-    private static void TryDelete(string path)
-    {
-        try
-        {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-        }
-        catch
-        {
-            // ignore
-        }
     }
 }
 

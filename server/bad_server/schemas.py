@@ -12,6 +12,13 @@ from .agent_config import (
 )
 
 
+def _require_settings(value: dict[str, Any]) -> dict[str, Any]:
+    cleaned = sanitize_settings(value)
+    if not cleaned:
+        raise ValueError("settings must include at least one allowed key")
+    return cleaned
+
+
 class EnrollRequest(BaseModel):
     device_id: str = Field(min_length=1, max_length=128)
     hostname: Optional[str] = Field(default=None, max_length=255)
@@ -108,10 +115,7 @@ class AgentPolicyBody(BaseModel):
     @field_validator("settings")
     @classmethod
     def _settings_ok(cls, value: dict[str, Any]) -> dict[str, Any]:
-        cleaned = sanitize_settings(value)
-        if not cleaned:
-            raise ValueError("settings must include at least one allowed key")
-        return cleaned
+        return _require_settings(value)
 
     @field_validator("conditions")
     @classmethod
@@ -134,10 +138,7 @@ class DeviceConfigOverrideBody(BaseModel):
     @field_validator("settings")
     @classmethod
     def _settings_ok(cls, value: dict[str, Any]) -> dict[str, Any]:
-        cleaned = sanitize_settings(value)
-        if not cleaned:
-            raise ValueError("settings must include at least one allowed key")
-        return cleaned
+        return _require_settings(value)
 
 
 class DeviceTagsBody(BaseModel):

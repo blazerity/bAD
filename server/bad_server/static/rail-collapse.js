@@ -98,9 +98,5 @@
     MQ.addEventListener("change", applyLayout);
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
-  }
+  badOnReady(init);
 })();

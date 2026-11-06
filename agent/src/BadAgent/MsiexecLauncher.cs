@@ -53,7 +53,7 @@ internal static class MsiexecLauncher
         if (!DetachedProcessStart.TryStart(wscript, wscriptArgs, logger))
         {
             logger?.LogError("Не удалось запустить detached wscript: {Script}", scriptPath);
-            TryDelete(scriptPath);
+            QuietFiles.TryDelete(scriptPath);
             return false;
         }
 
@@ -78,19 +78,4 @@ internal static class MsiexecLauncher
 
     private static string EscapeVbsString(string value) =>
         value.Replace("\"", "\"\"");
-
-    private static void TryDelete(string path)
-    {
-        try
-        {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-        }
-        catch
-        {
-            // best-effort
-        }
-    }
 }

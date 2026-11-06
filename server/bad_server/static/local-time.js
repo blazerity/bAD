@@ -158,11 +158,7 @@
     });
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", apply);
-  } else {
-    apply();
-  }
+  badOnReady(apply);
 
   window.setInterval(apply, 60000);
 })();

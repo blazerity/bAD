@@ -505,14 +505,13 @@ def agent_config(
     }
 
 
-@router.post("/inventory")
-def inventory(
+def _accepted_inventory(
     body: InventoryRequest,
-    request: Request,
-    device=Depends(require_api_key),
-    db: Database = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    device: dict[str, Any],
+    db: Database,
+    settings: Settings,
 ) -> dict[str, Any]:
+    """Проверка device_id, схемы, подписи и бюджета. Один путь для снимка и HTML-отчёта."""
     if body.device_id != device["device_id"]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="device_id mismatch")
     if body.schema_version not in settings.known_schema_versions:
@@ -551,6 +550,18 @@ def inventory(
     if budget is not None:
         code, detail = budget
         raise HTTPException(status_code=code, detail=detail)
+    return payload
+
+
+@router.post("/inventory")
+def inventory(
+    body: InventoryRequest,
+    request: Request,
+    device=Depends(require_api_key),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    payload = _accepted_inventory(body, device, db, settings)
     hostname = None
     host = payload.get("host") if isinstance(payload.get("host"), dict) else None
     if host:
@@ -597,39 +608,7 @@ def agent_report_html(
     settings: Settings = Depends(get_settings),
 ) -> HTMLResponse:
     """HTML карточки для уже зачисленного агента. Снимок не пишется в БД."""
-    if body.device_id != device["device_id"]:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="device_id mismatch")
-    if body.schema_version not in settings.known_schema_versions:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported schema_version: {body.schema_version}",
-        )
-    signed = body.model_dump(exclude_unset=True)
-    signature = signed.pop("signature", None)
-    if isinstance(signature, str):
-        signature = signature.strip() or None
-    pubkey = (device.get("signing_pubkey") or "").strip()
-    if signature:
-        if not pubkey or not verify_inventory_signature(pubkey, signed, signature):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid inventory signature",
-            )
-    elif db.get_bool_setting(
-        "require_inventory_signature", settings.require_inventory_signature
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Inventory signature required",
-        )
-    payload = sanitize_inventory_payload(body.model_dump())
-    if body.schema_version >= 3:
-        payload = {key: value for key, value in payload.items() if key in INVENTORY_TOP_KEYS}
-    payload.pop("signature", None)
-    budget = inventory_budget_error(payload)
-    if budget is not None:
-        code, detail = budget
-        raise HTTPException(status_code=code, detail=detail)
+    payload = _accepted_inventory(body, device, db, settings)
     from .web import render_device_report
 
     try:

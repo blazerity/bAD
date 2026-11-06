@@ -1,16 +1,5 @@
 /** Поиск на Обзоре → /overview/search.json (Bolt-строки выдачи) */
 (function () {
-  function debounce(fn, ms) {
-    var t;
-    return function () {
-      var args = arguments;
-      clearTimeout(t);
-      t = setTimeout(function () {
-        fn.apply(null, args);
-      }, ms);
-    };
-  }
-
   function hitRow(href, titleHtml, metaHtml, typeLabel) {
     var a = document.createElement("a");
     a.href = href;
@@ -165,15 +154,11 @@
     input.addEventListener("keydown", function (ev) {
       if (ev.key === "Enter") ev.preventDefault();
     });
-    input.addEventListener("input", debounce(runSearch, 300));
+    input.addEventListener("input", badDebounce(runSearch, 300));
     document.addEventListener("click", function (ev) {
       if (!box.contains(ev.target) && ev.target !== input) clear();
     });
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
-  }
+  badOnReady(init);
 })();

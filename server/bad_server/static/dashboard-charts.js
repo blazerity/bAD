@@ -470,9 +470,5 @@
     window.addEventListener("resize", onResize);
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
-  }
+  badOnReady(init);
 })();

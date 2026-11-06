@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, Optional
 
 from .db import Database, utc_now
+from .device_health import parse_utc
 
 UNINSTALL_META_KEYS = (
     "uninstall_requested_at",
@@ -16,21 +17,6 @@ UNINSTALL_META_KEYS = (
 UNINSTALL_TTL = timedelta(days=7)
 
 UninstallBadge = Literal["removing", "sent", "failed"]
-
-
-def _parse_utc_iso(raw: str) -> Optional[datetime]:
-    s = (raw or "").strip()
-    if not s:
-        return None
-    try:
-        if s.endswith("Z"):
-            s = s[:-1] + "+00:00"
-        dt = datetime.fromisoformat(s)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc)
-    except ValueError:
-        return None
 
 
 def _now(now: Optional[datetime] = None) -> datetime:
@@ -48,7 +34,7 @@ def uninstall_request_active(
         return False
     if meta.get("uninstall_sent_at"):
         return False
-    requested_at = _parse_utc_iso(requested)
+    requested_at = parse_utc(requested)
     if not requested_at:
         return False
     return _now(now) - requested_at <= UNINSTALL_TTL
@@ -66,7 +52,7 @@ def expire_uninstall_request_if_needed(
         requested = meta.get("uninstall_requested_at")
         sent = meta.get("uninstall_sent_at")
         if requested and not sent:
-            requested_at = _parse_utc_iso(str(requested))
+            requested_at = parse_utc(str(requested))
             if requested_at and _now(now) - requested_at > UNINSTALL_TTL:
                 db.patch_device_meta(
                     device_id,

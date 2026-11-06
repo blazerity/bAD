@@ -1,16 +1,5 @@
 /** Живой поиск устройств → /devices/search.json (без submit формы) */
 (function () {
-  function debounce(fn, ms) {
-    var t;
-    return function () {
-      var args = arguments;
-      clearTimeout(t);
-      t = setTimeout(function () {
-        fn.apply(null, args);
-      }, ms);
-    };
-  }
-
   function hitRow(d) {
     var a = document.createElement("a");
     a.href = d.href;
@@ -48,7 +37,7 @@
 
     input.addEventListener(
       "input",
-      debounce(function () {
+      badDebounce(function () {
         var q = (input.value || "").trim();
         if (q.length < 2) {
           clear();
@@ -84,9 +73,5 @@
     });
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
-  }
+  badOnReady(init);
 })();
