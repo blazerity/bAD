@@ -3597,10 +3597,15 @@ def _validate_update_target_pin(db: Database, settings: dict) -> Optional[str]:
 
 
 _CONDITION_FIELD_LABELS_RU = {
-    "hostname": "hostname",
-    "domain": "domain",
-    "os_caption": "os_caption (подпись ОС)",
-    "tag": "tag",
+    "hostname": "Имя узла",
+    "domain": "Домен",
+    "os_caption": "Подпись ОС",
+    "tag": "Тег",
+}
+
+_CONDITION_OP_LABELS_RU = {
+    "equals": "совпадает",
+    "contains": "содержит",
 }
 
 
@@ -3635,6 +3640,7 @@ def _policies_context(
         "allowed_setting_keys": sorted(ALLOWED_SETTING_KEYS),
         "condition_fields": sorted(CONDITION_FIELDS),
         "condition_field_labels": _CONDITION_FIELD_LABELS_RU,
+        "condition_op_labels": _CONDITION_OP_LABELS_RU,
         "condition_ops": sorted(CONDITION_OPS),
         "msi_versions": db.list_agent_msi_versions(),
         "message": message,

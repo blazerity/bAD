@@ -191,13 +191,59 @@
     return Math.max(nice * 4, nice);
   }
 
-  function renderEventChart(root, days) {
+  function splitWarning(warn) {
+    var w = Math.max(0, Math.floor(Number(warn) || 0));
+    var hi = Math.floor(w / 2);
+    var med = w - hi;
+    return { hi: hi, med: med };
+  }
+
+  function renderEventChart(root, days, sevFilter) {
     var seriesMap = parseJson(root, "data-series", "{}") || {};
     var key = String(days || root.getAttribute("data-days") || "14");
-    var points = seriesMap[key] || seriesMap["14"] || [];
+    var raw = seriesMap[key] || seriesMap["14"] || [];
+    var filter = sevFilter || root.getAttribute("data-sev") || "all";
+    root.setAttribute("data-sev", filter);
     root.innerHTML = "";
+
+    if (filter === "offline") {
+      root.innerHTML =
+        '<p class="muted">«Нет на связи» — устройства без событий; график по времени не применяется. Смотрите список выше.</p>';
+      return;
+    }
+
+    var points = raw.map(function (p) {
+      var o = {
+        day: p.day,
+        count: p.count || 0,
+        critical: p.critical || 0,
+        warning: p.warning || 0,
+        low: p.low || 0,
+      };
+      var sp = splitWarning(o.warning);
+      o.high = sp.hi;
+      o.medium = sp.med;
+      o.other = Math.max(0, o.count - o.critical - o.warning - o.low);
+      return o;
+    });
+
     if (!points.length) {
       root.innerHTML = '<p class="muted">Нет данных</p>';
+      return;
+    }
+
+    var maxVal = 0;
+    points.forEach(function (p) {
+      var v = 0;
+      if (filter === "all") v = p.count;
+      else if (filter === "critical") v = p.critical;
+      else if (filter === "high") v = p.high;
+      else if (filter === "medium") v = p.medium;
+      else if (filter === "low") v = p.low;
+      if (v > maxVal) maxVal = v;
+    });
+    if (maxVal <= 0) {
+      root.innerHTML = '<p class="muted">Нет данных для выбранной серьёзности</p>';
       return;
     }
 
@@ -207,10 +253,6 @@
     var padR = 12;
     var padT = 16;
     var padB = 36;
-    var maxVal = 0;
-    points.forEach(function (p) {
-      if ((p.count || 0) > maxVal) maxVal = p.count || 0;
-    });
     var yMax = niceMax(maxVal);
     var plotW = w - padL - padR;
     var plotH = h - padT - padB;
@@ -253,14 +295,13 @@
     root.appendChild(tip);
 
     points.forEach(function (p, i) {
-      var count = p.count || 0;
-      var crit = p.critical || 0;
-      var warn = p.warning || 0;
+      var count = p.count;
+      var crit = p.critical;
+      var hi = p.high;
+      var med = p.medium;
+      var low = p.low;
+      var other = p.other;
       var x = padL + gap + i * (barW + gap);
-      var barH = yMax > 0 ? (count / yMax) * plotH : 0;
-      var warnH = yMax > 0 ? (warn / yMax) * plotH : 0;
-      var critH = yMax > 0 ? (crit / yMax) * plotH : 0;
-      var otherH = Math.max(0, barH - warnH - critH);
 
       function rect(ry, rh, cls) {
         if (rh <= 0) return;
@@ -274,18 +315,41 @@
         svg.appendChild(r);
       }
 
+      var totalH = 0;
+      var seg = [];
+      if (filter === "all") {
+        totalH = yMax > 0 ? (count / yMax) * plotH : 0;
+        seg = [
+          { h: yMax > 0 ? (other / yMax) * plotH : 0, cls: "dash-chart-bar-other" },
+          { h: yMax > 0 ? (low / yMax) * plotH : 0, cls: "dash-chart-bar-low" },
+          { h: yMax > 0 ? (med / yMax) * plotH : 0, cls: "dash-chart-bar-medium" },
+          { h: yMax > 0 ? (hi / yMax) * plotH : 0, cls: "dash-chart-bar-high" },
+          { h: yMax > 0 ? (crit / yMax) * plotH : 0, cls: "dash-chart-bar-crit" },
+        ];
+      } else if (filter === "critical") {
+        totalH = yMax > 0 ? (crit / yMax) * plotH : 0;
+        seg = [{ h: totalH, cls: "dash-chart-bar-crit" }];
+      } else if (filter === "high") {
+        totalH = yMax > 0 ? (hi / yMax) * plotH : 0;
+        seg = [{ h: totalH, cls: "dash-chart-bar-high" }];
+      } else if (filter === "medium") {
+        totalH = yMax > 0 ? (med / yMax) * plotH : 0;
+        seg = [{ h: totalH, cls: "dash-chart-bar-medium" }];
+      } else if (filter === "low") {
+        totalH = yMax > 0 ? (low / yMax) * plotH : 0;
+        seg = [{ h: totalH, cls: "dash-chart-bar-low" }];
+      } else {
+        totalH = yMax > 0 ? (count / yMax) * plotH : 0;
+        seg = [{ h: totalH, cls: "dash-chart-bar-other" }];
+      }
+
       var yCursor = padT + plotH;
-      if (otherH > 0) {
-        yCursor -= otherH;
-        rect(yCursor, otherH, "dash-chart-bar-other");
-      }
-      if (warnH > 0) {
-        yCursor -= warnH;
-        rect(yCursor, warnH, "dash-chart-bar-warn");
-      }
-      if (critH > 0) {
-        yCursor -= critH;
-        rect(yCursor, critH, "dash-chart-bar-crit");
+      for (var si = 0; si < seg.length; si++) {
+        var sh = seg[si].h;
+        if (sh > 0) {
+          yCursor -= sh;
+          rect(yCursor, sh, seg[si].cls);
+        }
       }
 
       var hit = document.createElementNS(svgNS, "rect");
@@ -295,16 +359,24 @@
       hit.setAttribute("height", plotH);
       hit.setAttribute("class", "dash-chart-hit");
       hit.addEventListener("mouseenter", function (ev) {
-        tip.hidden = false;
-        tip.innerHTML =
+        var tipHtml =
           "<strong>" +
           fmtDay(p.day) +
           "</strong><br>Всего: " +
           count +
           "<br>Критичные: " +
           crit +
-          "<br>Предупреждения: " +
-          warn;
+          "<br>Высокие: " +
+          hi +
+          "<br>Средние: " +
+          med +
+          "<br>Низкие: " +
+          low;
+        if (filter === "all") {
+          tipHtml += "<br>Прочие: " + other;
+        }
+        tip.hidden = false;
+        tip.innerHTML = tipHtml;
         tip.style.left = Math.min(w - 140, Math.max(0, ev.offsetX)) + "px";
         tip.style.top = Math.max(0, ev.offsetY - 8) + "px";
       });
@@ -330,6 +402,13 @@
     root.appendChild(svg);
   }
 
+  function currentChartSevFilter() {
+    var bar = document.querySelector(".prob-severity-bar");
+    if (!bar) return "all";
+    var a = bar.querySelector(".prob-sev-chip.is-active");
+    return a ? a.getAttribute("data-sev-filter") || "all" : "all";
+  }
+
   function bindRangeTabs(root) {
     var tabs = document.querySelectorAll(".dash-range-tab");
     tabs.forEach(function (btn) {
@@ -340,7 +419,7 @@
         btn.classList.add("is-active");
         var days = btn.getAttribute("data-days") || "14";
         root.setAttribute("data-days", days);
-        renderEventChart(root, days);
+        renderEventChart(root, days, currentChartSevFilter());
       });
     });
   }
@@ -404,7 +483,11 @@
       renderAllTreemaps();
       var chart = document.getElementById("dash-event-chart");
       if (chart) {
-        renderEventChart(chart, chart.getAttribute("data-days") || "14");
+        renderEventChart(
+          chart,
+          chart.getAttribute("data-days") || "14",
+          chart.getAttribute("data-sev") || currentChartSevFilter()
+        );
       }
     }, 120);
   }
@@ -413,9 +496,12 @@
     renderAllTreemaps();
     var chart = document.getElementById("dash-event-chart");
     if (chart) {
-      renderEventChart(chart, chart.getAttribute("data-days") || "14");
+      var sev = chart.getAttribute("data-sev") || currentChartSevFilter();
+      chart.setAttribute("data-sev", sev);
+      renderEventChart(chart, chart.getAttribute("data-days") || "14", sev);
       bindRangeTabs(chart);
     }
+    window.renderEventChart = renderEventChart;
     window.addEventListener("resize", onResize);
   }
 

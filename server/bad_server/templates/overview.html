@@ -63,33 +63,6 @@
   </section>
   {% endif %}
 
-  <div class="prob-severity-bar card-surface" role="group" aria-label="Серьёзность проблем">
-    <button type="button" class="prob-sev-chip is-active" data-sev-filter="all">
-      <span class="prob-sev-label">Все</span>
-      <span class="prob-sev-count tnum">{{ events_total }}</span>
-    </button>
-    <button type="button" class="prob-sev-chip prob-sev-critical" data-sev-filter="critical">
-      <span class="prob-sev-label">Критичные</span>
-      <span class="prob-sev-count tnum">{{ critical_event_count }}</span>
-    </button>
-    <button type="button" class="prob-sev-chip prob-sev-high" data-sev-filter="high">
-      <span class="prob-sev-label">Высокие</span>
-      <span class="prob-sev-count tnum">{{ high_event_count }}</span>
-    </button>
-    <button type="button" class="prob-sev-chip prob-sev-medium" data-sev-filter="medium">
-      <span class="prob-sev-label">Средние</span>
-      <span class="prob-sev-count tnum">{{ medium_event_count }}</span>
-    </button>
-    <button type="button" class="prob-sev-chip prob-sev-low" data-sev-filter="low">
-      <span class="prob-sev-label">Низкие</span>
-      <span class="prob-sev-count tnum">{{ low_event_count }}</span>
-    </button>
-    <button type="button" class="prob-sev-chip prob-sev-offline" data-sev-filter="offline">
-      <span class="prob-sev-label">Нет на связи</span>
-      <span class="prob-sev-count tnum">{{ offline_device_count }}</span>
-    </button>
-  </div>
-
   <div class="overview-search-compact">
     <div class="search-input-wrap overview-search-field">
       <span class="search-input-icon" aria-hidden="true">{{ icon('search') }}</span>
@@ -142,6 +115,32 @@
           <button type="button" class="dash-range-tab" data-days="30">30 д</button>
         </div>
       </div>
+      <div class="prob-severity-bar card-surface" role="group" aria-label="Серьёзность для графика">
+        <button type="button" class="prob-sev-chip is-active" data-sev-filter="all">
+          <span class="prob-sev-label">Все</span>
+          <span class="prob-sev-count tnum">{{ events_total }}</span>
+        </button>
+        <button type="button" class="prob-sev-chip prob-sev-critical" data-sev-filter="critical">
+          <span class="prob-sev-label">Критичные</span>
+          <span class="prob-sev-count tnum">{{ critical_event_count }}</span>
+        </button>
+        <button type="button" class="prob-sev-chip prob-sev-high" data-sev-filter="high">
+          <span class="prob-sev-label">Высокие</span>
+          <span class="prob-sev-count tnum">{{ high_event_count }}</span>
+        </button>
+        <button type="button" class="prob-sev-chip prob-sev-medium" data-sev-filter="medium">
+          <span class="prob-sev-label">Средние</span>
+          <span class="prob-sev-count tnum">{{ medium_event_count }}</span>
+        </button>
+        <button type="button" class="prob-sev-chip prob-sev-low" data-sev-filter="low">
+          <span class="prob-sev-label">Низкие</span>
+          <span class="prob-sev-count tnum">{{ low_event_count }}</span>
+        </button>
+        <button type="button" class="prob-sev-chip prob-sev-offline" data-sev-filter="offline">
+          <span class="prob-sev-label">Нет на связи</span>
+          <span class="prob-sev-count tnum">{{ offline_device_count }}</span>
+        </button>
+      </div>
       <div
         id="dash-event-chart"
         class="dash-event-chart"
@@ -180,7 +179,7 @@
     </article>
   </div>
 </section>
+<script src="/static/dashboard-charts.js" defer></script>
 <script src="/static/overview-problems.js" defer></script>
 <script src="/static/overview-search.js" defer></script>
-<script src="/static/dashboard-charts.js" defer></script>
 {% endblock %}

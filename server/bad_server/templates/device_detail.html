@@ -7,16 +7,13 @@
 {% set view = active_view or 'overview' %}
 <section class="page device-card">
   {% set meta = device.meta if device.meta is mapping else {} %}
-  {% set logged = user_display_name %}
-  {% set ip_line = (meta.ipv4_addresses[0] if meta.ipv4_addresses else none) %}
-  {% set serial_line = hw.serial_number if hw and hw.serial_number else meta.serial_number %}
   <header class="device-detail-hero">
     {% if not report_mode %}
     <a class="device-back-link" href="/devices">← Устройства</a>
     {% endif %}
     <div class="device-detail-hero-main">
       <div class="device-detail-title-row">
-        <h1 class="with-icon keep-token">{{ icon(chassis_icon_name(chassis_type)) }}{{ device.hostname or "(неизвестный узел)" }}</h1>
+        <h1 class="with-icon">{{ icon(chassis_icon_name(chassis_type)) }}{{ device.hostname or "(неизвестный узел)" }}</h1>
         <span class="badge badge-fresh-{{ freshness or silence.status }}">{{ freshness_label(freshness or silence.status) }}</span>
         {% if uninstall and uninstall.badge %}
         <span class="badge badge-uninstall badge-uninstall-{{ uninstall.badge }}">{{ uninstall.badge_label }}</span>
@@ -28,39 +25,6 @@
         </form>
         {% endif %}
       </div>
-      <dl class="device-hero-facts muted">
-        {% if logged %}
-        <div>
-          <dt>Пользователь</dt>
-          <dd class="device-hero-fact-value keep-token">{{ logged }}</dd>
-        </div>
-        {% endif %}
-        {% if ip_line %}
-        <div>
-          <dt>IP</dt>
-          <dd class="device-hero-fact-value mono">{{ ip_line }}</dd>
-        </div>
-        {% endif %}
-        {% if serial_line %}
-        <div>
-          <dt>Серийный номер</dt>
-          <dd class="device-hero-fact-value mono device-hero-serial keep-token">{{ serial_line }}</dd>
-        </div>
-        {% endif %}
-      </dl>
-      {% if device.bad_id %}
-      <p class="muted device-detail-subline device-hero-badid">
-        <span class="mono">{{ copyable(device.bad_id) }}</span>
-      </p>
-      {% endif %}
-      <p class="muted device-detail-subline device-signing-line">
-        Подпись инвентаря:
-        {% if inventory_signing.state == 'issued' %}
-        <span class="mono">{{ inventory_signing.label }}</span>
-        {% else %}
-        {{ inventory_signing.label }}
-        {% endif %}
-      </p>
     </div>
   </header>
   {% if device.meta and device.meta.refresh_requested_at %}

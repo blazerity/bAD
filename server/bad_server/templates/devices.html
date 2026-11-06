@@ -26,59 +26,69 @@
   </header>
   {% if flash %}<p class="ok">{{ flash }}</p>{% endif %}
 
-  <div class="card-surface filter-card devices-filter-card">
-    <form method="get" action="/devices" class="devices-filter-form" data-live-submit data-live-delay="300">
-      {% set secondary_filters_active = tag_filter or wave or cpu_vendor_filter or agent_filter or show_archive or model_filter or chassis_filter %}
-      <div class="devices-toolbar">
-        <div class="devices-toolbar-row devices-toolbar-row--main">
-          <div class="search-input-wrap devices-toolbar-search">
-            <span class="search-input-icon" aria-hidden="true">{{ icon('search') }}</span>
-            <input id="q" name="q" class="panel-search-input" type="search" value="{{ q }}"
-              placeholder="имя, bad-id, серийный номер, UUID" maxlength="128" autocomplete="off"
-              data-live-skip data-devices-search>
-          </div>
-          {% if user.is_admin %}
-          <div class="devices-enroll-strip card-surface">
-            <div class="devices-enroll-strip-main">
-              <span class="devices-enroll-strip-title">Заявки на подключение</span>
-              <form method="post" action="/devices/enrollment-code" class="devices-enroll-code-form">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <button type="submit" class="btn btn-compact">Выпустить код</button>
-              </form>
-            </div>
-            {% if issued_code %}
-            <p class="devices-enroll-code-line muted">Код установки, показать один раз: <span class="mono">{{ issued_code }}</span></p>
-            {% endif %}
-            {% if enrollment_requests %}
-            <div class="table-scroll devices-enroll-requests-scroll">
-              <table class="devices devices-enroll-requests">
-                <thead>
-                  <tr><th>Имя</th><th>IP</th><th>Серийник</th><th>Статус</th><th></th></tr>
-                </thead>
-                <tbody>
-                  {% for row in enrollment_requests %}
-                  <tr>
-                    <td>{{ row.hostname }}</td>
-                    <td class="mono">{{ row.ip or "—" }}</td>
-                    <td class="mono">{{ row.serial or "—" }}</td>
-                    <td>Ожидает разрешения</td>
-                    <td>
-                      <form method="post" action="/devices/enrollment-requests/{{ row.id }}/allow">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <button type="submit" class="btn secondary btn-compact">Разрешить</button>
-                      </form>
-                    </td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-            {% else %}
-            <p class="muted devices-enroll-empty">Заявок нет.</p>
-            {% endif %}
-          </div>
-          {% endif %}
+  {% set secondary_filters_active = tag_filter or wave or cpu_vendor_filter or agent_filter or show_archive or model_filter or chassis_filter %}
+
+  <form method="get" action="/devices" class="devices-page-form" data-live-submit data-live-delay="300">
+  <div class="devices-layout-top">
+    <div class="card-surface filter-card devices-search-card">
+      <div class="devices-toolbar-row devices-toolbar-row--search">
+        <div class="search-input-wrap devices-toolbar-search">
+          <span class="search-input-icon" aria-hidden="true">{{ icon('search') }}</span>
+          <input id="q" name="q" class="panel-search-input" type="search" value="{{ q }}"
+            placeholder="имя, bad-id, серийный номер, UUID" maxlength="128" autocomplete="off"
+            data-live-skip data-devices-search>
         </div>
+      </div>
+      <div id="devices-search-results" class="card-surface overview-search-hits devices-search-hits" hidden></div>
+    </div>
+
+    {% if user.is_admin %}
+    <div class="card-surface filter-card devices-enroll-card">
+      <div class="devices-enroll-strip">
+        <div class="devices-enroll-strip-main">
+          <span class="devices-enroll-strip-title">Заявки на подключение</span>
+          <form method="post" action="/devices/enrollment-code" class="devices-enroll-code-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="btn btn-compact">Выпустить код</button>
+          </form>
+        </div>
+        {% if issued_code %}
+        <p class="devices-enroll-code-line muted">Код установки, показать один раз: <span class="mono">{{ issued_code }}</span></p>
+        {% endif %}
+        {% if enrollment_requests %}
+        <div class="table-scroll devices-enroll-requests-scroll">
+          <table class="devices devices-enroll-requests">
+            <thead>
+              <tr><th>Имя</th><th>IP</th><th>Серийник</th><th>Статус</th><th></th></tr>
+            </thead>
+            <tbody>
+              {% for row in enrollment_requests %}
+              <tr>
+                <td>{{ row.hostname }}</td>
+                <td class="mono">{{ row.ip or "—" }}</td>
+                <td class="mono">{{ row.serial or "—" }}</td>
+                <td>Ожидает разрешения</td>
+                <td>
+                  <form method="post" action="/devices/enrollment-requests/{{ row.id }}/allow">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button type="submit" class="btn secondary btn-compact">Разрешить</button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p class="muted devices-enroll-empty">Заявок нет.</p>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="card-surface filter-card devices-filter-card">
+      <div class="devices-toolbar">
         {% if fleet_stats %}
         <div class="devices-toolbar-row devices-toolbar-row--chips">
           <div class="filter-chips devices-fleet-chips" role="group" aria-label="Состояние парка">
@@ -89,8 +99,7 @@
         </div>
         {% endif %}
         <div class="devices-toolbar-row devices-toolbar-row--filters">
-          <details class="devices-primary-filters"{% if os_filter or ram_filter or disk_filter or cpu_filter or fresh_filter %} open{% endif %}>
-            <summary class="devices-primary-filters-summary">Каталог</summary>
+          <div class="devices-primary-filters" role="region" aria-label="Каталог">
             <div class="devices-toolbar-primary" role="group" aria-label="Фильтры каталога">
               <div class="devices-facet devices-facet-compact">
                 <label class="devices-facet-label" for="os">ОС</label>
@@ -148,7 +157,7 @@
                 </select>
               </div>
             </div>
-          </details>
+          </div>
         </div>
         <div id="devices-more-panel" class="devices-more-filters-body"{% if not secondary_filters_active %} hidden{% endif %}>
             <div class="devices-facet devices-facet-compact">
@@ -243,8 +252,6 @@
         {% endfor %}
       </div>
       {% endif %}
-      <div id="devices-search-results" class="card-surface overview-search-hits devices-search-hits" hidden></div>
-    </form>
   </div>
 
   {% if not devices %}
@@ -364,6 +371,7 @@
 
   {{ table_pager('/devices', page, pages, total, page_size, q=q, tag=tag_filter, wave=wave, archive=show_archive, os=os_filter, ram=ram_filter, disk=disk_filter, cpu=cpu_filter, cpu_vendor=cpu_vendor_filter, agent=agent_filter, fresh=fresh_filter, model=model_filter, chassis=chassis_filter) }}
   {% endif %}
+  </form>
 </section>
 <script src="/static/devices-search.js" defer></script>
 {% endblock %}

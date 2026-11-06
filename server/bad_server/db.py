@@ -1058,7 +1058,9 @@ class Database:
             if not r or not r["day"]:
                 continue
             day = str(r["day"])
-            bucket = by_day.setdefault(day, {"count": 0, "critical": 0, "warning": 0})
+            bucket = by_day.setdefault(
+                day, {"count": 0, "critical": 0, "warning": 0, "low": 0}
+            )
             n = int(r["count"] or 0)
             bucket["count"] += n
             lvl = event_importance(str(r["type"] or ""))
@@ -1066,17 +1068,25 @@ class Database:
                 bucket["critical"] += n
             elif lvl in {"high", "medium"}:
                 bucket["warning"] += n
+            elif lvl == "low":
+                bucket["low"] += n
         # Заполнить пропуски нулями — иначе график «прыгает»
         out: list[dict[str, Any]] = []
         for i in range(span):
             day = (cutoff_dt + timedelta(days=i)).strftime("%Y-%m-%d")
-            b = by_day.get(day) or {"count": 0, "critical": 0, "warning": 0}
+            b = by_day.get(day) or {
+                "count": 0,
+                "critical": 0,
+                "warning": 0,
+                "low": 0,
+            }
             out.append(
                 {
                     "day": day,
                     "count": int(b["count"]),
                     "critical": int(b["critical"]),
                     "warning": int(b["warning"]),
+                    "low": int(b["low"]),
                 }
             )
         return out
