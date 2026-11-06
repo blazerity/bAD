@@ -1,20 +1,11 @@
-# Граф кода bAD (Graphify)
+# Карта кода
 
-Собран через [Graphify](https://github.com/Graphify-Labs/graphify): `graphify extract . --code-only` + `graphify cluster-only . --no-label`.
+Файлы рядом собраны Graphify (`graphify extract . --code-only`, затем `graphify cluster-only . --no-label`).
 
-| Файл | Назначение |
-|------|------------|
-| [graph.html](graph.html) | Интерактивный граф |
-| [GRAPH_REPORT.md](GRAPH_REPORT.md) | Обзор сообществ и ключевых узлов |
-| [graph.json](graph.json) | Полный граф для `graphify query` / `path` / `explain` |
+| Файл | Что внутри |
+| --- | --- |
+| [graph.html](graph.html) | Граф в браузере |
+| [GRAPH_REPORT.md](GRAPH_REPORT.md) | Сводка узлов |
+| [graph.json](graph.json) | Те же данные для запросов |
 
-Пересборка без LLM:
-
-```bash
-graphify extract . --code-only
-graphify cluster-only . --no-label
-rm -rf docs/graphify && mkdir -p docs/graphify
-cp graphify-out/graph.json graphify-out/GRAPH_REPORT.md graphify-out/graph.html docs/graphify/
-```
-
-Агентам: сначала граф, потом точечное чтение исходников.
+Инструкция оператора — [../ste-100.md](../ste-100.md).
