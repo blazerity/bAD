@@ -70,7 +70,34 @@
   {% if not events %}
   <p class="muted table-empty">Нет событий по выбранным фильтрам.</p>
   {% else %}
-  <div class="card-surface table-card">
+  <ul class="events-stack-list" aria-label="Список событий">
+    {% set ns_m = namespace(prev_day='') %}
+    {% for e in events %}
+    {% set imp = event_importance(e.type) %}
+    {% set day_key = (e.created_at or '')[:10] %}
+    {% if day_key and day_key != ns_m.prev_day %}
+    {% set ns_m.prev_day = day_key %}
+    <li class="events-stack-day muted">
+      {% if day_key == today_utc %}Сегодня
+      {% elif day_key == yesterday_utc %}Вчера
+      {% else %}Ранее · <span class="mono">{{ day_key }}</span>{% endif %}
+    </li>
+    {% endif %}
+    <li class="events-stack-item card-surface">
+      <a class="events-stack-link" href="/events/{{ e.id }}">
+        <div class="events-stack-head">
+          <span class="event-type-icon event-imp-{{ imp }}" aria-hidden="true">{{ icon(e.event_icon|default('events')) }}</span>
+          <span class="badge badge-importance badge-importance-{{ imp }}">{{ imp|importance_label_ru }}</span>
+          <span class="events-stack-time mono muted">{{ local_time(e.created_at) }}</span>
+        </div>
+        <p class="events-stack-summary">{{ e.summary }}</p>
+        <p class="muted events-stack-type">{{ e.type|format_event_type }}</p>
+        <p class="events-stack-device">{{ device_link(e.device_id, e.hostname or e.device_id, e.chassis_type) }}</p>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+  <div class="card-surface table-card events-table-card">
   <div class="table-scroll">
   <table class="devices events-table-modern">
     <thead>

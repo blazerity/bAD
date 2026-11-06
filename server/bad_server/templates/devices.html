@@ -243,7 +243,68 @@
   <p class="muted table-empty">Нет устройств{% if q %} по запросу <span class="mono">{{ q }}</span>{% endif %}{% if tag_filter %} с тегом <span class="mono">{{ tag_filter }}</span>{% endif %}{% if wave %} по фильтру <span class="mono">{{ wave }}</span>{% endif %}.</p>
   {% endif %}
   {% else %}
-  <div class="card-surface table-card">
+  <ul class="devices-stack-list" aria-label="Список устройств">
+    {% for d in devices %}
+    {% set meta = d.meta if d.meta is mapping else {} %}
+    {% set fresh = d.freshness or d.silence.status %}
+    {% set os_line = d.os_display or meta.os_caption or meta.os or '—' %}
+    {% set cpu_raw = meta.cpu_name or '' %}
+    {% set cpu_short = d.cpu_display if d.cpu_display and d.cpu_display != '—' else '' %}
+    <li class="devices-stack-item card-surface">
+      <a class="devices-stack-link" href="{{ d.device_href }}">
+        <div class="devices-stack-head">
+          <span class="device-chassis-mini" aria-hidden="true">{{ icon(chassis_icon_name(d.chassis_type)) }}</span>
+          <span class="badge badge-fresh-{{ d.freshness or d.silence.status }}">{{ freshness_label(fresh) }}</span>
+          <span class="devices-stack-host">{{ d.hostname or '(неизвестно)' }}</span>
+          <span class="devices-stack-chevron" aria-hidden="true">›</span>
+        </div>
+        <p class="mono devices-stack-id">
+          {% if d.bad_id %}{{ d.bad_id }}{% else %}{{ d.device_id }}{% endif %}
+        </p>
+        {% if d.is_duplicate or d.revoked or d.has_agent_local %}
+        <p class="devices-stack-badges">
+          {% if d.is_duplicate %}<span class="badge badge-stale">дубль</span>{% endif %}
+          {% if d.revoked %}<span class="badge badge-stale">отозван</span>{% endif %}
+          {% if d.has_agent_local %}<span class="badge badge-agent-local">на ПК</span>{% endif %}
+        </p>
+        {% endif %}
+        <dl class="devices-stack-meta">
+          <div>
+            <dt>Пользователь</dt>
+            <dd>
+              {% if d.user_display_name %}
+              <span class="user-presence-{{ d.user_presence }}">{{ d.user_display_name }}</span>
+              {% else %}
+              <span class="muted">нет данных</span>
+              {% endif %}
+            </dd>
+          </div>
+          {% if meta.hardware_model %}
+          <div><dt>Модель</dt><dd>{{ meta.hardware_model }}</dd></div>
+          {% endif %}
+          {% if cpu_short or cpu_raw %}
+          <div><dt>CPU</dt><dd>{% if cpu_short %}{{ cpu_short }}{% else %}{{ cpu_raw }}{% endif %}</dd></div>
+          {% endif %}
+          {% if d.ram_display and d.ram_display != '—' %}
+          <div><dt>ОЗУ</dt><dd>{{ d.ram_display }}</dd></div>
+          {% endif %}
+          {% if d.disk_display and d.disk_display != '—' %}
+          <div><dt>Диск</dt><dd>{{ d.disk_display }}</dd></div>
+          {% endif %}
+          <div>
+            <dt>ОС</dt>
+            <dd>{{ os_line }} · bAD Agent {{ d.agent_version or '—' }}</dd>
+          </div>
+          {% if d.ip_display and d.ip_display != '—' %}
+          <div><dt>IP</dt><dd class="mono">{{ d.ip_display }}</dd></div>
+          {% endif %}
+          <div><dt>Контакт</dt><dd>{{ local_time(d.last_seen_at) }}</dd></div>
+        </dl>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+  <div class="card-surface table-card devices-table-card">
   <div class="table-scroll">
   <table class="devices devices-list devices-table-modern">
     <thead>

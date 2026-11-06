@@ -3627,11 +3627,14 @@ body.global-search-open { overflow: hidden; }
 .filter-search-grow { flex: 1 1 14rem; min-width: 12rem; }
 .table-card {
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
   margin-top: 0.5rem;
-  contain: layout paint style;
+  contain: style;
 }
-.table-card .table-scroll { margin: 0; }
+.table-card .table-scroll {
+  margin: 0;
+  border-radius: inherit;
+}
 /* Строки вне viewport почти не красятся — важно при длинных списках */
 .devices-list tbody tr,
 .events-table-modern tbody tr {
@@ -3650,17 +3653,17 @@ body.global-search-open { overflow: hidden; }
   table-layout: fixed;
   width: 100%;
 }
-.devices-table-modern .col-device-state { width: 8rem; }
-.devices-table-modern .col-device-host { width: 10.5%; }
-.devices-table-modern .col-device-user { width: 12.5%; }
-.devices-table-modern .col-device-model { width: 13%; }
-.devices-table-modern .col-device-cpu { width: 13%; }
-.devices-table-modern .col-device-ram { width: 11rem; }
-.devices-table-modern .col-device-disk { width: 5.75rem; }
-.devices-table-modern .col-device-os { width: 11%; }
-.devices-table-modern .col-device-ip { width: 11.5%; }
-.devices-table-modern .col-device-seen { width: 7rem; }
-.devices-table-modern .col-chevron { width: 2rem; }
+.devices-table-modern .col-device-state { width: 8%; }
+.devices-table-modern .col-device-host { width: 12%; }
+.devices-table-modern .col-device-user { width: 11%; }
+.devices-table-modern .col-device-model { width: 12%; }
+.devices-table-modern .col-device-cpu { width: 11%; }
+.devices-table-modern .col-device-ram { width: 9%; }
+.devices-table-modern .col-device-disk { width: 6%; }
+.devices-table-modern .col-device-os { width: 10%; }
+.devices-table-modern .col-device-ip { width: 10%; }
+.devices-table-modern .col-device-seen { width: 8%; }
+.devices-table-modern .col-chevron { width: 3%; }
 .devices-table-modern td.col-device-host,
 .devices-table-modern td.device-col-user,
 .devices-table-modern td.device-col-model,
@@ -3684,7 +3687,14 @@ body.global-search-open { overflow: hidden; }
 .devices-table-modern td.device-col-ip {
   white-space: nowrap;
   vertical-align: middle;
-  overflow: visible;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.devices-table-modern th.col-device-seen,
+.devices-table-modern td.col-device-seen {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .devices-table-modern .device-cell-host,
 .devices-table-modern .device-col-model-text,
@@ -4362,6 +4372,10 @@ body.global-search-open { overflow: hidden; }
   font-size: 0.75rem;
   color: var(--fg-tertiary, var(--muted));
   margin-top: 0.15rem;
+  word-break: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .device-col-sub {
   display: block;
@@ -4991,6 +5005,29 @@ table.devices.devices-list td {
   .settings-grid-2,
   .digest-schedule-fields { grid-template-columns: 1fr; }
 }
+body.hcp-panel .hcp-app-body > main > .page {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 1480px) {
+  body.hcp-panel .devices-toolbar {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "search"
+      "chips"
+      "primary"
+      "more"
+      "reset"
+      "csv";
+  }
+  body.hcp-panel .devices-toolbar-csv,
+  body.hcp-panel .devices-more-toggle {
+    justify-self: start;
+  }
+}
+
 @media (max-width: 900px) {
   .devices-toolbar {
     grid-template-columns: 1fr;
