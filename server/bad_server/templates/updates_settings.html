@@ -1,7 +1,6 @@
 {% extends "settings_base.html" %}
 {% from "macros/icons.html" import icon %}
-{% from "macros/icons.html" import icon %}
-{% from "macros/ui.html" import copyable, local_time %}
+{% from "macros/ui.html" import copyable, local_time, file_input_ru %}
 {% set settings_section = 'updates' %}
 {% block title %}Обновления агента — bAD{% endblock %}
 {% block settings_content %}
@@ -128,20 +127,10 @@
   <form method="post" action="/settings/updates/upload" enctype="multipart/form-data" class="settings-form updates-upload-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label for="msi">Файл установки (.msi)</label>
-    <span class="file-input-ru">
-      <input id="msi" name="msi" type="file" accept=".msi,application/octet-stream" required
-        data-empty-label="файл не выбран">
-      <button type="button" class="btn secondary file-input-ru-btn" tabindex="-1">Выбрать файл</button>
-      <span class="file-input-ru-name muted" data-file-empty="файл не выбран">файл не выбран</span>
-    </span>
+    {{ file_input_ru('msi', 'msi', '.msi,application/octet-stream', required=true) }}
 
     <label for="manifest">Описание версии (необязательно)</label>
-    <span class="file-input-ru">
-      <input id="manifest" name="manifest" type="file" accept=".json,application/json"
-        data-empty-label="файл не выбран">
-      <button type="button" class="btn secondary file-input-ru-btn" tabindex="-1">Выбрать файл</button>
-      <span class="file-input-ru-name muted" data-file-empty="файл не выбран">файл не выбран</span>
-    </span>
+    {{ file_input_ru('manifest', 'manifest', '.json,application/json') }}
 
     <label for="version">Версия агента (если не в имени файла или описании)</label>
     <input id="version" name="version" type="text" placeholder="1.0.0" autocomplete="off">
@@ -215,6 +204,5 @@
   </form>
   {% endif %}
 
-  <script src="/static/file-input-ru.js" defer></script>
 </section>
 {% endblock %}

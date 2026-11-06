@@ -28,4 +28,17 @@
       ev.preventDefault();
     }
   });
+
+  const uninstallForm = document.getElementById("device-uninstall-form");
+  if (uninstallForm) {
+    const input = uninstallForm.querySelector('[name="confirm"]');
+    const submitBtn = uninstallForm.querySelector("#uninstall_submit");
+    if (input && submitBtn) {
+      const sync = () => {
+        submitBtn.disabled = !(input.value || "").trim();
+      };
+      input.addEventListener("input", sync);
+      sync();
+    }
+  }
 })();

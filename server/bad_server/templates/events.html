@@ -9,7 +9,7 @@
   <header class="page-header">
     <h1 class="with-icon">{{ icon('events') }}События</h1>
     <p class="page-lead muted">
-      Изменения inventory · показано {{ events|length }} из {{ shown_total if shown_total is defined else total }}
+      Изменения в данных · показано {{ events|length }} из {{ shown_total if shown_total is defined else total }}
       {% if importance and chip_narrow_href is defined and chip_narrow_href %}
         <span class="muted"> (все по фильтру: <a href="{{ chip_narrow_href }}">{{ total }}</a>)</span>
       {% endif %}
@@ -83,9 +83,7 @@
     {% if day_key and day_key != ns_m.prev_day %}
     {% set ns_m.prev_day = day_key %}
     <li class="events-stack-day muted">
-      {% if day_key == today_utc %}Сегодня
-      {% elif day_key == yesterday_utc %}Вчера
-      {% else %}Ранее · <span class="mono">{{ day_key }}</span>{% endif %}
+      {{ day_heading_ru(day_key, today_utc=today_utc, yesterday_utc=yesterday_utc) }}
     </li>
     {% endif %}
     <li class="events-stack-item card-surface">
@@ -121,9 +119,7 @@
       {% set ns.prev_day = day_key %}
       <tr class="events-day-divider">
         <td colspan="5">
-          {% if day_key == today_utc %}Сегодня
-          {% elif day_key == yesterday_utc %}Вчера
-          {% else %}Ранее · <span class="mono">{{ day_key }}</span>{% endif %}
+          {{ day_heading_ru(day_key, today_utc=today_utc, yesterday_utc=yesterday_utc) }}
         </td>
       </tr>
       {% endif %}

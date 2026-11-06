@@ -1,5 +1,6 @@
 {% extends "settings_base.html" %}
 {% from "macros/icons.html" import icon %}
+{% from "macros/ui.html" import file_input_ru %}
 {% set settings_section = 'tls' %}
 {% block title %}Сертификат TLS — bAD{% endblock %}
 {% block settings_content %}
@@ -84,13 +85,13 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
     <label for="certificate">Сертификат (PEM)</label>
-    <input id="certificate" name="certificate" type="file" accept=".pem,.crt,.cer,.txt,application/x-pem-file,application/octet-stream" required>
+    {{ file_input_ru('certificate', 'certificate', '.pem,.crt,.cer,.txt,application/x-pem-file,application/octet-stream', required=true) }}
 
     <label for="private_key">Закрытый ключ (PEM)</label>
-    <input id="private_key" name="private_key" type="file" accept=".pem,.key,.txt,application/x-pem-file,application/octet-stream" required autocomplete="off">
+    {{ file_input_ru('private_key', 'private_key', '.pem,.key,.txt,application/x-pem-file,application/octet-stream', required=true, autocomplete='off') }}
 
     <label for="chain">Цепочка УЦ (необязательно)</label>
-    <input id="chain" name="chain" type="file" accept=".pem,.crt,.cer,.txt,application/x-pem-file,application/octet-stream">
+    {{ file_input_ru('chain', 'chain', '.pem,.crt,.cer,.txt,application/x-pem-file,application/octet-stream') }}
 
     <div class="form-actions">
       <button type="submit">Установить сертификат</button>

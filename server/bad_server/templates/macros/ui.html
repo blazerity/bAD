@@ -26,6 +26,19 @@
 {%- endmacro %}
 
 
+{# Обёртка для type=file: подпись «Выбрать файл» и русская подпись пустого выбора (file-input-ru.js). #}
+{% macro file_input_ru(input_id, name, accept, required=false, autocomplete='', empty_label='файл не выбран') -%}
+<span class="file-input-ru">
+  <input id="{{ input_id }}" name="{{ name }}" type="file" accept="{{ accept }}"
+    {% if required %}required{% endif %}
+    {% if autocomplete %}autocomplete="{{ autocomplete }}"{% endif %}
+    data-empty-label="{{ empty_label }}">
+  <button type="button" class="btn secondary file-input-ru-btn" tabindex="-1">Выбрать файл</button>
+  <span class="file-input-ru-name muted" data-file-empty="{{ empty_label }}">{{ empty_label }}</span>
+</span>
+{%- endmacro %}
+
+
 {% macro local_time(value, fallback='—', extra_class='', mode='relative') -%}
 {%- if value -%}
 <time class="local-time{% if extra_class %} {{ extra_class }}{% endif %}" datetime="{{ value }}"

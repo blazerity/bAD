@@ -7,11 +7,11 @@
   <h1 class="with-icon">{{ icon('policies') }}Политики агента</h1>
   <p class="muted">
     Правила для групп устройств по имени, домену, тегу или подписи ОС.
-    Меньший priority — раньше; ручная настройка на устройстве сильнее политики.
+    Меньший приоритет — раньше; ручная настройка на устройстве сильнее политики.
   </p>
   <p class="muted">
     Можно задать только безопасные параметры
-    (<span class="mono">{{ allowed_setting_keys | join(', ') }}</span>) —
+    (<span class="policy-allowed-keys">{% for key in allowed_setting_keys %}<span class="policy-allowed-key">{{ key }}</span>{% if not loop.last %}, {% endif %}{% endfor %}</span>) —
     адрес сервера и секреты сюда не входят.
   </p>
   {% if message %}<p class="ok">{{ message }}</p>{% endif %}
@@ -24,7 +24,7 @@
       <div class="policy-row-main">
         <a class="policy-name" href="/settings/policies/{{ p.id }}">{{ p.name }}</a>
         <p class="policy-meta">
-          priority <span class="mono">{{ p.priority }}</span>
+          приоритет <span class="mono">{{ p.priority }}</span>
           · {% if p.enabled %}вкл{% else %}выкл{% endif %}
           {% if p.conditions %}
           ·
@@ -36,7 +36,7 @@
         {% if p.settings %}
         <ul class="policy-settings-kv">
           {% for k, v in p.settings.items() %}
-          <li><span class="policy-setting-name">{{ k }}</span><span class="mono policy-setting-val">{{ v }}</span></li>
+          <li><span class="policy-setting-name">{{ k }}</span><span class="mono policy-setting-val">{% if k in ('inventory_interval_hours', 'heartbeat_interval_minutes', 'update_check_interval_hours') %}{{ v|format_config_interval }}{% else %}{{ v }}{% endif %}</span></li>
           {% endfor %}
         </ul>
         {% endif %}
@@ -71,7 +71,7 @@
             value="{{ edit.name if edit else '' }}" autocomplete="off" placeholder="Например: Ноутбуки finance">
         </div>
         <div>
-          <label for="priority">Priority (меньше — раньше)</label>
+          <label for="priority">Приоритет (меньше — раньше)</label>
           <input id="priority" name="priority" type="number" min="0" max="1000000"
             value="{{ edit.priority if edit else 100 }}">
         </div>

@@ -68,7 +68,17 @@
         {% endif %}
       </dd>
     </div>
-    <div><dt>Версия сервера</dt><dd class="mono">{{ panel.current.version or "—" }}</dd></div>
+    <div>
+      <dt>Версия сервера</dt>
+      <dd>
+        {% set _v = panel.current.version %}
+        {% if _v is not none and (_v | string | trim) not in ('', '0') %}
+        <span class="mono">{{ _v }}</span>
+        {% else %}
+        сборка не записана
+        {% endif %}
+      </dd>
+    </div>
     <div>
       <dt>Установлено</dt>
       <dd class="mono">

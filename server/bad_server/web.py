@@ -310,6 +310,46 @@ templates.env.filters["format_chassis"] = _format_chassis
 templates.env.filters["format_event_type"] = _format_event_type
 templates.env.filters["format_config_interval"] = _format_config_interval
 
+_MONTH_NAMES_RU = (
+    "",
+    "января",
+    "февраля",
+    "марта",
+    "апреля",
+    "мая",
+    "июня",
+    "июля",
+    "августа",
+    "сентября",
+    "октября",
+    "ноября",
+    "декабря",
+)
+
+
+def _day_heading_ru(day_key: object, *, today_utc: str, yesterday_utc: str) -> str:
+    """Русская подпись дня для групп событий (UTC-ключ YYYY-MM-DD из web)."""
+    key = str(day_key or "").strip()
+    if not key:
+        return ""
+    if key == str(today_utc):
+        return "Сегодня"
+    if key == str(yesterday_utc):
+        return "Вчера"
+    parts = key.split("-")
+    if len(parts) != 3:
+        return key
+    try:
+        y, m, d = (int(parts[0]), int(parts[1]), int(parts[2]))
+    except ValueError:
+        return key
+    if not (1 <= m <= 12 and 1 <= d <= 31):
+        return key
+    return f"{d} {_MONTH_NAMES_RU[m]} {y}"
+
+
+templates.env.globals["day_heading_ru"] = _day_heading_ru
+
 
 def _importance_label_ru(level: object, empty: str = "") -> str:
     if level is None:
@@ -455,7 +495,7 @@ DEVICES_PAGE_SIZE = 50
 EVENTS_PAGE_SIZE = 50
 
 # Панели карточки: overview/config/admin/events + inventory ids при наличии данных.
-DEVICE_FIXED_VIEWS = frozenset({"overview", "config", "admin", "events"})
+DEVICE_FIXED_VIEWS = frozenset({"overview", "config", "admin", "events", "chassis"})
 
 
 def _device_inventory_nav(
@@ -580,11 +620,22 @@ def _device_inventory_nav(
             lines = [lines[0], f"+{len(gpus) - 1} ещё"]
         add("gpu", "gpu", "Видео", lines or ["GPU"])
 
-    if hw and (
-        hw.get("disks")
-        or hw.get("volumes")
-        or hw.get("chassis_type")
-    ):
+    chassis_only_storage = bool(
+        hw
+        and hw.get("chassis_type")
+        and not hw.get("disks")
+        and not hw.get("volumes")
+    )
+    if hw and chassis_only_storage:
+        chassis = _format_chassis(hw.get("chassis_type"))
+        add(
+            "chassis",
+            "desktop",
+            "Корпус",
+            [chassis] if chassis else ["—"],
+        )
+
+    if hw and (hw.get("disks") or hw.get("volumes")):
         disks = [d for d in (hw.get("disks") or []) if isinstance(d, dict)]
         volumes = hw.get("volumes") or []
         if len(disks) >= 2:
@@ -602,14 +653,6 @@ def _device_inventory_nav(
                 "disk",
                 "Накопители",
                 [f"{len(volumes)} том(ов)"],
-            )
-        else:
-            chassis = _format_chassis(hw.get("chassis_type"))
-            add(
-                "storage",
-                "disk",
-                "Накопители",
-                [f"корпус {chassis}" if chassis else "накопители"],
             )
 
     if hw and hw.get("monitors"):

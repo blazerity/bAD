@@ -5,13 +5,13 @@
 {% block content %}
 <section class="event-detail-page page">
   <p class="crumb"><a href="/events">События</a> / <span class="mono">#{{ event.id }}</span></p>
-  <h1 class="with-icon">{{ icon('events') }}Событие <span class="mono">#{{ event.id }}</span></h1>
+  <h1 class="with-icon">{{ icon('events') }}<span class="event-detail-title-text">Событие #{{ event.id }}</span></h1>
 
   <article class="event-digest-card polarity-{{ visual.polarity }} event-digest-card--wide">
     <header class="event-digest-card__device">
       <div class="event-digest-card__device-head">
-        {{ device_link(event.device_id, event.hostname or event.device_id, chassis_type) }}
-        <span class="mono muted">{{ event.device_id }}</span>
+        <div class="event-digest-card__device-name">{{ device_link(event.device_id, event.hostname or event.device_id, chassis_type) }}</div>
+        <div class="event-digest-card__device-id mono muted">{{ event.device_id }}</div>
       </div>
       {% if hardware_model %}
       <p class="event-digest-card__device-meta muted">
