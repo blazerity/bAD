@@ -5868,49 +5868,74 @@ body.hcp-panel .hcp-app-body > main > .page {
 
 /* Ширина ПК. Узкий экран остаётся на правилах max-width выше. */
 @media (min-width: 641px) {
+  .device-card,
+  .device-detail-hero,
+  .device-detail-hero-main,
+  .device-detail-title-row {
+    min-width: 0;
+    max-width: 100%;
+  }
   .device-detail-title-row {
     flex-direction: column;
-    align-items: flex-start;
+    align-items: stretch;
+    width: 100%;
   }
   .device-detail-title-row h1.keep-token {
-    flex: 0 1 auto;
+    display: block;
+    flex: none;
+    width: 100%;
     max-width: 100%;
     min-width: 0;
-    overflow-x: auto;
+    overflow: visible;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
   .device-hero-facts {
     flex-direction: column;
     align-items: stretch;
     flex-wrap: nowrap;
+    width: 100%;
+    min-width: 0;
   }
   .device-hero-facts > div {
+    display: block;
     flex: none;
     width: 100%;
     max-width: 100%;
-    display: grid;
-    grid-template-columns: 9rem minmax(0, 1fr);
-    gap: 0.15rem 0.75rem;
-    align-items: center;
-  }
-  .device-hero-facts dd {
     min-width: 0;
-    overflow-x: auto;
+  }
+  .device-hero-facts dt,
+  .device-hero-facts dd {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow: visible;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
   .keep-token {
-    white-space: nowrap;
-    word-break: normal;
-    overflow-wrap: normal;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
     hyphens: none;
+    max-width: 100%;
+    min-width: 0;
   }
   .user-presence-online.keep-token,
   .user-presence-last.keep-token {
+    display: inline-block;
     height: auto;
     min-height: 22px;
-    width: max-content;
-    max-width: none;
-    flex: none;
+    width: auto;
+    max-width: 100%;
+    box-sizing: border-box;
     padding-top: 0.15rem;
     padding-bottom: 0.15rem;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
   dl.speccy-kv {
     display: flex;
@@ -5920,6 +5945,9 @@ body.hcp-panel .hcp-app-body > main > .page {
     display: grid;
     grid-template-columns: minmax(7.5rem, 12rem) minmax(0, 1fr);
     align-items: start;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     font-size: 0;
   }
   dl.speccy-kv > div > dt {
@@ -5930,11 +5958,17 @@ body.hcp-panel .hcp-app-body > main > .page {
     grid-column: 2;
     grid-row: 1;
     min-width: 0;
+    max-width: 100%;
+    overflow: visible;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
   dl.speccy-kv dd.keep-token {
-    overflow-x: auto;
-    word-break: normal;
-    overflow-wrap: normal;
+    overflow: visible;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
   dl.speccy-kv dd.dump-path {
     white-space: normal;
