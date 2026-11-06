@@ -3811,15 +3811,12 @@ body.global-search-open { overflow: hidden; }
   min-width: 0;
 }
 .devices-table-modern .device-col-user-text {
-  overflow-x: auto;
-  white-space: normal;
-  overflow-wrap: normal;
-  word-break: normal;
-  hyphens: none;
+  display: block;
   max-width: 100%;
   min-width: 0;
-  display: inline-block;
-  vertical-align: top;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dash-grid-2 {
@@ -3906,6 +3903,30 @@ body.global-search-open { overflow: hidden; }
 }
 .dash-treemap-pair .dash-treemap--mosaic {
   min-height: 12rem;
+}
+/* Одно поколение CPU: низкая мозаика — без сплошной пустой площади под одну плитку. */
+.dash-treemap--cpu-one {
+  min-height: 0 !important;
+}
+.dash-treemap-cell.is-cpu-compact {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.35rem 0.65rem;
+  padding: 0.35rem 0.5rem;
+}
+.dash-treemap-cell.is-cpu-compact .dash-treemap-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  -webkit-line-clamp: 2;
+  margin: 0;
+}
+.dash-treemap-cell.is-cpu-compact .tnum {
+  display: inline;
+  margin: 0;
+  flex: 0 0 auto;
+  font-size: 0.92rem;
 }
 .dash-treemap--few {
   min-height: 12.5rem;
@@ -4290,6 +4311,20 @@ body.global-search-open { overflow: hidden; }
 .device-col-user .device-col-sub {
   font-size: 0.75rem;
   color: var(--muted);
+}
+/* Вкладка «Пользователи»: плашка не обрезается контуром dd; длинное имя многоточием. */
+.device-panel[data-device-panel="users"] .speccy-kv dd {
+  overflow: visible;
+  max-width: 100%;
+  min-width: 0;
+}
+.device-panel[data-device-panel="users"] .user-presence-online,
+.device-panel[data-device-panel="users"] .user-presence-last {
+  max-width: min(100%, 28rem);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .device-col-ip.device-col-ip-nowrap {
   white-space: nowrap;
@@ -5698,7 +5733,12 @@ body.hcp-panel .hcp-app-body > main > .page {
 
 .dash-treemap-cell.is-model-tile {
   justify-content: flex-end;
+  align-items: flex-start;
   padding-bottom: 0.55rem;
+}
+.dash-treemap-cell.is-model-tile .tnum {
+  display: block;
+  margin-top: 0.2rem;
 }
 .dash-treemap-cell.is-model-tile .dash-treemap-label {
   -webkit-line-clamp: unset;

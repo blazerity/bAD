@@ -85,13 +85,13 @@
         {% set _sha_u = (panel.current.sha | default('', true)) | string | trim %}
         {% set _ver_u = (panel.current.version | default('', true)) | string | trim %}
         {% set _sha_missing = _sha_u in ('', '0') %}
-        {% set _ver_missing = _ver_u in ('', '0') %}
+        {% set _ver_missing = _ver_u in ('', '0') or _ver_u | lower == 'none' %}
         {% if _sha_missing and _ver_missing %}
         сборка не записана
         {% elif not _sha_missing %}
         {{ panel.current.branch or "—" }} @ {{ _sha_u[:12] }}
         {% else %}
-        {{ panel.current.branch or "—" }} @ сборка не записана
+        {% if not _ver_missing %}<span class="mono">{{ _ver_u }}</span> · {% endif %}сборка не записана
         {% endif %}
       </dd>
     </div>

@@ -94,14 +94,14 @@
     <article class="dash-card card-surface dash-treemap-card">
       <h2>Поколения CPU (ноутбуки) <span class="muted tnum">({{ cpu_laptop_items|length }})</span></h2>
       {% if cpu_laptop_items %}
-      <div id="dash-cpu-laptop-treemap" class="dash-treemap dash-treemap--mosaic" data-treemap='{{ cpu_laptop_items|tojson }}'></div>
+      <div id="dash-cpu-laptop-treemap" class="dash-treemap dash-treemap--mosaic dash-treemap--cpu" data-treemap='{{ cpu_laptop_items|tojson }}'></div>
       {% else %}<p class="muted">Нет данных</p>{% endif %}
     </article>
     {% set cpu_desktop_items = dashboard.cpu_family_treemap_desktop["items"] or [] %}
     <article class="dash-card card-surface dash-treemap-card">
       <h2>Поколения CPU (СБ) <span class="muted tnum">({{ cpu_desktop_items|length }})</span></h2>
       {% if cpu_desktop_items %}
-      <div id="dash-cpu-desktop-treemap" class="dash-treemap dash-treemap--mosaic" data-treemap='{{ cpu_desktop_items|tojson }}'></div>
+      <div id="dash-cpu-desktop-treemap" class="dash-treemap dash-treemap--mosaic dash-treemap--cpu" data-treemap='{{ cpu_desktop_items|tojson }}'></div>
       {% else %}<p class="muted">Нет данных</p>{% endif %}
     </article>
   </div>

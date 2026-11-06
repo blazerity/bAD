@@ -141,13 +141,16 @@
     return rects;
   }
 
-  function placeCell(root, cell, gap, forceLabel, modelMode) {
+  function placeCell(root, cell, gap, forceLabel, modelMode, cpuCompact) {
     var item = cell.item;
     var a = document.createElement(item.href ? "a" : "div");
     if (item.href) a.href = item.href;
     a.className = "dash-treemap-cell vendor-" + (item.vendor || "neutral");
     if (modelMode) {
       a.classList.add("is-model-tile");
+    }
+    if (cpuCompact) {
+      a.classList.add("is-cpu-compact");
     }
     var left = cell.x + gap / 2;
     var top = cell.y + gap / 2;
@@ -159,8 +162,10 @@
     a.style.height = ch + "px";
     a.title = item.label + ": " + item.count;
 
-    var showLabel = modelMode || forceLabel || (cw >= 72 && ch >= 36);
-    var showCount = forceLabel || (cw >= 40 && ch >= 28);
+    var showLabel =
+      modelMode || forceLabel || cpuCompact || (cw >= 72 && ch >= 36);
+    var showCount =
+      modelMode || forceLabel || cpuCompact || (cw >= 40 && ch >= 28);
     var labelHtml = showLabel
       ? '<span class="dash-treemap-label">' + item.label + "</span>"
       : "";
@@ -440,10 +445,15 @@
 
     var gap = 3;
     var width = Math.max(root.clientWidth || root.offsetWidth || 320, 160);
+    var cpuMode = root.classList && root.classList.contains("dash-treemap--cpu");
     var few = items.length <= 2;
     var baseH = Math.round(Math.min(420, Math.max(few ? 200 : 220, width * (few ? 0.36 : 0.42))));
     if (few) {
       baseH = Math.max(baseH, items.length === 1 ? 160 : 220);
+    }
+    /* Одно поколение CPU: не растягивать плитку на всю карточку — компактная полоса. */
+    if (cpuMode && items.length === 1) {
+      baseH = Math.min(96, Math.max(68, Math.round(width * 0.14)));
     }
     var height = Math.max(
       parseInt(root.getAttribute("data-height"), 10) || 0,
@@ -452,13 +462,15 @@
     root.style.height = height + "px";
     root.style.position = "relative";
     root.classList.toggle("dash-treemap--few", few);
+    root.classList.toggle("dash-treemap--cpu-one", cpuMode && items.length === 1);
 
     var layout = few
       ? layoutFew(items, width, height)
       : layoutSquarified(items, width, height);
     var modelMode = root.classList && root.classList.contains("dash-treemap--model");
+    var cpuCompact = cpuMode && items.length === 1;
     layout.forEach(function (cell) {
-      placeCell(root, cell, gap, few, modelMode);
+      placeCell(root, cell, gap, few, modelMode, cpuCompact);
     });
   }
 
