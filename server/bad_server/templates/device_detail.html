@@ -1,6 +1,6 @@
 {% extends "agent_report_shell.html" if report_mode else "base.html" %}
 {% from "macros/icons.html" import icon, chassis_icon_name, freshness_label, config_source_mark %}
-{% from "macros/ui.html" import copyable, local_time, device_link %}
+{% from "macros/ui.html" import copyable, local_time, device_link with context %}
 {% block title %}{{ device.hostname or device.device_id }} — bAD{% endblock %}
 {% block content %}
 {% set hw = hardware_summary %}
@@ -68,11 +68,11 @@
   {% endif %}
   {% if message %}<p class="ok">{{ message }}</p>{% endif %}
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
-  {% if new_api_key %}
+  {% if new_api_key and not report_mode %}
   <p class="ok warn-box">Новый ключ доступа агента (покажите один раз): <span class="mono">{{ copyable(new_api_key) }}</span></p>
   {% endif %}
 
-  {% if duplicate_groups %}
+  {% if duplicate_groups and not report_mode %}
   <div class="warn-box">
     <strong>Возможные дубликаты</strong> (автослияния нет):
     {% for g in duplicate_groups %}
@@ -133,20 +133,35 @@
   <div class="settings-shell device-shell" id="device-shell">
     <aside class="settings-nav card-surface" aria-label="Разделы устройства">
       <nav class="settings-nav-list">
+        {% if report_mode %}
+        <span class="settings-nav-item active">
+          <span class="settings-nav-icon">{{ icon('overview') }}</span>
+          <span class="settings-nav-label">Обзор</span>
+        </span>
+        {% else %}
         <a href="?view=overview" class="settings-nav-item {% if view == 'overview' %}active{% endif %}"
            data-device-nav="overview">
           <span class="settings-nav-icon">{{ icon('overview') }}</span>
           <span class="settings-nav-label">Обзор</span>
         </a>
+        {% endif %}
 
         {% for item in inventory_nav %}
+        {% if report_mode %}
+        <span class="settings-nav-item">
+          <span class="settings-nav-icon">{{ icon(item.icon) }}</span>
+          <span class="settings-nav-label">{{ item.title }}</span>
+        </span>
+        {% else %}
         <a href="?view={{ item.id }}" class="settings-nav-item {% if view == item.id %}active{% endif %}"
            data-device-nav="{{ item.id }}">
           <span class="settings-nav-icon">{{ icon(item.icon) }}</span>
           <span class="settings-nav-label">{{ item.title }}</span>
         </a>
+        {% endif %}
         {% endfor %}
 
+        {% if not report_mode %}
         <a href="?view=events" class="settings-nav-item {% if view == 'events' %}active{% endif %}"
            data-device-nav="events">
           <span class="settings-nav-icon">{{ icon('events') }}</span>
@@ -158,6 +173,7 @@
           <span class="settings-nav-icon">{{ icon('settings') }}</span>
           <span class="settings-nav-label">Параметры агента</span>
         </a>
+        {% endif %}
 
         {% if not report_mode %}
         <a href="?view=admin" class="settings-nav-item nav-secondary {% if view == 'admin' %}active{% endif %}"
@@ -221,7 +237,7 @@
         <ul class="overview-list">
           {% for item in inventory_nav %}
           <li>
-            <a href="?view={{ item.id }}" class="overview-row" data-device-nav="{{ item.id }}">
+            {% if report_mode %}<div class="overview-row">{% else %}<a href="?view={{ item.id }}" class="overview-row" data-device-nav="{{ item.id }}">{% endif %}
               <span class="overview-icon">{{ icon(item.icon) }}</span>
               <span class="overview-body">
                 <span class="overview-title">{{ item.title }}</span>
@@ -229,7 +245,7 @@
                 <span class="overview-line mono">{{ line }}</span>
                 {% endfor %}
               </span>
-            </a>
+            {% if report_mode %}</div>{% else %}</a>{% endif %}
           </li>
           {% endfor %}
         </ul>
@@ -601,6 +617,7 @@
       </div>
       {% endif %}
 
+      {% if not report_mode %}
       {# —— События —— #}
       <div class="device-panel {% if view == 'events' %}is-active{% endif %}" data-device-panel="events">
         <h2 class="with-icon">{{ icon('events') }}Недавние события</h2>
@@ -829,6 +846,7 @@
         </form>
         {% endif %}
       </div>
+      {% endif %}
 
       {% if not report_mode %}
       {# —— Управление записью —— #}

@@ -505,4 +505,9 @@ def test_agent_report_html_is_enrolled_card_without_admin() -> None:
         assert "Снять агент" not in body
         assert "В архив" not in body
         assert "Выпустить новый ключ" not in body
+        assert "Создать или изменить политики" not in body
+        assert "Недавние события" not in body
+        assert "<a " not in body
+        assert "<form" not in body
+        assert "<button" not in body
         assert _snap_count(client, device_id) == 0

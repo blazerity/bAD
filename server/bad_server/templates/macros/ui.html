@@ -6,7 +6,9 @@
 {%- if raw and raw != '—' and raw != '-' -%}
 <span class="copyable-value{% if class %} {{ class }}{% endif %}">
   <span class="copyable-text">{% if display is not none %}{{ display }}{% else %}{{ value }}{% endif %}</span>
+  {% if not report_mode %}
   <button type="button" class="copy-btn" data-copy="{{ raw }}" aria-label="Копировать" title="Копировать">{{ icon('copy') }}</button>
+  {% endif %}
 </span>
 {%- elif value is not none and (value | string).strip() -%}
 {{ value }}
