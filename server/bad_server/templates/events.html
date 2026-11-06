@@ -92,7 +92,7 @@
           <span class="events-stack-time mono muted">{{ local_time(e.created_at, mode='stack') }}</span>
           <span class="events-stack-type-label muted">{{ e.type|format_event_type }}</span>
         </div>
-        <p class="events-stack-summary">{{ e.summary }}</p>
+        <p class="events-stack-summary event-summary-text">{{ e.summary }}</p>
         <p class="events-stack-device">{{ device_link(e.device_id, e.hostname or e.device_id, e.chassis_type) }}</p>
       </a>
     </li>

@@ -40,7 +40,15 @@
   <dl class="meta">
     <div><dt>Репозиторий установщиков</dt><dd class="mono">{{ github_repo }}</dd></div>
     <div><dt>Каталог на сервере</dt><dd class="mono">{{ updates_dir }}</dd></div>
-    <div><dt>Интервал синхронизации</dt><dd class="mono">{{ sync_interval }} с</dd></div>
+    <div>
+      <dt>Интервал синхронизации</dt>
+      <dd class="mono">
+        {% if sync_interval is none %}—
+        {% elif (sync_interval | int) < 0 %}{{ sync_interval | format_config_interval }}
+        {% else %}{{ sync_interval | int }} с
+        {% endif %}
+      </dd>
+    </div>
     <div><dt>Основная версия в каталоге</dt><dd class="mono">{% if agent_update %}{{ agent_update.version }}{% else %}—{% endif %}</dd></div>
   </dl>
 

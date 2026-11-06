@@ -82,8 +82,17 @@
     <div>
       <dt>Установлено</dt>
       <dd class="mono">
-        {{ panel.current.branch or "—" }}
-        @ {% if panel.current.sha %}{{ (panel.current.sha or "")[:12] }}{% else %}сборка не записана{% endif %}
+        {% set _sha_u = (panel.current.sha | default('', true)) | string | trim %}
+        {% set _ver_u = (panel.current.version | default('', true)) | string | trim %}
+        {% set _sha_missing = _sha_u in ('', '0') %}
+        {% set _ver_missing = _ver_u in ('', '0') %}
+        {% if _sha_missing and _ver_missing %}
+        сборка не записана
+        {% elif not _sha_missing %}
+        {{ panel.current.branch or "—" }} @ {{ _sha_u[:12] }}
+        {% else %}
+        {{ panel.current.branch or "—" }} @ сборка не записана
+        {% endif %}
       </dd>
     </div>
     {% if panel.current.installed_at %}
