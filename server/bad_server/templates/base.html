@@ -62,7 +62,11 @@
     <div class="brand-row brand-row-mobile">
       {{ brand_lockup() }}
       <button type="button" class="icon-btn rail-toggle rail-toggle-mobile" id="rail-toggle-mobile"
-              aria-controls="hcp-rail" aria-expanded="false" title="Открыть меню">{{ icon('chevron-left') }}<span class="sr-only">Меню</span></button>
+              aria-controls="hcp-rail" aria-expanded="false" title="Открыть меню">
+        <span class="rail-mobile-icon rail-mobile-icon--closed" aria-hidden="true">{{ icon('menu') }}</span>
+        <span class="rail-mobile-icon rail-mobile-icon--open" aria-hidden="true">{{ icon('close') }}</span>
+        <span class="sr-only">Меню</span>
+      </button>
     </div>
     {% endif %}
     {% if user is defined and user and user.must_change_password and not qa_ui %}

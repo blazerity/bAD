@@ -25,7 +25,12 @@
     document.documentElement.classList.toggle("rail-collapsed", collapsed);
     document.body.classList.remove("rail-mobile-open");
     toggleButtons().forEach(function (btn) {
-      if (btn.id === "rail-toggle-mobile") return;
+      if (btn.id === "rail-toggle-mobile") {
+        btn.setAttribute("aria-expanded", "false");
+        btn.title = "Открыть меню";
+        btn.setAttribute("data-rail-mobile-open", "false");
+        return;
+      }
       btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
       btn.title = collapsed ? "Развернуть меню" : "Свернуть меню";
     });
@@ -34,8 +39,16 @@
   function setMobileOpen(open) {
     document.body.classList.toggle("rail-mobile-open", open);
     toggleButtons().forEach(function (btn) {
-      btn.setAttribute("aria-expanded", open ? "true" : "false");
-      btn.title = open ? "Закрыть меню" : "Открыть меню";
+      if (btn.id === "rail-toggle-mobile") {
+        btn.setAttribute("aria-expanded", open ? "true" : "false");
+        btn.title = open ? "Закрыть меню" : "Открыть меню";
+        btn.setAttribute("data-rail-mobile-open", open ? "true" : "false");
+        return;
+      }
+      if (btn.id === "rail-toggle") {
+        btn.setAttribute("aria-expanded", readDesktopCollapsed() ? "false" : "true");
+        btn.title = readDesktopCollapsed() ? "Развернуть меню" : "Свернуть меню";
+      }
     });
     var bd = backdrop();
     if (bd) bd.hidden = !open;
