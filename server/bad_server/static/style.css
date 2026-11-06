@@ -5865,3 +5865,88 @@ body.hcp-panel .hcp-app-body > main > .page {
     display: grid;
   }
 }
+
+/* Ширина ПК. Узкий экран остаётся на правилах max-width выше. */
+@media (min-width: 641px) {
+  .device-detail-title-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .device-detail-title-row h1.keep-token {
+    flex: 0 1 auto;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+  }
+  .device-hero-facts {
+    flex-direction: column;
+    align-items: stretch;
+    flex-wrap: nowrap;
+  }
+  .device-hero-facts > div {
+    flex: none;
+    width: 100%;
+    max-width: 100%;
+    display: grid;
+    grid-template-columns: 9rem minmax(0, 1fr);
+    gap: 0.15rem 0.75rem;
+    align-items: center;
+  }
+  .device-hero-facts dd {
+    min-width: 0;
+    overflow-x: auto;
+  }
+  .keep-token {
+    white-space: nowrap;
+    word-break: normal;
+    overflow-wrap: normal;
+    hyphens: none;
+  }
+  .user-presence-online.keep-token,
+  .user-presence-last.keep-token {
+    height: auto;
+    min-height: 22px;
+    width: max-content;
+    max-width: none;
+    flex: none;
+    padding-top: 0.15rem;
+    padding-bottom: 0.15rem;
+  }
+  dl.speccy-kv {
+    display: flex;
+    flex-direction: column;
+  }
+  dl.speccy-kv > div {
+    display: grid;
+    grid-template-columns: minmax(7.5rem, 12rem) minmax(0, 1fr);
+    align-items: start;
+    font-size: 0;
+  }
+  dl.speccy-kv > div > dt {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  dl.speccy-kv > div > dd {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+  }
+  dl.speccy-kv dd.keep-token {
+    overflow-x: auto;
+    word-break: normal;
+    overflow-wrap: normal;
+  }
+  dl.speccy-kv dd.dump-path {
+    white-space: normal;
+    word-break: normal;
+    overflow-wrap: normal;
+    overflow-x: visible;
+  }
+  .device-panel[data-device-panel="software"] .table-scroll > table.devices.speccy-table {
+    width: max-content;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .dup-name { display: block; }
+  .dup-sep { display: none; }
+}

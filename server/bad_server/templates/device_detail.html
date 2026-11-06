@@ -16,7 +16,7 @@
     {% endif %}
     <div class="device-detail-hero-main">
       <div class="device-detail-title-row">
-        <h1 class="with-icon">{{ icon(chassis_icon_name(chassis_type)) }}{{ device.hostname or "(неизвестный узел)" }}</h1>
+        <h1 class="with-icon keep-token">{{ icon(chassis_icon_name(chassis_type)) }}{{ device.hostname or "(неизвестный узел)" }}</h1>
         <span class="badge badge-fresh-{{ freshness or silence.status }}">{{ freshness_label(freshness or silence.status) }}</span>
         {% if uninstall and uninstall.badge %}
         <span class="badge badge-uninstall badge-uninstall-{{ uninstall.badge }}">{{ uninstall.badge_label }}</span>
@@ -32,7 +32,7 @@
         {% if logged %}
         <div>
           <dt>Пользователь</dt>
-          <dd class="device-hero-fact-value">{{ logged }}</dd>
+          <dd class="device-hero-fact-value keep-token">{{ logged }}</dd>
         </div>
         {% endif %}
         {% if ip_line %}
@@ -44,7 +44,7 @@
         {% if serial_line %}
         <div>
           <dt>Серийный номер</dt>
-          <dd class="device-hero-fact-value mono device-hero-serial">{{ serial_line }}</dd>
+          <dd class="device-hero-fact-value mono device-hero-serial keep-token">{{ serial_line }}</dd>
         </div>
         {% endif %}
       </dl>
@@ -78,7 +78,7 @@
     {% for g in duplicate_groups %}
     <p>{{ g.label }}:
       {% for d in g.devices %}
-        {{ device_link(d.device_id, d.hostname or d.device_id, d.chassis_type) }}{% if not loop.last %}, {% endif %}
+        <span class="dup-name">{{ device_link(d.device_id, d.hostname or d.device_id, d.chassis_type) }}</span>{% if not loop.last %}<span class="dup-sep">, </span>{% endif %}
       {% endfor %}
     </p>
     {% endfor %}
@@ -263,7 +263,7 @@
         <h2 class="with-icon">{{ icon('host') }}Операционная система</h2>
         <dl class="speccy-kv">
           {% if host_info.hostname %}
-          <div><dt>Имя узла</dt><dd>{{ host_info.hostname }}</dd></div>
+          <div><dt>Имя узла</dt><dd class="keep-token">{{ host_info.hostname }}</dd></div>
           {% endif %}
           {% if host_info.domain %}
           <div><dt>Домен</dt><dd>{{ host_info.domain }}</dd></div>
@@ -335,7 +335,7 @@
         <dl class="speccy-kv">
           {% if hw.manufacturer %}<div><dt>Производитель</dt><dd>{{ hw.manufacturer }}</dd></div>{% endif %}
           {% if hw.model %}<div><dt>Модель</dt><dd>{{ hw.model }}</dd></div>{% endif %}
-          {% if hw.serial_number %}<div><dt>Серийный номер</dt><dd>{{ copyable(hw.serial_number) }}</dd></div>{% endif %}
+          {% if hw.serial_number %}<div><dt>Серийный номер</dt><dd class="keep-token">{{ copyable(hw.serial_number) }}</dd></div>{% endif %}
           {% set board_sn = hw.baseboard_serial or device.baseboard_serial %}
           {% set chassis_sn = (hw.serial_number or '')|string|trim|lower %}
           {% if board_sn and (board_sn|string|trim|lower) != chassis_sn %}
@@ -483,7 +483,7 @@
             <dt>Пользователь</dt>
             <dd>
               {% if user_display_name %}
-              <span class="user-presence-{{ user_presence }}">{{ user_display_name }}</span>
+              <span class="user-presence-{{ user_presence }} keep-token">{{ user_display_name }}</span>
               {% else %}
               нет данных
               {% endif %}
@@ -503,7 +503,7 @@
         <p class="muted">{{ software_info.programs|length }} программ</p>
         <div class="table-scroll">
         <table class="devices speccy-table">
-          <thead><tr><th>Имя</th><th>Version</th><th>Издатель</th></tr></thead>
+          <thead><tr><th>Имя</th><th>Версия</th><th>Издатель</th></tr></thead>
           <tbody>
             {% for p in software_info.programs[:40] %}
             <tr>
@@ -576,7 +576,7 @@
           <div><dt>Memory.dmp</dt><dd>{% if minidumps_info.memory_dmp_present %}есть{% else %}нет{% endif %}</dd></div>
           {% endif %}
           {% if minidumps_info.memory_dmp_path %}
-          <div><dt>Путь</dt><dd>{{ minidumps_info.memory_dmp_path }}</dd></div>
+          <div><dt>Путь</dt><dd class="dump-path">{{ minidumps_info.memory_dmp_path|replace('\\', '\\' ~ '\u200b') }}</dd></div>
           {% endif %}
         </dl>
         {% if minidumps_info.files %}

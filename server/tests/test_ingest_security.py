@@ -491,6 +491,7 @@ def test_agent_report_html_is_enrolled_card_without_admin() -> None:
                 "agent_version": "9.9.9-report",
                 "host": {"hostname": "WS-REPORT-HOST"},
                 "hardware": {"model": "Model-XYZ-Report", "chassis_type": "desktop"},
+                "software": {"programs": [{"name": "Layout Check", "version": "1"}]},
             },
         )
         assert report.status_code == 200, report.text
@@ -510,4 +511,6 @@ def test_agent_report_html_is_enrolled_card_without_admin() -> None:
         assert "<a " not in body
         assert "<form" not in body
         assert "<button" not in body
+        assert ">Версия<" in body
+        assert ">Version<" not in body
         assert _snap_count(client, device_id) == 0
