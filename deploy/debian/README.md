@@ -5,7 +5,13 @@
 Сразу с HTTPS:
 
 ```bash
-sudo BAD_DOMAIN=<домен> BAD_TLS_CERT=<fullchain.pem> BAD_TLS_KEY=<privkey.pem> bash install.sh
+BAD_DOMAIN=<домен> sudo -E bash install.sh
+```
+
+С сертификатом сразу, как в шапке `install.sh`:
+
+```bash
+BAD_DOMAIN=<домен> BAD_TLS_CERT=<fullchain.pem> BAD_TLS_KEY=<privkey.pem> sudo -E bash install.sh
 ```
 
 Дальше — [docs/ste-100.md](../../docs/ste-100.md): смените пароль `admin`, выключите общий токен, включите подпись снимка.
