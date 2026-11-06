@@ -932,6 +932,7 @@ table.devices {
 .settings-form input[type="text"],
 .settings-form input[type="number"],
 .settings-form input[type="password"],
+.settings-form input[type="email"],
 .settings-form select,
 .login input,
 .filter-bar select {
@@ -946,12 +947,14 @@ table.devices {
     border-color var(--dur) var(--ease),
     box-shadow var(--dur) var(--ease);
 }
+.settings-form input[type="email"]:hover,
 .settings-form input:hover,
 .settings-form select:hover,
 .login input:hover,
 .filter-bar select:hover {
   border-color: var(--muted);
 }
+.settings-form input[type="email"]:focus,
 .settings-form input:focus,
 .settings-form select:focus,
 .login input:focus,
@@ -2823,6 +2826,11 @@ time.local-time {
   color: var(--muted, #5b5b5b);
   border-color: var(--control-stroke, rgba(0, 0, 0, 0.12));
 }
+.badge-importance-offline {
+  color: var(--warn);
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
+}
 
 /* Copy-to-clipboard controls */
 .copyable-value {
@@ -3806,13 +3814,13 @@ body.global-search-open { overflow: hidden; }
   gap: 0.75rem;
 }
 .dash-fleet-row .chart-donut--stack .chart-donut__legend {
-  order: 0;
+  order: 1;
   flex: 1 1 auto;
   min-width: 0;
   width: auto;
 }
 .dash-fleet-row .chart-donut--stack .chart-donut__ring-wrap {
-  order: 1;
+  order: 0;
   width: 6.25rem;
   height: 6.25rem;
   margin: 0;
@@ -3837,21 +3845,6 @@ body.global-search-open { overflow: hidden; }
   flex-shrink: 0;
   white-space: nowrap;
 }
-@media (max-width: 1280px) {
-  .dash-fleet-row .dash-os-card .chart-donut--stack {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.65rem;
-  }
-  .dash-fleet-row .dash-os-card .chart-donut--stack .chart-donut__legend {
-    order: 0;
-    max-width: none;
-  }
-  .dash-fleet-row .dash-os-card .chart-donut--stack .chart-donut__ring-wrap {
-    order: 1;
-    align-self: center;
-  }
-}
 .dash-treemap-card .dash-treemap--mosaic {
   margin-top: 0.5rem;
 }
@@ -3866,9 +3859,6 @@ body.global-search-open { overflow: hidden; }
 }
 .dash-treemap--mosaic {
   min-height: 14rem;
-}
-.dash-treemap--mosaic.dash-treemap--cpu-no-mosaic {
-  min-height: 0;
 }
 .dash-treemap-pair .dash-treemap--mosaic {
   min-height: 12rem;
@@ -4296,7 +4286,32 @@ body.global-search-open { overflow: hidden; }
   min-width: 0;
 }
 .devices-toolbar-row--main {
-  align-items: stretch;
+  align-items: flex-start;
+}
+.devices-page .devices-toolbar-row--main .devices-toolbar-search {
+  flex: 1 1 22rem;
+  min-width: 0;
+}
+.devices-page .devices-toolbar-row--main .devices-enroll-strip {
+  flex: 1 1 min(28rem, 100%);
+  min-width: min(18rem, 100%);
+  max-width: 100%;
+  margin: 0;
+}
+.devices-toolbar-row--chips {
+  align-items: center;
+}
+.devices-toolbar-row--chips .devices-fleet-chips {
+  flex: 0 1 auto;
+  align-self: center;
+}
+.devices-page .devices-toolbar-row--chips .filter-chip {
+  align-self: center;
+  height: auto;
+  flex: 0 0 auto;
+}
+.devices-toolbar-row--filters {
+  width: 100%;
 }
 .devices-toolbar-row--actions {
   justify-content: flex-end;
@@ -4313,11 +4328,22 @@ body.global-search-open { overflow: hidden; }
   min-width: 0;
 }
 .devices-toolbar-primary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0.45rem 0.65rem;
+  align-items: start;
   min-width: 0;
+  width: 100%;
+}
+@media (max-width: 900px) {
+  .devices-toolbar-primary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.devices-toolbar-primary .devices-facet-select-compact {
+  min-width: 0;
+  max-width: none;
+  width: 100%;
 }
 .devices-toolbar-csv {
   flex: 0 0 auto;
@@ -4737,7 +4763,7 @@ table.devices-enroll-requests {
 }
 .dash-chart-axis {
   fill: var(--muted);
-  font-size: 10px;
+  font-size: 9px;
 }
 .dash-chart-bar-other { fill: #8ac9fa; }
 .dash-chart-bar-warn { fill: var(--warn); }
@@ -5879,6 +5905,10 @@ body.hcp-panel .hcp-app-body > main > .page {
     flex-direction: column;
     align-items: stretch;
     width: 100%;
+  }
+  .device-detail-title-row > .badge {
+    align-self: flex-start;
+    width: fit-content;
   }
   .device-detail-title-row h1.keep-token {
     display: block;

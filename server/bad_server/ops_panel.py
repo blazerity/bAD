@@ -930,16 +930,22 @@ def build_dashboard_stats(
         storage_counts, "disk", top=max(len(storage_counts), 1)
     )
 
-    cpu_family_counts: dict[str, int] = {}
+    cpu_family_counts_laptop: dict[str, int] = {}
+    cpu_family_counts_desktop: dict[str, int] = {}
+    cpu_family_counts_all: dict[str, int] = {}
     laptop_model_counts: dict[str, int] = {}
     desktop_model_counts: dict[str, int] = {}
     chassis_counts = {"laptop": 0, "desktop": 0, "other": 0}
     for d in active:
         meta = d.get("meta") if isinstance(d.get("meta"), dict) else {}
         fam = resolve_cpu_family(meta)
-        if fam:
-            cpu_family_counts[fam] = cpu_family_counts.get(fam, 0) + 1
         chassis = str(meta.get("chassis_type") or "").strip().casefold()
+        if fam:
+            cpu_family_counts_all[fam] = cpu_family_counts_all.get(fam, 0) + 1
+            if chassis == "laptop":
+                cpu_family_counts_laptop[fam] = cpu_family_counts_laptop.get(fam, 0) + 1
+            elif chassis == "desktop":
+                cpu_family_counts_desktop[fam] = cpu_family_counts_desktop.get(fam, 0) + 1
         if chassis == "laptop":
             chassis_counts["laptop"] += 1
         elif chassis == "desktop":
@@ -953,9 +959,25 @@ def build_dashboard_stats(
             elif chassis == "desktop":
                 desktop_model_counts[model] = desktop_model_counts.get(model, 0) + 1
 
+    cpu_family_treemap_laptop = {
+        "items": _treemap_items(
+            cpu_family_counts_laptop,
+            href_param="cpu",
+            href_extra={"chassis": "laptop"},
+            vendor_from_label=True,
+        )
+    }
+    cpu_family_treemap_desktop = {
+        "items": _treemap_items(
+            cpu_family_counts_desktop,
+            href_param="cpu",
+            href_extra={"chassis": "desktop"},
+            vendor_from_label=True,
+        )
+    }
     cpu_family_treemap = {
         "items": _treemap_items(
-            cpu_family_counts, href_param="cpu", vendor_from_label=True
+            cpu_family_counts_all, href_param="cpu", vendor_from_label=True
         )
     }
     laptop_model_treemap = {
@@ -979,6 +1001,8 @@ def build_dashboard_stats(
         "ram_bars": ram_bars,
         "storage_bars": storage_bars,
         "cpu_family_treemap": cpu_family_treemap,
+        "cpu_family_treemap_laptop": cpu_family_treemap_laptop,
+        "cpu_family_treemap_desktop": cpu_family_treemap_desktop,
         "laptop_model_treemap": laptop_model_treemap,
         "desktop_model_treemap": desktop_model_treemap,
         "chassis_counts": chassis_counts,

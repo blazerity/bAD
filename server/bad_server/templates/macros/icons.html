@@ -57,8 +57,10 @@
   <rect x="2.5" y="3.5" width="15" height="10" rx="1.5"/>
   <path d="M7 16.5h6M10 13.5v3"/>
 {%- elif name == 'settings' %}
-  <circle cx="10" cy="10" r="2.25"/>
-  <path d="M10 2.75v1.7M10 15.55v1.7M2.75 10h1.7M15.55 10h1.7M4.6 4.6l1.2 1.2M14.2 14.2l1.2 1.2M15.4 4.6l-1.2 1.2M5.8 14.2l-1.2 1.2"/>
+  <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"
+    d="M10 4.25v2.2M10 13.55v2.2M4.25 10h2.2M13.55 10h2.2M6.15 6.15l1.56 1.56M12.29 12.29l1.56 1.56M13.85 6.15l-1.56 1.56M7.71 12.29l-1.56 1.56"/>
+  <circle cx="10" cy="10" r="2.75" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <circle cx="10" cy="10" r="1" fill="currentColor" stroke="none"/>
 {%- elif name == 'ldap' %}
   <circle cx="6.5" cy="6.5" r="2.25"/>
   <circle cx="13.5" cy="6.5" r="2.25"/>

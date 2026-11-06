@@ -317,15 +317,14 @@
       });
       svg.appendChild(hit);
 
-      if (n <= 10 || i % Math.ceil(n / 8) === 0 || i === n - 1) {
-        var xl = document.createElementNS(svgNS, "text");
-        xl.setAttribute("x", x + barW / 2);
-        xl.setAttribute("y", h - 10);
-        xl.setAttribute("text-anchor", "middle");
-        xl.setAttribute("class", "dash-chart-axis");
-        xl.textContent = fmtDay(p.day);
-        svg.appendChild(xl);
-      }
+      var xl = document.createElementNS(svgNS, "text");
+      xl.setAttribute("x", x + barW / 2);
+      xl.setAttribute("y", h - 10);
+      xl.setAttribute("text-anchor", "middle");
+      xl.setAttribute("class", "dash-chart-axis");
+      xl.setAttribute("transform", "rotate(-35 " + (x + barW / 2) + " " + (h - 10) + ")");
+      xl.textContent = fmtDay(p.day);
+      svg.appendChild(xl);
     });
 
     root.appendChild(svg);
@@ -360,11 +359,6 @@
       return b.count - a.count || String(a.label).localeCompare(String(b.label));
     });
 
-    if (root.classList && root.classList.contains("dash-treemap--cpu")) {
-      renderCpuGenerations(root, items);
-      return;
-    }
-
     var gap = 3;
     var width = Math.max(root.clientWidth || root.offsetWidth || 320, 160);
     var few = items.length <= 2;
@@ -389,58 +383,13 @@
     });
   }
 
-  /** Поколения CPU: одна полоса на строку с подписью (без залитых прямоугольников treemap). */
-  function renderCpuGenerations(root, items) {
-    root.style.height = "auto";
-    root.style.position = "static";
-    root.classList.remove("dash-treemap--few");
-    var total = 0;
-    items.forEach(function (it) {
-      total += Math.max(0, Number(it.count) || 0);
-    });
-    if (total <= 0) total = 1;
-    var ul = document.createElement("ul");
-    ul.className = "hbar-list dash-cpu-gen-list";
-    items.forEach(function (it) {
-      var n = Math.max(0, Number(it.count) || 0);
-      var pct = Math.round((100.0 * n) / total * 10) / 10;
-      var li = document.createElement("li");
-      li.className = "hbar-row dash-cpu-gen-row";
-      var inner;
-      if (it.href) {
-        inner = document.createElement("a");
-        inner.href = it.href;
-        inner.className = "hbar-link-row";
-      } else {
-        inner = document.createElement("div");
-        inner.className = "hbar-link-row";
-      }
-      var meta = document.createElement("div");
-      meta.className = "hbar-meta";
-      var lab = document.createElement("span");
-      lab.className = "dash-cpu-gen-label";
-      lab.textContent = it.label;
-      var cnt = document.createElement("span");
-      cnt.className = "muted tnum";
-      cnt.textContent = n + " · " + pct + "%";
-      meta.appendChild(lab);
-      meta.appendChild(cnt);
-      var track = document.createElement("div");
-      track.className = "hbar-track";
-      var fill = document.createElement("span");
-      fill.className = "hbar-fill dash-cpu-gen-fill";
-      fill.style.width = pct + "%";
-      track.appendChild(fill);
-      inner.appendChild(meta);
-      inner.appendChild(track);
-      li.appendChild(inner);
-      ul.appendChild(li);
-    });
-    root.appendChild(ul);
-  }
-
   function renderAllTreemaps() {
-    ["dash-cpu-treemap", "dash-laptop-treemap", "dash-desktop-treemap"].forEach(
+    [
+      "dash-cpu-laptop-treemap",
+      "dash-cpu-desktop-treemap",
+      "dash-laptop-treemap",
+      "dash-desktop-treemap",
+    ].forEach(
       function (id) {
         var el = document.getElementById(id);
         if (el) renderTreemap(el);

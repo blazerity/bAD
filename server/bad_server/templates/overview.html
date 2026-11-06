@@ -111,7 +111,7 @@
     <ul class="overview-problems-list" data-problems-list>
       {% for row in overview_action_rows %}
       <li class="overview-problem-row" data-problem-row data-severity="{{ row.severity }}">
-        <span class="badge {% if row.severity == 'offline' %}badge-stale{% else %}badge-importance badge-importance-{{ row.severity }}{% endif %}">
+        <span class="badge badge-importance {% if row.severity == 'offline' %}badge-importance-offline{% else %}badge-importance-{{ row.severity }}{% endif %}">
           {% if row.severity == 'offline' %}Нет связи{% else %}{{ row.severity|importance_label_ru }}{% endif %}
         </span>
         <a href="{{ row.href }}" class="overview-problem-host">{{ row.hostname }}</a>
