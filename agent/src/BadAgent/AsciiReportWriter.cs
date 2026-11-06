@@ -439,8 +439,15 @@ public static class AsciiReportWriter
         {
             sb.AppendLine($"  {line}");
         }
+
+        sb.AppendLine();
     }
 
+    /// <summary>
+    /// Перенос внутри рамки: разрыв после последнего подходящего символа в пределах maxChars —
+    /// пробел (строка без конечных пробелов), дефис или обратный слэш (разрыв сразу после).
+    /// Иначе жёсткий отрез maxChars. shortcut: один непрерывный токен длиннее maxChars, рез по maxChars.
+    /// </summary>
     private static List<string> WrapToWidth(string text, int maxChars)
     {
         var result = new List<string>();
@@ -461,31 +468,42 @@ public static class AsciiReportWriter
             }
 
             var chunk = remaining[..maxChars];
-            var breakAt = -1;
-            for (var i = chunk.Length - 1; i >= 0; i--)
+            var take = -1;
+            for (var i = chunk.Length - 1; i > 0; i--)
             {
-                if (char.IsWhiteSpace(chunk[i]))
+                var c = chunk[i];
+                if (char.IsWhiteSpace(c))
                 {
-                    breakAt = i;
+                    take = i;
+                    break;
+                }
+
+                if (c is '-' or '\\')
+                {
+                    take = i + 1;
                     break;
                 }
             }
 
-            ReadOnlySpan<char> line;
-            ReadOnlySpan<char> rest;
-            if (breakAt > 0)
+            if (take > 0)
             {
-                line = remaining[..breakAt];
-                rest = remaining[breakAt..].TrimStart();
+                var line = remaining[..take].TrimEnd();
+                if (line.Length == 0)
+                {
+                    result.Add(remaining[..maxChars].ToString());
+                    remaining = remaining[maxChars..];
+                }
+                else
+                {
+                    result.Add(line.ToString());
+                    remaining = remaining[take..].TrimStart();
+                }
             }
             else
             {
-                line = remaining[..maxChars];
-                rest = remaining[maxChars..];
+                result.Add(remaining[..maxChars].ToString());
+                remaining = remaining[maxChars..];
             }
-
-            result.Add(line.ToString());
-            remaining = rest;
         }
 
         return result;
