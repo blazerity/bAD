@@ -20,6 +20,7 @@ dependencies = [
   "cryptography>=43.0.0",
   "itsdangerous>=2.2.0",
   "psycopg[binary]>=3.2.0",
+  "minidump>=0.0.24",
 ]
 
 [project.optional-dependencies]
