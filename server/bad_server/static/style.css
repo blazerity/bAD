@@ -228,6 +228,20 @@ body.hcp-panel .hcp-app-body {
 html.rail-collapsed .hcp-rail {
   width: 3.35rem;
 }
+/* Свернутый рельс: марка + узкая кнопка помещаются в 3.35rem; подпись по-прежнему скрыта. */
+html.rail-collapsed .hcp-rail-brand .brand-mark {
+  width: 24px;
+  height: 24px;
+}
+html.rail-collapsed .hcp-rail-brand .brand-mark img {
+  width: 24px;
+  height: 24px;
+}
+html.rail-collapsed .hcp-rail-brand .rail-toggle {
+  width: 1.5rem;
+  min-width: 1.5rem;
+  height: 1.5rem;
+}
 html.rail-collapsed .hcp-rail-nav a span {
   position: absolute;
   width: 1px;
@@ -1913,7 +1927,11 @@ dl.speccy-kv dd {
   font-family: var(--mono);
   font-size: 0.9rem;
   border-bottom: 1px solid var(--border);
-  word-break: break-word;
+  word-break: normal;
+  overflow-wrap: normal;
+  hyphens: none;
+  overflow-x: auto;
+  max-width: 100%;
 }
 .speccy-table { margin-top: 0.5rem; }
 .collector-errors {
@@ -2706,7 +2724,10 @@ html.dash-reduced-motion {
 }
 .warn-box .device-link__label {
   word-break: normal;
-  overflow-wrap: break-word;
+  overflow-wrap: normal;
+  hyphens: none;
+  overflow-x: auto;
+  max-width: 100%;
 }
 .device-hardware-strip {
   display: flex;
@@ -3734,7 +3755,11 @@ body.global-search-open { overflow: hidden; }
 .devices-table-modern .col-device-disk { width: 5%; }
 .devices-table-modern .col-device-os { width: 10%; }
 .devices-table-modern .col-device-ip { width: 9%; }
-.devices-table-modern .col-device-seen { width: 6%; }
+/* Контакт: не фиксировать 6% — строка «N часов назад» целиком, без многоточия. */
+.devices-table-modern .col-device-seen {
+  width: auto;
+  min-width: 7.25rem;
+}
 .devices-table-modern .col-chevron { width: 3%; }
 .devices-table-modern td.col-device-host .device-cell-link {
   display: block;
@@ -3767,28 +3792,30 @@ body.global-search-open { overflow: hidden; }
 }
 .devices-table-modern th.col-device-seen,
 .devices-table-modern td.col-device-seen {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  text-overflow: unset;
+  white-space: normal;
 }
 .devices-table-modern .device-cell-host,
 .devices-table-modern .device-col-model-text,
 .devices-table-modern .device-col-cpu-text,
 .devices-table-modern td.device-col-os-cell > span:first-child {
-  overflow: visible;
+  overflow-x: auto;
   white-space: normal;
-  overflow-wrap: break-word;
+  overflow-wrap: normal;
   word-break: normal;
+  hyphens: none;
   max-width: 100%;
-  display: inline;
-  vertical-align: baseline;
+  display: inline-block;
+  vertical-align: top;
   min-width: 0;
 }
 .devices-table-modern .device-col-user-text {
-  overflow: visible;
+  overflow-x: auto;
   white-space: normal;
-  overflow-wrap: break-word;
+  overflow-wrap: normal;
   word-break: normal;
+  hyphens: none;
   max-width: 100%;
   min-width: 0;
   display: inline-block;
@@ -4379,8 +4406,9 @@ body.global-search-open { overflow: hidden; }
 }
 .devices-toolbar-primary .devices-facet-select-compact {
   min-width: 0;
-  max-width: none;
+  max-width: 100%;
   width: 100%;
+  box-sizing: border-box;
 }
 .devices-toolbar-csv {
   flex: 0 0 auto;
@@ -4638,13 +4666,19 @@ table.devices-enroll-requests {
 }
 .device-detail-title-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 0.5rem 0.75rem;
+  min-width: 0;
 }
 .device-detail-title-row h1 {
   margin: 0;
-  flex: 1 1 auto;
+  flex: 1 1 0;
+  min-width: 0;
+}
+.device-detail-title-row > .badge,
+.device-detail-title-row > .device-refresh-form {
+  flex: 0 0 auto;
 }
 .device-detail-subline {
   margin: 0.35rem 0 0;
@@ -5906,15 +5940,19 @@ body.hcp-panel .hcp-app-body > main > .page {
   .device-detail-title-row {
     flex-direction: row;
     align-items: center;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     width: 100%;
   }
   .device-detail-title-row > .badge {
     align-self: center;
     width: fit-content;
+    flex: 0 0 auto;
+  }
+  .device-detail-title-row > .device-refresh-form {
+    flex: 0 0 auto;
   }
   .device-detail-title-row h1 {
-    flex: 1 1 auto;
+    flex: 1 1 0;
     min-width: 0;
   }
   .device-hero-facts {
@@ -5949,6 +5987,7 @@ body.hcp-panel .hcp-app-body > main > .page {
     hyphens: none;
     max-width: 100%;
     min-width: 0;
+    overflow-x: auto;
   }
   .user-presence-online.keep-token,
   .user-presence-last.keep-token {
@@ -5961,11 +6000,16 @@ body.hcp-panel .hcp-app-body > main > .page {
     padding-top: 0.15rem;
     padding-bottom: 0.15rem;
     white-space: normal;
-    overflow-wrap: anywhere;
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: none;
+    overflow-x: auto;
   }
   dl.speccy-kv dd {
     word-break: normal;
-    overflow-wrap: break-word;
+    overflow-wrap: normal;
+    hyphens: none;
+    overflow-x: auto;
   }
   dl.speccy-kv dd.dump-path {
     overflow-x: visible;
@@ -5978,8 +6022,11 @@ body.hcp-panel .hcp-app-body > main > .page {
   .dup-name {
     display: inline;
     white-space: normal;
-    overflow-wrap: break-word;
+    overflow-wrap: normal;
     word-break: normal;
+    hyphens: none;
+    overflow-x: auto;
+    max-width: 100%;
   }
   .dup-sep {
     display: inline;
