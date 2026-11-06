@@ -465,3 +465,44 @@ def test_fat_inventory_does_not_write() -> None:
         )
         assert inv.status_code == 400, inv.text
         assert _snap_count(client, device_id) == 0
+
+
+def test_agent_report_html_is_enrolled_card_without_admin() -> None:
+    device_id = _device_id("report-pc")
+    with TestClient(create_app()) as client:
+        enrolled = client.post(
+            "/v1/enroll",
+            headers={"Authorization": "Bearer test-enrollment-token-change-me-please"},
+            json={"device_id": device_id, "hostname": "STORED-NAME"},
+        )
+        assert enrolled.status_code == 200, enrolled.text
+        api_key = enrolled.json()["api_key"]
+        bare = client.post(
+            "/v1/agent/report.html",
+            json={"schema_version": 2, "device_id": device_id},
+        )
+        assert bare.status_code == 401, bare.text
+        report = client.post(
+            "/v1/agent/report.html",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={
+                "schema_version": 2,
+                "device_id": device_id,
+                "agent_version": "9.9.9-report",
+                "host": {"hostname": "WS-REPORT-HOST"},
+                "hardware": {"model": "Model-XYZ-Report", "chassis_type": "desktop"},
+            },
+        )
+        assert report.status_code == 200, report.text
+        assert "text/html" in report.headers["content-type"]
+        body = report.text
+        assert "WS-REPORT-HOST" in body
+        assert "Model-XYZ-Report" in body
+        assert "9.9.9-report" in body
+        assert "<style>" in body
+        assert ".device-panel" in body
+        assert 'href="/static/style.css' not in body
+        assert "Снять агент" not in body
+        assert "В архив" not in body
+        assert "Выпустить новый ключ" not in body
+        assert _snap_count(client, device_id) == 0

@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "agent_report_shell.html" if report_mode else "base.html" %}
 {% from "macros/icons.html" import icon, chassis_icon_name, freshness_label, config_source_mark %}
 {% from "macros/ui.html" import copyable, local_time, device_link %}
 {% block title %}{{ device.hostname or device.device_id }} — bAD{% endblock %}
@@ -11,7 +11,9 @@
   {% set ip_line = (meta.ipv4_addresses[0] if meta.ipv4_addresses else none) %}
   {% set serial_line = hw.serial_number if hw and hw.serial_number else meta.serial_number %}
   <header class="device-detail-hero">
+    {% if not report_mode %}
     <a class="device-back-link" href="/devices">← Устройства</a>
+    {% endif %}
     <div class="device-detail-hero-main">
       <div class="device-detail-title-row">
         <h1 class="with-icon">{{ icon(chassis_icon_name(chassis_type)) }}{{ device.hostname or "(неизвестный узел)" }}</h1>
@@ -157,11 +159,13 @@
           <span class="settings-nav-label">Параметры агента</span>
         </a>
 
+        {% if not report_mode %}
         <a href="?view=admin" class="settings-nav-item nav-secondary {% if view == 'admin' %}active{% endif %}"
            data-device-nav="admin">
           <span class="settings-nav-icon">{{ icon('serial') }}</span>
           <span class="settings-nav-label">Управление записью</span>
         </a>
+        {% endif %}
       </nav>
     </aside>
 
@@ -826,6 +830,7 @@
         {% endif %}
       </div>
 
+      {% if not report_mode %}
       {# —— Управление записью —— #}
       <div class="device-panel {% if view == 'admin' %}is-active{% endif %}" data-device-panel="admin">
         <h2>Управление записью</h2>
@@ -932,8 +937,11 @@
         </details>
         {% endif %}
       </div>
+      {% endif %}
     </div>
   </div>
 </section>
+{% if not report_mode %}
 <script src="/static/device-card.js" defer></script>
+{% endif %}
 {% endblock %}

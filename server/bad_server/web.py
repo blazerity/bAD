@@ -81,6 +81,7 @@ from .http_bootstrap import HTTP_SENSITIVE_MSG, client_ip, sensitive_over_http_b
 from .qa_ui import panel_tls_mode, patch_security_for_qa
 from .device_meta import (
     format_logged_on_display,
+    inventory_meta_cache,
     meta_search_haystack,
     normalize_logged_on_list,
     normalize_logged_on_user,
@@ -161,6 +162,8 @@ from .smtp_mail import (
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+_PANEL_CSS_PATH = Path(__file__).parent / "static" / "style.css"
+_panel_css_cache: Optional[str] = None
 templates.env.globals["app_version"] = __version__
 
 
@@ -2549,6 +2552,30 @@ def _duplicate_groups(
     return groups
 
 
+def _apply_inventory_overlay(detail: dict, payload: dict) -> dict:
+    """Снимок для отчёта агента: не пишет в БД, только поля карточки."""
+    detail = dict(detail)
+    detail["latest_inventory"] = {"payload": payload}
+    host = payload.get("host") if isinstance(payload.get("host"), dict) else None
+    hostname = str((host or {}).get("hostname") or "").strip()
+    if hostname:
+        detail["hostname"] = hostname
+    agent_version = str(payload.get("agent_version") or "").strip()
+    if agent_version:
+        detail["agent_version"] = agent_version
+    meta = dict(detail.get("meta") or {}) if isinstance(detail.get("meta"), dict) else {}
+    meta.update(
+        inventory_meta_cache(
+            host=host,
+            hardware=payload.get("hardware") if isinstance(payload.get("hardware"), dict) else None,
+            users=payload.get("users") if isinstance(payload.get("users"), dict) else None,
+            network=payload.get("network") if isinstance(payload.get("network"), dict) else None,
+        )
+    )
+    detail["meta"] = meta
+    return detail
+
+
 def _device_config_context(
     db: Database,
     device_id: str,
@@ -2558,10 +2585,13 @@ def _device_config_context(
     message: Optional[str] = None,
     error: Optional[str] = None,
     active_view: Optional[str] = None,
+    inventory_payload: Optional[dict] = None,
 ) -> Optional[dict]:
     detail = db.get_device_detail(device_id)
     if not detail:
         return None
+    if inventory_payload is not None:
+        detail = _apply_inventory_overlay(detail, inventory_payload)
     effective = db.compute_device_effective_config(device_id)
     assert effective is not None
     override = effective.get("override") or {}
@@ -2718,6 +2748,35 @@ def _device_config_context(
         "new_api_key": None,
         "msi_versions": db.list_agent_msi_versions(),
     }
+
+
+def _panel_css() -> str:
+    global _panel_css_cache
+    if _panel_css_cache is None:
+        _panel_css_cache = _PANEL_CSS_PATH.read_text(encoding="utf-8")
+    return _panel_css_cache
+
+
+def render_device_report(
+    db: Database,
+    settings: Settings,
+    device_id: str,
+    inventory_payload: dict,
+) -> HTMLResponse:
+    """Самодостаточный HTML карточки. Снимок не сохраняется."""
+    ctx = _device_config_context(
+        db,
+        device_id,
+        user=WebUser(username="agent", role="operator", source="local"),
+        settings=settings,
+        inventory_payload=inventory_payload,
+    )
+    if ctx is None:
+        raise LookupError(device_id)
+    ctx["report_mode"] = True
+    ctx["inline_css"] = _panel_css()
+    html_doc = templates.get_template("device_detail.html").render(ctx)
+    return HTMLResponse(html_doc)
 
 
 _REFRESH_SENT_MESSAGE = (

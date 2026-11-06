@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}bAD{% endblock %}</title>
+  <style>{{ inline_css }}</style>
+  {# без device-card.js секции иначе остаются display:none #}
+  <style>.device-panel{display:block}</style>
+</head>
+<body class="mica-noise hcp-panel">
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>
