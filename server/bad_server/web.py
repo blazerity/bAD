@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import csv
+import html
 import io
 import json
+import re
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlencode
 
+from markupsafe import Markup
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
@@ -304,11 +307,31 @@ def _format_config_interval(value: object, empty: str = "—") -> str:
     return "не задан" if n < 0 else str(n)
 
 
+def _event_summary_anchor_hostname(summary: object, hostname: object) -> Markup:
+    """Имя узла в сводке — один визуальный токен (дефис не место переноса)."""
+    text = str(summary) if summary is not None else ""
+    host = str(hostname).strip() if hostname is not None else ""
+    if not text or not host:
+        return Markup(html.escape(text))
+    pattern = re.escape(host)
+    if not re.search(pattern, text):
+        return Markup(html.escape(text))
+    out: list[str] = []
+    pos = 0
+    for m in re.finditer(pattern, text):
+        out.append(html.escape(text[pos : m.start()]))
+        out.append(f'<span class="event-host-token">{html.escape(m.group(0))}</span>')
+        pos = m.end()
+    out.append(html.escape(text[pos:]))
+    return Markup("".join(out))
+
+
 templates.env.filters["format_bytes"] = _format_bytes
 templates.env.filters["format_os"] = _format_os
 templates.env.filters["format_chassis"] = _format_chassis
 templates.env.filters["format_event_type"] = _format_event_type
 templates.env.filters["format_config_interval"] = _format_config_interval
+templates.env.filters["event_summary_anchor_hostname"] = _event_summary_anchor_hostname
 
 _MONTH_NAMES_RU = (
     "",

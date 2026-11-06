@@ -2604,6 +2604,9 @@ html.dash-reduced-motion {
   overflow-wrap: normal;
   hyphens: none;
 }
+.event-summary-text .event-host-token {
+  white-space: nowrap;
+}
 
 .badge-polarity-added {
   background: var(--polarity-added-bg);

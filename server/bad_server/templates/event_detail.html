@@ -33,7 +33,7 @@
           {% elif visual.polarity == 'removed' %}Удалено
           {% else %}Изменено{% endif %}
         </span>
-        <p class="event-digest-card__summary event-summary-text">{{ event.summary }}</p>
+        <p class="event-digest-card__summary event-summary-text">{{ event.summary | event_summary_anchor_hostname(event.hostname) }}</p>
         <p class="muted">
           {{ local_time(event.created_at) }}
           · <span title="{{ event.type }}">{{ event.type|format_event_type }}</span>
