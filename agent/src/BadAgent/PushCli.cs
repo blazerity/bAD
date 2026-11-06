@@ -187,6 +187,10 @@ public static class PushCli
                 Console.WriteLine("      Применена удалённая конфигурация агента.");
             }
 
+            MinidumpHeartbeatUpload.RunAsync(client, config.ApiKey!, response?.Actions?.UploadMinidump, null, token)
+                .GetAwaiter()
+                .GetResult();
+
             Console.WriteLine("Готово.");
             return 0;
         }

@@ -83,7 +83,7 @@ public sealed class Worker : BackgroundService
                 {
                     if (_enrollmentRequestPending)
                     {
-                        // Повтор POST /v1/enrollment-requests — пауза в конце цикла (2 мин).
+                        // Опрос enrollment-requests — см. интервал в конце цикла (~15 с).
                     }
                     else
                     {
@@ -175,11 +175,7 @@ public sealed class Worker : BackgroundService
 
             try
             {
-                await Task.Delay(
-                    _enrollmentRequestPending
-                        ? TimeSpan.FromMinutes(2)
-                        : TimeSpan.FromSeconds(15),
-                    stoppingToken);
+                await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -250,8 +246,7 @@ public sealed class Worker : BackgroundService
     private async Task PollEnrollmentRequestAsync(BadApiClient client, AgentConfig config, CancellationToken ct)
     {
         var (hostname, ip, serial) = EnrollmentHints.ForRequest();
-        var result = await client.SubmitEnrollmentRequestAsync(
-            hostname, ip, serial, EnrollmentHints.ProofFingerprint(), ct);
+        var result = await client.SubmitEnrollmentRequestAsync(hostname, ip, serial, ct);
         if (result.RouteMissing)
         {
             _enrollmentRequestPending = false;
@@ -429,6 +424,13 @@ public sealed class Worker : BackgroundService
             {
                 ApplyRemoteConfig(config, response.Config);
             }
+
+            await MinidumpHeartbeatUpload.RunAsync(
+                client,
+                config.ApiKey!,
+                response?.Actions?.UploadMinidump,
+                _logger,
+                ct);
 
             config = ConfigStore.LoadOrCreate();
 

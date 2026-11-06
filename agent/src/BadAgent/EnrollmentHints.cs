@@ -3,7 +3,6 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Runtime.Versioning;
-using System.Security.Cryptography;
 
 namespace BadAgent;
 
@@ -16,35 +15,6 @@ public static class EnrollmentHints
         var ip = TryPrimaryIpv4() ?? "";
         var serial = TryHardwareSerial() ?? "";
         return (hostname, ip, serial);
-    }
-
-    /// <summary>32 случайных байта в enrollment_proof. На сервер уходит только SHA256.</summary>
-    public static string ProofFingerprint()
-    {
-        var path = Path.Combine(ConfigStore.ProgramDataDir, "enrollment_proof");
-        byte[] secret;
-        try
-        {
-            if (File.Exists(path))
-            {
-                secret = Convert.FromBase64String(File.ReadAllText(path).Trim());
-                if (secret.Length == 32)
-                {
-                    return Convert.ToHexString(SHA256.HashData(secret)).ToLowerInvariant();
-                }
-            }
-        }
-        catch
-        {
-            // Битый файл — новый секрет ниже.
-        }
-
-        secret = RandomNumberGenerator.GetBytes(32);
-        Directory.CreateDirectory(ConfigStore.ProgramDataDir);
-        var tmp = path + ".tmp";
-        File.WriteAllText(tmp, Convert.ToBase64String(secret));
-        File.Move(tmp, path, overwrite: true);
-        return Convert.ToHexString(SHA256.HashData(secret)).ToLowerInvariant();
     }
 
     public static string? TryPrimaryIpv4()

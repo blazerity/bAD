@@ -1,5 +1,7 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.IO;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -64,7 +66,14 @@ public sealed class BadApiClient : IDisposable
         var apiKey = doc.RootElement.GetProperty("api_key").GetString()
                      ?? throw new InvalidOperationException("enroll response missing api_key");
         var returnedId = doc.RootElement.GetProperty("device_id").GetString() ?? deviceId;
-        return new EnrollResult(apiKey, returnedId, JsonString(doc.RootElement, "signing_key"));
+        string? signingKey = null;
+        if (doc.RootElement.TryGetProperty("signing_key", out var skEl)
+            && skEl.ValueKind == JsonValueKind.String)
+        {
+            signingKey = skEl.GetString();
+        }
+
+        return new EnrollResult(apiKey, returnedId, signingKey);
     }
 
     /// <summary>POST /v1/enrollment-requests — без Bearer; секреты только после approve.</summary>
@@ -72,7 +81,6 @@ public sealed class BadApiClient : IDisposable
         string hostname,
         string ip,
         string serial,
-        string fingerprint,
         CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/enrollment-requests");
@@ -80,8 +88,7 @@ public sealed class BadApiClient : IDisposable
         {
             hostname,
             ip = ip ?? "",
-            serial = serial ?? "",
-            fingerprint
+            serial = serial ?? ""
         }, options: JsonOptions);
 
         using var resp = await _http.SendAsync(req, ct);
@@ -102,12 +109,28 @@ public sealed class BadApiClient : IDisposable
             ? stEl.GetString() ?? "pending"
             : "pending";
 
-        return new EnrollmentRequestResult(
-            status,
-            JsonString(doc.RootElement, "device_id"),
-            JsonString(doc.RootElement, "api_key"),
-            JsonString(doc.RootElement, "signing_key"),
-            RouteMissing: false);
+        string? deviceId = null;
+        string? apiKey = null;
+        string? signingKey = null;
+        if (doc.RootElement.TryGetProperty("device_id", out var idEl)
+            && idEl.ValueKind == JsonValueKind.String)
+        {
+            deviceId = idEl.GetString();
+        }
+
+        if (doc.RootElement.TryGetProperty("api_key", out var keyEl)
+            && keyEl.ValueKind == JsonValueKind.String)
+        {
+            apiKey = keyEl.GetString();
+        }
+
+        if (doc.RootElement.TryGetProperty("signing_key", out var skEl)
+            && skEl.ValueKind == JsonValueKind.String)
+        {
+            signingKey = skEl.GetString();
+        }
+
+        return new EnrollmentRequestResult(status, deviceId, apiKey, signingKey, RouteMissing: false);
     }
 
     /// <summary>Один раз выдать ключ подписи для уже enrolled устройства (secure-channel 3).</summary>
@@ -132,10 +155,14 @@ public sealed class BadApiClient : IDisposable
         try
         {
             using var doc = JsonDocument.Parse(body);
-            var key = JsonString(doc.RootElement, "signing_key");
-            if (!string.IsNullOrWhiteSpace(key))
+            if (doc.RootElement.TryGetProperty("signing_key", out var el)
+                && el.ValueKind == JsonValueKind.String)
             {
-                return new SigningKeyFetchResult(key.Trim(), RouteMissing: false);
+                var key = el.GetString();
+                if (!string.IsNullOrWhiteSpace(key))
+                {
+                    return new SigningKeyFetchResult(key.Trim(), RouteMissing: false);
+                }
             }
         }
         catch (JsonException)
@@ -194,21 +221,88 @@ public sealed class BadApiClient : IDisposable
             if (root.TryGetProperty("actions", out var actionsEl)
                 && actionsEl.ValueKind == JsonValueKind.Object)
             {
-                actions = JsonSerializer.Deserialize<HeartbeatActions>(actionsEl.GetRawText());
+                actions = ParseHeartbeatActions(actionsEl);
             }
 
-            if (config is null && actions is null)
+            if (config is not null)
             {
-                return null;
+                return new HeartbeatServerResponse { Config = config, Actions = actions };
             }
 
-            return new HeartbeatServerResponse { Config = config, Actions = actions };
+            if (actions is not null
+                && (actions.Inventory
+                    || actions.UpdateCheck
+                    || actions.Uninstall
+                    || !string.IsNullOrWhiteSpace(actions.UploadMinidump)))
+            {
+                return new HeartbeatServerResponse { Config = null, Actions = actions };
+            }
+
+            return null;
         }
         catch (JsonException)
         {
             // Heartbeat успешен; разбор тела — best-effort.
             return null;
         }
+    }
+
+    private static HeartbeatActions ParseHeartbeatActions(JsonElement actionsEl)
+    {
+        var a = new HeartbeatActions();
+        if (actionsEl.TryGetProperty("inventory", out var inv) && inv.ValueKind == JsonValueKind.True)
+        {
+            a.Inventory = true;
+        }
+
+        if (actionsEl.TryGetProperty("update_check", out var uc) && uc.ValueKind == JsonValueKind.True)
+        {
+            a.UpdateCheck = true;
+        }
+
+        if (actionsEl.TryGetProperty("uninstall", out var un) && un.ValueKind == JsonValueKind.True)
+        {
+            a.Uninstall = true;
+        }
+
+        if (actionsEl.TryGetProperty("upload_minidump", out var um)
+            && um.ValueKind == JsonValueKind.String)
+        {
+            var s = um.GetString();
+            if (!string.IsNullOrWhiteSpace(s))
+            {
+                a.UploadMinidump = s.Trim();
+            }
+        }
+
+        return a;
+    }
+
+    /// <summary>Один minidump по запросу heartbeat: multipart, тот же Bearer.</summary>
+    public async Task<bool> TryPostMinidumpAsync(string apiKey, string localFilePath, CancellationToken ct)
+    {
+        await using var fs = File.OpenRead(localFilePath);
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/agent/minidump");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        var mp = new MultipartFormDataContent();
+        var streamContent = new StreamContent(fs);
+        streamContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        mp.Add(streamContent, "file", Path.GetFileName(localFilePath));
+        req.Content = mp;
+
+        using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+
+        if (!resp.IsSuccessStatusCode)
+        {
+            _ = await resp.Content.ReadAsStringAsync(ct);
+            return false;
+        }
+
+        return true;
     }
 
     public async Task SendInventoryAsync(string apiKey, InventorySnapshot snapshot, CancellationToken ct)
@@ -228,6 +322,40 @@ public sealed class BadApiClient : IDisposable
             var body = await resp.Content.ReadAsStringAsync(ct);
             throw new AgentApiException(resp.StatusCode, $"Inventory failed: {(int)resp.StatusCode} {body}");
         }
+    }
+
+    /// <summary>HTML отчёт с сервера (панель): тот же snapshot, что inventory.</summary>
+    public async Task<string?> TryPostReportHtmlAsync(string apiKey, InventorySnapshot snapshot, CancellationToken ct)
+    {
+        AgentSigningKey.TrySignInventory(snapshot, out _);
+        var json = JsonSerializer.Serialize(snapshot, AgentSigningKey.InventoryJsonOptions);
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/agent/report.html");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        req.Headers.Accept.ParseAdd("text/html");
+        req.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+        using var resp = await _http.SendAsync(req, ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        var media = resp.Content.Headers.ContentType?.MediaType;
+        if (!string.IsNullOrEmpty(media)
+            && media.Contains("html", StringComparison.OrdinalIgnoreCase))
+        {
+            return body;
+        }
+
+        var trimmed = body.TrimStart();
+        if (trimmed.StartsWith("<!DOCTYPE", StringComparison.OrdinalIgnoreCase)
+            || trimmed.StartsWith("<html", StringComparison.OrdinalIgnoreCase))
+        {
+            return body;
+        }
+
+        return null;
     }
 
     public async Task<UpdateCheckResponse> CheckUpdateAsync(
@@ -274,16 +402,6 @@ public sealed class BadApiClient : IDisposable
     }
 
     public void Dispose() => _http.Dispose();
-
-    private static string? JsonString(JsonElement root, string name)
-    {
-        if (root.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.String)
-        {
-            return el.GetString();
-        }
-
-        return null;
-    }
 }
 
 public readonly record struct EnrollResult(string ApiKey, string DeviceId, string? SigningKeyBase64);
