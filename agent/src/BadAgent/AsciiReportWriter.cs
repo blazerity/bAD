@@ -493,66 +493,26 @@ public static class AsciiReportWriter
 
     private static string BoxTop(string title)
     {
-        return JoinHorizontalBoxLines(WrapTitleLines(title, Width - 4), isTop: true);
+        var sb = new StringBuilder();
+        var inner = Width - 4;
+        sb.AppendLine("┌" + new string('─', Width - 2) + "┐");
+        foreach (var line in WrapToWidth(title.Trim(), inner))
+        {
+            sb.AppendLine("│ " + Pad(line, inner) + " │");
+        }
+
+        return sb.ToString();
     }
 
     private static string BoxMid(string title)
     {
-        var innerTitle = " " + title + " ";
-        return JoinHorizontalBoxLines(WrapTitleLines(innerTitle, Width - 4), isTop: false);
-    }
-
-    private static List<string> WrapTitleLines(string title, int innerMax)
-    {
-        var lines = new List<string>();
-        if (innerMax < 1) innerMax = 1;
-        var t = title.TrimEnd();
-        while (t.Length > 0)
-        {
-            if (t.Length <= innerMax)
-            {
-                lines.Add(t);
-                break;
-            }
-
-            lines.Add(t[..innerMax]);
-            t = t[innerMax..];
-        }
-
-        if (lines.Count == 0)
-        {
-            lines.Add("");
-        }
-
-        return lines;
-    }
-
-    private static string JoinHorizontalBoxLines(List<string> innerLines, bool isTop)
-    {
-        if (innerLines.Count == 0)
-        {
-            innerLines.Add("");
-        }
-
-        var left = isTop ? '┌' : '├';
-        var right = isTop ? '┐' : '┤';
-        var fill = '─';
         var sb = new StringBuilder();
-        for (var i = 0; i < innerLines.Count; i++)
+        var inner = Width - 4;
+        var labeled = $" {title} ";
+        sb.AppendLine("├" + new string('─', Width - 2) + "┤");
+        foreach (var line in WrapToWidth(labeled.Trim(), inner))
         {
-            var inner = innerLines[i];
-            var midLen = Math.Max(0, Width - 2 - inner.Length);
-            var midLeft = Math.Max(0, midLen / 2);
-            var midRight = Math.Max(0, midLen - midLeft);
-            sb.Append(left);
-            sb.Append(fill, midLeft);
-            sb.Append(inner);
-            sb.Append(fill, midRight);
-            sb.Append(right);
-            if (i < innerLines.Count - 1)
-            {
-                sb.AppendLine();
-            }
+            sb.AppendLine("│ " + Pad(line, inner) + " │");
         }
 
         return sb.ToString();
