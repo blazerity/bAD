@@ -226,12 +226,6 @@ public sealed class Worker : BackgroundService
                 return;
             }
 
-            if (!string.IsNullOrWhiteSpace(config.EnrollmentToken))
-            {
-                await EnrollWithSharedTokenAsync(client, config, ct);
-                return;
-            }
-
             await PollEnrollmentRequestAsync(client, config, ct);
         }
         catch (Exception ex)
@@ -254,43 +248,10 @@ public sealed class Worker : BackgroundService
             ct);
         ApplyEnrollmentSecrets(config, enrollResult.ApiKey, enrollResult.DeviceId, enrollResult.SigningKeyBase64);
         config.EnrollmentCode = null;
-        config.EnrollmentToken = null;
         ConfigStore.Save(config);
         _apiKeyRevoked = false;
         _logger.LogInformation("Enrollment succeeded; enrollment secrets cleared from config");
         WindowsEventLog.WriteInfo($"bAD: устройство {enrollResult.DeviceId} успешно зарегистрировано.");
-    }
-
-    private async Task EnrollWithSharedTokenAsync(
-        BadApiClient client, AgentConfig config, CancellationToken ct)
-    {
-        _enrollmentRequestPending = false;
-        _logger.LogInformation(
-            "Запрос ключа для уже известного устройства {DeviceId}",
-            config.DeviceId);
-        try
-        {
-            var enrollResult = await client.EnrollAsync(
-                config.EnrollmentToken!.Trim(),
-                config.DeviceId!,
-                Environment.MachineName,
-                ct);
-            ApplyEnrollmentSecrets(
-                config, enrollResult.ApiKey, enrollResult.DeviceId, enrollResult.SigningKeyBase64);
-            config.EnrollmentToken = null;
-            ConfigStore.Save(config);
-            _apiKeyRevoked = false;
-            _logger.LogInformation("Ключ устройства записан, общий токен убран из файла");
-            WindowsEventLog.WriteInfo(
-                $"bAD: для устройства {enrollResult.DeviceId} записан ключ.");
-        }
-        catch (AgentApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Conflict)
-        {
-            _logger.LogWarning(
-                "Сервер не выдал новый ключ устройству {DeviceId}. Файл настроек не изменён",
-                config.DeviceId);
-            throw;
-        }
     }
 
     private async Task PollEnrollmentRequestAsync(BadApiClient client, AgentConfig config, CancellationToken ct)
@@ -328,7 +289,6 @@ public sealed class Worker : BackgroundService
             && !string.IsNullOrWhiteSpace(result.DeviceId))
         {
             ApplyEnrollmentSecrets(config, result.ApiKey!, result.DeviceId!, result.SigningKeyBase64);
-            config.EnrollmentToken = null;
             ConfigStore.Save(config);
             _apiKeyRevoked = false;
             _enrollmentRequestPending = false;
@@ -422,6 +382,14 @@ public sealed class Worker : BackgroundService
             _lastInventoryOk = true;
             _lastInventoryError = null;
             _logger.LogInformation("Inventory uploaded ({Errors} collector errors)", snap.CollectorErrors.Count);
+        }
+        catch (AgentApiException ex) when (
+            ex.IsAuthFailure
+            && ex.Message.Contains("Inventory signature required", StringComparison.Ordinal))
+        {
+            _lastInventoryOk = false;
+            _lastInventoryError = TextLimit.Truncate(ex.Message, 200);
+            _logger.LogError(ex, "Снимок без подписи сервер не принял");
         }
         catch (AgentApiException ex) when (ex.IsAuthFailure)
         {

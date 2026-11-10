@@ -315,27 +315,12 @@ public sealed class BadApiClient : IDisposable
             return;
         }
 
-        if (failure.Value.Body.Contains("Invalid inventory signature", StringComparison.Ordinal))
-        {
-            AgentSigningKey.ClearLocal();
-            snapshot.Signature = null;
-            var retry = await PostInventoryAsync(apiKey, snapshot, ct);
-            if (retry is null)
-            {
-                return;
-            }
-
-            throw new AgentApiException(
-                retry.Value.Status,
-                $"Inventory failed: {(int)retry.Value.Status} {retry.Value.Body}");
-        }
-
         throw new AgentApiException(
             failure.Value.Status,
             $"Inventory failed: {(int)failure.Value.Status} {failure.Value.Body}");
     }
 
-    /// <summary>Один POST снимка. null — сервер принял. Повтор и файл подписи решает вызывающий.</summary>
+    /// <summary>Один POST снимка. null — сервер принял.</summary>
     private async Task<InventoryPostFailure?> PostInventoryAsync(
         string apiKey, InventorySnapshot snapshot, CancellationToken ct)
     {

@@ -119,6 +119,12 @@ public static class PushCli
             }
             catch (AgentApiException ex) when (ex.IsAuthFailure)
             {
+                if (ex.Message.Contains("Inventory signature required", StringComparison.Ordinal))
+                {
+                    Console.Error.WriteLine("error: снимок без подписи сервер не принял");
+                    return 1;
+                }
+
                 Console.Error.WriteLine("error: API key отклонён (401/403) при отправке inventory");
                 return 1;
             }

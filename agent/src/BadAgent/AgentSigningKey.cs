@@ -63,12 +63,6 @@ public static class AgentSigningKey
         QuietFiles.TryDelete(SkipFetchPath);
     }
 
-    public static void MarkFetchUnavailable()
-    {
-        Directory.CreateDirectory(ConfigStore.ProgramDataDir);
-        File.WriteAllText(SkipFetchPath, DateTime.UtcNow.ToString("O"));
-    }
-
     public static void ClearLocal()
     {
         QuietFiles.TryDelete(KeyPath);
@@ -85,7 +79,7 @@ public static class AgentSigningKey
         ILogger? logger,
         CancellationToken ct)
     {
-        if (TryLoadPrivateKeyBase64(out _))
+        if (File.Exists(KeyPath))
         {
             return;
         }
