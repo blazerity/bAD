@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using Org.BouncyCastle.Crypto.Parameters;
@@ -302,7 +303,7 @@ public static class AgentSigningKey
                 writer.WriteEndArray();
                 break;
             case JsonValueKind.String:
-                writer.WriteStringValue(element.GetString());
+                WriteCanonicalString(writer, element.GetString());
                 break;
             case JsonValueKind.Number:
                 writer.WriteRawValue(element.GetRawText());
@@ -321,6 +322,49 @@ public static class AgentSigningKey
                 break;
         }
     }
+
+    /// <summary>
+    /// U+00A0 и скаляр выше U+FFFF пишутся как UTF-8.
+    /// Кавычка, обратная косая и U+0000–U+001F остаются как у прежнего кодировщика.
+    /// </summary>
+    private static void WriteCanonicalString(Utf8JsonWriter writer, string? value)
+    {
+        if (value is null)
+        {
+            writer.WriteNullValue();
+            return;
+        }
+
+        var encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping;
+        var encoded = new StringBuilder();
+        encoded.Append('"');
+        foreach (var rune in value.EnumerateRunes())
+        {
+            if (rune.Value == 0x00A0 || rune.Value > 0xFFFF)
+            {
+                encoded.Append(rune.ToString());
+                continue;
+            }
+
+            var piece = rune.ToString();
+            if (!encoder.WillEncode(rune.Value))
+            {
+                encoded.Append(piece);
+                continue;
+            }
+
+            var json = JsonSerializer.Serialize(piece, CanonEscapeOptions);
+            encoded.Append(json, 1, json.Length - 2);
+        }
+
+        encoded.Append('"');
+        writer.WriteRawValue(encoded.ToString(), skipInputValidation: true);
+    }
+
+    private static readonly JsonSerializerOptions CanonEscapeOptions = new()
+    {
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
 
     private static byte[] Ed25519PublicKeyBytes(byte[] seed32)
     {
