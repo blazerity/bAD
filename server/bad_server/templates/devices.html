@@ -34,14 +34,7 @@
       <div class="devices-enroll-strip">
         <div class="devices-enroll-strip-main">
           <span class="devices-enroll-strip-title">Заявки на подключение</span>
-          <form method="post" action="/devices/enrollment-code" class="devices-enroll-code-form">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button type="submit" class="btn btn-compact">Выпустить код</button>
-          </form>
         </div>
-        {% if issued_code %}
-        <p class="devices-enroll-code-line muted">Код установки, показать один раз: <span class="mono">{{ issued_code }}</span></p>
-        {% endif %}
         {% if enrollment_requests %}
         <div class="table-scroll devices-enroll-requests-scroll">
           <table class="devices devices-enroll-requests">
@@ -258,7 +251,7 @@
   {% if not devices %}
   {% if park_empty %}
   <div class="empty-park-cta" role="status">
-    <p><strong>Парк пуст.</strong> Установите агент на первый компьютер — токен и установщики в
+    <p><strong>Парк пуст.</strong> Установите агент на первый компьютер — установщики в
       <a href="/settings/updates">Параметры → Обновления агента</a>.</p>
     <p class="muted">После установки устройство появится в списке в течение нескольких минут.</p>
   </div>

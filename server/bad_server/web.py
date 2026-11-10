@@ -58,7 +58,6 @@ from .device_health import (
 from .ldap_client import settings_from_row, test_connection
 from .security import (
     api_key_lookup,
-    enrollment_code_hash,
     generate_token,
     hash_secret,
     new_device_signing_key,
@@ -2154,7 +2153,6 @@ def devices_page(
             "enrollment_requests": db.list_pending_enrollment_requests()
             if user.is_admin
             else [],
-            "issued_code": getattr(request.state, "issued_enrollment_code", None),
             "filter_chips": filter_chips,
             "park_empty": total == 0
             and not (
@@ -2178,19 +2176,6 @@ def devices_page(
             "chassis_labels": _CHASSIS_LABELS_RU,
         },
     )
-
-
-@router.post("/devices/enrollment-code")
-def devices_issue_enrollment_code(
-    request: Request,
-    user: WebUser = Depends(require_web_admin),
-    db: Database = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-):
-    code = generate_token("bad_ot_")
-    db.create_enrollment_grant("", enrollment_code_hash(code))
-    request.state.issued_enrollment_code = code
-    return devices_page(request, user=user, db=db, settings=settings)
 
 
 @router.post("/devices/enrollment-requests/{request_id}/allow")

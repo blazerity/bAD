@@ -4658,13 +4658,6 @@ body.global-search-open { overflow: hidden; }
   font-weight: 600;
   font-size: 0.88rem;
 }
-.devices-enroll-code-form {
-  margin: 0;
-}
-.devices-enroll-code-line {
-  margin: 0.5rem 0 0;
-  font-size: 0.82rem;
-}
 .devices-enroll-empty {
   margin: 0.45rem 0 0;
   font-size: 0.82rem;

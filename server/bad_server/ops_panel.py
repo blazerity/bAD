@@ -12,7 +12,6 @@ from typing import Any, Optional
 
 from .agent_config import ALLOWED_SETTING_KEYS, compute_setting_sources
 from .device_health import device_silence_status, parse_iso
-from .enrollment_ops import enrollment_status
 from .event_importance import event_importance
 from .fleet_buckets import normalize_os_caption, resolve_cpu_family
 from .tls_ops import tls_panel_mode
@@ -177,14 +176,11 @@ def build_bootstrap_checklist(
         }
     security = security or {}
     https = security.get("https_first") or {}
-    enroll_block = security.get("enrollment") or {}
     tls_mode = str(
         ops.get("tls_mode") or https.get("tls_mode") or tls_panel_mode() or "http"
     ).lower()
-    enroll = enroll_block or enrollment_status(db, settings)
     password_done = not bool(user.must_change_password)
     https_done = tls_mode == "https"
-    enroll_done = bool(enroll.get("configured"))
     mirror_done = not bool(ops.get("mirror_empty"))
     fleet_done = active_devices > 0
     secrets_ok = not bool(
@@ -203,12 +199,6 @@ def build_bootstrap_checklist(
             "label": "Включить защищённое соединение (Сертификат)",
             "done": https_done,
             "href": "/settings/tls",
-        },
-        {
-            "id": "enrollment",
-            "label": "Токен подключения готов",
-            "done": enroll_done,
-            "href": "/settings/updates#enrollment",
         },
         {
             "id": "mirror",
