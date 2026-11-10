@@ -595,6 +595,9 @@ class Database:
             "tags": Database._parse_tags(row["tags_json"]),
             "revoked": bool(row["revoked"]),
             "archived": bool(row["archived"]),
+            "shared_exchange_at": str(
+                (row["shared_exchange_at"] if "shared_exchange_at" in row else "") or ""
+            ).strip(),
         }
 
     def update_heartbeat(
@@ -742,7 +745,8 @@ class Database:
         )
         sql = f"""
             SELECT device_id, bad_id, hostname, enrolled_at, last_seen_at,
-                   agent_version, meta_json, tags_json, revoked, archived
+                   agent_version, meta_json, tags_json, revoked, archived,
+                   shared_exchange_at
             FROM devices
             {where}
             ORDER BY COALESCE(last_seen_at, enrolled_at) DESC NULLS LAST

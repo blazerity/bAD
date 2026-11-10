@@ -466,6 +466,7 @@ def _pager_url(
     fresh: str = "",
     model: str = "",
     chassis: str = "",
+    exchange: str = "",
 ) -> str:
     """URL списка с сохранением фильтров (серверная пагинация ?page=)."""
     params: dict[str, str] = {}
@@ -497,6 +498,8 @@ def _pager_url(
         params["model"] = model
     if chassis:
         params["chassis"] = chassis
+    if exchange:
+        params["exchange"] = exchange
     if importance:
         params["importance"] = importance
     if event_type:
@@ -1888,6 +1891,7 @@ def _devices_wave_context(
     fresh: Optional[str] = None,
     model_filter: Optional[str] = None,
     chassis_filter: Optional[str] = None,
+    exchange_only: bool = False,
 ) -> tuple[list[dict], int, int, int]:
     # Индекс дублей всегда по всему парку (meta), иначе поиск/тег ломают бейджи.
     fleet = db.list_devices(archived=None)
@@ -1910,6 +1914,8 @@ def _devices_wave_context(
             if not is_archived:
                 continue
         elif is_archived:
+            continue
+        if exchange_only and not str(d.get("shared_exchange_at") or "").strip():
             continue
         if wanted_tag:
             tags = {str(t).casefold() for t in (d.get("tags") or [])}
@@ -1996,6 +2002,7 @@ def devices_page(
     fresh: Optional[str] = None,
     model: Optional[str] = None,
     chassis: Optional[str] = None,
+    exchange: Optional[str] = None,
     page: int = 1,
     flash: Optional[str] = None,
     user: WebUser = Depends(require_web_user),
@@ -2017,6 +2024,7 @@ def devices_page(
     chassis_filter = (chassis or "").strip().casefold() or None
     if chassis_filter and chassis_filter not in {"laptop", "desktop", "server", "vm", "other"}:
         chassis_filter = None
+    exchange_only = (exchange or "").strip() == "1"
     page_i = max(1, int(page or 1))
     devices, total, pages, page_i = _devices_wave_context(
         db,
@@ -2035,6 +2043,7 @@ def devices_page(
         fresh=fresh_filter,
         model_filter=model_filter,
         chassis_filter=chassis_filter,
+        exchange_only=exchange_only,
     )
 
     agent_update = db.get_agent_update()
@@ -2073,6 +2082,11 @@ def devices_page(
     if flash_msg and len(flash_msg) > 200:
         flash_msg = flash_msg[:200]
     active_fleet, _archived, fleet_stats, fleet_ops = _fleet_snapshot(db, settings)
+    exchange_count = sum(
+        1
+        for d in active_fleet
+        if str(d.get("shared_exchange_at") or "").strip()
+    )
     dashboard = build_dashboard_stats(
         db,
         stale_after_seconds=effective_stale_after_seconds(db, settings),
@@ -2095,6 +2109,8 @@ def devices_page(
             "tag_filter": tag_filter or "",
             "q": query or "",
             "show_archive": show_archive,
+            "exchange": exchange_only,
+            "exchange_count": exchange_count,
             "wave": wave_filter or "",
             "os_filter": os_filter or "",
             "ram_filter": ram_filter or "",
@@ -2124,6 +2140,7 @@ def devices_page(
                 or query
                 or wave_filter
                 or show_archive
+                or exchange_only
                 or os_filter
                 or ram_filter
                 or disk_filter

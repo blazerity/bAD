@@ -92,9 +92,10 @@
         {% if fleet_stats %}
         <div class="devices-toolbar-row devices-toolbar-row--chips">
           <div class="filter-chips devices-fleet-chips" role="group" aria-label="Состояние парка">
-            {{ filter_chip('/devices', 'Все', fleet_stats.total_active, not show_archive and not wave) }}
+            {{ filter_chip('/devices', 'Все', fleet_stats.total_active, not show_archive and not wave and not exchange) }}
             {{ filter_chip('/devices?wave=stale', 'Устарели', fleet_stats.stale, wave == 'stale') }}
             {{ filter_chip('/devices?archive=1', 'Архив', fleet_stats.archived, show_archive) }}
+            {{ filter_chip('/devices?exchange=1', 'Общий токен', exchange_count, exchange) }}
           </div>
         </div>
         {% endif %}
@@ -375,7 +376,7 @@
   </div>
   </div>
 
-  {{ table_pager('/devices', page, pages, total, page_size, q=q, tag=tag_filter, wave=wave, archive=show_archive, os=os_filter, ram=ram_filter, disk=disk_filter, cpu=cpu_filter, cpu_vendor=cpu_vendor_filter, agent=agent_filter, fresh=fresh_filter, model=model_filter, chassis=chassis_filter) }}
+  {{ table_pager('/devices', page, pages, total, page_size, q=q, tag=tag_filter, wave=wave, archive=show_archive, os=os_filter, ram=ram_filter, disk=disk_filter, cpu=cpu_filter, cpu_vendor=cpu_vendor_filter, agent=agent_filter, fresh=fresh_filter, model=model_filter, chassis=chassis_filter, exchange='1' if exchange else '') }}
   {% endif %}
   </form>
   </div>
