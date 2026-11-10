@@ -3750,77 +3750,64 @@ body.global-search-open { overflow: hidden; }
   letter-spacing: 0.04em;
   background: var(--bg-subtle);
 }
-/* table-layout:fixed + ellipsis на ячейках (НЕ display:block на td — ломает колонки) */
+/* Колонки по содержимому. Длинный текст сжимается многоточием, короткие не растягиваются. */
 .devices-table-modern {
-  table-layout: fixed;
   width: 100%;
-}
-.devices-table-modern .col-device-state { width: 7.5rem; }
-.devices-table-modern .col-device-host,
-.devices-table-modern .col-device-user,
-.devices-table-modern .col-device-model,
-.devices-table-modern .col-device-cpu,
-.devices-table-modern .col-device-os { width: auto; }
-.devices-table-modern .col-device-ram { width: 4.5rem; }
-.devices-table-modern .col-device-disk { width: 4.25rem; }
-.devices-table-modern .col-device-ip { width: 8.5rem; }
-.devices-table-modern .col-device-seen { width: 7.5rem; }
-.devices-table-modern .col-chevron { width: 2.25rem; }
-.devices-table-modern td.col-device-host .device-cell-link {
-  display: block;
+  table-layout: auto;
 }
 .devices-table-modern th.col-device-state,
 .devices-table-modern td.col-device-state,
-.devices-table-modern th.col-device-ram,
-.devices-table-modern td.device-col-ram,
-.devices-table-modern th.col-device-disk,
-.devices-table-modern td.device-col-disk,
-.devices-table-modern th.col-device-ip,
-.devices-table-modern td.device-col-ip,
 .devices-table-modern th.col-device-seen,
 .devices-table-modern td.col-device-seen,
 .devices-table-modern th.col-chevron,
 .devices-table-modern td.col-chevron {
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+}
+.devices-table-modern td.col-device-host .device-cell-link {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
 }
 .devices-table-modern td.col-device-host,
 .devices-table-modern td.device-col-user,
 .devices-table-modern td.device-col-model,
 .devices-table-modern td.device-col-cpu,
 .devices-table-modern td.device-col-os-cell {
+  max-width: 0;
   overflow: hidden;
   vertical-align: middle;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  word-break: normal;
-  overflow-wrap: normal;
-  hyphens: none;
 }
 .devices-table-modern td.device-col-cpu {
-  vertical-align: middle;
-  overflow: hidden;
-  white-space: nowrap;
   font-size: 0.82rem;
 }
 .devices-table-modern td.device-col-ram,
 .devices-table-modern td.device-col-disk {
+  width: max-content;
+  max-width: none;
   white-space: nowrap;
   vertical-align: middle;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow: visible;
 }
 .devices-table-modern td.device-col-ip {
+  width: max-content;
+  max-width: none;
+  white-space: normal;
+  vertical-align: top;
+  overflow: visible;
+}
+.devices-table-modern .device-ip-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+}
+.devices-table-modern .device-ip-line {
   white-space: nowrap;
-  vertical-align: middle;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .devices-table-modern .device-cell-host,
+.devices-table-modern .device-cell-id,
 .devices-table-modern .device-col-model-text,
 .devices-table-modern .device-col-cpu-text,
-.devices-table-modern .device-col-user-text,
 .devices-table-modern td.device-col-os-cell > span:first-child {
   display: block;
   max-width: 100%;
@@ -3833,12 +3820,14 @@ body.global-search-open { overflow: hidden; }
   hyphens: none;
 }
 .devices-table-modern .device-col-user-text {
-  display: block;
+  display: inline-flex;
+  width: fit-content;
   max-width: 100%;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  vertical-align: middle;
 }
 
 .dash-grid-2 {
@@ -4677,8 +4666,10 @@ table.devices-enroll-requests {
   padding-right: 0.3rem;
   vertical-align: middle;
 }
-.devices-table-modern .col-chevron {
-  overflow: hidden;
+.devices-table-modern .col-chevron,
+.events-table-modern .col-chevron {
+  width: auto;
+  overflow: visible;
 }
 .row-chevron {
   display: inline-flex;
@@ -5004,34 +4995,35 @@ table.devices-enroll-requests {
   outline-offset: 1px;
 }
 .events-table-modern {
-  table-layout: fixed;
   width: 100%;
+  table-layout: auto;
 }
-.events-table-modern th:nth-child(1),
-.events-table-modern td:nth-child(1) { width: 44%; }
-.events-table-modern th:nth-child(2),
-.events-table-modern td:nth-child(2) { width: 17%; }
-.events-table-modern th:nth-child(3),
-.events-table-modern td:nth-child(3) { width: 7.5rem; }
-.events-table-modern th:nth-child(4),
-.events-table-modern td:nth-child(4) { width: 8.5rem; }
-.events-table-modern .col-chevron { width: 2rem; }
-.events-table-modern tbody td:nth-child(1) {
-  min-width: 0;
-  overflow: hidden;
-}
-.events-table-modern .event-cell-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.events-table-modern tbody td:nth-child(1),
 .events-table-modern tbody td:nth-child(2) {
+  max-width: 0;
+  overflow: hidden;
+}
+.events-table-modern .event-cell-link,
+.events-table-modern .event-cell-text,
+.events-table-modern .device-link {
+  min-width: 0;
+  max-width: 100%;
+}
+.events-table-modern .event-cell-title,
+.events-table-modern .device-link__label {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
 }
-.events-table-modern tbody td:nth-child(3) { white-space: nowrap; }
-.events-table-modern tbody td:nth-child(4) { white-space: nowrap; }
+.events-table-modern tbody td:nth-child(3),
+.events-table-modern tbody td:nth-child(4),
+.events-table-modern .col-chevron {
+  width: auto;
+  white-space: nowrap;
+}
 .dash-sev-badge,
 .dash-depth-badge {
   display: inline-flex;
