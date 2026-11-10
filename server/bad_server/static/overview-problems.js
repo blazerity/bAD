@@ -1,12 +1,18 @@
-/** Фильтр «Сейчас требует действия» + перерисовка графика по выбранной серьёзности. */
+/** Чипы серьёзности меняют только график динамики. Список «Сейчас требует действия» не трогают. */
 (function () {
+  function chartNote(filter) {
+    var note = document.querySelector("[data-chart-sev-empty]");
+    var chart = document.getElementById("dash-event-chart");
+    if (!note || !chart) return;
+    var text = chart.textContent || "";
+    var emptyChart = text.indexOf("Нет данных") !== -1;
+    note.hidden = filter === "all" || filter === "offline" || !emptyChart;
+  }
+
   function init() {
     var bar = document.querySelector(".prob-severity-bar");
-    var list = document.querySelector("[data-problems-list]");
     if (!bar) return;
 
-    var rows = list ? list.querySelectorAll("[data-problem-row]") : [];
-    var empty = document.querySelector("[data-problems-empty]");
     var chips = bar.querySelectorAll("[data-sev-filter]");
 
     function applyChart(filter) {
@@ -18,18 +24,7 @@
         chart.getAttribute("data-days") || "14",
         filter
       );
-    }
-
-    function applyProblems(filter) {
-      if (!list) return;
-      var visible = 0;
-      rows.forEach(function (row) {
-        var sev = row.getAttribute("data-severity") || "";
-        var show = filter === "all" || sev === filter;
-        row.hidden = !show;
-        if (show) visible += 1;
-      });
-      if (empty) empty.hidden = visible > 0;
+      chartNote(filter);
     }
 
     function apply(filter) {
@@ -39,7 +34,6 @@
           chip.getAttribute("data-sev-filter") === filter
         );
       });
-      applyProblems(filter);
       applyChart(filter);
     }
 

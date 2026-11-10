@@ -95,7 +95,6 @@
       </li>
       {% endfor %}
     </ul>
-    <p class="muted overview-problems-empty" data-problems-empty hidden>Нет строк для выбранной серьёзности.</p>
     {% elif overview_sev_total == 0 %}
     <p class="overview-ok-banner">
       <span class="overview-ok-ico" aria-hidden="true">✓</span> Система в норме — действий не требуется
@@ -147,6 +146,7 @@
         data-series='{{ event_series.series|tojson }}'
         data-days="{{ event_series.days_default }}"
       ></div>
+      <p class="muted overview-problems-empty" data-chart-sev-empty hidden>Нет строк для выбранной серьёзности.</p>
     </article>
 
     <article class="dash-card card-surface overview-priority-feed" data-overview-feed>

@@ -2604,6 +2604,18 @@ def _apply_inventory_overlay(detail: dict, payload: dict) -> dict:
     return detail
 
 
+def _shared_exchange_at(db: Database, device_id: str) -> str:
+    """Время одноразовой выдачи ключа. Пустая строка — строки в карточке нет."""
+    with db.connection() as conn:
+        row = conn.execute(
+            "SELECT shared_exchange_at FROM devices WHERE device_id = ?",
+            (device_id,),
+        ).fetchone()
+    if not row:
+        return ""
+    return str(row.get("shared_exchange_at") or "").strip()
+
+
 def _device_config_context(
     db: Database,
     device_id: str,
@@ -2618,6 +2630,7 @@ def _device_config_context(
     detail = db.get_device_detail(device_id)
     if not detail:
         return None
+    detail["shared_exchange_at"] = _shared_exchange_at(db, device_id)
     if inventory_payload is not None:
         detail = _apply_inventory_overlay(detail, inventory_payload)
     effective = db.compute_device_effective_config(device_id)

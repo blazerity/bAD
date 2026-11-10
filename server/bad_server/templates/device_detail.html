@@ -158,6 +158,12 @@
           <div><dt>bad-id</dt><dd class="mono">{{ copyable(device.bad_id) }}</dd></div>
           {% endif %}
           <div><dt>Версия агента</dt><dd class="mono">{{ device.agent_version or "—" }}</dd></div>
+          {% if device.shared_exchange_at %}
+          <div>
+            <dt class="sr-only">Выдача ключа</dt>
+            <dd>Ключ доступа выдан вместо общего токена подключения {{ local_time(device.shared_exchange_at, mode='absolute') }}</dd>
+          </div>
+          {% endif %}
           <div>
             <dt>Последний контакт</dt>
             <dd>
