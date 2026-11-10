@@ -1281,6 +1281,20 @@ pre.inventory {
   text-transform: none;
   letter-spacing: 0;
 }
+.badge-auth-api {
+  color: var(--ok);
+  border-color: var(--ok-border);
+  background: var(--ok-bg);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.badge-auth-enroll {
+  color: var(--warn);
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
+  text-transform: none;
+  letter-spacing: 0;
+}
 .badge-fresh-unknown {
   color: var(--muted);
   text-transform: none;

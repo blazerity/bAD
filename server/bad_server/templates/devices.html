@@ -92,10 +92,11 @@
         {% if fleet_stats %}
         <div class="devices-toolbar-row devices-toolbar-row--chips">
           <div class="filter-chips devices-fleet-chips" role="group" aria-label="Состояние парка">
-            {{ filter_chip('/devices', 'Все', fleet_stats.total_active, not show_archive and not wave and not exchange) }}
+            {{ filter_chip('/devices', 'Все', fleet_stats.total_active, not show_archive and not wave and not auth) }}
             {{ filter_chip('/devices?wave=stale', 'Устарели', fleet_stats.stale, wave == 'stale') }}
             {{ filter_chip('/devices?archive=1', 'Архив', fleet_stats.archived, show_archive) }}
-            {{ filter_chip('/devices?exchange=1', 'Общий токен', exchange_count, exchange) }}
+            {{ filter_chip('/devices?auth=api', 'Связь по api-key', auth_api_count, auth == 'api') }}
+            {{ filter_chip('/devices?auth=enroll', 'Связь по ENROLL-key', auth_enroll_count, auth == 'enroll') }}
           </div>
         </div>
         {% endif %}
@@ -323,6 +324,11 @@
           <span class="devices-state-inline">
             <span class="device-chassis-mini" aria-hidden="true">{{ icon(chassis_icon_name(d.chassis_type)) }}</span>
             <span class="badge badge-fresh-{{ d.freshness or d.silence.status }}">{{ freshness_label(fresh) }}</span>
+            {% if d.auth_api %}
+            <span class="badge badge-auth-api">Связь по api-key</span>
+            {% else %}
+            <span class="badge badge-auth-enroll">Связь по ENROLL-key</span>
+            {% endif %}
           </span>
         </td>
         <td class="col-device-host">
@@ -376,7 +382,7 @@
   </div>
   </div>
 
-  {{ table_pager('/devices', page, pages, total, page_size, q=q, tag=tag_filter, wave=wave, archive=show_archive, os=os_filter, ram=ram_filter, disk=disk_filter, cpu=cpu_filter, cpu_vendor=cpu_vendor_filter, agent=agent_filter, fresh=fresh_filter, model=model_filter, chassis=chassis_filter, exchange='1' if exchange else '') }}
+  {{ table_pager('/devices', page, pages, total, page_size, q=q, tag=tag_filter, wave=wave, archive=show_archive, os=os_filter, ram=ram_filter, disk=disk_filter, cpu=cpu_filter, cpu_vendor=cpu_vendor_filter, agent=agent_filter, fresh=fresh_filter, model=model_filter, chassis=chassis_filter, auth=auth) }}
   {% endif %}
   </form>
   </div>

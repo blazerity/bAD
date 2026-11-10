@@ -466,7 +466,7 @@ def _pager_url(
     fresh: str = "",
     model: str = "",
     chassis: str = "",
-    exchange: str = "",
+    auth: str = "",
 ) -> str:
     """URL списка с сохранением фильтров (серверная пагинация ?page=)."""
     params: dict[str, str] = {}
@@ -498,8 +498,8 @@ def _pager_url(
         params["model"] = model
     if chassis:
         params["chassis"] = chassis
-    if exchange:
-        params["exchange"] = exchange
+    if auth:
+        params["auth"] = auth
     if importance:
         params["importance"] = importance
     if event_type:
@@ -1873,6 +1873,28 @@ def _attach_duplicate_signals(
         d["has_agent_local"] = device_has_agent_local(d)
 
 
+def _inventory_device_ids(db: Database) -> set[str]:
+    """Устройства, у которых сервер уже принял снимок."""
+    with db.connection() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT device_id FROM inventory_snapshots"
+        ).fetchall()
+    return {str(row["device_id"]) for row in rows if row and row.get("device_id")}
+
+
+def _contact_is_after_enroll(device: dict) -> bool:
+    seen = parse_utc(device.get("last_seen_at"))
+    enrolled = parse_utc(device.get("enrolled_at"))
+    return bool(seen is not None and enrolled is not None and seen > enrolled)
+
+
+def _auth_is_api(device: dict, snapshot_ids: set[str]) -> bool:
+    """Снимок или контакт позже регистрации — связь уже с ключом устройства."""
+    if str(device.get("device_id") or "") in snapshot_ids:
+        return True
+    return _contact_is_after_enroll(device)
+
+
 def _devices_wave_context(
     db: Database,
     settings: Settings,
@@ -1891,7 +1913,8 @@ def _devices_wave_context(
     fresh: Optional[str] = None,
     model_filter: Optional[str] = None,
     chassis_filter: Optional[str] = None,
-    exchange_only: bool = False,
+    auth: Optional[str] = None,
+    snapshot_ids: Optional[set[str]] = None,
 ) -> tuple[list[dict], int, int, int]:
     # Индекс дублей всегда по всему парку (meta), иначе поиск/тег ломают бейджи.
     fleet = db.list_devices(archived=None)
@@ -1905,6 +1928,10 @@ def _devices_wave_context(
         drift_ids = set(ops.get("version_drift_ids") or [])
 
     # Фильтр списка без второго SELECT: тот же fleet.
+    known_snapshots = snapshot_ids if snapshot_ids is not None else _inventory_device_ids(db)
+    auth_filter = (auth or "").strip()
+    if auth_filter not in {"api", "enroll"}:
+        auth_filter = ""
     wanted_tag = (tag_filter or "").strip().casefold() or None
     query_cf = (query or "").strip().casefold() or None
     raw: list[dict] = []
@@ -1915,7 +1942,10 @@ def _devices_wave_context(
                 continue
         elif is_archived:
             continue
-        if exchange_only and not str(d.get("shared_exchange_at") or "").strip():
+        d["auth_api"] = _auth_is_api(d, known_snapshots)
+        if auth_filter == "api" and not d["auth_api"]:
+            continue
+        if auth_filter == "enroll" and d["auth_api"]:
             continue
         if wanted_tag:
             tags = {str(t).casefold() for t in (d.get("tags") or [])}
@@ -2002,7 +2032,7 @@ def devices_page(
     fresh: Optional[str] = None,
     model: Optional[str] = None,
     chassis: Optional[str] = None,
-    exchange: Optional[str] = None,
+    auth: Optional[str] = None,
     page: int = 1,
     flash: Optional[str] = None,
     user: WebUser = Depends(require_web_user),
@@ -2024,8 +2054,11 @@ def devices_page(
     chassis_filter = (chassis or "").strip().casefold() or None
     if chassis_filter and chassis_filter not in {"laptop", "desktop", "server", "vm", "other"}:
         chassis_filter = None
-    exchange_only = (exchange or "").strip() == "1"
+    auth_filter = (auth or "").strip()
+    if auth_filter not in {"api", "enroll"}:
+        auth_filter = ""
     page_i = max(1, int(page or 1))
+    snapshot_ids = _inventory_device_ids(db)
     devices, total, pages, page_i = _devices_wave_context(
         db,
         settings,
@@ -2043,7 +2076,8 @@ def devices_page(
         fresh=fresh_filter,
         model_filter=model_filter,
         chassis_filter=chassis_filter,
-        exchange_only=exchange_only,
+        auth=auth_filter,
+        snapshot_ids=snapshot_ids,
     )
 
     agent_update = db.get_agent_update()
@@ -2082,11 +2116,8 @@ def devices_page(
     if flash_msg and len(flash_msg) > 200:
         flash_msg = flash_msg[:200]
     active_fleet, _archived, fleet_stats, fleet_ops = _fleet_snapshot(db, settings)
-    exchange_count = sum(
-        1
-        for d in active_fleet
-        if str(d.get("shared_exchange_at") or "").strip()
-    )
+    auth_api_count = sum(1 for d in active_fleet if _auth_is_api(d, snapshot_ids))
+    auth_enroll_count = len(active_fleet) - auth_api_count
     dashboard = build_dashboard_stats(
         db,
         stale_after_seconds=effective_stale_after_seconds(db, settings),
@@ -2109,8 +2140,9 @@ def devices_page(
             "tag_filter": tag_filter or "",
             "q": query or "",
             "show_archive": show_archive,
-            "exchange": exchange_only,
-            "exchange_count": exchange_count,
+            "auth": auth_filter,
+            "auth_api_count": auth_api_count,
+            "auth_enroll_count": auth_enroll_count,
             "wave": wave_filter or "",
             "os_filter": os_filter or "",
             "ram_filter": ram_filter or "",
@@ -2140,7 +2172,7 @@ def devices_page(
                 or query
                 or wave_filter
                 or show_archive
-                or exchange_only
+                or auth_filter
                 or os_filter
                 or ram_filter
                 or disk_filter
@@ -2785,6 +2817,7 @@ def _device_config_context(
         ),
         "silence": silence,
         "freshness": freshness,
+        "auth_api": bool(detail.get("latest_inventory")) or _contact_is_after_enroll(detail),
         "health_snippet": health_snippet(detail.get("meta")),
         "chassis_type": chassis_type,
         "chassis_label": _format_chassis(chassis_type if chassis_type != "other" else ""),

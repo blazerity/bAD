@@ -15,6 +15,11 @@
       <div class="device-detail-title-row">
         <h1 class="with-icon keep-token">{{ icon(chassis_icon_name(chassis_type)) }}{{ device.hostname or "(неизвестный узел)" }}</h1>
         <span class="badge badge-fresh-{{ freshness or silence.status }}">{{ freshness_label(freshness or silence.status) }}</span>
+        {% if auth_api %}
+        <span class="badge badge-auth-api">Связь по api-key</span>
+        {% else %}
+        <span class="badge badge-auth-enroll">Связь по ENROLL-key</span>
+        {% endif %}
         {% if uninstall and uninstall.badge %}
         <span class="badge badge-uninstall badge-uninstall-{{ uninstall.badge }}">{{ uninstall.badge_label }}</span>
         {% endif %}
@@ -158,12 +163,6 @@
           <div><dt>bad-id</dt><dd class="mono">{{ copyable(device.bad_id) }}</dd></div>
           {% endif %}
           <div><dt>Версия агента</dt><dd class="mono">{{ device.agent_version or "—" }}</dd></div>
-          {% if device.shared_exchange_at %}
-          <div>
-            <dt class="sr-only">Выдача ключа</dt>
-            <dd>Ключ доступа выдан вместо общего токена подключения {{ local_time(device.shared_exchange_at, mode='absolute') }}</dd>
-          </div>
-          {% endif %}
           <div>
             <dt>Последний контакт</dt>
             <dd>
