@@ -137,7 +137,8 @@ CREATE TABLE IF NOT EXISTS devices (
   revoked INTEGER NOT NULL DEFAULT 0,
   archived INTEGER NOT NULL DEFAULT 0,
   signing_pubkey TEXT,
-  signing_key_fingerprint TEXT
+  signing_key_fingerprint TEXT,
+  shared_exchange_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS enrollment_grants (

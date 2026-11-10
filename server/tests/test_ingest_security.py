@@ -642,3 +642,117 @@ def test_minidump_request_upload_writes_cause_on_card() -> None:
         card = client.get(f"/devices/{device_id}")
         assert card.status_code == 200, card.text
         assert "драйвер · 0x000000D1 · nvlddmkm.sys" in card.text
+
+
+def _device_row(client: TestClient, device_id: str) -> dict:
+    with client.app.state.db.connection() as conn:
+        row = conn.execute(
+            """
+            SELECT api_key_hash, signing_pubkey, signing_key_fingerprint,
+                   shared_exchange_at, revoked
+            FROM devices WHERE device_id = ?
+            """,
+            (device_id,),
+        ).fetchone()
+    assert row is not None
+    return dict(row)
+
+
+def test_shared_token_exchanges_existing_device_once() -> None:
+    """Уже известное устройство один раз получает новый ключ общим токеном."""
+    token = "test-enrollment-token-change-me-please"
+    device_id = _device_id("exchange")
+    with TestClient(create_app()) as client:
+        first = client.post(
+            "/v1/enroll",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"device_id": device_id, "hostname": "EXCHANGE"},
+        )
+        assert first.status_code == 200, first.text
+        first_key = first.json()["api_key"]
+        assert first.json().get("signing_key")
+        before = _device_row(client, device_id)
+        assert not before["shared_exchange_at"]
+
+        proved = client.post(
+            "/v1/enroll",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "device_id": device_id,
+                "hostname": "EXCHANGE",
+                "current_api_key": first_key,
+            },
+        )
+        assert proved.status_code == 200, proved.text
+        proved_key = proved.json()["api_key"]
+        assert proved_key != first_key
+        assert not proved.json().get("signing_key")
+        after_proof = _device_row(client, device_id)
+        assert after_proof["api_key_hash"] != before["api_key_hash"]
+        assert after_proof["signing_pubkey"] == before["signing_pubkey"]
+        assert after_proof["signing_key_fingerprint"] == before["signing_key_fingerprint"]
+        assert not after_proof["shared_exchange_at"]
+
+        exchanged = client.post(
+            "/v1/enroll",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"device_id": device_id, "hostname": "EXCHANGE"},
+        )
+        assert exchanged.status_code == 200, exchanged.text
+        new_key = exchanged.json()["api_key"]
+        assert new_key not in {first_key, proved_key}
+        assert not exchanged.json().get("signing_key")
+        after = _device_row(client, device_id)
+        assert after["shared_exchange_at"]
+        assert after["api_key_hash"] != after_proof["api_key_hash"]
+        assert after["signing_pubkey"] == before["signing_pubkey"]
+        assert after["signing_key_fingerprint"] == before["signing_key_fingerprint"]
+
+        repeat = client.post(
+            "/v1/enroll",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"device_id": device_id, "hostname": "EXCHANGE"},
+        )
+        assert repeat.status_code == 409, repeat.text
+        assert _device_row(client, device_id)["api_key_hash"] == after["api_key_hash"]
+
+        old_beat = client.post(
+            "/v1/heartbeat",
+            headers={"Authorization": f"Bearer {proved_key}"},
+            json={"device_id": device_id},
+        )
+        assert old_beat.status_code == 401, old_beat.text
+        new_beat = client.post(
+            "/v1/heartbeat",
+            headers={"Authorization": f"Bearer {new_key}"},
+            json={"device_id": device_id},
+        )
+        assert new_beat.status_code == 200, new_beat.text
+
+        stranger = client.post(
+            "/v1/enroll",
+            headers={"Authorization": "Bearer not-the-shared-token"},
+            json={"device_id": device_id},
+        )
+        assert stranger.status_code == 401, stranger.text
+
+        revoked_id = _device_id("exchange-revoked")
+        enrolled = client.post(
+            "/v1/enroll",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"device_id": revoked_id},
+        )
+        assert enrolled.status_code == 200, enrolled.text
+        revoked = client.post(
+            f"/v1/devices/{revoked_id}/revoke",
+            headers={"Authorization": "Bearer test-admin-token-change-me-please-32b"},
+        )
+        assert revoked.status_code == 200, revoked.text
+        revoked_hash = _device_row(client, revoked_id)["api_key_hash"]
+        denied = client.post(
+            "/v1/enroll",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"device_id": revoked_id},
+        )
+        assert denied.status_code == 403, denied.text
+        assert _device_row(client, revoked_id)["api_key_hash"] == revoked_hash

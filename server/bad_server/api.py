@@ -252,15 +252,27 @@ def enroll(
 
     existing = db.get_device_auth_row(body.device_id)
     allow_existing = False
+    shared_exchange = False
     if existing:
         if existing.get("revoked"):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=_REVOKED_DETAIL,
             )
-        # Re-key only with proof of current API key (SEC-001).
+        # Повтор с прежним ключом — как раньше. Общий токен без ключа — один обмен.
         proof = (body.current_api_key or "").strip()
-        if not proof or not verify_secret(existing["api_key_hash"], proof):
+        already_exchanged = bool(str(existing.get("shared_exchange_at") or "").strip())
+        if proof and verify_secret(existing["api_key_hash"], proof):
+            allow_existing = True
+        elif (
+            shared_ok
+            and allow_shared
+            and not proof
+            and not already_exchanged
+        ):
+            allow_existing = True
+            shared_exchange = True
+        else:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
@@ -268,7 +280,6 @@ def enroll(
                     "or admin rotate-key"
                 ),
             )
-        allow_existing = True
 
     api_key = generate_token("bad_ak_")
     api_key_hash = hash_secret(api_key)
@@ -290,6 +301,7 @@ def enroll(
             grant_code_hash=grant_hash,
             signing_pubkey=signing_public,
             signing_key_fingerprint=signing_fingerprint,
+            record_shared_exchange=shared_exchange,
         )
     except ValueError as exc:
         code = str(exc)
@@ -302,6 +314,14 @@ def enroll(
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=_REVOKED_DETAIL,
+            ) from exc
+        if code == "shared_exchange_used":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Device already enrolled; re-enroll requires current_api_key "
+                    "or admin rotate-key"
+                ),
             ) from exc
         if code == "bad_id_collision":
             logger.error("enroll bad_id collision for device_id=%s", body.device_id)
