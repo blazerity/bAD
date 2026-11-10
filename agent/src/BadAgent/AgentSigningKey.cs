@@ -42,6 +42,81 @@ public static class AgentSigningKey
         }
     }
 
+    public readonly record struct InventorySignTrace(
+        bool Signed,
+        string KeyFp,
+        string CanonLen,
+        string CanonSha256,
+        string SigLen);
+
+    /// <summary>Отпечаток файла, которым только что подписали. Файла нет или он не читается — пусто.</summary>
+    public static string CurrentFileFingerprint()
+    {
+        if (!File.Exists(KeyPath) || !TryLoadPrivateKeyBase64(out var keyB64))
+        {
+            return "";
+        }
+
+        try
+        {
+            return ComputeFingerprintFromPrivateKeyBase64(keyB64);
+        }
+        catch (InvalidOperationException)
+        {
+            return "";
+        }
+        catch (FormatException)
+        {
+            return "";
+        }
+    }
+
+    /// <summary>След только что поставленной подписи. Канон — те же байты, что ушли в Ed25519.</summary>
+    public static InventorySignTrace TraceSignature(InventorySnapshot snapshot)
+    {
+        var signature = snapshot.Signature;
+        if (string.IsNullOrWhiteSpace(signature))
+        {
+            return new InventorySignTrace(false, "", "", "", "0");
+        }
+
+        var keyFp = CurrentFileFingerprint();
+        var signed = keyFp.Length > 0;
+        string canonLen = "";
+        string canonSha = "";
+        snapshot.Signature = null;
+        try
+        {
+            var payloadJson = JsonSerializer.Serialize(snapshot, InventoryJsonOptions);
+            using var doc = JsonDocument.Parse(payloadJson);
+            var bytes = CanonicalSigningBytes(doc.RootElement);
+            canonLen = bytes.Length.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            canonSha = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+        }
+        catch (JsonException)
+        {
+            canonLen = "";
+            canonSha = "";
+        }
+        finally
+        {
+            snapshot.Signature = signature;
+        }
+
+        var sigLen = "";
+        try
+        {
+            sigLen = Convert.FromBase64String(signature).Length.ToString(
+                System.Globalization.CultureInfo.InvariantCulture);
+        }
+        catch (FormatException)
+        {
+            sigLen = "0";
+        }
+
+        return new InventorySignTrace(signed, keyFp, canonLen, canonSha, sigLen);
+    }
+
     public static string ComputeFingerprintFromPrivateKeyBase64(string privateKeyBase64)
     {
         var privateKey = Convert.FromBase64String(privateKeyBase64.Trim());
@@ -77,7 +152,9 @@ public static class AgentSigningKey
         BadApiClient client,
         string apiKey,
         ILogger? logger,
-        CancellationToken ct)
+        CancellationToken ct,
+        string deviceId = "",
+        string oldFingerprint = "")
     {
         if (File.Exists(KeyPath))
         {
@@ -91,19 +168,62 @@ public static class AgentSigningKey
         {
             logger?.LogInformation(
                 "Server has no signing-key endpoint; inventory will be sent unsigned (legacy server)");
+            LogKeyReplace(logger, deviceId, oldFingerprint, issued: false, newFp: "");
             return;
         }
 
         if (!string.IsNullOrWhiteSpace(result.SigningKeyBase64))
         {
             SavePrivateKeyBase64(result.SigningKeyBase64);
-            var fp = ComputeFingerprintFromPrivateKeyBase64(result.SigningKeyBase64);
-            logger?.LogInformation("Inventory signing key stored (fingerprint sha256={Fingerprint})", fp);
+            var fp = "";
+            try
+            {
+                fp = ComputeFingerprintFromPrivateKeyBase64(result.SigningKeyBase64);
+            }
+            catch (InvalidOperationException)
+            {
+                fp = "";
+            }
+            catch (FormatException)
+            {
+                fp = "";
+            }
+
+            if (fp.Length > 0)
+            {
+                logger?.LogInformation("Inventory signing key stored (fingerprint sha256={Fingerprint})", fp);
+            }
+
+            LogKeyReplace(logger, deviceId, oldFingerprint, issued: true, newFp: fp);
             return;
         }
 
         logger?.LogInformation(
             "Signing key not returned; inventory stays unsigned until the next request");
+        LogKeyReplace(logger, deviceId, oldFingerprint, issued: false, newFp: "");
+    }
+
+    private static void LogKeyReplace(
+        ILogger? logger, string deviceId, string oldFp, bool issued, string newFp)
+    {
+        var issuedText = issued ? "true" : "false";
+        if (logger is null)
+        {
+            Console.Error.WriteLine(
+                "inventory signing key replace device_id={0} old_fp={1} issued={2} new_fp={3}",
+                deviceId,
+                oldFp,
+                issuedText,
+                newFp);
+            return;
+        }
+
+        logger.LogInformation(
+            "inventory signing key replace device_id={DeviceId} old_fp={OldFp} issued={Issued} new_fp={NewFp}",
+            deviceId,
+            oldFp,
+            issuedText,
+            newFp);
     }
 
     public static bool TrySignInventory(InventorySnapshot snapshot, out string signatureBase64)

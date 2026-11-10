@@ -63,7 +63,8 @@ public static class OfflineQueue
     public static async Task<OfflineFlushResult> FlushAsync(
         BadApiClient client,
         string apiKey,
-        CancellationToken ct)
+        CancellationToken ct,
+        ILogger? logger = null)
     {
         Directory.CreateDirectory(QueueDir);
         var meta = LoadMeta();
@@ -110,7 +111,7 @@ public static class OfflineQueue
                 {
                     var snap = JsonSerializer.Deserialize<InventorySnapshot>(item.Body)
                                ?? throw new InvalidOperationException("bad inventory payload");
-                    await client.SendInventoryAsync(apiKey, snap, ct);
+                    await client.SendInventoryAsync(apiKey, snap, ct, logger);
                 }
                 else if (string.Equals(item.Kind, "heartbeat", StringComparison.OrdinalIgnoreCase))
                 {

@@ -314,10 +314,15 @@ public sealed class BadApiClient : IDisposable
         return true;
     }
 
-    public async Task SendInventoryAsync(string apiKey, InventorySnapshot snapshot, CancellationToken ct)
+    public async Task SendInventoryAsync(
+        string apiKey,
+        InventorySnapshot snapshot,
+        CancellationToken ct,
+        ILogger? logger = null)
     {
         AgentSigningKey.TrySignInventory(snapshot, out _);
         var failure = await PostInventoryAsync(apiKey, snapshot, ct);
+        LogInventoryAttempt(logger, 1, snapshot, failure);
         if (failure is null)
         {
             return;
@@ -330,10 +335,13 @@ public sealed class BadApiClient : IDisposable
                 $"Inventory failed: {(int)failure.Value.Status} {failure.Value.Body}");
         }
 
+        var oldFingerprint = AgentSigningKey.CurrentFileFingerprint();
         AgentSigningKey.ClearLocal();
-        await AgentSigningKey.EnsureFromServerAsync(this, apiKey, null, ct);
+        await AgentSigningKey.EnsureFromServerAsync(
+            this, apiKey, logger, ct, snapshot.DeviceId, oldFingerprint);
         AgentSigningKey.TrySignInventory(snapshot, out _);
         var again = await PostInventoryAsync(apiKey, snapshot, ct);
+        LogInventoryAttempt(logger, 2, snapshot, again);
         if (again is null)
         {
             return;
@@ -342,6 +350,66 @@ public sealed class BadApiClient : IDisposable
         throw new AgentApiException(
             again.Value.Status,
             $"Inventory failed: {(int)again.Value.Status} {again.Value.Body}");
+    }
+
+    private static void LogInventoryAttempt(
+        ILogger? logger,
+        int attempt,
+        InventorySnapshot snapshot,
+        InventoryPostFailure? failure)
+    {
+        var trace = AgentSigningKey.TraceSignature(snapshot);
+        var statusCode = failure is null ? 200 : (int)failure.Value.Status;
+        var detail = failure is null || statusCode != 401
+            ? ""
+            : DetailText(failure.Value.Body);
+        var signed = trace.Signed ? "true" : "false";
+        if (logger is null)
+        {
+            Console.Error.WriteLine(
+                "inventory signature attempt={0} device_id={1} key_fp={2} signed={3} canon_len={4} canon_sha256={5} sig_len={6} status={7} detail={8}",
+                attempt,
+                snapshot.DeviceId,
+                trace.KeyFp,
+                signed,
+                trace.CanonLen,
+                trace.CanonSha256,
+                trace.SigLen,
+                statusCode,
+                detail);
+            return;
+        }
+
+        logger.LogInformation(
+            "inventory signature attempt={Attempt} device_id={DeviceId} key_fp={KeyFp} signed={Signed} canon_len={CanonLen} canon_sha256={CanonSha256} sig_len={SigLen} status={Status} detail={Detail}",
+            attempt,
+            snapshot.DeviceId,
+            trace.KeyFp,
+            signed,
+            trace.CanonLen,
+            trace.CanonSha256,
+            trace.SigLen,
+            statusCode,
+            detail);
+    }
+
+    private static string DetailText(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.TryGetProperty("detail", out var detail)
+                && detail.ValueKind == JsonValueKind.String)
+            {
+                return detail.GetString() ?? "";
+            }
+        }
+        catch (JsonException)
+        {
+            return "";
+        }
+
+        return "";
     }
 
     private static bool IsSignatureRejection(string body) =>

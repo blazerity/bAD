@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import logging
 import os
 import tempfile
@@ -71,6 +73,7 @@ from .security import (
     extract_bearer,
     generate_token,
     hash_secret,
+    inventory_signing_bytes,
     new_device_signing_key,
     verify_inventory_signature,
     verify_secret,
@@ -474,8 +477,17 @@ def issue_agent_signing_key(
     db: Database = Depends(get_db),
 ) -> dict[str, Optional[str]]:
     """Ключ устройства из Authorization получает новую пару. Старый секрет не хранится."""
+    old_fp = str(device.get("signing_key_fingerprint") or "").strip()
     private, public, fingerprint = new_device_signing_key()
-    if not db.claim_device_signing_key(device["device_id"], public, fingerprint):
+    issued = db.claim_device_signing_key(device["device_id"], public, fingerprint)
+    logger.info(
+        "signing key replace device_id=%s old_fp=%s new_fp=%s issued=%s",
+        device["device_id"],
+        old_fp,
+        fingerprint if issued else "",
+        "true" if issued else "false",
+    )
+    if not issued:
         return {"signing_key": None}
     return {"signing_key": private}
 
@@ -493,6 +505,49 @@ def agent_config(
         "version": effective["version"],
         "settings": effective["settings"],
     }
+
+
+def _log_inventory_signature(
+    device: dict[str, Any],
+    signed: dict[str, Any],
+    signature: Optional[str],
+    pubkey: str,
+    status_code: int,
+    detail: str,
+) -> None:
+    """Отказ — warning, приём — info. Секрет, канон и сама подпись в журнал не входят."""
+    present = bool(signature)
+    if present:
+        raw = inventory_signing_bytes(signed)
+        canon_len = str(len(raw))
+        canon_sha = hashlib.sha256(raw).hexdigest()
+        try:
+            sig_len = str(len(base64.b64decode(signature or "", validate=True)))
+        except (ValueError, TypeError):
+            sig_len = "0"
+    else:
+        canon_len = ""
+        canon_sha = ""
+        sig_len = "0"
+    key_fp = str(device.get("signing_key_fingerprint") or "").strip() if pubkey else ""
+    line = (
+        "inventory signature device_id=%s status=%s detail=%s key_fp=%s "
+        "signature_present=%s canon_len=%s canon_sha256=%s sig_len=%s"
+    )
+    fields = (
+        device.get("device_id") or "",
+        status_code,
+        detail,
+        key_fp,
+        "true" if present else "false",
+        canon_len,
+        canon_sha,
+        sig_len,
+    )
+    if status_code == 401:
+        logger.warning(line, *fields)
+    else:
+        logger.info(line, *fields)
 
 
 def _accepted_inventory(
@@ -518,6 +573,9 @@ def _accepted_inventory(
     pubkey = (device.get("signing_pubkey") or "").strip()
     if signature:
         if not pubkey or not verify_inventory_signature(pubkey, signed, signature):
+            _log_inventory_signature(
+                device, signed, signature, pubkey, 401, "Invalid inventory signature"
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid inventory signature",
@@ -525,10 +583,14 @@ def _accepted_inventory(
     elif db.get_bool_setting(
         "require_inventory_signature", settings.require_inventory_signature
     ):
+        _log_inventory_signature(
+            device, signed, signature, pubkey, 401, "Inventory signature required"
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Inventory signature required",
         )
+    _log_inventory_signature(device, signed, signature, pubkey, 200, "")
 
     # Additive schema_version=2; strip dump bodies if agent ever sends them.
     payload = sanitize_inventory_payload(body.model_dump())

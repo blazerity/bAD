@@ -352,7 +352,7 @@ public sealed class Worker : BackgroundService
         }
 
         _logger.LogInformation("Flushing offline queue ({Count} pending)", pending);
-        var result = await OfflineQueue.FlushAsync(client, config.ApiKey!, ct);
+        var result = await OfflineQueue.FlushAsync(client, config.ApiKey!, ct, _logger);
         if (result.AuthFailed)
         {
             HandleAuthFailure(config, "queue", result.AuthException);
@@ -393,7 +393,7 @@ public sealed class Worker : BackgroundService
         var snap = _collector.Collect(config.DeviceId!, _agentVersion, options);
         try
         {
-            await client.SendInventoryAsync(config.ApiKey!, snap, ct);
+            await client.SendInventoryAsync(config.ApiKey!, snap, ct, _logger);
             _lastInventoryAt = DateTime.UtcNow;
             _lastInventoryOk = true;
             _lastInventoryError = null;
