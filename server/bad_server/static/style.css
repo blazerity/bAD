@@ -192,15 +192,21 @@ body.hcp-panel .hcp-app-body {
     min-width: 0;
   }
   html.rail-collapsed .hcp-rail-brand {
-    flex-direction: row;
-    align-items: flex-start;
-    justify-content: space-between;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
     gap: 0.35rem;
+    padding: 0.45rem 0.2rem;
   }
   html.rail-collapsed .hcp-rail-brand .rail-toggle {
     margin-left: 0;
-    flex-shrink: 0;
+    flex: 0 0 auto;
     align-self: center;
+    position: static;
+    width: 2.25rem;
+    min-width: 2.25rem;
+    max-width: 100%;
+    height: 2.25rem;
   }
 }
 .hcp-rail-nav {
@@ -238,9 +244,12 @@ html.rail-collapsed .hcp-rail-brand .brand-mark img {
   height: 24px;
 }
 html.rail-collapsed .hcp-rail-brand .rail-toggle {
-  width: 1.5rem;
-  min-width: 1.5rem;
-  height: 1.5rem;
+  width: 2.25rem;
+  min-width: 2.25rem;
+  max-width: 100%;
+  height: 2.25rem;
+  margin-left: 0;
+  position: static;
 }
 html.rail-collapsed .hcp-rail-nav a span {
   position: absolute;
@@ -3746,30 +3755,48 @@ body.global-search-open { overflow: hidden; }
   table-layout: fixed;
   width: 100%;
 }
-.devices-table-modern .col-device-state { width: 8%; }
-.devices-table-modern .col-device-host { width: 18%; }
-.devices-table-modern .col-device-user { width: 14%; }
-.devices-table-modern .col-device-model { width: 11%; }
-.devices-table-modern .col-device-cpu { width: 10%; }
-.devices-table-modern .col-device-ram { width: 8%; }
-.devices-table-modern .col-device-disk { width: 5%; }
-.devices-table-modern .col-device-os { width: 10%; }
-.devices-table-modern .col-device-ip { width: 9%; }
-/* Контакт: не фиксировать 6% — строка «N часов назад» целиком, без многоточия. */
-.devices-table-modern .col-device-seen {
-  width: auto;
-  min-width: 7.25rem;
-}
-.devices-table-modern .col-chevron { width: 3%; }
+.devices-table-modern .col-device-state { width: 7.5rem; }
+.devices-table-modern .col-device-host,
+.devices-table-modern .col-device-user,
+.devices-table-modern .col-device-model,
+.devices-table-modern .col-device-cpu,
+.devices-table-modern .col-device-os { width: auto; }
+.devices-table-modern .col-device-ram { width: 4.5rem; }
+.devices-table-modern .col-device-disk { width: 4.25rem; }
+.devices-table-modern .col-device-ip { width: 8.5rem; }
+.devices-table-modern .col-device-seen { width: 7.5rem; }
+.devices-table-modern .col-chevron { width: 2.25rem; }
 .devices-table-modern td.col-device-host .device-cell-link {
   display: block;
+}
+.devices-table-modern th.col-device-state,
+.devices-table-modern td.col-device-state,
+.devices-table-modern th.col-device-ram,
+.devices-table-modern td.device-col-ram,
+.devices-table-modern th.col-device-disk,
+.devices-table-modern td.device-col-disk,
+.devices-table-modern th.col-device-ip,
+.devices-table-modern td.device-col-ip,
+.devices-table-modern th.col-device-seen,
+.devices-table-modern td.col-device-seen,
+.devices-table-modern th.col-chevron,
+.devices-table-modern td.col-chevron {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .devices-table-modern td.col-device-host,
 .devices-table-modern td.device-col-user,
 .devices-table-modern td.device-col-model,
+.devices-table-modern td.device-col-cpu,
 .devices-table-modern td.device-col-os-cell {
-  overflow: visible;
-  vertical-align: top;
+  overflow: hidden;
+  vertical-align: middle;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  word-break: normal;
+  overflow-wrap: normal;
+  hyphens: none;
 }
 .devices-table-modern td.device-col-cpu {
   vertical-align: middle;
@@ -3790,25 +3817,20 @@ body.global-search-open { overflow: hidden; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.devices-table-modern th.col-device-seen,
-.devices-table-modern td.col-device-seen {
-  overflow: visible;
-  text-overflow: unset;
-  white-space: normal;
-}
 .devices-table-modern .device-cell-host,
 .devices-table-modern .device-col-model-text,
 .devices-table-modern .device-col-cpu-text,
+.devices-table-modern .device-col-user-text,
 .devices-table-modern td.device-col-os-cell > span:first-child {
-  overflow-x: auto;
-  white-space: normal;
+  display: block;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   overflow-wrap: normal;
   word-break: normal;
   hyphens: none;
-  max-width: 100%;
-  display: inline-block;
-  vertical-align: top;
-  min-width: 0;
 }
 .devices-table-modern .device-col-user-text {
   display: block;
@@ -4364,6 +4386,33 @@ body.global-search-open { overflow: hidden; }
   gap: 0.55rem 0.75rem;
   min-width: 0;
 }
+.devices-board {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+.devices-board > .devices-page-form {
+  display: contents;
+}
+.devices-board > .devices-enroll-card {
+  grid-column: 2;
+  grid-row: 1;
+}
+.devices-board .devices-layout-top {
+  display: block;
+  margin-bottom: 0;
+  grid-column: 1;
+  grid-row: 1;
+}
+.devices-board .devices-filter-card,
+.devices-board .devices-table-card,
+.devices-board .devices-stack-list,
+.devices-board .empty-park-cta,
+.devices-board .table-empty,
+.devices-board .table-pager {
+  grid-column: 1 / -1;
+}
 .devices-layout-top {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -4372,8 +4421,14 @@ body.global-search-open { overflow: hidden; }
   margin-bottom: 0.75rem;
 }
 @media (max-width: 900px) {
+  .devices-board,
   .devices-layout-top {
     grid-template-columns: 1fr;
+  }
+  .devices-board > .devices-enroll-card,
+  .devices-board .devices-layout-top {
+    grid-column: 1;
+    grid-row: auto;
   }
 }
 .devices-search-card,
@@ -4427,22 +4482,23 @@ body.global-search-open { overflow: hidden; }
   min-width: 0;
 }
 .devices-toolbar-primary {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 0.45rem 0.65rem;
-  align-items: start;
+  align-items: flex-end;
   min-width: 0;
-  width: 100%;
+  width: auto;
+  max-width: 100%;
 }
-@media (max-width: 900px) {
-  .devices-toolbar-primary {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+.devices-toolbar-primary .devices-facet {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 9.5rem;
 }
 .devices-toolbar-primary .devices-facet-select-compact {
   min-width: 0;
-  max-width: 100%;
-  width: 100%;
+  max-width: 9.5rem;
+  width: 9.5rem;
   box-sizing: border-box;
 }
 .devices-toolbar-csv {

@@ -28,21 +28,8 @@
 
   {% set secondary_filters_active = tag_filter or wave or cpu_vendor_filter or agent_filter or show_archive or model_filter or chassis_filter %}
 
-  <form method="get" action="/devices" class="devices-page-form" data-live-submit data-live-delay="300">
-  <div class="devices-layout-top">
-    <div class="card-surface filter-card devices-search-card">
-      <div class="devices-toolbar-row devices-toolbar-row--search">
-        <div class="search-input-wrap devices-toolbar-search">
-          <span class="search-input-icon" aria-hidden="true">{{ icon('search') }}</span>
-          <input id="q" name="q" class="panel-search-input" type="search" value="{{ q }}"
-            placeholder="имя, bad-id, серийный номер, UUID" maxlength="128" autocomplete="off"
-            data-live-skip data-devices-search>
-        </div>
-      </div>
-      <div id="devices-search-results" class="card-surface overview-search-hits devices-search-hits" hidden></div>
-    </div>
-
-    {% if user.is_admin %}
+  <div class="devices-board">
+  {% if user.is_admin %}
     <div class="card-surface filter-card devices-enroll-card">
       <div class="devices-enroll-strip">
         <div class="devices-enroll-strip-main">
@@ -84,7 +71,20 @@
         {% endif %}
       </div>
     </div>
-    {% endif %}
+  {% endif %}
+  <form method="get" action="/devices" class="devices-page-form" data-live-submit data-live-delay="300">
+  <div class="devices-layout-top">
+    <div class="card-surface filter-card devices-search-card">
+      <div class="devices-toolbar-row devices-toolbar-row--search">
+        <div class="search-input-wrap devices-toolbar-search">
+          <span class="search-input-icon" aria-hidden="true">{{ icon('search') }}</span>
+          <input id="q" name="q" class="panel-search-input" type="search" value="{{ q }}"
+            placeholder="имя, bad-id, серийный номер, UUID" maxlength="128" autocomplete="off"
+            data-live-skip data-devices-search>
+        </div>
+      </div>
+      <div id="devices-search-results" class="card-surface overview-search-hits devices-search-hits" hidden></div>
+    </div>
   </div>
 
   <div class="card-surface filter-card devices-filter-card">
@@ -372,6 +372,7 @@
   {{ table_pager('/devices', page, pages, total, page_size, q=q, tag=tag_filter, wave=wave, archive=show_archive, os=os_filter, ram=ram_filter, disk=disk_filter, cpu=cpu_filter, cpu_vendor=cpu_vendor_filter, agent=agent_filter, fresh=fresh_filter, model=model_filter, chassis=chassis_filter) }}
   {% endif %}
   </form>
+  </div>
 </section>
 <script src="/static/devices-search.js" defer></script>
 {% endblock %}
