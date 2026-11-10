@@ -2192,7 +2192,14 @@ def devices_allow_enrollment_request(
     if not row or row["status"] != "pending":
         request.state.devices_flash = "Заявка уже не ждёт разрешения."
         return devices_page(request, user=user, db=db, settings=settings)
-    device_id = "req-" + generate_token("")[:12]
+    device_id = str(row.get("device_id") or "").strip()
+    if not device_id:
+        request.state.devices_flash = "В заявке нет номера устройства."
+        return devices_page(request, user=user, db=db, settings=settings)
+    existing = db.get_device_auth_row(device_id)
+    if existing and existing.get("revoked"):
+        request.state.devices_flash = "Карточка отозвана. Кнопка её не возвращает."
+        return devices_page(request, user=user, db=db, settings=settings)
     api_key = generate_token("bad_ak_")
     private, public, fingerprint = new_device_signing_key()
     data_key = getattr(request.app.state, "data_key", "") or ""
@@ -2204,6 +2211,7 @@ def devices_allow_enrollment_request(
             api_key_hash=hash_secret(api_key),
             agent_version=None,
             api_key_lookup=lookup,
+            allow_existing=existing is not None,
             signing_pubkey=public,
             signing_key_fingerprint=fingerprint,
         )

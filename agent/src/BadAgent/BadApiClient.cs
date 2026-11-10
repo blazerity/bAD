@@ -81,15 +81,24 @@ public sealed class BadApiClient : IDisposable
         string hostname,
         string ip,
         string serial,
+        string fingerprint,
+        string? deviceId,
         CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/enrollment-requests");
-        req.Content = JsonContent.Create(new
+        var payload = new Dictionary<string, string>
         {
-            hostname,
-            ip = ip ?? "",
-            serial = serial ?? ""
-        }, options: JsonOptions);
+            ["hostname"] = hostname,
+            ["ip"] = ip ?? "",
+            ["serial"] = serial ?? "",
+            ["fingerprint"] = fingerprint,
+        };
+        if (!string.IsNullOrWhiteSpace(deviceId))
+        {
+            payload["device_id"] = deviceId.Trim();
+        }
+
+        req.Content = JsonContent.Create(payload, options: JsonOptions);
 
         using var resp = await _http.SendAsync(req, ct);
         if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
@@ -307,7 +316,6 @@ public sealed class BadApiClient : IDisposable
 
     public async Task SendInventoryAsync(string apiKey, InventorySnapshot snapshot, CancellationToken ct)
     {
-        await AgentSigningKey.EnsureFromServerAsync(this, apiKey, null, ct);
         AgentSigningKey.TrySignInventory(snapshot, out _);
         var failure = await PostInventoryAsync(apiKey, snapshot, ct);
         if (failure is null)
@@ -315,10 +323,30 @@ public sealed class BadApiClient : IDisposable
             return;
         }
 
+        if (!IsSignatureRejection(failure.Value.Body))
+        {
+            throw new AgentApiException(
+                failure.Value.Status,
+                $"Inventory failed: {(int)failure.Value.Status} {failure.Value.Body}");
+        }
+
+        AgentSigningKey.ClearLocal();
+        await AgentSigningKey.EnsureFromServerAsync(this, apiKey, null, ct);
+        AgentSigningKey.TrySignInventory(snapshot, out _);
+        var again = await PostInventoryAsync(apiKey, snapshot, ct);
+        if (again is null)
+        {
+            return;
+        }
+
         throw new AgentApiException(
-            failure.Value.Status,
-            $"Inventory failed: {(int)failure.Value.Status} {failure.Value.Body}");
+            again.Value.Status,
+            $"Inventory failed: {(int)again.Value.Status} {again.Value.Body}");
     }
+
+    private static bool IsSignatureRejection(string body) =>
+        body.Contains("Invalid inventory signature", StringComparison.Ordinal)
+        || body.Contains("Inventory signature required", StringComparison.Ordinal);
 
     /// <summary>Один POST снимка. null — сервер принял.</summary>
     private async Task<InventoryPostFailure?> PostInventoryAsync(

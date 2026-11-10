@@ -51,8 +51,7 @@ public static class PushCli
             if (string.IsNullOrWhiteSpace(config.ApiKey))
             {
                 Console.Error.WriteLine(
-                    "error: нет api_key — устройство не зарегистрировано. " +
-                    "Нужен enrollment через MSI или enroll на сервере.");
+                    "error: нет ключа. Ждите заявку в панели и кнопку «Разрешить».");
                 return 1;
             }
 
@@ -67,8 +66,6 @@ public static class PushCli
             var collector = new InventoryCollector();
             using var ct = new CancellationTokenSource(TimeSpan.FromMinutes(10));
             var token = ct.Token;
-
-            AgentSigningKey.EnsureFromServerAsync(client, config.ApiKey!, null, token).GetAwaiter().GetResult();
 
             DateTime? lastInventoryAt = null;
             bool? lastInventoryOk = null;
@@ -119,9 +116,10 @@ public static class PushCli
             }
             catch (AgentApiException ex) when (ex.IsAuthFailure)
             {
-                if (ex.Message.Contains("Inventory signature required", StringComparison.Ordinal))
+                if (ex.Message.Contains("Inventory signature required", StringComparison.Ordinal)
+                    || ex.Message.Contains("Invalid inventory signature", StringComparison.Ordinal))
                 {
-                    Console.Error.WriteLine("error: снимок без подписи сервер не принял");
+                    Console.Error.WriteLine("error: сервер не принял подпись снимка");
                     return 1;
                 }
 

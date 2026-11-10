@@ -44,6 +44,8 @@ class EnrollmentRequestBody(BaseModel):
     serial: Optional[str] = Field(default="", max_length=128)
     # SHA256 локального секрета агента (64 hex). Серийник сюда не входит.
     fingerprint: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-fA-F]{64}$")
+    # Уже записанный номер. Пусто — у заявки нет карточки, новую req- не создаём.
+    device_id: Optional[str] = Field(default=None, max_length=128)
 
 
 class ConfigLocalPayload(BaseModel):

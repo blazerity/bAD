@@ -40,8 +40,7 @@ public static class UpdateCli
             if (string.IsNullOrWhiteSpace(config.ApiKey))
             {
                 Console.Error.WriteLine(
-                    "error: нет api_key — устройство не зарегистрировано. " +
-                    "Нужен enrollment через MSI или enroll на сервере.");
+                    "error: нет ключа. Ждите заявку в панели и кнопку «Разрешить».");
                 return 1;
             }
 

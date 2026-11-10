@@ -196,10 +196,16 @@ class Database:
             )
 
     def save_enrollment_request(
-        self, request_id: str, hostname: str, ip: str, serial: str
+        self,
+        request_id: str,
+        hostname: str,
+        ip: str,
+        serial: str,
+        device_id: str = "",
     ) -> Optional[str]:
         """Создать или обновить заявку по отпечатку. None — pending уже на потолке."""
         now = utc_now()
+        kept_id = (device_id or "").strip() or None
         cutoff = (
             datetime.now(timezone.utc) - PENDING_ENROLLMENT_TTL
         ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -220,10 +226,11 @@ class Database:
                     conn.execute(
                         """
                         UPDATE enrollment_requests
-                        SET hostname = ?, ip = ?, serial = ?
+                        SET hostname = ?, ip = ?, serial = ?,
+                            device_id = COALESCE(?, device_id)
                         WHERE id = ? AND status = 'pending'
                         """,
-                        (hostname, ip, serial, request_id),
+                        (hostname, ip, serial, kept_id, request_id),
                     )
                 return str(row["status"])
             pending = conn.execute(
@@ -234,10 +241,10 @@ class Database:
             conn.execute(
                 """
                 INSERT INTO enrollment_requests(
-                  id, hostname, ip, serial, created_at, status
-                ) VALUES (?, ?, ?, ?, ?, 'pending')
+                  id, hostname, ip, serial, created_at, status, device_id
+                ) VALUES (?, ?, ?, ?, ?, 'pending', ?)
                 """,
-                (request_id, hostname, ip, serial, now),
+                (request_id, hostname, ip, serial, now, kept_id),
             )
         return "pending"
 
@@ -379,25 +386,50 @@ class Database:
                     raise ValueError("device_already_enrolled")
                 if existing["revoked"]:
                     raise ValueError("device_revoked")
-                conn.execute(
-                    """
-                    UPDATE devices
-                    SET hostname = COALESCE(?, hostname),
-                        api_key_hash = ?,
-                        api_key_lookup = ?,
-                        last_seen_at = ?,
-                        agent_version = COALESCE(?, agent_version)
-                    WHERE device_id = ?
-                    """,
-                    (
-                        hostname,
-                        api_key_hash,
-                        api_key_lookup,
-                        now,
-                        agent_version,
-                        device_id,
-                    ),
-                )
+                if signing_pubkey and signing_key_fingerprint:
+                    conn.execute(
+                        """
+                        UPDATE devices
+                        SET hostname = COALESCE(?, hostname),
+                            api_key_hash = ?,
+                            api_key_lookup = ?,
+                            last_seen_at = ?,
+                            agent_version = COALESCE(?, agent_version),
+                            signing_pubkey = ?,
+                            signing_key_fingerprint = ?
+                        WHERE device_id = ?
+                        """,
+                        (
+                            hostname,
+                            api_key_hash,
+                            api_key_lookup,
+                            now,
+                            agent_version,
+                            signing_pubkey,
+                            signing_key_fingerprint,
+                            device_id,
+                        ),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        UPDATE devices
+                        SET hostname = COALESCE(?, hostname),
+                            api_key_hash = ?,
+                            api_key_lookup = ?,
+                            last_seen_at = ?,
+                            agent_version = COALESCE(?, agent_version)
+                        WHERE device_id = ?
+                        """,
+                        (
+                            hostname,
+                            api_key_hash,
+                            api_key_lookup,
+                            now,
+                            agent_version,
+                            device_id,
+                        ),
+                    )
                 return False
             from .bad_id import bad_id_for_device, ensure_bad_id_key
 

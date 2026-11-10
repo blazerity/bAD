@@ -173,7 +173,10 @@ def submit_enrollment_request(
     hostname = body.hostname.strip()
     ip = (body.ip or "").strip()
     serial = _display_serial(body.serial or "")
-    status_name = db.save_enrollment_request(request_id, hostname, ip, serial)
+    device_id = (body.device_id or "").strip()
+    status_name = db.save_enrollment_request(
+        request_id, hostname, ip, serial, device_id
+    )
     if status_name is None:
         return {"status": "busy"}
     if status_name != "approved":

@@ -114,8 +114,6 @@ public sealed class Worker : BackgroundService
 
                 using var client = new BadApiClient(config.ServerUrl, _agentVersion);
 
-                await AgentSigningKey.EnsureFromServerAsync(client, config.ApiKey!, _logger, stoppingToken);
-
                 // Сначала слить offline queue (если сервер снова доступен).
                 await FlushOfflineQueueAsync(client, config, stoppingToken);
                 config = ConfigStore.LoadOrCreate();
@@ -257,7 +255,21 @@ public sealed class Worker : BackgroundService
     private async Task PollEnrollmentRequestAsync(BadApiClient client, AgentConfig config, CancellationToken ct)
     {
         var (hostname, ip, serial) = EnrollmentHints.ForRequest();
-        var result = await client.SubmitEnrollmentRequestAsync(hostname, ip, serial, ct);
+        var fingerprint = EnrollmentProof.TryFingerprintHex();
+        if (string.IsNullOrWhiteSpace(fingerprint))
+        {
+            _logger.LogError("Файл enrollment_proof не прочитан, заявка не отправлена");
+            _authBackoffUntil = DateTime.UtcNow.AddMinutes(15);
+            return;
+        }
+
+        var result = await client.SubmitEnrollmentRequestAsync(
+            hostname,
+            ip,
+            serial,
+            fingerprint,
+            string.IsNullOrWhiteSpace(config.DeviceId) ? null : config.DeviceId,
+            ct);
         if (result.RouteMissing)
         {
             _enrollmentRequestPending = false;
@@ -285,10 +297,14 @@ public sealed class Worker : BackgroundService
         }
 
         if (string.Equals(result.Status, "approved", StringComparison.OrdinalIgnoreCase)
-            && !string.IsNullOrWhiteSpace(result.ApiKey)
-            && !string.IsNullOrWhiteSpace(result.DeviceId))
+            && !string.IsNullOrWhiteSpace(result.ApiKey))
         {
-            ApplyEnrollmentSecrets(config, result.ApiKey!, result.DeviceId!, result.SigningKeyBase64);
+            config.ApiKey = result.ApiKey;
+            if (!string.IsNullOrWhiteSpace(result.SigningKeyBase64))
+            {
+                AgentSigningKey.SavePrivateKeyBase64(result.SigningKeyBase64);
+            }
+
             ConfigStore.Save(config);
             _apiKeyRevoked = false;
             _enrollmentRequestPending = false;
@@ -385,11 +401,12 @@ public sealed class Worker : BackgroundService
         }
         catch (AgentApiException ex) when (
             ex.IsAuthFailure
-            && ex.Message.Contains("Inventory signature required", StringComparison.Ordinal))
+            && (ex.Message.Contains("Inventory signature required", StringComparison.Ordinal)
+                || ex.Message.Contains("Invalid inventory signature", StringComparison.Ordinal)))
         {
             _lastInventoryOk = false;
             _lastInventoryError = TextLimit.Truncate(ex.Message, 200);
-            _logger.LogError(ex, "Снимок без подписи сервер не принял");
+            _logger.LogError(ex, "Сервер не принял подпись снимка");
         }
         catch (AgentApiException ex) when (ex.IsAuthFailure)
         {
