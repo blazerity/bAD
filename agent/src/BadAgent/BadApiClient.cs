@@ -308,7 +308,36 @@ public sealed class BadApiClient : IDisposable
     public async Task SendInventoryAsync(string apiKey, InventorySnapshot snapshot, CancellationToken ct)
     {
         AgentSigningKey.TrySignInventory(snapshot, out _);
+        var failure = await PostInventoryAsync(apiKey, snapshot, ct);
+        if (failure is null)
+        {
+            return;
+        }
 
+        if (failure.Value.Body.Contains("Invalid inventory signature", StringComparison.Ordinal))
+        {
+            AgentSigningKey.ClearLocal();
+            snapshot.Signature = null;
+            var retry = await PostInventoryAsync(apiKey, snapshot, ct);
+            if (retry is null)
+            {
+                return;
+            }
+
+            throw new AgentApiException(
+                retry.Value.Status,
+                $"Inventory failed: {(int)retry.Value.Status} {retry.Value.Body}");
+        }
+
+        throw new AgentApiException(
+            failure.Value.Status,
+            $"Inventory failed: {(int)failure.Value.Status} {failure.Value.Body}");
+    }
+
+    /// <summary>Один POST снимка. null — сервер принял. Повтор и файл подписи решает вызывающий.</summary>
+    private async Task<InventoryPostFailure?> PostInventoryAsync(
+        string apiKey, InventorySnapshot snapshot, CancellationToken ct)
+    {
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/inventory");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
         req.Content = new StringContent(
@@ -317,12 +346,16 @@ public sealed class BadApiClient : IDisposable
             "application/json");
 
         using var resp = await _http.SendAsync(req, ct);
-        if (!resp.IsSuccessStatusCode)
+        if (resp.IsSuccessStatusCode)
         {
-            var body = await resp.Content.ReadAsStringAsync(ct);
-            throw new AgentApiException(resp.StatusCode, $"Inventory failed: {(int)resp.StatusCode} {body}");
+            return null;
         }
+
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        return new InventoryPostFailure(resp.StatusCode, body);
     }
+
+    private readonly record struct InventoryPostFailure(System.Net.HttpStatusCode Status, string Body);
 
     /// <summary>HTML отчёт с сервера (панель): тот же snapshot, что inventory.</summary>
     public async Task<string?> TryPostReportHtmlAsync(string apiKey, InventorySnapshot snapshot, CancellationToken ct)

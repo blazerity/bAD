@@ -122,6 +122,7 @@ public static class AgentSigningKey
         signatureBase64 = "";
         if (!TryLoadPrivateKeyBase64(out var keyB64))
         {
+            snapshot.Signature = null;
             return false;
         }
 
