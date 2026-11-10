@@ -357,8 +357,14 @@
           <span>{{ os_line }}</span>
           <span class="mono muted device-col-sub">bAD Agent {{ d.agent_version or '—' }}</span>
         </td>
-        <td class="mono device-col-ip" title="{{ d.ip_title }}">
-          {% if d.ip_copy %}{{ copyable(d.ip_copy, display=d.ip_display) }}{% else %}—{% endif %}
+        <td class="mono device-col-ip">
+          {% if d.ip_addresses %}
+          <div class="device-ip-stack">
+            {% for ip in d.ip_addresses %}
+            <div class="device-ip-line">{{ copyable(ip) }}</div>
+            {% endfor %}
+          </div>
+          {% else %}—{% endif %}
         </td>
         <td class="muted col-device-seen">{{ local_time(d.last_seen_at) }}</td>
         <td class="col-chevron"><a class="row-chevron" href="{{ d.device_href }}" aria-label="Открыть устройство"></a></td>

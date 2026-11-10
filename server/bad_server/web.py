@@ -1582,18 +1582,7 @@ def _enrich_device_row(device: dict, *, stale_after_seconds: int) -> dict:
         ip_list = [str(x).strip() for x in ips if x and str(x).strip()]
     else:
         ip_list = []
-    if ip_list:
-        first = ip_list[0]
-        if len(ip_list) == 1:
-            device["ip_display"] = first
-        else:
-            device["ip_display"] = f"{first} +{len(ip_list) - 1}"
-        device["ip_copy"] = ", ".join(ip_list)
-        device["ip_title"] = " · ".join(ip_list)
-    else:
-        device["ip_display"] = "—"
-        device["ip_copy"] = ""
-        device["ip_title"] = ""
+    device["ip_addresses"] = ip_list
     return device
 
 
