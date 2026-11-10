@@ -41,6 +41,11 @@ public static class BadCli
                 return PingCli.Run(pingRest);
             }
 
+            if (IsDoctorCommand(args, out var doctorRest))
+            {
+                return DoctorCli.Run(doctorRest);
+            }
+
             if (IsUpdateCommand(args, out var updateRest))
             {
                 return UpdateCli.Run(updateRest);
@@ -79,6 +84,7 @@ public static class BadCli
             or "config" or "settings"
             or "push"
             or "ping"
+            or "doctor"
             or "update"
             or "uninstall" or "unistall";
 
@@ -118,6 +124,9 @@ public static class BadCli
 
     private static bool IsPingCommand(string[] args, out string[] rest) =>
         TakeCommand(args, out rest, StringComparison.OrdinalIgnoreCase, "ping");
+
+    private static bool IsDoctorCommand(string[] args, out string[] rest) =>
+        TakeCommand(args, out rest, StringComparison.OrdinalIgnoreCase, "doctor");
 
     private static bool IsUpdateCommand(string[] args, out string[] rest) =>
         TakeCommand(args, out rest, StringComparison.OrdinalIgnoreCase, "update");
@@ -217,6 +226,7 @@ public static class BadCli
   bad config set <k> <v>   Один параметр (server_url в бою — https://)
   bad push                 Синхронизация с сервером: очередь → inventory → heartbeat
   bad ping                 Проверка связи с сервером: «Связь есть.» или «Связи нет.»
+  bad doctor               Сброс настроек агента и проверка связи
   bad update               Проверка версии на сервере и установка MSI при необходимости
   bad uninstall [-y]       Снять агент (msiexec, нужны права администратора)
   bad service …            Управление службой Windows (от администратора)
