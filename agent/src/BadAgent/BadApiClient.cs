@@ -118,13 +118,13 @@ public sealed class BadApiClient : IDisposable
             ? stEl.GetString() ?? "pending"
             : "pending";
 
-        string? deviceId = null;
+        string? returnedDeviceId = null;
         string? apiKey = null;
         string? signingKey = null;
         if (doc.RootElement.TryGetProperty("device_id", out var idEl)
             && idEl.ValueKind == JsonValueKind.String)
         {
-            deviceId = idEl.GetString();
+            returnedDeviceId = idEl.GetString();
         }
 
         if (doc.RootElement.TryGetProperty("api_key", out var keyEl)
@@ -139,7 +139,7 @@ public sealed class BadApiClient : IDisposable
             signingKey = skEl.GetString();
         }
 
-        return new EnrollmentRequestResult(status, deviceId, apiKey, signingKey, RouteMissing: false);
+        return new EnrollmentRequestResult(status, returnedDeviceId, apiKey, signingKey, RouteMissing: false);
     }
 
     /// <summary>Один раз выдать ключ подписи для уже enrolled устройства (secure-channel 3).</summary>
