@@ -73,12 +73,6 @@ from .agent_update import (
     sync_from_github,
 )
 from .backup import backup_keys_status, backup_status, run_daily_backup
-from .enrollment_ops import (
-    enrollment_rotation_signals,
-    enrollment_status,
-    mark_enrollment_wave_done,
-    rotate_enrollment_token,
-)
 from .http_bootstrap import HTTP_SENSITIVE_MSG, client_ip, sensitive_over_http_blocked
 from .qa_ui import panel_tls_mode, patch_security_for_qa
 from .device_meta import (
@@ -1930,7 +1924,7 @@ def _devices_wave_context(
     # Фильтр списка без второго SELECT: тот же fleet.
     known_snapshots = snapshot_ids if snapshot_ids is not None else _inventory_device_ids(db)
     auth_filter = (auth or "").strip()
-    if auth_filter not in {"api", "enroll"}:
+    if auth_filter != "api":
         auth_filter = ""
     wanted_tag = (tag_filter or "").strip().casefold() or None
     query_cf = (query or "").strip().casefold() or None
@@ -1944,8 +1938,6 @@ def _devices_wave_context(
             continue
         d["auth_api"] = _auth_is_api(d, known_snapshots)
         if auth_filter == "api" and not d["auth_api"]:
-            continue
-        if auth_filter == "enroll" and d["auth_api"]:
             continue
         if wanted_tag:
             tags = {str(t).casefold() for t in (d.get("tags") or [])}
@@ -2055,7 +2047,7 @@ def devices_page(
     if chassis_filter and chassis_filter not in {"laptop", "desktop", "server", "vm", "other"}:
         chassis_filter = None
     auth_filter = (auth or "").strip()
-    if auth_filter not in {"api", "enroll"}:
+    if auth_filter != "api":
         auth_filter = ""
     page_i = max(1, int(page or 1))
     snapshot_ids = _inventory_device_ids(db)
@@ -2117,7 +2109,6 @@ def devices_page(
         flash_msg = flash_msg[:200]
     active_fleet, _archived, fleet_stats, fleet_ops = _fleet_snapshot(db, settings)
     auth_api_count = sum(1 for d in active_fleet if _auth_is_api(d, snapshot_ids))
-    auth_enroll_count = len(active_fleet) - auth_api_count
     dashboard = build_dashboard_stats(
         db,
         stale_after_seconds=effective_stale_after_seconds(db, settings),
@@ -2142,7 +2133,6 @@ def devices_page(
             "show_archive": show_archive,
             "auth": auth_filter,
             "auth_api_count": auth_api_count,
-            "auth_enroll_count": auth_enroll_count,
             "wave": wave_filter or "",
             "os_filter": os_filter or "",
             "ram_filter": ram_filter or "",
@@ -2642,18 +2632,6 @@ def _apply_inventory_overlay(detail: dict, payload: dict) -> dict:
     return detail
 
 
-def _shared_exchange_at(db: Database, device_id: str) -> str:
-    """Время одноразовой выдачи ключа. Пустая строка — строки в карточке нет."""
-    with db.connection() as conn:
-        row = conn.execute(
-            "SELECT shared_exchange_at FROM devices WHERE device_id = ?",
-            (device_id,),
-        ).fetchone()
-    if not row:
-        return ""
-    return str(row.get("shared_exchange_at") or "").strip()
-
-
 def _device_config_context(
     db: Database,
     device_id: str,
@@ -2668,7 +2646,6 @@ def _device_config_context(
     detail = db.get_device_detail(device_id)
     if not detail:
         return None
-    detail["shared_exchange_at"] = _shared_exchange_at(db, device_id)
     if inventory_payload is not None:
         detail = _apply_inventory_overlay(detail, inventory_payload)
     effective = db.compute_device_effective_config(device_id)
@@ -4665,33 +4642,6 @@ def backups_key_escrow_download(
     )
 
 
-def _enrollment_msi_name(db: Database) -> str:
-    agent_update = db.get_agent_update()
-    if agent_update and agent_update.get("msi_name"):
-        return str(agent_update["msi_name"])
-    versions = db.list_agent_msi_versions()
-    if versions:
-        top = versions[0]
-        if top.get("msi_name"):
-            return str(top["msi_name"])
-        ver = (top.get("version") or "").strip()
-        if ver:
-            return f"bad-agent-{ver}.msi"
-    return "bad-agent-X.Y.Z.msi"
-
-
-def _build_enrollment_msiexec_script(
-    token: str, server_url: str, msi_name: str
-) -> str:
-    return (
-        f"msiexec /i {msi_name} `\n"
-        f"  SERVERURL={server_url} `\n"
-        f"  ENROLLMENTTOKEN={token} `\n"
-        f"  ADDPATH=1 `\n"
-        f"  /qn"
-    )
-
-
 def _updates_context(
     db: Database,
     settings: Settings,
@@ -4699,23 +4649,7 @@ def _updates_context(
     user: WebUser,
     message: Optional[str] = None,
     error: Optional[str] = None,
-    new_enrollment_token: Optional[str] = None,
 ) -> dict:
-    enrollment_rotation = enrollment_rotation_signals(db, settings)
-    enrollment_server_url: Optional[str] = None
-    enrollment_msi_name: Optional[str] = None
-    enrollment_msiexec_script: Optional[str] = None
-    if new_enrollment_token:
-        enrollment_server_url = (
-            https_panel_url(read_domain_from_env()).rstrip("/")
-            or "https://bad.example.com"
-        )
-        enrollment_msi_name = _enrollment_msi_name(db)
-        enrollment_msiexec_script = _build_enrollment_msiexec_script(
-            new_enrollment_token,
-            enrollment_server_url,
-            enrollment_msi_name,
-        )
     return {
         "user": user,
         "settings_section": "updates",
@@ -4724,20 +4658,11 @@ def _updates_context(
         "github_repo": settings.github_repo,
         "updates_dir": str(settings.agent_updates_dir),
         "sync_interval": settings.agent_update_sync_interval_seconds,
-        "enrollment": enrollment_status(db, settings),
-        "enrollment_rotation": enrollment_rotation,
         "message": message,
         "error": error,
-        "new_enrollment_token": new_enrollment_token,
-        "allow_shared_enrollment": db.get_bool_setting(
-            "allow_shared_enrollment", settings.allow_shared_enrollment
-        ),
         "require_inventory_signature": db.get_bool_setting(
             "require_inventory_signature", settings.require_inventory_signature
         ),
-        "enrollment_server_url": enrollment_server_url,
-        "enrollment_msi_name": enrollment_msi_name,
-        "enrollment_msiexec_script": enrollment_msiexec_script,
     }
 
 
@@ -4891,74 +4816,16 @@ def updates_access_save(
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    allow_shared_enrollment: str = Form(""),
     require_inventory_signature: str = Form(""),
 ):
-    for key, raw in (
-        ("allow_shared_enrollment", allow_shared_enrollment),
-        ("require_inventory_signature", require_inventory_signature),
-    ):
-        db.set_site_secret(
-            key, "1" if (raw or "").strip() in {"1", "on", "true"} else "0"
-        )
+    db.set_site_secret(
+        "require_inventory_signature",
+        "1" if (require_inventory_signature or "").strip() in {"1", "on", "true"} else "0",
+    )
     return _html(
         request,
         "updates_settings.html",
         _updates_context(db, settings, user=user, message="Сохранено"),
-    )
-
-
-@router.post("/settings/enrollment/rotate")
-def enrollment_rotate(
-    request: Request,
-    user: WebUser = Depends(require_web_admin),
-    db: Database = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-    custom_token: str = Form(""),
-):
-    custom = (custom_token or "").strip()
-    result = rotate_enrollment_token(
-        db, settings, new_token=custom or None
-    )
-    notes = []
-    if result.get("updated_site_env"):
-        notes.append("настройки сервера обновлены")
-    if result.get("wrote_token_file"):
-        notes.append("токен записан на сервер")
-    elif result.get("wrote_fallback_file"):
-        notes.append("токен сохранён рядом с базой")
-    note = "; ".join(notes) if notes else "сохранён в базе, перезапуск не нужен"
-    return _html(
-        request,
-        "updates_settings.html",
-        _updates_context(
-            db,
-            settings,
-            user=user,
-            message=f"Токен подключения агентов сменён ({note}). Сохраните значение — больше не показать.",
-            new_enrollment_token=result["token"],
-        ),
-    )
-
-
-@router.post("/settings/enrollment/wave-done")
-def enrollment_wave_done(
-    request: Request,
-    user: WebUser = Depends(require_web_admin),
-    db: Database = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-):
-    """Оператор: волна MSI закончена → rotation_due до следующего rotate."""
-    mark_enrollment_wave_done(db)
-    return _html(
-        request,
-        "updates_settings.html",
-        _updates_context(
-            db,
-            settings,
-            user=user,
-            message="Волна отмечена. Смените токен подключения агентов (лента на Обзоре и раздел ниже).",
-        ),
     )
 
 

@@ -346,7 +346,6 @@ class Database:
         grant_code_hash: Optional[str] = None,
         signing_pubkey: Optional[str] = None,
         signing_key_fingerprint: Optional[str] = None,
-        record_shared_exchange: bool = False,
     ) -> bool:
         """Создать устройство или (при allow_existing) обновить ключ.
 
@@ -380,33 +379,6 @@ class Database:
                     raise ValueError("device_already_enrolled")
                 if existing["revoked"]:
                     raise ValueError("device_revoked")
-                if record_shared_exchange:
-                    # Та же транзакция, что и смена ключа. Подпись устройства не трогаем.
-                    exchanged = conn.execute(
-                        """
-                        UPDATE devices
-                        SET hostname = COALESCE(?, hostname),
-                            api_key_hash = ?,
-                            api_key_lookup = ?,
-                            last_seen_at = ?,
-                            agent_version = COALESCE(?, agent_version),
-                            shared_exchange_at = ?
-                        WHERE device_id = ?
-                          AND (shared_exchange_at IS NULL OR shared_exchange_at = '')
-                        """,
-                        (
-                            hostname,
-                            api_key_hash,
-                            api_key_lookup,
-                            now,
-                            agent_version,
-                            now,
-                            device_id,
-                        ),
-                    )
-                    if exchanged.rowcount != 1:
-                        raise ValueError("shared_exchange_used")
-                    return False
                 conn.execute(
                     """
                     UPDATE devices

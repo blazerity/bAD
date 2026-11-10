@@ -8,10 +8,7 @@ public sealed class AgentConfig
     [JsonPropertyName("server_url")]
     public string ServerUrl { get; set; } = "";
 
-    [JsonPropertyName("enrollment_token")]
-    public string? EnrollmentToken { get; set; }
-
-    /// <summary>Одноразовый код enroll (bad_ot_…); приоритет над <see cref="EnrollmentToken"/>.</summary>
+    /// <summary>Одноразовый код enroll (bad_ot_…).</summary>
     [JsonPropertyName("enrollment_code")]
     public string? EnrollmentCode { get; set; }
 
@@ -564,13 +561,6 @@ public static class ConfigStore
         if (!string.IsNullOrWhiteSpace(url))
         {
             cfg.ServerUrl = url.Trim().TrimEnd('/');
-        }
-
-        var enroll = Environment.GetEnvironmentVariable("BAD_ENROLLMENT_TOKEN")
-                     ?? Environment.GetEnvironmentVariable("ENROLLMENTTOKEN");
-        if (!string.IsNullOrWhiteSpace(enroll) && string.IsNullOrWhiteSpace(cfg.ApiKey))
-        {
-            cfg.EnrollmentToken = enroll.Trim();
         }
 
         var enrollCode = Environment.GetEnvironmentVariable("BAD_ENROLLMENT_CODE");

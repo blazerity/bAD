@@ -53,28 +53,6 @@ def get_data_key(request: Request) -> str:
     return key
 
 
-def shared_enrollment_token_ok(token: str, settings: Settings, db: Database) -> bool:
-    """Общий вечный token (хеш в site_secrets, иначе plaintext из env)."""
-    hashed = db.get_site_secret("enrollment_token_hash")
-    if hashed:
-        return verify_secret(hashed, token)
-    expected = settings.enrollment_token
-    return bool(expected and constant_time_equals(expected, token))
-
-
-def require_enrollment_token(
-    authorization: Annotated[Optional[str], Header()] = None,
-    settings: Settings = Depends(get_settings),
-    db: Database = Depends(get_db),
-) -> str:
-    token = extract_bearer(authorization)
-    if not token or not shared_enrollment_token_ok(token, settings, db):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid enrollment token"
-        )
-    return token
-
-
 def require_api_key(
     request: Request,
     authorization: Annotated[Optional[str], Header()] = None,

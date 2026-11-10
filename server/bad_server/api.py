@@ -34,7 +34,6 @@ from .auth import (
     get_db,
     require_admin_token,
     require_api_key,
-    shared_enrollment_token_ok,
 )
 from .integrations import require_device_reader as _device_reader
 from .device_refresh import (
@@ -217,29 +216,14 @@ def enroll(
         )
     _enforce_enroll_rate(request)
     bearer = extract_bearer(request.headers.get("authorization"))
-    grant_hash: Optional[str] = None
-    if bearer:
-        # Не сжигаем код здесь: upsert сожжёт его в той же транзакции, что и INSERT.
-        grant_hash = enrollment_code_hash(bearer)
-    shared_ok = bool(
-        bearer and shared_enrollment_token_ok(bearer, settings, db)
-    )
-    allow_shared = db.get_bool_setting(
-        "allow_shared_enrollment", settings.allow_shared_enrollment
-    )
-    if shared_ok and allow_shared:
-        grant_hash = None
-        logger.warning(
-            "shared enrollment token accepted for device_id=%s "
-            "(BAD_ALLOW_SHARED_ENROLLMENT=1)",
-            body.device_id,
-        )
-    elif not bearer:
+    if not bearer:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing enrollment token",
+            detail="Missing enrollment code",
         )
-    elif not db.enrollment_grant_usable(grant_hash or "", body.device_id):
+    # Не сжигаем код здесь: upsert сожжёт его в той же транзакции, что и INSERT.
+    grant_hash = enrollment_code_hash(bearer)
+    if not db.enrollment_grant_usable(grant_hash, body.device_id):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or spent enrollment code",
@@ -253,26 +237,15 @@ def enroll(
 
     existing = db.get_device_auth_row(body.device_id)
     allow_existing = False
-    shared_exchange = False
     if existing:
         if existing.get("revoked"):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=_REVOKED_DETAIL,
             )
-        # Повтор с прежним ключом — как раньше. Общий токен без ключа — один обмен.
         proof = (body.current_api_key or "").strip()
-        already_exchanged = bool(str(existing.get("shared_exchange_at") or "").strip())
         if proof and verify_secret(existing["api_key_hash"], proof):
             allow_existing = True
-        elif (
-            shared_ok
-            and allow_shared
-            and not proof
-            and not already_exchanged
-        ):
-            allow_existing = True
-            shared_exchange = True
         else:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -302,7 +275,6 @@ def enroll(
             grant_code_hash=grant_hash,
             signing_pubkey=signing_public,
             signing_key_fingerprint=signing_fingerprint,
-            record_shared_exchange=shared_exchange,
         )
     except ValueError as exc:
         code = str(exc)
@@ -315,14 +287,6 @@ def enroll(
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=_REVOKED_DETAIL,
-            ) from exc
-        if code == "shared_exchange_used":
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    "Device already enrolled; re-enroll requires current_api_key "
-                    "or admin rotate-key"
-                ),
             ) from exc
         if code == "bad_id_collision":
             logger.error("enroll bad_id collision for device_id=%s", body.device_id)

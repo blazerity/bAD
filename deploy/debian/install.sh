@@ -313,7 +313,7 @@ else
   echo " Tokens:           already present in /etc/bad/site.env (not re-printed)"
 fi
 if [[ "${HAS_TLS}" -eq 1 ]]; then
-  echo " MSI (msiexec):    SERVERURL=https://${BAD_DOMAIN} ENROLLMENTTOKEN=<token>"
+  echo " MSI (msiexec):    SERVERURL=https://${BAD_DOMAIN}"
   echo "                   PATH в Machine по умолчанию (ADDPATH=1); без PATH: ADDPATH=0"
 else
   echo " MSI properties:   install agents AFTER TLS upload (SERVERURL=https://${BAD_DOMAIN})"
@@ -332,18 +332,15 @@ if [[ "${HAS_TLS}" -eq 0 ]]; then
   echo "    → «Установить и перезагрузить nginx»"
   echo " 4. Откройте https://${BAD_DOMAIN}/ и войдите снова"
   echo " 5. Только после HTTPS — MSI агентов:"
-  echo "    SERVERURL=https://${BAD_DOMAIN} ENROLLMENTTOKEN=<enrollment>"
+  echo "    SERVERURL=https://${BAD_DOMAIN}"
 else
   echo " 1. Откройте панель:  https://${BAD_DOMAIN}/login"
   echo " 2. Войдите admin / admin → сразу смените пароль"
   echo " 3. Cert уже при install — ротация позже через Параметры → Сертификат"
   echo " 4. (уже HTTPS)"
   echo " 5. MSI агентов:"
-  echo "    SERVERURL=https://${BAD_DOMAIN} ENROLLMENTTOKEN=<enrollment>"
+  echo "    SERVERURL=https://${BAD_DOMAIN}"
 fi
-echo " 6. После волны MSI — смените enrollment token"
-echo "    (Параметры → Обновления агента → Сменить enrollment token)"
-echo "    и обновите Intune/GPO. Не шарьте msiexec-логи."
 echo
 echo " Ключи: /etc/bad/data_key + session_secret — не в daily DB-бэкапе."
 echo " Полный DR: site bundle (Параметры → Резервные копии), только по HTTPS."

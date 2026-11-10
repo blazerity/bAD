@@ -66,17 +66,13 @@ try {
 
     $setupKey = "HKLM:\SOFTWARE\blazerity\bAD\Setup"
     $ServerUrl = ""
-    $EnrollmentToken = ""
     if (Test-Path $setupKey) {
         try {
             $props = Get-ItemProperty -Path $setupKey -ErrorAction Stop
             if ($props.PSObject.Properties.Name -contains "ServerUrl") {
                 $ServerUrl = [string]$props.ServerUrl
             }
-            if ($props.PSObject.Properties.Name -contains "EnrollmentToken") {
-                $EnrollmentToken = [string]$props.EnrollmentToken
-            }
-            Write-BadMsiLog "INFO Setup registry present server_url_set=$([bool]$ServerUrl) token_set=$([bool]$EnrollmentToken)"
+            Write-BadMsiLog "INFO Setup registry present server_url_set=$([bool]$ServerUrl)"
         } catch {
             Write-BadMsiLog "WARN Setup registry read failed: $($_.Exception.Message)"
         }
@@ -117,12 +113,8 @@ try {
             Write-BadMsiLog "INFO api_key restored from raw config.json"
         }
 
-        if (-not $apiKey -and $EnrollmentToken) {
-            if ($existing.PSObject.Properties.Name -contains "enrollment_token") {
-                $existing.enrollment_token = $EnrollmentToken
-            } else {
-                $existing | Add-Member -NotePropertyName "enrollment_token" -NotePropertyValue $EnrollmentToken
-            }
+        if ($existing.PSObject.Properties.Name -contains "enrollment_token") {
+            $existing.PSObject.Properties.Remove("enrollment_token")
         }
 
         $obj = $existing
@@ -131,9 +123,6 @@ try {
             server_url                 = if ($ServerUrl) { $ServerUrl.TrimEnd('/') } else { "" }
             inventory_interval_hours   = 6
             heartbeat_interval_minutes = 15
-        }
-        if ($EnrollmentToken) {
-            $obj.enrollment_token = $EnrollmentToken
         }
     }
 

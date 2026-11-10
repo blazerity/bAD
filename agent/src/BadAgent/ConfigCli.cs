@@ -234,8 +234,6 @@ public static class ConfigCli
         Console.WriteLine(
             $"  api_key={(string.IsNullOrWhiteSpace(cfg.ApiKey) ? "(нет)" : "(задан, скрыт)")}");
         Console.WriteLine(
-            $"  enrollment_token={(string.IsNullOrWhiteSpace(cfg.EnrollmentToken) ? "(нет)" : "(задан, скрыт)")}");
-        Console.WriteLine(
             $"  enrollment_code={(string.IsNullOrWhiteSpace(cfg.EnrollmentCode) ? "(нет)" : "(задан, скрыт)")}");
         return 0;
     }

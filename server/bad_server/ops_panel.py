@@ -264,7 +264,6 @@ def build_attention_queue(
     """
     items: list[dict[str, Any]] = []
     security = security or (ops.get("security") or {})
-    er = security.get("enrollment_rotation") or {}
     secrets = security.get("secrets") or {}
     https = security.get("https_first") or {}
     mode = str(tls_mode or ops.get("tls_mode") or https.get("tls_mode") or "http").lower()
@@ -310,24 +309,6 @@ def build_attention_queue(
                 or "Перенесите ключи шифрования в файлы на сервере.",
                 "href": "/settings/backups",
                 "cta": "Резервные копии",
-            }
-        )
-    if ops.get("enrollment_rotation_due") or er.get("rotation_due"):
-        n = int(
-            ops.get("enrolled_since_rotation")
-            or er.get("enrolled_since_rotation")
-            or 0
-        )
-        items.append(
-            {
-                "id": "enrollment_rotate",
-                "severity": "high",
-                "title": "Смените токен после волны установок",
-                "detail": ops.get("enrollment_rotation_hint")
-                or er.get("hint_ru")
-                or f"Новых подключений с прошлой смены: {n}.",
-                "href": "/settings/updates#enrollment",
-                "cta": "Сменить токен",
             }
         )
     if ops.get("mirror_empty") or ops.get("signal_mirror_empty"):

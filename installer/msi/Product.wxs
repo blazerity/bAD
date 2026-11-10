@@ -30,7 +30,6 @@
     <Property Id="ARPPRODUCTICON" Value="BadAgentIcon" />
 
     <Property Id="SERVERURL" Secure="yes" />
-    <Property Id="ENROLLMENTTOKEN" Secure="yes" Hidden="yes" />
     <Property Id="ADDPATH" Secure="yes" Value="1" />
     <Property Id="MsiLogging" Value="voicewarmupx" />
     <!-- 2.0.2 не передаёт /norestart; без ReallySuppress — reboot или отложенная замена DLL. -->
@@ -160,12 +159,6 @@
           Name="ServerUrl"
           Type="string"
           Value="[SERVERURL]" />
-      <RegistryValue
-          Root="HKLM"
-          Key="SOFTWARE\blazerity\bAD\Setup"
-          Name="EnrollmentToken"
-          Type="string"
-          Value="[ENROLLMENTTOKEN]" />
     </Component>
 
     <Component Id="AddPath" Directory="INSTALLFOLDER" Guid="BADA0006-BADA-4B01-8BAD-00BADA000006" Condition="ADDPATH=&quot;1&quot;">

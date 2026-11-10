@@ -13,30 +13,6 @@
   {% if message %}<p class="ok">{{ message }}</p>{% endif %}
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
 
-  {% if new_enrollment_token %}
-  <div class="warn-box">
-    <strong>Новый токен подключения</strong> (показать один раз):
-    <p class="mono">{{ copyable(new_enrollment_token) }}</p>
-    {% if enrollment_msiexec_script %}
-    <div class="enrollment-msiexec-block">
-      <h3>Команда установки агента</h3>
-      <div class="enrollment-msiexec-row">
-        <button type="button" class="copy-btn" data-copy-target="#enrollment-msiexec-pre" aria-label="Копировать" title="Копировать команду">{{ icon('copy') }}<span class="copy-btn-label">Копировать команду</span></button>
-      </div>
-      <pre id="enrollment-msiexec-pre" class="enrollment-msiexec-script">{{ enrollment_msiexec_script }}</pre>
-      {% if enrollment_msi_name and enrollment_server_url %}
-      <p class="muted enrollment-msiexec-row">Файл: <span class="mono">{{ enrollment_msi_name }}</span> · <span class="mono">{{ enrollment_server_url }}</span></p>
-      {% endif %}
-    </div>
-    {% endif %}
-    <p class="muted">Старый больше не действует. Перезапуск не нужен — обновите установщики / GPO / Intune.</p>
-    {% if tls_mode == 'http' %}
-    <p class="warn">Лучше скопировать токен по защищённому соединению — сначала
-      <a href="/settings/tls">Параметры → Сертификат</a>.</p>
-    {% endif %}
-  </div>
-  {% endif %}
-
   <dl class="meta">
     <div><dt>Репозиторий установщиков</dt><dd class="mono">{{ github_repo }}</dd></div>
     <div><dt>Каталог на сервере</dt><dd class="mono">{{ updates_dir }}</dd></div>
@@ -155,11 +131,6 @@
   <form method="post" action="/settings/updates/access" class="settings-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label>
-      <input type="checkbox" name="allow_shared_enrollment" value="1"
-        {% if allow_shared_enrollment %}checked{% endif %}>
-      Разрешить общий токен регистрации
-    </label>
-    <label>
       <input type="checkbox" name="require_inventory_signature" value="1"
         {% if require_inventory_signature %}checked{% endif %}>
       Требовать подпись снимка
@@ -168,49 +139,5 @@
       <button type="submit">Сохранить</button>
     </div>
   </form>
-  <h2>Токен подключения агентов</h2>
-  {% if enrollment_rotation and enrollment_rotation.rotation_due and not new_enrollment_token %}
-  <div class="warn-box" role="status">
-    <strong>После волны установок смените токен</strong>
-    <p class="muted" style="margin:0.35rem 0 0">
-      {{ enrollment_rotation.hint_ru or "Новые установки ещё могут пройти со старым токеном." }}
-      Подключений с прошлой смены:
-      <span class="mono">{{ enrollment_rotation.enrolled_since_rotation }}</span>
-      (порог <span class="mono">{{ enrollment_rotation.threshold }}</span>).
-      Уже работающие агенты продолжат по своему ключу.
-    </p>
-  </div>
-  {% else %}
-  <p class="muted">
-    После волны установки смените токен: новый действует сразу, перезапуск не нужен.
-    {% if enrollment.rotated_at %}Последняя смена: {{ local_time(enrollment.rotated_at, extra_class='mono') }}.{% endif %}
-  </p>
-  {% endif %}
-  <dl class="meta">
-    <div><dt>Токен настроен</dt><dd>{% if enrollment.has_hash %}да{% else %}нет{% endif %}</dd></div>
-    {% if enrollment_rotation %}
-    <div><dt>С прошлой смены</dt><dd class="mono">{{ enrollment_rotation.enrolled_since_rotation }} / {{ enrollment_rotation.threshold }}</dd></div>
-    {% endif %}
-  </dl>
-  <form method="post" action="/settings/enrollment/rotate" class="settings-form"
-    onsubmit="return confirm('Сгенерировать новый токен подключения? Старый перестанет работать для новых установок.');">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <label for="custom_token">Свой токен (пусто = сгенерировать)</label>
-    <input id="custom_token" name="custom_token" type="text" autocomplete="off" placeholder="bad_en_…">
-    <div class="form-actions">
-      <button type="submit">Сменить токен подключения</button>
-    </div>
-  </form>
-  {% if not (enrollment_rotation and enrollment_rotation.rotation_due) %}
-  <form method="post" action="/settings/enrollment/wave-done" class="settings-form"
-    onsubmit="return confirm('Отметить волну установок завершённой? Появится напоминание о смене токена.');">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <p class="muted">Если волна закончилась раньше порога — отметьте вручную.</p>
-    <div class="form-actions">
-      <button type="submit" class="secondary">Волна установок завершена</button>
-    </div>
-  </form>
-  {% endif %}
-
 </section>
 {% endblock %}

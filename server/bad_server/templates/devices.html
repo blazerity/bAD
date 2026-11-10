@@ -96,7 +96,6 @@
             {{ filter_chip('/devices?wave=stale', 'Устарели', fleet_stats.stale, wave == 'stale') }}
             {{ filter_chip('/devices?archive=1', 'Архив', fleet_stats.archived, show_archive) }}
             {{ filter_chip('/devices?auth=api', 'Связь по api-key', auth_api_count, auth == 'api') }}
-            {{ filter_chip('/devices?auth=enroll', 'Связь по ENROLL-key', auth_enroll_count, auth == 'enroll') }}
           </div>
         </div>
         {% endif %}
@@ -324,11 +323,6 @@
           <span class="devices-state-inline">
             <span class="device-chassis-mini" aria-hidden="true">{{ icon(chassis_icon_name(d.chassis_type)) }}</span>
             <span class="badge badge-fresh-{{ d.freshness or d.silence.status }}">{{ freshness_label(fresh) }}</span>
-            {% if d.auth_api %}
-            <span class="badge badge-auth-api">Связь по api-key</span>
-            {% else %}
-            <span class="badge badge-auth-enroll">Связь по ENROLL-key</span>
-            {% endif %}
           </span>
         </td>
         <td class="col-device-host">

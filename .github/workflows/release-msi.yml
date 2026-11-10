@@ -233,7 +233,7 @@ jobs:
 
           Install (elevated):
           ``````powershell
-          msiexec /i ${{ steps.ver.outputs.msi_name }} SERVERURL=https://bad.example.com ENROLLMENTTOKEN=<token> /qn
+          msiexec /i ${{ steps.ver.outputs.msi_name }} SERVERURL=https://bad.example.com /qn
           ``````
 
           The on-prem server mirrors these assets; agents download updates from the server, not from GitHub.
