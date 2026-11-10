@@ -1,6 +1,5 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -9,9 +8,6 @@ namespace BadAgent;
 
 public sealed class BadApiClient : IDisposable
 {
-    /// <summary>Совместимость с CLI/Worker: то же, что <see cref="ServerUrlRules.CleartextHttpRejectedMessage"/>.</summary>
-    public const string CleartextHttpRejectedMessage = ServerUrlRules.CleartextHttpRejectedMessage;
-
     private readonly HttpClient _http;
     private readonly string _baseUrl;
     private readonly string _agentVersion;

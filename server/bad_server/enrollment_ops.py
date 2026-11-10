@@ -159,13 +159,3 @@ def enrollment_rotation_signals(
         "ui_path": "/settings/updates",
         "api_path": "/v1/admin/enrollment/rotate",
     }
-
-
-def mark_enrollment_wave_done(db: Database) -> dict[str, Any]:
-    """Оператор: «волна MSI закончена» → rotation_due до следующего rotate."""
-    db.set_site_secret("enrollment_wave_ack", utc_now())
-    return {
-        "status": "ok",
-        "wave_ack": True,
-        "acked_at": db.get_site_secret("enrollment_wave_ack"),
-    }

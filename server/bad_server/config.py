@@ -44,8 +44,6 @@ class Settings(BaseSettings):
     allow_sensitive_over_http: bool = False
     # Lab opt-out: /v1/enroll on cleartext when managed TLS is already active.
     allow_enroll_over_http: bool = False
-    # Этот релиз: общий enrollment token ещё принимается (warning в лог). 0 — только заявка.
-    allow_shared_enrollment: bool = _env_bool("BAD_ALLOW_SHARED_ENROLLMENT", True)
     # 0 — снимок без подписи принимается. 1 — подпись обязательна (старые агенты отвалятся).
     require_inventory_signature: bool = _env_bool(
         "BAD_REQUIRE_INVENTORY_SIGNATURE", False

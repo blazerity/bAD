@@ -7,7 +7,6 @@ meta.config_local / sources). Без новых таблиц БД.
 
 from __future__ import annotations
 
-import re
 from typing import Any, Optional
 
 from .agent_config import ALLOWED_SETTING_KEYS, compute_setting_sources
@@ -476,132 +475,6 @@ def build_wave_counts(
     }
 
 
-def _ram_tier_label(ram_bytes: object) -> Optional[str]:
-    try:
-        n = int(ram_bytes)
-    except (TypeError, ValueError):
-        return None
-    if n <= 0:
-        return None
-    gb = n / (1024**3)
-    if gb < 8:
-        return "< 8 ГБ"
-    if gb < 16:
-        return "8–16 ГБ"
-    if gb < 32:
-        return "16–32 ГБ"
-    if gb < 64:
-        return "32–64 ГБ"
-    return "64+ ГБ"
-
-
-def _storage_tier_label(total_bytes: int) -> Optional[str]:
-    if total_bytes <= 0:
-        return None
-    gb = total_bytes / (1024**3)
-    if gb < 256:
-        return "< 256 ГБ"
-    if gb < 512:
-        return "256–512 ГБ"
-    if gb < 1024:
-        return "512 ГБ – 1 ТБ"
-    return "1 ТБ+"
-
-
-def cpu_vendor_bucket(cpu_name: object) -> str:
-    text = str(cpu_name or "").casefold()
-    if "intel" in text or "xeon" in text or "core i" in text:
-        return "Intel"
-    if "amd" in text or "ryzen" in text or "epyc" in text:
-        return "AMD"
-    return "other"
-
-
-def cpu_family_bucket(cpu_name: object) -> str:
-    text = str(cpu_name or "")
-    low = text.casefold()
-    for pat, label in (
-        (r"ryzen\s*9", "Ryzen 9"),
-        (r"ryzen\s*7", "Ryzen 7"),
-        (r"ryzen\s*5", "Ryzen 5"),
-        (r"ryzen\s*3", "Ryzen 3"),
-        (r"core\s*i9", "Core i9"),
-        (r"core\s*i7", "Core i7"),
-        (r"core\s*i5", "Core i5"),
-        (r"core\s*i3", "Core i3"),
-        (r"xeon", "Xeon"),
-    ):
-        if re.search(pat, low):
-            return label
-    return "Прочее"
-
-
-def device_chart_facets(
-    device: dict[str, Any],
-    payload: Optional[dict[str, Any]] = None,
-) -> dict[str, Optional[str]]:
-    meta = device.get("meta") if isinstance(device.get("meta"), dict) else {}
-    os_caption = str(meta.get("os_caption") or meta.get("os") or "").strip() or None
-    cpu_name = str(meta.get("cpu_name") or "").strip()
-    hw: dict[str, Any] = {}
-    if isinstance(payload, dict):
-        raw = payload.get("hardware")
-        if isinstance(raw, dict):
-            hw = raw
-        if not os_caption:
-            host = payload.get("host")
-            if isinstance(host, dict):
-                os_raw = host.get("os")
-                if isinstance(os_raw, dict):
-                    os_caption = str(os_raw.get("caption") or "").strip() or None
-        if not cpu_name:
-            cpu = hw.get("cpu") if hw else None
-            if isinstance(cpu, dict):
-                cpu_name = str(cpu.get("name") or "").strip()
-    ram_label = _ram_tier_label(hw.get("ram_bytes") if hw else None)
-    total_disk = 0
-    for disk in (hw.get("disks") or []) if hw else []:
-        if isinstance(disk, dict):
-            try:
-                total_disk += int(disk.get("size_bytes") or 0)
-            except (TypeError, ValueError):
-                continue
-    disk_label = _storage_tier_label(total_disk) if total_disk else None
-    family = cpu_family_bucket(cpu_name) if cpu_name else None
-    vendor = cpu_vendor_bucket(cpu_name) if cpu_name else None
-    return {
-        "os": os_caption,
-        "ram": ram_label,
-        "disk": disk_label,
-        "cpu": family,
-        "cpu_vendor": vendor if vendor != "other" else None,
-    }
-
-
-def device_matches_chart_filters(
-    facets: dict[str, Optional[str]],
-    *,
-    os_filter: Optional[str],
-    ram_filter: Optional[str],
-    disk_filter: Optional[str],
-    cpu_filter: Optional[str],
-    cpu_vendor_filter: Optional[str],
-) -> bool:
-    checks = (
-        (os_filter, facets.get("os")),
-        (ram_filter, facets.get("ram")),
-        (disk_filter, facets.get("disk")),
-        (cpu_filter, facets.get("cpu")),
-        (cpu_vendor_filter, facets.get("cpu_vendor")),
-    )
-    for want, have in checks:
-        if not want:
-            continue
-        if not have or str(have) != str(want):
-            return False
-    return True
-
-
 def chart_filter_href(param: str, value: str, **extra: str) -> str:
     from urllib.parse import urlencode
 
@@ -744,25 +617,6 @@ def aggregate_incident_feed(
         if len(out) >= limit:
             break
     return out
-
-
-def _accumulate_hw_bars(hw: dict[str, Any], ram_counts: dict[str, int], storage_counts: dict[str, int]) -> None:
-    if not isinstance(hw, dict):
-        return
-    ram_label = _ram_tier_label(hw.get("ram_bytes"))
-    if ram_label:
-        ram_counts[ram_label] = ram_counts.get(ram_label, 0) + 1
-    total_disk = 0
-    for disk in hw.get("disks") or []:
-        if not isinstance(disk, dict):
-            continue
-        try:
-            total_disk += int(disk.get("size_bytes") or 0)
-        except (TypeError, ValueError):
-            continue
-    storage_label = _storage_tier_label(total_disk)
-    if storage_label:
-        storage_counts[storage_label] = storage_counts.get(storage_label, 0) + 1
 
 
 def _os_caption_from_device_meta(device: dict[str, Any]) -> Optional[str]:

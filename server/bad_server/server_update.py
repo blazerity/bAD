@@ -108,12 +108,6 @@ def sanitize_slot_id(slot_id: str) -> str:
     return value
 
 
-def slot_id_for(branch: str, sha: str) -> str:
-    b = sanitize_branch(branch).replace("/", "_")
-    s = sanitize_sha(sha)[:12]
-    return f"{b}_{s}"
-
-
 def _read_secret_file(path: Path) -> str:
     if not path.is_file():
         return ""

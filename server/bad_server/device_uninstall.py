@@ -8,12 +8,6 @@ from typing import Any, Literal, Optional
 from .db import Database, utc_now
 from .device_health import parse_utc
 
-UNINSTALL_META_KEYS = (
-    "uninstall_requested_at",
-    "uninstall_sent_at",
-    "uninstall_not_delivered_at",
-)
-
 UNINSTALL_TTL = timedelta(days=7)
 
 UninstallBadge = Literal["removing", "sent", "failed"]
