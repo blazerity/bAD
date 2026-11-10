@@ -307,6 +307,7 @@ public sealed class BadApiClient : IDisposable
 
     public async Task SendInventoryAsync(string apiKey, InventorySnapshot snapshot, CancellationToken ct)
     {
+        await AgentSigningKey.EnsureFromServerAsync(this, apiKey, null, ct);
         AgentSigningKey.TrySignInventory(snapshot, out _);
         var failure = await PostInventoryAsync(apiKey, snapshot, ct);
         if (failure is null)

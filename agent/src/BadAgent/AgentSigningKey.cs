@@ -90,17 +90,13 @@ public static class AgentSigningKey
             return;
         }
 
-        if (File.Exists(SkipFetchPath))
-        {
-            return;
-        }
+        QuietFiles.TryDelete(SkipFetchPath);
 
         var result = await client.RequestSigningKeyAsync(apiKey, ct);
         if (result.RouteMissing)
         {
             logger?.LogInformation(
                 "Server has no signing-key endpoint; inventory will be sent unsigned (legacy server)");
-            MarkFetchUnavailable();
             return;
         }
 
@@ -113,8 +109,7 @@ public static class AgentSigningKey
         }
 
         logger?.LogInformation(
-            "Signing key not returned (already issued on server or empty response); sending inventory unsigned");
-        MarkFetchUnavailable();
+            "Signing key not returned; inventory stays unsigned until the next request");
     }
 
     public static bool TrySignInventory(InventorySnapshot snapshot, out string signatureBase64)

@@ -506,7 +506,7 @@ def issue_agent_signing_key(
     device=Depends(require_api_key),
     db: Database = Depends(get_db),
 ) -> dict[str, Optional[str]]:
-    """Уже выданный api_key получает ключ подписи один раз. Повтор секрет не отдаёт."""
+    """Ключ устройства из Authorization получает новую пару. Старый секрет не хранится."""
     private, public, fingerprint = new_device_signing_key()
     if not db.claim_device_signing_key(device["device_id"], public, fingerprint):
         return {"signing_key": None}
