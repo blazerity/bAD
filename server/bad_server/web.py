@@ -277,10 +277,6 @@ def _device_freshness_tier(
     return "online" if age <= online_cap else "recent"
 
 
-def _search_match_reason(device: dict, query: str) -> str:
-    return device_match_label(device, query)
-
-
 def _chassis_map_for_devices(devices: list[dict]) -> dict[str, str]:
     return {str(d["device_id"]): _chassis_type_from_device(d) for d in devices if d.get("device_id")}
 

@@ -58,12 +58,6 @@ _POLARITY_LABEL_RU: dict[Polarity, str] = {
     "changed": "Изменилось",
 }
 
-_POLARITY_STYLE: dict[Polarity, tuple[str, str]] = {
-    "added": ("#166534", "#dcfce7"),
-    "removed": ("#991b1b", "#fee2e2"),
-    "changed": ("#92400e", "#fef3c7"),
-}
-
 # Внутренности SVG (viewBox 0 0 20 20), как в templates/macros/icons.html
 _ICON_PATHS: dict[str, str] = {
     "host": (
@@ -262,23 +256,6 @@ def filter_events_for_mail(
     return [e for e in events if e.get("type") in wanted]
 
 
-def build_alert_email(
-    *,
-    subject: str,
-    body_lines: list[str],
-    from_addr: str,
-    to_addrs: list[str],
-) -> EmailMessage:
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = from_addr
-    msg["To"] = ", ".join(to_addrs)
-    lines = list(body_lines)
-    lines.extend(["", "—", "Сообщение сформировано сервером bAD."])
-    msg.set_content("\n".join(lines))
-    return msg
-
-
 def event_visual(event_type: str) -> dict[str, str]:
     """Иконка и полярность события для digest-письма."""
     t = (event_type or "").strip()
@@ -317,26 +294,6 @@ def event_visual(event_type: str) -> dict[str, str]:
     elif "bios" in t or "bugcheck" in t or "minidump" in t:
         icon = "bios"
     return {"icon": icon, "polarity": polarity}
-
-
-def _polarity_marker_html(polarity: Polarity) -> str:
-    """Outlook-safe маркер вместо SVG."""
-    char = {"added": "+", "removed": "−", "changed": "~"}.get(polarity, "~")
-    fg, _bg = _POLARITY_STYLE.get(polarity, _POLARITY_STYLE["changed"])
-    return (
-        f'<span style="font-weight:700;font-size:16px;line-height:1;color:{fg}">'
-        f"{html.escape(char)}</span>"
-    )
-
-
-def _badge_html(polarity: Polarity) -> str:
-    fg, bg = _POLARITY_STYLE[polarity]
-    label = _POLARITY_LABEL_RU[polarity]
-    return (
-        f'<span style="display:inline-block;padding:2px 8px;border-radius:4px;'
-        f"font-size:12px;font-weight:600;color:{fg};background:{bg}\">"
-        f"{html.escape(label)}</span>"
-    )
 
 
 _CHASSIS_CAPTION = {
@@ -804,19 +761,6 @@ def flush_inventory_mail_digest(
     return result
 
 
-def flush_mail_digest(
-    db: "Database",
-    smtp_row: dict[str, Any],
-    password: str,
-    *,
-    force: bool = False,
-) -> dict[str, Any]:
-    """Алиас периодической сводки уведомлений по почте."""
-    return flush_inventory_mail_digest(
-        db, smtp_row, password, force=force
-    )
-
-
 def send_email(
     *,
     host: str,
@@ -866,28 +810,6 @@ def _smtp_ready(smtp_row: dict[str, Any]) -> tuple[Optional[str], list[str]]:
     if not from_addr or not recipients:
         return None, []
     return from_addr, recipients
-
-
-def _dispatch(
-    smtp_row: dict[str, Any],
-    *,
-    password: str,
-    message: EmailMessage,
-    log_label: str,
-) -> None:
-    ok, detail = send_email(
-        host=smtp_row.get("host") or "",
-        port=int(smtp_row.get("port") or 587),
-        username=smtp_row.get("username") or "",
-        password=password or "",
-        use_ssl=bool(smtp_row.get("use_ssl")),
-        use_starttls=bool(smtp_row.get("use_starttls")),
-        message=message,
-    )
-    if ok:
-        logger.info("Alert emailed (%s)", log_label)
-    else:
-        logger.warning("Alert email failed (%s): %s", log_label, detail)
 
 
 def notify_enroll(

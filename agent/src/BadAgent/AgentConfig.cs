@@ -54,7 +54,7 @@ public sealed class AgentConfig
     [JsonPropertyName("collect_users")]
     public bool CollectUsers { get; set; } = true;
 
-    /// <summary>Собирать список установленных программ. По умолчанию false (opt-in).</summary>
+    /// <summary>Собирать список установленных программ. По умолчанию true. Явный false в файле не затирается.</summary>
     [JsonPropertyName("collect_software")]
     public bool CollectSoftware { get; set; } = true;
 

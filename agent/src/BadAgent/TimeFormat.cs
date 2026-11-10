@@ -61,24 +61,6 @@ public static class TimeFormat
         return sb.ToString();
     }
 
-    /// <summary>Текст для ASCII: относительное + локальное в скобках.</summary>
-    public static string FormatFreshnessPlain(string? rawUtcIso, string empty = "-")
-    {
-        if (string.IsNullOrWhiteSpace(rawUtcIso))
-        {
-            return empty;
-        }
-
-        if (!TryParseUtcInstant(rawUtcIso, out var instantUtc))
-        {
-            return rawUtcIso.Trim();
-        }
-
-        var rel = FormatRelativeRussian(DateTime.UtcNow, instantUtc);
-        var local = LocalDisplay(instantUtc.ToLocalTime());
-        return $"{rel} ({local})";
-    }
-
     public static string FormatRelativeRussian(DateTime nowUtc, DateTime instantUtc)
     {
         if (instantUtc.Kind != DateTimeKind.Utc)
