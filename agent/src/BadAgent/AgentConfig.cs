@@ -56,7 +56,7 @@ public sealed class AgentConfig
 
     /// <summary>Собирать список установленных программ. По умолчанию false (opt-in).</summary>
     [JsonPropertyName("collect_software")]
-    public bool CollectSoftware { get; set; } = false;
+    public bool CollectSoftware { get; set; } = true;
 
     /// <summary>Последняя применённая версия remote config (hash сервера); не секрет.</summary>
     [JsonPropertyName("remote_config_version")]
@@ -305,7 +305,27 @@ public static class ConfigStore
 
         var cfg = JsonSerializer.Deserialize<AgentConfig>(json) ?? new AgentConfig();
         cfg.AgentLocalKeys = NormalizeAgentLocalKeys(cfg.AgentLocalKeys);
+        if (CollectSoftwareExplicitlyFalse(json))
+        {
+            MarkAgentLocalKey(cfg, "collect_software");
+        }
+
         return cfg;
+    }
+
+    /// <summary>Явный false в файле. Отсутствие ключа сюда не попадает.</summary>
+    private static bool CollectSoftwareExplicitlyFalse(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.TryGetProperty("collect_software", out var value)
+                   && value.ValueKind == JsonValueKind.False;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     public static void Save(AgentConfig config)

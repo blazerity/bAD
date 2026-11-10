@@ -469,7 +469,7 @@ public sealed class CollectorOptions
 {
     public bool CollectHardware { get; set; } = true;
     public bool CollectUsers { get; set; } = true;
-    public bool CollectSoftware { get; set; } = false;
+    public bool CollectSoftware { get; set; } = true;
 
     public static CollectorOptions FromConfig(AgentConfig config) => new()
     {

@@ -19,10 +19,9 @@ DEFAULT_AGENT_SETTINGS: dict[str, Any] = {
     "update_check_interval_hours": 24,
     "update_enabled": True,
     "update_target": UPDATE_TARGET_LATEST,
-    # Hardware/users по умолчанию включены (прежнее поведение); software — opt-in.
     "collect_hardware": True,
     "collect_users": True,
-    "collect_software": False,
+    "collect_software": True,
 }
 
 ALLOWED_SETTING_KEYS = frozenset(DEFAULT_AGENT_SETTINGS.keys())
