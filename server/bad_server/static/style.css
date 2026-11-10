@@ -3750,18 +3750,29 @@ body.global-search-open { overflow: hidden; }
   letter-spacing: 0.04em;
   background: var(--bg-subtle);
 }
-/* Колонки по содержимому. Длинный текст сжимается многоточием, короткие не растягиваются. */
+/* Доли столбцов заданы на заголовках. Длинный текст — одна строка с многоточием. */
 .devices-table-modern {
   width: 100%;
-  table-layout: auto;
+  table-layout: fixed;
 }
-.devices-table-modern th.col-device-state,
-.devices-table-modern td.col-device-state,
-.devices-table-modern th.col-device-seen,
-.devices-table-modern td.col-device-seen,
-.devices-table-modern th.col-chevron,
-.devices-table-modern td.col-chevron {
+.devices-table-modern th.col-device-state { width: 8%; }
+.devices-table-modern th.col-device-host { width: 14%; }
+.devices-table-modern th.col-device-user { width: 11%; }
+.devices-table-modern th.col-device-model { width: 13%; }
+.devices-table-modern th.col-device-cpu { width: 12%; }
+.devices-table-modern th.col-device-ram { width: 7%; }
+.devices-table-modern th.col-device-disk { width: 6%; }
+.devices-table-modern th.col-device-os { width: 12%; }
+.devices-table-modern th.col-device-ip { width: 9%; }
+.devices-table-modern th.col-device-seen { width: 6%; }
+.devices-table-modern th.col-chevron { width: 2%; }
+.devices-table-modern thead th {
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
+  hyphens: none;
 }
 .devices-table-modern td.col-device-host .device-cell-link {
   display: block;
@@ -3772,8 +3783,12 @@ body.global-search-open { overflow: hidden; }
 .devices-table-modern td.device-col-user,
 .devices-table-modern td.device-col-model,
 .devices-table-modern td.device-col-cpu,
-.devices-table-modern td.device-col-os-cell {
-  max-width: 0;
+.devices-table-modern td.device-col-os-cell,
+.devices-table-modern td.device-col-ram,
+.devices-table-modern td.device-col-disk,
+.devices-table-modern td.col-device-state,
+.devices-table-modern td.col-device-seen {
+  min-width: 0;
   overflow: hidden;
   vertical-align: middle;
 }
@@ -3781,34 +3796,38 @@ body.global-search-open { overflow: hidden; }
   font-size: 0.82rem;
 }
 .devices-table-modern td.device-col-ram,
-.devices-table-modern td.device-col-disk {
-  width: max-content;
-  max-width: none;
+.devices-table-modern td.device-col-disk,
+.devices-table-modern td.col-device-state,
+.devices-table-modern td.col-device-seen {
   white-space: nowrap;
-  vertical-align: middle;
-  overflow: visible;
+  text-overflow: ellipsis;
 }
 .devices-table-modern td.device-col-ip {
-  width: max-content;
-  max-width: none;
+  min-width: 0;
   white-space: normal;
   vertical-align: top;
-  overflow: visible;
+  overflow: hidden;
 }
 .devices-table-modern .device-ip-stack {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 0.15rem;
+  max-width: 100%;
+  min-width: 0;
 }
 .devices-table-modern .device-ip-line {
+  display: block;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
   white-space: nowrap;
 }
 .devices-table-modern .device-cell-host,
 .devices-table-modern .device-cell-id,
 .devices-table-modern .device-col-model-text,
 .devices-table-modern .device-col-cpu-text,
-.devices-table-modern td.device-col-os-cell > span:first-child {
+.devices-table-modern td.device-col-os-cell > span {
   display: block;
   max-width: 100%;
   min-width: 0;
@@ -4349,12 +4368,20 @@ body.global-search-open { overflow: hidden; }
   vertical-align: middle;
 }
 .devices-table-modern .device-col-ip .copyable-value {
-  max-width: none;
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
 }
 .devices-table-modern .device-col-ip .copyable-text {
-  overflow: visible;
-  text-overflow: clip;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+.devices-table-modern .device-col-ip .copy-btn {
+  flex-shrink: 0;
 }
 .device-col-ip .copyable-text {
   overflow: hidden;
@@ -4666,7 +4693,6 @@ table.devices-enroll-requests {
   padding-right: 0.3rem;
   vertical-align: middle;
 }
-.devices-table-modern .col-chevron,
 .events-table-modern .col-chevron {
   width: auto;
   overflow: visible;
