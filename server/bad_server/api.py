@@ -83,6 +83,7 @@ from .minidump_read import (
     REQUEST_META,
     dump_name_ok,
     read_header,
+    read_kernel_header,
     unlink_dump,
 )
 from .inventory_events import (
@@ -482,7 +483,9 @@ def agent_minidump(
     try:
         _copy_minidump(file, path)
         try:
-            parsed = read_header(path)
+            parsed = read_kernel_header(path)
+            if parsed is None:
+                parsed = read_header(path)
         except Exception:
             logger.exception("minidump header parse failed")
             parsed = None

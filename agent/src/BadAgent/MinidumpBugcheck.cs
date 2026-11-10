@@ -11,7 +11,12 @@ public static class MinidumpBugcheck
     public const int MaxMessageChars = 200;
 
     private const uint MdmpSignature = 0x504D444D; // 'MDMP'
+    private const uint PageSignature = 0x45474150; // 'PAGE'
+    private const uint Du64Signature = 0x34365544; // 'DU64'
+    private const uint DumpSignature = 0x504D5544; // 'DUMP'
     private const uint ExceptionStreamType = 6;
+    private const int Kernel64HeaderBytes = 0x60;
+    private const int Kernel32HeaderBytes = 0x3C;
 
     public readonly record struct Result(
         string? Code,
@@ -45,8 +50,75 @@ public static class MinidumpBugcheck
         }
     }
 
+    /// <summary>
+    /// Годный MDMP (подпись, 1–256 потоков, каталог внутри файла) или малый дамп ядра PAGE+DU64/DUMP.
+    /// Поток Exception в первых 64 КиБ не требуется.
+    /// </summary>
+    public static bool HeaderAllowsUpload(string path)
+    {
+        try
+        {
+            using var fs = new FileStream(
+                path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            var len = fs.Length;
+            if (len < 8)
+            {
+                return false;
+            }
+
+            var buf = new byte[32];
+            var n = fs.Read(buf, 0, (int)Math.Min(buf.Length, len));
+            if (n < 8)
+            {
+                return false;
+            }
+
+            var sig = BitConverter.ToUInt32(buf, 0);
+            if (sig == PageSignature)
+            {
+                var mark = BitConverter.ToUInt32(buf, 4);
+                if (mark == Du64Signature)
+                {
+                    return len >= Kernel64HeaderBytes;
+                }
+
+                if (mark == DumpSignature)
+                {
+                    return len >= Kernel32HeaderBytes;
+                }
+
+                return false;
+            }
+
+            if (sig != MdmpSignature || n < 16)
+            {
+                return false;
+            }
+
+            var streams = BitConverter.ToUInt32(buf, 8);
+            var directoryRva = BitConverter.ToUInt32(buf, 12);
+            if (streams < 1 || streams > 256)
+            {
+                return false;
+            }
+
+            var dirEnd = (ulong)directoryRva + (ulong)streams * 12UL;
+            return dirEnd <= (ulong)len;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public static Result TryParseHeader(ReadOnlySpan<byte> data)
     {
+        var kernel = TryParseKernelHeader(data);
+        if (kernel.Code is not null)
+        {
+            return kernel;
+        }
+
         if (data.Length < 32)
         {
             return default;
@@ -133,6 +205,59 @@ public static class MinidumpBugcheck
         }
 
         return default;
+    }
+
+    private static Result TryParseKernelHeader(ReadOnlySpan<byte> data)
+    {
+        if (data.Length < 8)
+        {
+            return default;
+        }
+
+        if (BitConverter.ToUInt32(data) != PageSignature)
+        {
+            return default;
+        }
+
+        var mark = BitConverter.ToUInt32(data.Slice(4));
+        uint code;
+        List<string> parameters;
+        if (mark == Du64Signature)
+        {
+            if (data.Length < Kernel64HeaderBytes)
+            {
+                return default;
+            }
+
+            code = BitConverter.ToUInt32(data.Slice(0x38));
+            parameters = new List<string>(4);
+            for (var p = 0; p < 4; p++)
+            {
+                var val = BitConverter.ToUInt64(data.Slice(0x40 + p * 8));
+                parameters.Add($"0x{val:X}");
+            }
+        }
+        else if (mark == DumpSignature)
+        {
+            if (data.Length < Kernel32HeaderBytes)
+            {
+                return default;
+            }
+
+            code = BitConverter.ToUInt32(data.Slice(0x28));
+            parameters = new List<string>(4);
+            for (var p = 0; p < 4; p++)
+            {
+                var val = BitConverter.ToUInt32(data.Slice(0x2C + p * 4));
+                parameters.Add($"0x{val:X}");
+            }
+        }
+        else
+        {
+            return default;
+        }
+
+        return new Result($"0x{code:X8}", parameters, TruncateMsg(HardwareMaps.BugcheckMessage(code)));
     }
 
     /// <summary>Fallback: System Event Log BugCheck около mtime файла (без копирования dump).</summary>

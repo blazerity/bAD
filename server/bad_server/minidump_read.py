@@ -67,6 +67,32 @@ def cause_text(cause: str, bugcheck: str, module: Optional[str]) -> str:
     return " · ".join(parts)
 
 
+def read_kernel_header(path: str) -> Optional[dict[str, str]]:
+    """Малый дамп ядра: PAGE+DU64 или PAGE+DUMP. Иначе None, MDMP сюда не входит."""
+    with open(path, "rb") as handle:
+        data = handle.read(0x60)
+    if len(data) < 8 or data[:4] != b"PAGE":
+        return None
+    mark = data[4:8]
+    if mark == b"DU64":
+        if len(data) < 0x60:
+            return None
+        code = int.from_bytes(data[0x38:0x3C], "little")
+    elif mark == b"DUMP":
+        if len(data) < 0x3C:
+            return None
+        code = int.from_bytes(data[0x28:0x2C], "little")
+    else:
+        return None
+    cause = cause_label(code, None)
+    bugcheck = f"0x{code:08X}"
+    return {
+        "cause": cause,
+        "bugcheck": bugcheck,
+        "text": cause_text(cause, bugcheck, None),
+    }
+
+
 def read_header(path: str) -> Optional[dict[str, str]]:
     from minidump.minidumpfile import MinidumpFile
 

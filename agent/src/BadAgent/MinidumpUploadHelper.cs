@@ -91,8 +91,7 @@ public static class MinidumpUploadHelper
 
     private static bool IsProbablyMinidump(string path)
     {
-        var r = MinidumpBugcheck.TryRead(path);
-        return r.Code is not null || r.Message is not null;
+        return MinidumpBugcheck.HeaderAllowsUpload(path);
     }
 }
 
