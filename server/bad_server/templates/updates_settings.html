@@ -97,47 +97,39 @@
   <p class="muted">Каталог пуст. Получите установщики из репозитория или загрузите файл вручную.</p>
   {% endif %}
 
-  <h2>Получить установщики из репозитория</h2>
-  <form method="post" action="/settings/updates/sync" class="form-actions">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <button type="submit">Синхронизировать установщики</button>
-  </form>
-
-  <h2>Загрузить установщик вручную</h2>
-  <p class="muted">
-    Файл <span class="mono">bad-agent-X.Y.Z.msi</span> и при желании манифест.
-    Контрольную сумму можно не указывать — посчитаем сами.
-  </p>
-  <form method="post" action="/settings/updates/upload" enctype="multipart/form-data" class="settings-form updates-upload-form">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <label for="msi">Файл установки (.msi)</label>
-    {{ file_input_ru('msi', 'msi', '.msi,application/octet-stream', required=true) }}
-
-    <label for="manifest">Описание версии (необязательно)</label>
-    {{ file_input_ru('manifest', 'manifest', '.json,application/json') }}
-
-    <label for="version">Версия агента (если не в имени файла или описании)</label>
-    <input id="version" name="version" type="text" placeholder="1.0.0" autocomplete="off">
-
-    <label for="sha256">SHA256 (необязательно, проверка)</label>
-    <input id="sha256" name="sha256" type="text" class="mono" placeholder="hex" autocomplete="off">
-
-    <div class="form-actions">
-      <button type="submit">Добавить в каталог</button>
+  <div class="settings-pair">
+    <div>
+      <h2>Получить установщики из репозитория</h2>
+      <form method="post" action="/settings/updates/sync" class="form-actions">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit">Синхронизировать установщики</button>
+      </form>
     </div>
-  </form>
+    <div>
+      <h2>Загрузить установщик вручную</h2>
+      <p class="muted">
+        Файл <span class="mono">bad-agent-X.Y.Z.msi</span> и при желании манифест.
+        Контрольную сумму можно не указывать — посчитаем сами.
+      </p>
+      <form method="post" action="/settings/updates/upload" enctype="multipart/form-data" class="settings-form updates-upload-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="msi">Файл установки (.msi)</label>
+        {{ file_input_ru('msi', 'msi', '.msi,application/octet-stream', required=true) }}
 
-  <h2 id="enrollment">Регистрация агентов</h2>
-  <form method="post" action="/settings/updates/access" class="settings-form">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <label>
-      <input type="checkbox" name="require_inventory_signature" value="1"
-        {% if require_inventory_signature %}checked{% endif %}>
-      Требовать подпись снимка
-    </label>
-    <div class="form-actions">
-      <button type="submit">Сохранить</button>
+        <label for="manifest">Описание версии (необязательно)</label>
+        {{ file_input_ru('manifest', 'manifest', '.json,application/json') }}
+
+        <label for="version">Версия агента (если не в имени файла или описании)</label>
+        <input id="version" name="version" type="text" placeholder="1.0.0" autocomplete="off">
+
+        <label for="sha256">SHA256 (необязательно, проверка)</label>
+        <input id="sha256" name="sha256" type="text" class="mono" placeholder="hex" autocomplete="off">
+
+        <div class="form-actions">
+          <button type="submit">Добавить в каталог</button>
+        </div>
+      </form>
     </div>
-  </form>
+  </div>
 </section>
 {% endblock %}

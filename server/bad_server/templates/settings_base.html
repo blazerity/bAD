@@ -17,6 +17,10 @@
         <span class="settings-nav-label">Смена пароля</span>
       </a>
       {% else %}
+      <a class="settings-nav-item {% if settings_section == 'general' %}active{% endif %}" href="/settings/general">
+        <span class="settings-nav-icon">{{ icon('settings') }}</span>
+        <span class="settings-nav-label">Основные</span>
+      </a>
       <a class="settings-nav-item {% if settings_section == 'ldap' %}active{% endif %}" href="/settings/ldap">
         <span class="settings-nav-icon">{{ icon('ldap') }}</span>
         <span class="settings-nav-label">Доступ / LDAP</span>

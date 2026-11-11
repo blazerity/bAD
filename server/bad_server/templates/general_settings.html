@@ -1,0 +1,36 @@
+{% extends "settings_base.html" %}
+{% from "macros/icons.html" import icon %}
+{% set settings_section = 'general' %}
+{% block title %}Основные — bAD{% endblock %}
+{% block settings_content %}
+<section class="settings">
+  <h1 class="with-icon">{{ icon('settings') }}Основные</h1>
+  <p class="muted">Подпись снимка и короткие переходы к остальным параметрам.</p>
+  {% if message %}<p class="ok">{{ message }}</p>{% endif %}
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+  <form method="post" action="/settings/general" class="settings-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label class="check">
+      <input type="checkbox" name="require_inventory_signature" value="1"
+        {% if require_inventory_signature %}checked{% endif %}>
+      Требовать подпись снимка
+    </label>
+    <div class="form-actions">
+      <button type="submit">Сохранить</button>
+    </div>
+  </form>
+
+  <div class="settings-pair settings-link-grid">
+    <a href="/settings/ldap">Вход через каталог</a>
+    <a href="/settings/tls">Сертификат и защищённое соединение</a>
+    <a href="/settings/mail">Кому и какие события писать</a>
+    <a href="/settings/retention">Сроки хранения и пороги связи</a>
+    <a href="/settings/policies">Интервалы агента и сбор</a>
+    <a href="/settings/updates">Каталог установщиков</a>
+    <a href="/settings/server-update">Версия панели</a>
+    <a href="/settings/backups">Копия базы и ключи</a>
+    <a href="/settings/integrations">Доступ программ к карточкам</a>
+  </div>
+</section>
+{% endblock %}

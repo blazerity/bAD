@@ -84,11 +84,16 @@
   <form method="post" action="/settings/tls" enctype="multipart/form-data" class="settings-form" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
-    <label for="certificate">Сертификат (PEM)</label>
-    {{ file_input_ru('certificate', 'certificate', '.pem,.crt,.cer,.txt,application/x-pem-file,application/octet-stream', required=true) }}
-
-    <label for="private_key">Закрытый ключ (PEM)</label>
-    {{ file_input_ru('private_key', 'private_key', '.pem,.key,.txt,application/x-pem-file,application/octet-stream', required=true, autocomplete='off') }}
+    <div class="settings-pair">
+      <div>
+        <label for="certificate">Сертификат (PEM)</label>
+        {{ file_input_ru('certificate', 'certificate', '.pem,.crt,.cer,.txt,application/x-pem-file,application/octet-stream', required=true) }}
+      </div>
+      <div>
+        <label for="private_key">Закрытый ключ (PEM)</label>
+        {{ file_input_ru('private_key', 'private_key', '.pem,.key,.txt,application/x-pem-file,application/octet-stream', required=true, autocomplete='off') }}
+      </div>
+    </div>
 
     <label for="chain">Цепочка УЦ (необязательно)</label>
     {{ file_input_ru('chain', 'chain', '.pem,.crt,.cer,.txt,application/x-pem-file,application/octet-stream') }}

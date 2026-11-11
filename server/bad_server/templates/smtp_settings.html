@@ -49,17 +49,22 @@
       </label>
     </div>
 
-    <label for="username">Пользователь</label>
-    <input id="username" name="username" type="text" value="{{ smtp.username }}" autocomplete="off" {% if tls_mode == 'http' %}disabled{% endif %}>
-
-    <label for="password">Пароль</label>
-    <input id="password" name="password" type="password" value=""
-      placeholder="{% if has_password %}без изменений{% endif %}"
-      autocomplete="new-password"
-      {% if tls_mode == 'http' %}disabled{% endif %}>
-    {% if has_password %}
-    <p class="hint">Оставьте пустым, чтобы сохранить текущий пароль.</p>
-    {% endif %}
+    <div class="settings-pair">
+      <div>
+        <label for="username">Пользователь</label>
+        <input id="username" name="username" type="text" value="{{ smtp.username }}" autocomplete="off" {% if tls_mode == 'http' %}disabled{% endif %}>
+      </div>
+      <div>
+        <label for="password">Пароль</label>
+        <input id="password" name="password" type="password" value=""
+          placeholder="{% if has_password %}без изменений{% endif %}"
+          autocomplete="new-password"
+          {% if tls_mode == 'http' %}disabled{% endif %}>
+        {% if has_password %}
+        <p class="hint">Оставьте пустым, чтобы сохранить текущий пароль.</p>
+        {% endif %}
+      </div>
+    </div>
 
     <div class="settings-grid-2">
       <div>

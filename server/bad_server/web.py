@@ -44,16 +44,18 @@ from .device_refresh import set_device_refresh_request
 from .minidump_read import REQUEST_META, dump_name_ok
 from .db import Database
 from .device_health import (
-    DEVICE_STALE_MAX_SECONDS,
-    DEVICE_STALE_MIN_SECONDS,
+    DEVICE_RECENT_SITE_SECRET_KEY,
     DEVICE_STALE_SITE_SECRET_KEY,
+    badge_recent_after_seconds,
     device_silence_status,
+    effective_recent_after_seconds,
     effective_stale_after_seconds,
     health_snippet,
     normalize_tags,
     parse_iso,
-    parse_site_stale_seconds,
     parse_utc,
+    retention_threshold_seconds,
+    stale_days_form,
 )
 from .ldap_client import settings_from_row, test_connection
 from .security import (
@@ -250,6 +252,51 @@ _EVENT_TYPE_LABELS_RU = {
     "device_back_online": "Снова на связи",
 }
 
+# Подписи галок почты. Лента остаётся на _EVENT_TYPE_LABELS_RU.
+_NOTIFY_CHECK_LABELS_RU = {
+    "disk_removed": "Диск отключён",
+    "cpu_change": "Сменился процессор",
+    "ram_module_removed": "Планка памяти снята",
+    "volume_free_critical": "На системном диске критически мало места",
+    "minidump_bugcheck": "Синий экран с кодом bugcheck",
+    "serial_change": "Сменился серийный номер компьютера",
+    "model_change": "Сменилась модель компьютера",
+    "manufacturer_change": "Сменился производитель компьютера",
+    "smbios_uuid_change": "Сменился SMBIOS UUID",
+    "baseboard_serial_change": "Сменился серийный номер платы",
+    "bios_serial_change": "Сменился серийный номер BIOS",
+    "hostname_change": "Сменилось имя компьютера",
+    "domain_change": "Сменился домен",
+    "ad_ou_change": "Компьютер переехал в другой OU",
+    "device_stale": "Компьютер перестал выходить на связь",
+    "device_back_online": "Компьютер снова на связи",
+    "device_enrolled": "Зарегистрирован новый компьютер",
+    "device_merged": "Карточки компьютера объединены",
+    "disk_added": "Подключён диск",
+    "ram_module_added": "Поставлена планка памяти",
+    "volume_free_drop": "Заметно уменьшилось свободное место",
+    "antivirus_change": "Сменился набор антивирусов",
+    "tpm_change": "Сменился TPM",
+    "secure_boot_change": "Сменился Secure Boot",
+    "gpu_added": "Появилась видеокарта",
+    "gpu_removed": "Пропала видеокарта",
+    "ram_bytes_change": "Сменился объём оперативной памяти",
+    "nic_ipv4_change": "Сменился IPv4-адрес",
+    "nic_mac_change": "Сетевой интерфейс появился или исчез",
+    "pending_reboot_change": "Компьютер стал ждать перезагрузку или перестал",
+    "last_boot_change": "Компьютер перезагрузился",
+    "chassis_type_change": "Сменился тип корпуса",
+    "agent_version_change": "Сменилась версия агента",
+    "os_build_change": "Сменилась сборка Windows",
+    "bios_update": "Обновился BIOS",
+    "monitor_set_change": "Сменился набор мониторов",
+    "timezone_change": "Сменился часовой пояс",
+    "logged_on_change": "Сменился список вошедших пользователей",
+    "last_interactive_change": "Сменился последний интерактивный пользователь",
+    "usb_added": "Подключена флешка или USB-диск",
+    "usb_removed": "Отключена флешка или USB-диск",
+}
+
 
 def _format_chassis(value: object, empty: str = "") -> str:
     if value is None:
@@ -272,9 +319,13 @@ def _chassis_type_from_device(device: dict) -> str:
 
 
 def _device_freshness_tier(
-    last_seen_at: Optional[str], *, stale_after_seconds: int
+    last_seen_at: Optional[str],
+    *,
+    stale_after_seconds: int,
+    recent_after_seconds: int,
+    now: Optional[datetime] = None,
 ) -> str:
-    """UI: online | recent | stale | unknown (порог stale не меняется)."""
+    """UI: online | recent | stale | unknown."""
     silence = device_silence_status(
         last_seen_at, stale_after_seconds=stale_after_seconds
     )
@@ -286,10 +337,16 @@ def _device_freshness_tier(
     seen = parse_utc(last_seen_at)
     if seen is None:
         return "unknown"
-    age = max(0, int((datetime.now(timezone.utc) - seen).total_seconds()))
-    threshold = max(1, int(stale_after_seconds))
-    online_cap = min(600, max(120, threshold // 3))
-    return "online" if age <= online_cap else "recent"
+    clock = now or datetime.now(timezone.utc)
+    age = max(0, int((clock - seen).total_seconds()))
+    cap = badge_recent_after_seconds(recent_after_seconds, stale_after_seconds)
+    return "online" if age <= cap else "recent"
+
+
+def _freshness_limits(db: Database, settings: Settings) -> tuple[int, int]:
+    stale = effective_stale_after_seconds(db, settings)
+    recent = effective_recent_after_seconds(db)
+    return stale, recent
 
 
 def _chassis_map_for_devices(devices: list[dict]) -> dict[str, str]:
@@ -1546,7 +1603,9 @@ def logout():
     return resp
 
 
-def _enrich_device_row(device: dict, *, stale_after_seconds: int) -> dict:
+def _enrich_device_row(
+    device: dict, *, stale_after_seconds: int, recent_after_seconds: int
+) -> dict:
     device = dict(device)
     meta = device.get("meta") if isinstance(device.get("meta"), dict) else {}
     device["silence"] = device_silence_status(
@@ -1556,7 +1615,9 @@ def _enrich_device_row(device: dict, *, stale_after_seconds: int) -> dict:
     device["chassis_type"] = _chassis_type_from_device(device)
     device["chassis_label"] = _format_chassis(device["chassis_type"])
     device["freshness"] = _device_freshness_tier(
-        device.get("last_seen_at"), stale_after_seconds=stale_after_seconds
+        device.get("last_seen_at"),
+        stale_after_seconds=stale_after_seconds,
+        recent_after_seconds=recent_after_seconds,
     )
     device["bad_id"] = device.get("bad_id") or meta.get("bad_id")
     did = str(device.get("device_id") or "")
@@ -1928,7 +1989,7 @@ def _devices_wave_context(
     device_signals = dup_index.get("device_signals") or {}
 
     drift_ids: set[str] = set()
-    stale_sec = effective_stale_after_seconds(db, settings)
+    stale_sec, recent_sec = _freshness_limits(db, settings)
     if wave == "drift":
         _active, _archived, _stats, ops = _fleet_snapshot(db, settings)
         drift_ids = set(ops.get("version_drift_ids") or [])
@@ -1966,7 +2027,14 @@ def _devices_wave_context(
                     continue
         raw.append(d)
 
-    enriched = [_enrich_device_row(d, stale_after_seconds=stale_sec) for d in raw]
+    enriched = [
+        _enrich_device_row(
+            d,
+            stale_after_seconds=stale_sec,
+            recent_after_seconds=recent_sec,
+        )
+        for d in raw
+    ]
     _attach_duplicate_signals(enriched, device_signals)
     filtered = filter_devices_by_wave(
         enriched,
@@ -2696,7 +2764,7 @@ def _device_config_context(
             errs = payload.get("collector_errors")
             if isinstance(errs, list):
                 collector_errors = errs
-    stale_sec = effective_stale_after_seconds(db, settings)
+    stale_sec, recent_sec = _freshness_limits(db, settings)
     silence = device_silence_status(
         detail.get("last_seen_at"),
         stale_after_seconds=stale_sec,
@@ -2710,7 +2778,9 @@ def _device_config_context(
         hw_chassis or _chassis_type_from_device(detail)
     )
     freshness = _device_freshness_tier(
-        detail.get("last_seen_at"), stale_after_seconds=stale_sec
+        detail.get("last_seen_at"),
+        stale_after_seconds=stale_sec,
+        recent_after_seconds=recent_sec,
     )
     recent_events = db.list_device_events(
         device_id=device_id, limit=20, include_detail=False
@@ -4033,7 +4103,7 @@ def _notify_check_groups() -> list[tuple[str, list[tuple[str, str]]]]:
     }
     buckets: dict[str, list[tuple[str, str]]] = {level: [] for level in titles}
     for event_type, level in _EVENT_IMPORTANCE.items():
-        label = _EVENT_TYPE_LABELS_RU.get(event_type, event_type)
+        label = _NOTIFY_CHECK_LABELS_RU.get(event_type, event_type)
         buckets.setdefault(level, []).append((event_type, label))
     return [
         (titles[level], sorted(buckets[level], key=lambda item: item[1].casefold()))
@@ -4161,6 +4231,57 @@ def _parse_smtp_form(form: SmtpFormData) -> tuple[dict, Optional[str]]:
     }, None
 
 
+def _commit_retention(
+    db: Database,
+    *,
+    events_days: int,
+    inventory_days: int,
+    stale_days: int,
+    recent_minutes: int,
+) -> Optional[str]:
+    """Ошибка — секреты не пишутся. None — оба порога записаны."""
+    if events_days < 1 or inventory_days < 1 or events_days > 3650 or inventory_days > 3650:
+        return "Диапазон: от 1 до 3650 дней"
+    planned = retention_threshold_seconds(stale_days, recent_minutes)
+    if isinstance(planned, str):
+        return planned
+    stale_sec, recent_sec = planned
+    db.update_retention_settings(events_days=events_days, inventory_days=inventory_days)
+    db.set_site_secret(DEVICE_STALE_SITE_SECRET_KEY, str(stale_sec))
+    db.set_site_secret(DEVICE_RECENT_SITE_SECRET_KEY, str(recent_sec))
+    return None
+
+
+def _inventory_signature_flag(raw: Optional[str]) -> str:
+    return "1" if (raw or "").strip() in {"1", "on", "true"} else "0"
+
+
+def _save_inventory_signature(db: Database, raw: Optional[str]) -> None:
+    db.set_site_secret(
+        "require_inventory_signature",
+        _inventory_signature_flag(raw),
+    )
+
+
+def _general_context(
+    db: Database,
+    settings: Settings,
+    *,
+    user: WebUser,
+    message: Optional[str] = None,
+    error: Optional[str] = None,
+) -> dict:
+    return {
+        "user": user,
+        "settings_section": "general",
+        "message": message,
+        "error": error,
+        "require_inventory_signature": db.get_bool_setting(
+            "require_inventory_signature", settings.require_inventory_signature
+        ),
+    }
+
+
 def _retention_context(
     db: Database,
     settings: Settings,
@@ -4170,11 +4291,15 @@ def _retention_context(
     error: Optional[str] = None,
 ) -> dict:
     stale_sec = effective_stale_after_seconds(db, settings)
+    stale_days, stale_note_minutes = stale_days_form(stale_sec)
+    recent_minutes = effective_recent_after_seconds(db) // 60
     return {
         "user": user,
         "settings_section": "retention",
         "retention": db.get_retention_settings(),
-        "stale_after_minutes": stale_sec // 60,
+        "stale_after_days": stale_days,
+        "stale_note_minutes": stale_note_minutes,
+        "recent_after_minutes": recent_minutes,
         "message": message,
         "error": error,
     }
@@ -4209,7 +4334,37 @@ def _backup_context(
 
 @router.get("/settings")
 def settings_home(user: WebUser = Depends(require_web_admin)):
-    return RedirectResponse(url="/settings/ldap", status_code=303)
+    return RedirectResponse(url="/settings/general", status_code=303)
+
+
+@router.get("/settings/general", response_class=HTMLResponse)
+def general_settings_page(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    return _html(
+        request,
+        "general_settings.html",
+        _general_context(db, settings, user=user),
+    )
+
+
+@router.post("/settings/general")
+def general_settings_save(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    require_inventory_signature: str = Form(""),
+):
+    _save_inventory_signature(db, require_inventory_signature)
+    return _html(
+        request,
+        "general_settings.html",
+        _general_context(db, settings, user=user, message="Сохранено"),
+    )
 
 
 _INTEGRATION_OK = {
@@ -4324,12 +4479,14 @@ def retention_settings_save(
     settings: Settings = Depends(get_settings),
     events_days: str = Form("90"),
     inventory_days: str = Form("180"),
-    stale_after_minutes: str = Form("60"),
+    stale_after_days: str = Form("1"),
+    recent_after_minutes: str = Form("10"),
 ):
     try:
         ev = int((events_days or "90").strip())
         inv = int((inventory_days or "180").strip())
-        stale_min = int((stale_after_minutes or "60").strip())
+        stale_days = int((stale_after_days or "1").strip())
+        recent_min = int((recent_after_minutes or "10").strip())
     except ValueError:
         return _html(
             request,
@@ -4338,41 +4495,24 @@ def retention_settings_save(
                 db,
                 settings,
                 user=user,
-                error="Укажите целые числа (дни и минуты)",
+                error="Укажите целые числа",
             ),
             status_code=400,
         )
-    if ev < 1 or inv < 1 or ev > 3650 or inv > 3650:
+    error = _commit_retention(
+        db,
+        events_days=ev,
+        inventory_days=inv,
+        stale_days=stale_days,
+        recent_minutes=recent_min,
+    )
+    if error:
         return _html(
             request,
             "retention_settings.html",
-            _retention_context(
-                db,
-                settings,
-                user=user,
-                error="Диапазон: от 1 до 3650 дней",
-            ),
+            _retention_context(db, settings, user=user, error=error),
             status_code=400,
         )
-    stale_sec = parse_site_stale_seconds(str(stale_min * 60))
-    if stale_sec is None:
-        stale_min_min = DEVICE_STALE_MIN_SECONDS // 60
-        stale_min_max = DEVICE_STALE_MAX_SECONDS // 60
-        return _html(
-            request,
-            "retention_settings.html",
-            _retention_context(
-                db,
-                settings,
-                user=user,
-                error=(
-                    f"Порог устаревания: от {stale_min_min} до {stale_min_max} минут"
-                ),
-            ),
-            status_code=400,
-        )
-    db.update_retention_settings(events_days=ev, inventory_days=inv)
-    db.set_site_secret(DEVICE_STALE_SITE_SECRET_KEY, str(stale_sec))
     _invalidate_fleet_snapshot_cache()
     return _html(
         request,
@@ -4687,9 +4827,6 @@ def _updates_context(
         "sync_interval": settings.agent_update_sync_interval_seconds,
         "message": message,
         "error": error,
-        "require_inventory_signature": db.get_bool_setting(
-            "require_inventory_signature", settings.require_inventory_signature
-        ),
     }
 
 
@@ -4845,14 +4982,11 @@ def updates_access_save(
     settings: Settings = Depends(get_settings),
     require_inventory_signature: str = Form(""),
 ):
-    db.set_site_secret(
-        "require_inventory_signature",
-        "1" if (require_inventory_signature or "").strip() in {"1", "on", "true"} else "0",
-    )
+    _save_inventory_signature(db, require_inventory_signature)
     return _html(
         request,
-        "updates_settings.html",
-        _updates_context(db, settings, user=user, message="Сохранено"),
+        "general_settings.html",
+        _general_context(db, settings, user=user, message="Сохранено"),
     )
 
 
