@@ -327,7 +327,7 @@ def _device_freshness_tier(
 ) -> str:
     """UI: online | recent | stale | unknown."""
     silence = device_silence_status(
-        last_seen_at, stale_after_seconds=stale_after_seconds
+        last_seen_at, stale_after_seconds=stale_after_seconds, now=now
     )
     status = silence.get("status") or "unknown"
     if status == "unknown":

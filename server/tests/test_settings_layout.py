@@ -88,8 +88,32 @@ def test_mail_checkbox_labels_and_groups() -> None:
     assert titles == ["Критичные", "Высокие", "Средние", "Низкие"]
 
 
+def _without_media(css: str) -> str:
+    parts: list[str] = []
+    index = 0
+    while True:
+        start = css.find("@media", index)
+        if start < 0:
+            parts.append(css[index:])
+            break
+        parts.append(css[index:start])
+        brace = css.find("{", start)
+        depth = 0
+        end = brace
+        for end in range(brace, len(css)):
+            if css[end] == "{":
+                depth += 1
+            elif css[end] == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+        index = end + 1
+    return "".join(parts)
+
+
 def test_notify_grid_collapses_at_phone_width() -> None:
-    rule = _CSS.split(".notify-checks-grid {", 1)[1].split("}", 1)[0]
+    base = _without_media(_CSS)
+    rule = base.split(".notify-checks-grid {", 1)[1].split("}", 1)[0]
     assert "minmax(0, 1fr) minmax(0, 1fr)" in rule
     phone = _media_block(_CSS, "640px")
     assert ".notify-checks-grid" in phone
