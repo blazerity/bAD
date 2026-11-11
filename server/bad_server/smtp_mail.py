@@ -12,6 +12,7 @@ from email.message import EmailMessage
 from typing import Any, Literal, Optional, TYPE_CHECKING
 
 from .db import utc_now
+from .event_importance import _EVENT_IMPORTANCE, event_importance
 
 if TYPE_CHECKING:
     from .db import Database
@@ -202,19 +203,61 @@ def digest_send_due(
     return True, slot_key, window_label
 
 
+def _types_from_legacy_flags(flags: dict[str, bool]) -> dict[str, bool]:
+    """Старые галки → типы. Чего нет в таблице, остаётся выключенным."""
+    wanted: set[str] = set()
+    if flags.get("hardware"):
+        wanted |= HARDWARE_ALERT_TYPES
+    if flags.get("hostname"):
+        wanted.add("hostname_change")
+    if flags.get("domain"):
+        wanted.add("domain_change")
+    if flags.get("pending_reboot"):
+        wanted.add("pending_reboot_change")
+    if flags.get("enroll"):
+        wanted.add("device_enrolled")
+    if flags.get("stale"):
+        wanted.add("device_stale")
+    if flags.get("online"):
+        wanted.add("device_back_online")
+    if flags.get("disk_space"):
+        wanted.add("volume_free_drop")
+        wanted.add("volume_free_critical")
+    return {event_type: event_type in wanted for event_type in _EVENT_IMPORTANCE}
+
+
 def parse_notify_flags(raw: Any) -> dict[str, bool]:
-    flags = dict(DEFAULT_NOTIFY)
+    """Разворот notify_json в словарь тип → слать.
+
+    Пустой и битый JSON — дефолт старых галок.
+    Старые ключи без ключей типов — те же пачки, новые типы выключены.
+    Хотя бы один ключ типа — новый формат: нет ключа значит выключен.
+    """
     data: Any = raw
-    if isinstance(raw, str) and raw.strip():
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
+    if isinstance(raw, str):
+        if not raw.strip():
             data = None
-    if isinstance(data, dict):
-        for key in DEFAULT_NOTIFY:
+        else:
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                data = None
+    if not isinstance(data, dict) or not data:
+        return _types_from_legacy_flags(dict(DEFAULT_NOTIFY))
+    legacy_keys = frozenset(DEFAULT_NOTIFY)
+    has_event_key = any(key in _EVENT_IMPORTANCE for key in data)
+    if has_event_key:
+        return {
+            event_type: bool(data.get(event_type))
+            for event_type in _EVENT_IMPORTANCE
+        }
+    if any(key in legacy_keys for key in data):
+        flags = dict(DEFAULT_NOTIFY)
+        for key in legacy_keys:
             if key in data:
                 flags[key] = bool(data[key])
-    return flags
+        return _types_from_legacy_flags(flags)
+    return _types_from_legacy_flags(dict(DEFAULT_NOTIFY))
 
 
 def dump_notify_flags(flags: dict[str, bool]) -> str:
@@ -234,26 +277,8 @@ def parse_recipients(raw: str) -> list[str]:
 def filter_events_for_mail(
     events: list[dict[str, Any]], flags: dict[str, bool]
 ) -> list[dict[str, Any]]:
-    wanted: set[str] = set()
-    if flags.get("hardware"):
-        wanted |= HARDWARE_ALERT_TYPES
-    if flags.get("hostname"):
-        wanted.add("hostname_change")
-    if flags.get("domain"):
-        wanted.add("domain_change")
-    if flags.get("pending_reboot"):
-        wanted.add("pending_reboot_change")
-    if flags.get("enroll"):
-        wanted.add("device_enrolled")
-    if flags.get("stale"):
-        wanted.add("device_stale")
-    if flags.get("online"):
-        wanted.add("device_back_online")
-    if flags.get("disk_space"):
-        wanted.add("volume_free_drop")
-        wanted.add("volume_free_critical")
-    # last_boot_change / timezone_change — в ленте событий, mail default off
-    return [e for e in events if e.get("type") in wanted]
+    enabled = {key for key, on in flags.items() if on}
+    return [event for event in events if event.get("type") in enabled]
 
 
 def event_visual(event_type: str) -> dict[str, str]:
@@ -303,52 +328,6 @@ _CHASSIS_CAPTION = {
     "vm": "ВМ",
 }
 
-# Табличные значки: настольный Outlook не рисует SVG из панели.
-_CHASSIS_ICON_HTML = {
-    "laptop": (
-        '<table role="presentation" cellpadding="0" cellspacing="0" '
-        'style="border-collapse:collapse">'
-        '<tr><td width="24" height="14" bgcolor="#ffffff" '
-        'style="border:1px solid #0067c0;font-size:1px;line-height:14px">&nbsp;</td></tr>'
-        '<tr><td height="2" style="font-size:1px;line-height:2px">&nbsp;</td></tr>'
-        '<tr><td height="4" bgcolor="#0067c0" '
-        'style="font-size:1px;line-height:4px">&nbsp;</td></tr>'
-        "</table>"
-    ),
-    "desktop": (
-        '<table role="presentation" cellpadding="0" cellspacing="0" '
-        'style="border-collapse:collapse">'
-        '<tr><td width="14" bgcolor="#0067c0" style="padding:2px;font-size:1px;line-height:1px">'
-        '<table role="presentation" cellpadding="0" cellspacing="0" width="10" '
-        'style="border-collapse:collapse">'
-        '<tr><td height="4" bgcolor="#ffffff" style="font-size:1px;line-height:4px">&nbsp;</td></tr>'
-        '<tr><td height="2" bgcolor="#0067c0" style="font-size:1px;line-height:2px">&nbsp;</td></tr>'
-        '<tr><td height="4" bgcolor="#ffffff" style="font-size:1px;line-height:4px">&nbsp;</td></tr>'
-        '<tr><td height="2" bgcolor="#0067c0" style="font-size:1px;line-height:2px">&nbsp;</td></tr>'
-        '<tr><td height="4" bgcolor="#ffffff" style="font-size:1px;line-height:4px">&nbsp;</td></tr>'
-        "</table></td></tr></table>"
-    ),
-    "server": (
-        '<table role="presentation" cellpadding="0" cellspacing="0" '
-        'style="border-collapse:collapse">'
-        '<tr><td width="22" height="5" bgcolor="#0067c0" '
-        'style="font-size:1px;line-height:5px">&nbsp;</td></tr>'
-        '<tr><td height="2" style="font-size:1px;line-height:2px">&nbsp;</td></tr>'
-        '<tr><td width="22" height="5" bgcolor="#0067c0" '
-        'style="font-size:1px;line-height:5px">&nbsp;</td></tr>'
-        "</table>"
-    ),
-    "vm": (
-        '<table role="presentation" cellpadding="0" cellspacing="0" '
-        'style="border-collapse:collapse">'
-        '<tr><td width="20" height="14" bgcolor="#ffffff" '
-        'style="border:1px solid #0067c0;font-size:11px;line-height:14px;'
-        'color:#0067c0;text-align:center;font-family:Consolas,monospace">VM</td></tr>'
-        "</table>"
-    ),
-}
-
-
 def _chassis_key(raw: object) -> str:
     key = str(raw or "").strip().casefold()
     return key if key in _CHASSIS_CAPTION else ""
@@ -358,25 +337,31 @@ def _mail_font() -> str:
     return "Segoe UI, Tahoma, Arial, sans-serif"
 
 
-def _event_row_html(polarity: Polarity, summary: str) -> str:
-    fg = {"added": "#0f7b0f", "removed": "#c42b1c", "changed": "#0067c0"}.get(
+def _polarity_color(polarity: Polarity) -> str:
+    return {"added": "#0f7b0f", "removed": "#c42b1c", "changed": "#0067c0"}.get(
         polarity, "#0067c0"
     )
-    bg = {"added": "#f3faf3", "removed": "#fdf6f5", "changed": "#f3f8fc"}.get(
-        polarity, "#f3f8fc"
-    )
+
+
+def _event_is_severe(event: dict[str, Any]) -> bool:
+    return event_importance(str(event.get("type") or "")) in {"high", "critical"}
+
+
+def _ordered_mail_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    severe = [event for event in events if _event_is_severe(event)]
+    rest = [event for event in events if not _event_is_severe(event)]
+    return severe + rest
+
+
+def _event_line_html(polarity: Polarity, summary: str) -> str:
+    color = _polarity_color(polarity)
     label = _POLARITY_LABEL_RU.get(polarity, "Изменилось")
     return (
-        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
-        'style="border-collapse:collapse;margin-top:8px">'
         "<tr>"
-        f'<td width="4" bgcolor="{fg}" style="width:4px;font-size:1px;line-height:1px">&nbsp;</td>'
-        f'<td bgcolor="{bg}" style="padding:8px 12px;font-family:{_mail_font()}">'
-        f'<div style="font-size:11px;line-height:16px;font-weight:700;color:{fg}">'
-        f"{html.escape(label)}</div>"
-        f'<div style="font-size:14px;line-height:20px;color:#1a1a1a;padding-top:2px">'
-        f"{html.escape(summary)}</div>"
-        "</td></tr></table>"
+        f'<td style="padding:4px 12px;font-family:{_mail_font()};'
+        'font-size:14px;line-height:20px;color:#1a1a1a">'
+        f'<span style="font-weight:700;color:{color}">{html.escape(label)}</span> '
+        f"{html.escape(summary)}</td></tr>"
     )
 
 
@@ -387,61 +372,50 @@ def _device_card_html(group: dict[str, Any]) -> str:
     owner = str(group.get("user_display_name") or "").strip() or "—"
     chassis = _chassis_key(group.get("chassis_type"))
     caption = _CHASSIS_CAPTION.get(chassis, "")
-    icon = _CHASSIS_ICON_HTML.get(chassis, "")
-    icon_cell = (
-        f'<td width="36" valign="middle" style="width:36px;padding:14px 0 14px 14px">{icon}</td>'
-        if icon
-        else '<td width="14" style="width:14px;font-size:1px">&nbsp;</td>'
-    )
-    caption_html = (
-        f'<div style="font-size:12px;line-height:16px;color:#5b5b5b;padding-top:2px">'
-        f"{html.escape(caption)}</div>"
-        if caption
-        else ""
-    )
-    bad_html = (
-        f'<div style="font-family:Consolas,\'Courier New\',monospace;font-size:12px;'
-        f'line-height:16px;color:#0067c0;padding-top:2px">{html.escape(bad_id)}</div>'
-        if bad_id
-        else ""
-    )
-    events_html = "".join(
-        _event_row_html(
-            event_visual(str(ev.get("type") or ""))["polarity"],  # type: ignore[arg-type]
-            str(ev.get("summary") or ""),
-        )
-        for ev in (group.get("events") or [])
-    )
     font = _mail_font()
+    identity = (
+        f'<div style="font-size:16px;line-height:22px;font-weight:600;color:#1a1a1a">'
+        f"{html.escape(hostname)}</div>"
+    )
+    if bad_id:
+        identity += (
+            f'<div style="font-family:Consolas,\'Courier New\',monospace;font-size:12px;'
+            f'line-height:16px;color:#0067c0;padding-top:2px">{html.escape(bad_id)}</div>'
+        )
+    if caption:
+        identity += (
+            f'<div style="font-size:12px;line-height:16px;color:#5b5b5b;padding-top:2px">'
+            f"{html.escape(caption)}</div>"
+        )
+    rows = "".join(
+        _event_line_html(
+            event_visual(str(event.get("type") or ""))["polarity"],  # type: ignore[arg-type]
+            str(event.get("summary") or ""),
+        )
+        for event in _ordered_mail_events(list(group.get("events") or []))
+    )
     return (
         '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
         'style="border-collapse:collapse;border:1px solid #e5e5e5;background:#ffffff;'
         'margin:0 0 16px">'
         "<tr>"
-        f"{icon_cell}"
-        f'<td valign="middle" style="padding:12px 14px;font-family:{font}">'
-        f'<div style="font-size:16px;line-height:22px;font-weight:600;color:#1a1a1a">'
-        f"{html.escape(hostname)}</div>"
-        f"{bad_html}{caption_html}"
-        "</td></tr>"
-        '<tr><td colspan="2" style="padding:0 14px 12px">'
+        f'<td style="padding:4px 12px;font-family:{font}">{identity}</td>'
+        "</tr><tr>"
+        f'<td style="padding:4px 12px;font-family:{font};font-size:13px;'
+        'line-height:18px;color:#1a1a1a">'
+        f"Модель: {html.escape(model)} · Пользователь: {html.escape(owner)}</td>"
+        f"</tr>{rows}</table>"
+    )
+
+
+def _compact_event_html(hostname: str, summary: str) -> str:
+    return (
         '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
         'style="border-collapse:collapse">'
         "<tr>"
-        '<td width="50%" valign="top" bgcolor="#f9f9f9" '
-        f'style="width:50%;padding:8px 10px;font-family:{font}">'
-        '<div style="font-size:11px;line-height:14px;color:#8a8a8a">Модель</div>'
-        f'<div style="font-size:13px;line-height:18px;color:#1a1a1a;padding-top:2px">'
-        f"{html.escape(model)}</div></td>"
-        '<td width="8" style="width:8px;font-size:1px">&nbsp;</td>'
-        '<td width="50%" valign="top" bgcolor="#f9f9f9" '
-        f'style="width:50%;padding:8px 10px;font-family:{font}">'
-        '<div style="font-size:11px;line-height:14px;color:#8a8a8a">Пользователь</div>'
-        f'<div style="font-size:13px;line-height:18px;color:#1a1a1a;padding-top:2px">'
-        f"{html.escape(owner)}</div></td>"
-        "</tr></table>"
-        f"{events_html}"
-        "</td></tr></table>"
+        f'<td style="padding:4px 0;font-family:{_mail_font()};font-size:14px;'
+        'line-height:20px;color:#1a1a1a">'
+        f"{html.escape(hostname)}: {html.escape(summary)}</td></tr></table>"
     )
 
 
@@ -505,25 +479,29 @@ def build_inventory_digest_email(
     ]
     for group in devices_groups:
         hostname = str(group.get("hostname") or "Компьютер")
+        events = _ordered_mail_events(list(group.get("events") or []))
+        if not any(_event_is_severe(event) for event in events):
+            for event in events:
+                summary = str(event.get("summary") or "")
+                plain_lines.append(f"{hostname}: {summary}")
+                html_parts.append(_compact_event_html(hostname, summary))
+            plain_lines.append("")
+            continue
         bad_id = str(group.get("bad_id") or "").strip()
-        model = str(group.get("hardware_model") or "").strip()
-        owner = str(group.get("user_display_name") or "").strip()
+        model = str(group.get("hardware_model") or "").strip() or "—"
+        owner = str(group.get("user_display_name") or "").strip() or "—"
         caption = _CHASSIS_CAPTION.get(_chassis_key(group.get("chassis_type")), "")
         plain_lines.append(hostname)
         if bad_id:
             plain_lines.append(bad_id)
         if caption:
             plain_lines.append(caption)
-        if model:
-            plain_lines.append(f"Модель: {model}")
-        if owner:
-            plain_lines.append(f"Пользователь: {owner}")
-        for ev in group.get("events") or []:
-            polarity = event_visual(str(ev.get("type") or ""))["polarity"]
+        plain_lines.append(f"Модель: {model} · Пользователь: {owner}")
+        for event in events:
+            polarity = event_visual(str(event.get("type") or ""))["polarity"]
             badge_plain = _POLARITY_LABEL_RU[polarity]
-            summary = str(ev.get("summary") or "")
-            plain_lines.append(f"  {badge_plain}")
-            plain_lines.append(f"  {summary}")
+            summary = str(event.get("summary") or "")
+            plain_lines.append(f"{badge_plain} {summary}")
         plain_lines.append("")
         html_parts.append(_device_card_html(group))
     plain_lines.extend(["—", "Сообщение сформировано сервером bAD."])
@@ -587,14 +565,6 @@ def build_hardware_email(
                 {
                     "type": "hostname_change",
                     "summary": "hostname: OLD → NEW (пример второго устройства)",
-                },
-                {
-                    "type": "device_enrolled",
-                    "summary": "Зарегистрировано новое устройство (пример: появилось)",
-                },
-                {
-                    "type": "volume_free_critical",
-                    "summary": "Критически мало места на системном диске C: — осталось 8 ГБ",
                 },
             ],
         },

@@ -141,10 +141,14 @@ from .server_update import (
     trigger_msi_workflow,
     outcome_for_apply_request as server_outcome_for_apply_request,
 )
-from .event_importance import FILTER_PRESET_LABELS_RU, IMPORTANCE_LABELS_RU, event_importance
+from .event_importance import (
+    FILTER_PRESET_LABELS_RU,
+    IMPORTANCE_LABELS_RU,
+    _EVENT_IMPORTANCE,
+    event_importance,
+)
 from .smtp_mail import (
     DEFAULT_NOTIFY,
-    NOTIFY_LABELS_RU,
     build_hardware_email,
     default_digest_weekdays,
     digest_schedule_preview_ru,
@@ -214,6 +218,17 @@ _EVENT_TYPE_LABELS_RU = {
     "disk_removed": "Диск удалён",
     "disk_change": "Изменение диска",
     "hostname_change": "Hostname",
+    "agent_version_change": "Версия агента",
+    "os_build_change": "Сборка Windows",
+    "ad_ou_change": "OU",
+    "bios_update": "BIOS",
+    "smbios_uuid_change": "SMBIOS UUID",
+    "baseboard_serial_change": "Серийник платы",
+    "bios_serial_change": "Серийник BIOS",
+    "gpu_added": "Видеокарта подключена",
+    "gpu_removed": "Видеокарта отключена",
+    "monitor_set_change": "Мониторы",
+    "nic_mac_change": "Сетевой интерфейс",
     "domain_change": "Домен",
     "serial_change": "Серийный номер",
     "model_change": "Модель",
@@ -897,6 +912,7 @@ class SmtpFormData:
         notify_pending_reboot: Optional[str] = Form(None),
         notify_online: Optional[str] = Form(None),
         notify_disk_space: Optional[str] = Form(None),
+        notify_type: list[str] = Form(default_factory=list),
         digest_interval_hours: str = Form("3"),
         digest_lookback_hours: str = Form("3"),
         digest_window_start_hour: str = Form("9"),
@@ -926,6 +942,7 @@ class SmtpFormData:
         self.notify_pending_reboot = notify_pending_reboot
         self.notify_online = notify_online
         self.notify_disk_space = notify_disk_space
+        self.notify_type = list(notify_type or [])
         self.digest_interval_hours = digest_interval_hours
         self.digest_lookback_hours = digest_lookback_hours
         self.digest_window_start_hour = digest_window_start_hour
@@ -4007,6 +4024,23 @@ async def tls_settings_upload(
     )
 
 
+def _notify_check_groups() -> list[tuple[str, list[tuple[str, str]]]]:
+    titles = {
+        "critical": "Критичные",
+        "high": "Высокие",
+        "medium": "Средние",
+        "low": "Низкие",
+    }
+    buckets: dict[str, list[tuple[str, str]]] = {level: [] for level in titles}
+    for event_type, level in _EVENT_IMPORTANCE.items():
+        label = _EVENT_TYPE_LABELS_RU.get(event_type, event_type)
+        buckets.setdefault(level, []).append((event_type, label))
+    return [
+        (titles[level], sorted(buckets[level], key=lambda item: item[1].casefold()))
+        for level in ("critical", "high", "medium", "low")
+    ]
+
+
 def _smtp_form_context(
     row: dict,
     *,
@@ -4024,7 +4058,7 @@ def _smtp_form_context(
         "test_result": test_result,
         "has_password": bool(row.get("password_enc")),
         "notify": notify,
-        "notify_labels": [(k, NOTIFY_LABELS_RU[k]) for k in DEFAULT_NOTIFY],
+        "notify_groups": _notify_check_groups(),
         "smtp": {
             "enabled": bool(row.get("enabled")),
             "host": row.get("host") or "",
@@ -4090,20 +4124,24 @@ def _parse_smtp_form(form: SmtpFormData) -> tuple[dict, Optional[str]]:
             weekdays.append(wd)
     if not weekdays:
         weekdays = default_digest_weekdays()
-    flags = {key: False for key in DEFAULT_NOTIFY}
-    notify_flags = {
-        "hardware": form.notify_hardware,
-        "stale": form.notify_stale,
-        "online": form.notify_online,
-        "disk_space": form.notify_disk_space,
-        "enroll": form.notify_enroll,
-        "hostname": form.notify_hostname,
-        "domain": form.notify_domain,
-        "pending_reboot": form.notify_pending_reboot,
-    }
-    for key, raw in notify_flags.items():
-        if key in flags and raw is not None:
-            flags[key] = True
+    selected = [item for item in (form.notify_type or []) if item in _EVENT_IMPORTANCE]
+    if selected or form.notify_type:
+        flags = {event_type: event_type in set(selected) for event_type in _EVENT_IMPORTANCE}
+    else:
+        flags = {key: False for key in DEFAULT_NOTIFY}
+        notify_flags = {
+            "hardware": form.notify_hardware,
+            "stale": form.notify_stale,
+            "online": form.notify_online,
+            "disk_space": form.notify_disk_space,
+            "enroll": form.notify_enroll,
+            "hostname": form.notify_hostname,
+            "domain": form.notify_domain,
+            "pending_reboot": form.notify_pending_reboot,
+        }
+        for key, raw in notify_flags.items():
+            if key in flags and raw is not None:
+                flags[key] = True
     return {
         "enabled": form.enabled is not None,
         "host": (form.host or "").strip(),

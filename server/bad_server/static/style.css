@@ -4994,6 +4994,9 @@ table.devices-enroll-requests {
   gap: 0.35rem 1.25rem;
   margin: 0.5rem 0 1rem;
 }
+.notify-importance-group + .notify-importance-group {
+  margin-top: 1rem;
+}
 .digest-schedule-card {
   margin: 0.5rem 0 0;
   padding: 1rem 1.1rem;

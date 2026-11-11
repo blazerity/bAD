@@ -80,14 +80,21 @@
       Включённые типы копятся и уходят одной сводкой в ближайший слот расписания
       (включая события, накопленные вне окна).
     </p>
-    <div class="notify-checks-grid">
-      {% for key, label in notify_labels %}
-      <label class="check">
-        <input type="checkbox" name="notify_{{ key }}" value="1"
-          {% if notify[key] %}checked{% endif %}
-          {% if tls_mode == 'http' %}disabled{% endif %}>
-        {{ label }}
-      </label>
+    <div class="notify-checks">
+      {% for title, items in notify_groups %}
+      <div class="notify-importance-group">
+        <h3>{{ title }}</h3>
+        <div class="notify-checks-grid">
+          {% for key, label in items %}
+          <label class="check">
+            <input type="checkbox" name="notify_type" value="{{ key }}"
+              {% if notify[key] %}checked{% endif %}
+              {% if tls_mode == 'http' %}disabled{% endif %}>
+            {{ label }}
+          </label>
+          {% endfor %}
+        </div>
+      </div>
       {% endfor %}
     </div>
 

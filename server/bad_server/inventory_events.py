@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from .db import Database
 from .device_meta import normalize_logged_on_user
 from .fleet_buckets import disk_role
 
@@ -68,13 +69,16 @@ def _sorted_str_list(values: Any) -> list[str]:
 
 
 def _disk_key(disk: dict[str, Any]) -> str:
-    """Ключ диска: serial|model|size если serial есть, иначе legacy model|size."""
+    """Ключ диска: serial|model если serial есть, иначе legacy model|size.
+
+    size_bytes того же диска с серийником ключ не меняет.
+    """
     model = _norm_str(disk.get("model")) or "?"
     size = disk.get("size_bytes")
     size_part = size if size is not None else "?"
     serial = _norm_str(disk.get("serial_number"))
     if serial:
-        return f"{serial}|{model}|{size_part}"
+        return f"{serial}|{model}"
     return f"{model}|{size_part}"
 
 
@@ -319,6 +323,146 @@ def _volume_free_dropped(prev: dict[str, Any], new: dict[str, Any]) -> bool:
     return False
 
 
+def _os_triple(host: dict[str, Any]) -> tuple[str, str, str]:
+    os_info = _as_dict(host.get("os"))
+    return (
+        _norm_str(os_info.get("caption")),
+        _norm_str(os_info.get("version")),
+        _norm_str(os_info.get("build")),
+    )
+
+
+def _joined_present(parts: tuple[str, ...]) -> str:
+    return " ".join(part for part in parts if part)
+
+
+def _ou_text(host: dict[str, Any]) -> str:
+    ou = _norm_str(host.get("ad_ou"))
+    if ou:
+        return ou
+    dn = _norm_str(host.get("ad_distinguished_name"))
+    if not dn:
+        return ""
+    idx = dn.find(",")
+    if idx < 0 or idx + 1 >= len(dn):
+        return ""
+    return dn[idx + 1 :].strip()
+
+
+def _bios_token(version: str, date: str) -> str:
+    if version and date:
+        return f"{version} ({date})"
+    return version or date
+
+
+def _serial_side(raw: Any) -> tuple[str, str]:
+    text = Database.normalize_serial_number(raw)
+    if not text:
+        return "", ""
+    compact = (
+        text.casefold()
+        .replace("-", "")
+        .replace("_", "")
+        .replace(" ", "")
+        .replace(".", "")
+    )
+    return text, compact
+
+
+def _uuid_side(raw: Any) -> tuple[str, str]:
+    text = Database.normalize_smbios_uuid(raw) or ""
+    if not text:
+        return "", ""
+    return text, text.replace("-", "")
+
+
+def _both_lists(
+    previous: dict[str, Any], current: dict[str, Any], key: str
+) -> Optional[tuple[list[Any], list[Any]]]:
+    if key not in previous or key not in current:
+        return None
+    prev_value = previous.get(key)
+    cur_value = current.get(key)
+    if not isinstance(prev_value, list) or not isinstance(cur_value, list):
+        return None
+    return prev_value, cur_value
+
+
+def _name_bags(
+    items: list[Any],
+    *,
+    key_of,
+    label_of,
+) -> dict[str, list[str]]:
+    bags: dict[str, list[str]] = {}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        key = key_of(item)
+        if not key:
+            continue
+        bags.setdefault(key, []).append(label_of(item, key))
+    return bags
+
+
+def _bag_delta(
+    previous: dict[str, list[str]], current: dict[str, list[str]]
+) -> tuple[list[str], list[str]]:
+    added: list[str] = []
+    removed: list[str] = []
+    for key in sorted(set(previous) | set(current)):
+        prev_labels = previous.get(key) or []
+        cur_labels = current.get(key) or []
+        extra = len(cur_labels) - len(prev_labels)
+        if extra > 0:
+            added.extend(cur_labels[-extra:])
+        elif extra < 0:
+            removed.extend(prev_labels[: -extra])
+    return added, removed
+
+
+def _gpu_key(item: dict[str, Any]) -> str:
+    pnp = _norm_str(item.get("pnp_device_id"))
+    if pnp:
+        return pnp.casefold()
+    return _norm_str(item.get("name")).casefold()
+
+
+def _gpu_label(item: dict[str, Any], key: str) -> str:
+    return _norm_str(item.get("name")) or key
+
+
+def _monitor_key(item: dict[str, Any]) -> str:
+    serial = _norm_str(item.get("serial_number"))
+    if serial:
+        return serial.casefold()
+    return _norm_str(item.get("name")).casefold()
+
+
+def _monitor_label(item: dict[str, Any], key: str) -> str:
+    return _norm_str(item.get("name")) or key
+
+
+def _mac_key(item: dict[str, Any]) -> str:
+    mac = _norm_str(item.get("mac"))
+    if not mac:
+        return ""
+    return mac.casefold().replace(":", "").replace("-", "").replace(".", "")
+
+
+def _mac_label(item: dict[str, Any], key: str) -> str:
+    return _norm_str(item.get("mac")) or key
+
+
+def _plus_minus(prefix: str, added: list[str], removed: list[str]) -> str:
+    parts: list[str] = []
+    if added:
+        parts.append("+" + ", ".join(added))
+    if removed:
+        parts.append("-" + ", ".join(removed))
+    return f"{prefix}: " + "; ".join(parts)
+
+
 def diff_inventory_snapshots(
     previous: Optional[dict[str, Any]],
     current: dict[str, Any],
@@ -334,6 +478,17 @@ def diff_inventory_snapshots(
 
     events: list[dict[str, Any]] = []
 
+    prev_agent = _norm_str(previous.get("agent_version"))
+    cur_agent = _norm_str(current.get("agent_version"))
+    if prev_agent and cur_agent and prev_agent != cur_agent:
+        events.append(
+            {
+                "type": "agent_version_change",
+                "summary": f"Версия агента: {prev_agent} → {cur_agent}",
+                "detail": {"from": prev_agent, "to": cur_agent},
+            }
+        )
+
     prev_host = _as_dict(previous.get("host"))
     cur_host = _as_dict(current.get("host"))
     prev_hn = _norm_str(prev_host.get("hostname"))
@@ -344,6 +499,55 @@ def diff_inventory_snapshots(
                 "type": "hostname_change",
                 "summary": f"Hostname: {prev_hn} → {cur_hn}",
                 "detail": {"from": prev_hn, "to": cur_hn},
+            }
+        )
+
+    prev_os = _os_triple(prev_host)
+    cur_os = _os_triple(cur_host)
+    if prev_os != cur_os and any(prev_os) and any(cur_os):
+        events.append(
+            {
+                "type": "os_build_change",
+                "summary": (
+                    "Сборка Windows: "
+                    f"{_joined_present(prev_os)} → {_joined_present(cur_os)}"
+                ),
+                "detail": {
+                    "from": {
+                        "caption": prev_os[0],
+                        "version": prev_os[1],
+                        "build": prev_os[2],
+                    },
+                    "to": {
+                        "caption": cur_os[0],
+                        "version": cur_os[1],
+                        "build": cur_os[2],
+                    },
+                },
+            }
+        )
+
+    prev_ou = _ou_text(prev_host)
+    cur_ou = _ou_text(cur_host)
+    if prev_ou and cur_ou and prev_ou.casefold() != cur_ou.casefold():
+        events.append(
+            {
+                "type": "ad_ou_change",
+                "summary": f"OU: {prev_ou} → {cur_ou}",
+                "detail": {
+                    "from": {
+                        "ad_ou": _norm_str(prev_host.get("ad_ou")),
+                        "ad_distinguished_name": _norm_str(
+                            prev_host.get("ad_distinguished_name")
+                        ),
+                    },
+                    "to": {
+                        "ad_ou": _norm_str(cur_host.get("ad_ou")),
+                        "ad_distinguished_name": _norm_str(
+                            cur_host.get("ad_distinguished_name")
+                        ),
+                    },
+                },
             }
         )
 
@@ -442,6 +646,68 @@ def diff_inventory_snapshots(
                 "detail": {"from": prev_serial, "to": cur_serial},
             }
         )
+
+    prev_bios_ver = _norm_str(prev_hw.get("bios_version"))
+    cur_bios_ver = _norm_str(cur_hw.get("bios_version"))
+    prev_bios_date = _norm_str(prev_hw.get("bios_release_date"))
+    cur_bios_date = _norm_str(cur_hw.get("bios_release_date"))
+    bios_ver_changed = bool(
+        prev_bios_ver and cur_bios_ver and prev_bios_ver != cur_bios_ver
+    )
+    bios_date_changed = bool(
+        prev_bios_date and cur_bios_date and prev_bios_date != cur_bios_date
+    )
+    if bios_ver_changed or bios_date_changed:
+        events.append(
+            {
+                "type": "bios_update",
+                "summary": (
+                    "BIOS: "
+                    f"{_bios_token(prev_bios_ver, prev_bios_date)} → "
+                    f"{_bios_token(cur_bios_ver, cur_bios_date)}"
+                ),
+                "detail": {
+                    "from": {
+                        "bios_version": prev_bios_ver,
+                        "bios_release_date": prev_bios_date,
+                    },
+                    "to": {
+                        "bios_version": cur_bios_ver,
+                        "bios_release_date": cur_bios_date,
+                    },
+                },
+            }
+        )
+
+    prev_uuid, prev_uuid_key = _uuid_side(prev_hw.get("smbios_uuid"))
+    cur_uuid, cur_uuid_key = _uuid_side(cur_hw.get("smbios_uuid"))
+    if prev_uuid_key != cur_uuid_key and (prev_uuid_key or cur_uuid_key):
+        events.append(
+            {
+                "type": "smbios_uuid_change",
+                "summary": (
+                    f"SMBIOS UUID: {prev_uuid or '(none)'} → {cur_uuid or '(none)'}"
+                ),
+                "detail": {"from": prev_uuid or None, "to": cur_uuid or None},
+            }
+        )
+
+    for event_type, field, title in (
+        ("baseboard_serial_change", "baseboard_serial", "Серийник платы"),
+        ("bios_serial_change", "bios_serial", "Серийник BIOS"),
+    ):
+        prev_text, prev_key = _serial_side(prev_hw.get(field))
+        cur_text, cur_key = _serial_side(cur_hw.get(field))
+        if prev_key != cur_key and (prev_key or cur_key):
+            events.append(
+                {
+                    "type": event_type,
+                    "summary": (
+                        f"{title}: {prev_text or '(none)'} → {cur_text or '(none)'}"
+                    ),
+                    "detail": {"from": prev_text or None, "to": cur_text or None},
+                }
+            )
 
     prev_model = _norm_str(prev_hw.get("model"))
     cur_model = _norm_str(cur_hw.get("model"))
@@ -625,6 +891,46 @@ def diff_inventory_snapshots(
                 }
             )
 
+    gpu_lists = _both_lists(prev_hw, cur_hw, "gpus")
+    if gpu_lists is not None:
+        prev_gpus, cur_gpus = gpu_lists
+        added_gpus, removed_gpus = _bag_delta(
+            _name_bags(prev_gpus, key_of=_gpu_key, label_of=_gpu_label),
+            _name_bags(cur_gpus, key_of=_gpu_key, label_of=_gpu_label),
+        )
+        for label in added_gpus:
+            events.append(
+                {
+                    "type": "gpu_added",
+                    "summary": f"Видеокарта подключена: {label}",
+                    "detail": {"name": label},
+                }
+            )
+        for label in removed_gpus:
+            events.append(
+                {
+                    "type": "gpu_removed",
+                    "summary": f"Видеокарта отключена: {label}",
+                    "detail": {"name": label},
+                }
+            )
+
+    monitor_lists = _both_lists(prev_hw, cur_hw, "monitors")
+    if monitor_lists is not None:
+        prev_monitors, cur_monitors = monitor_lists
+        added_monitors, removed_monitors = _bag_delta(
+            _name_bags(prev_monitors, key_of=_monitor_key, label_of=_monitor_label),
+            _name_bags(cur_monitors, key_of=_monitor_key, label_of=_monitor_label),
+        )
+        if added_monitors or removed_monitors:
+            events.append(
+                {
+                    "type": "monitor_set_change",
+                    "summary": _plus_minus("Мониторы", added_monitors, removed_monitors),
+                    "detail": {"added": added_monitors, "removed": removed_monitors},
+                }
+            )
+
     prev_vols = {
         _volume_key(v): v
         for v in _as_list(prev_hw.get("volumes"))
@@ -692,6 +998,26 @@ def diff_inventory_snapshots(
                 },
             }
         )
+
+    nic_lists = _both_lists(
+        _as_dict(previous.get("network")),
+        _as_dict(current.get("network")),
+        "nics",
+    )
+    if nic_lists is not None:
+        prev_nics, cur_nics = nic_lists
+        added_macs, removed_macs = _bag_delta(
+            _name_bags(prev_nics, key_of=_mac_key, label_of=_mac_label),
+            _name_bags(cur_nics, key_of=_mac_key, label_of=_mac_label),
+        )
+        if added_macs or removed_macs:
+            events.append(
+                {
+                    "type": "nic_mac_change",
+                    "summary": _plus_minus("Интерфейс", added_macs, removed_macs),
+                    "detail": {"added": added_macs, "removed": removed_macs},
+                }
+            )
 
     # security (optional top-level; soft-fail на агенте)
     prev_sec = _as_dict(previous.get("security"))
