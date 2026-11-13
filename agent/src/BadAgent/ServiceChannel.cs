@@ -37,7 +37,9 @@ internal static class ServiceChannel
                 server = CreateServer();
                 server.WaitForConnectionAsync(stoppingToken).GetAwaiter().GetResult();
                 var request = ReadFrame(server);
-                var reply = ServiceCommands.Dispatch(request);
+                var reply = AdminOnlyOp(request) && !PipeClientIsAdministrator(server)
+                    ? AdminRequiredReply()
+                    : ServiceCommands.Dispatch(request);
                 WriteFrame(server, reply);
                 if (ReplyStops(reply))
                 {
@@ -130,6 +132,64 @@ internal static class ServiceChannel
             return false;
         }
     }
+
+    private static readonly HashSet<string> AdminOnlyOps = new(StringComparer.Ordinal)
+    {
+        "config-set",
+        "config-unset",
+        "config-apply",
+        "update"
+    };
+
+    private static bool AdminOnlyOp(string requestJson)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(requestJson);
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("op", out var opEl) || opEl.ValueKind != JsonValueKind.String)
+            {
+                return false;
+            }
+
+            var op = opEl.GetString() ?? "";
+            return AdminOnlyOps.Contains(op);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static bool PipeClientIsAdministrator(NamedPipeServerStream server)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return true;
+        }
+
+        using (server.ImpersonateClient())
+        {
+            using var identity = WindowsIdentity.GetCurrent();
+            var principal = new WindowsPrincipal(identity);
+            return principal.IsInRole(WindowsBuiltInRole.Administrator);
+        }
+    }
+
+    private static string AdminRequiredReply() =>
+        JsonSerializer.Serialize(new Dictionary<string, object?>
+        {
+            ["exit"] = 1,
+            ["lines"] = new[]
+            {
+                new Dictionary<string, object?>
+                {
+                    ["field"] = "Служба",
+                    ["value"] = "нужны права администратора",
+                    ["status"] = "ошибка"
+                }
+            }
+        }, Json);
 
     private static NamedPipeServerStream CreateServer()
     {
