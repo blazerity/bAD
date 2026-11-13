@@ -43,21 +43,25 @@ public static class PushCli
 
             if (string.IsNullOrWhiteSpace(config.ServerUrl))
             {
-                Console.Error.WriteLine(
-                    "error: не задан server_url. Укажите адрес сервера: bad -c или bad config set server_url <url>");
+                CliColumns.Write(
+                    "Сервер",
+                    "не задан server_url. Укажите адрес сервера: bad -c или bad config set server_url <url>",
+                    "ошибка");
                 return 1;
             }
 
             if (string.IsNullOrWhiteSpace(config.ApiKey))
             {
-                Console.Error.WriteLine(
-                    "error: нет ключа. Ждите заявку в панели и кнопку «Разрешить».");
+                CliColumns.Write(
+                    "Ключ",
+                    "нет ключа. Ждите заявку в панели и кнопку «Разрешить».",
+                    "ошибка");
                 return 1;
             }
 
             if (string.IsNullOrWhiteSpace(config.DeviceId))
             {
-                Console.Error.WriteLine("error: не задан device_id");
+                CliColumns.Write("device_id", "не задан", "ошибка");
                 return 1;
             }
 
@@ -71,38 +75,42 @@ public static class PushCli
             bool? lastInventoryOk = null;
             string? lastInventoryError = null;
 
-            Console.WriteLine("[1/3] Слив офлайн-очереди…");
             var pending = OfflineQueue.CountPending();
             if (pending == 0)
             {
-                Console.WriteLine("      Очередь пуста.");
+                CliColumns.Write("Очередь", "пусто", "ok");
             }
             else
             {
-                Console.WriteLine($"      Ожидает отправки: {pending}");
                 var flush = OfflineQueue.FlushAsync(client, config.ApiKey!, token).GetAwaiter().GetResult();
                 if (flush.AuthFailed)
                 {
-                    Console.Error.WriteLine("error: API key отклонён (401/403) при отправке очереди");
+                    CliColumns.Write("Очередь", "API key отклонён (401/403) при отправке очереди", "ошибка");
                     return 1;
                 }
 
                 if (flush.Success && flush.Sent > 0)
                 {
-                    Console.WriteLine($"      Отправлено записей: {flush.Sent}");
+                    CliColumns.Write("Очередь", $"отправлено {flush.Sent}", "ok");
                 }
                 else if (flush.Deferred)
                 {
-                    Console.WriteLine($"      Отложено до {flush.NextRetryUtc:u}");
+                    CliColumns.Write("Очередь", $"отложено до {flush.NextRetryUtc:u}", "без изменений");
                 }
                 else if (!flush.Success)
                 {
-                    Console.Error.WriteLine($"error: не удалось отправить очередь: {flush.Error?.Message ?? "сеть"}");
+                    CliColumns.Write(
+                        "Очередь",
+                        $"не удалось отправить: {flush.Error?.Message ?? "сеть"}",
+                        "ошибка");
                     return 1;
+                }
+                else
+                {
+                    CliColumns.Write("Очередь", "отправлено 0", "ok");
                 }
             }
 
-            Console.WriteLine("[2/3] Сбор и отправка inventory…");
             var options = CollectorOptions.FromConfig(config);
             var snap = collector.Collect(config.DeviceId!, agentVersion, options);
             try
@@ -111,19 +119,23 @@ public static class PushCli
                 lastInventoryAt = DateTime.UtcNow;
                 lastInventoryOk = true;
                 lastInventoryError = null;
-                Console.WriteLine(
-                    $"      Inventory отправлен (ошибок сборщика: {snap.CollectorErrors.Count}).");
+                CliColumns.Write("Подпись", "сервер принял", "ok");
+                CliColumns.Write(
+                    "Inventory",
+                    $"отправлен, ошибок сборщика {snap.CollectorErrors.Count}",
+                    "ok");
             }
             catch (AgentApiException ex) when (ex.IsAuthFailure)
             {
                 if (ex.Message.Contains("Inventory signature required", StringComparison.Ordinal)
                     || ex.Message.Contains("Invalid inventory signature", StringComparison.Ordinal))
                 {
-                    Console.Error.WriteLine("error: сервер не принял подпись снимка");
+                    CliColumns.Write("Подпись", "сервер не принял", "ошибка");
+                    CliColumns.Write("Inventory", "не отправлен", "ошибка");
                     return 1;
                 }
 
-                Console.Error.WriteLine("error: API key отклонён (401/403) при отправке inventory");
+                CliColumns.Write("Inventory", "API key отклонён (401/403) при отправке inventory", "ошибка");
                 return 1;
             }
             catch (Exception ex)
@@ -133,18 +145,22 @@ public static class PushCli
                 try
                 {
                     OfflineQueue.EnqueueInventory(snap);
-                    Console.Error.WriteLine(
-                        $"error: inventory не отправлен, сохранён в очередь ({OfflineQueue.CountPending()}): {ex.Message}");
+                    CliColumns.Write(
+                        "Inventory",
+                        $"не отправлен, сохранён в очередь ({OfflineQueue.CountPending()}): {ex.Message}",
+                        "ошибка");
                 }
                 catch (Exception qex)
                 {
-                    Console.Error.WriteLine($"error: inventory не отправлен: {ex.Message}; очередь: {qex.Message}");
+                    CliColumns.Write(
+                        "Inventory",
+                        $"не отправлен: {ex.Message}; очередь: {qex.Message}",
+                        "ошибка");
                 }
 
                 return 1;
             }
 
-            Console.WriteLine("[3/3] Heartbeat…");
             config = ConfigStore.LoadOrCreate();
             var payload = new HeartbeatQueuePayload
             {
@@ -162,11 +178,11 @@ public static class PushCli
             try
             {
                 response = client.SendHeartbeatAsync(config.ApiKey!, payload, token).GetAwaiter().GetResult();
-                Console.WriteLine("      Heartbeat принят сервером.");
+                CliColumns.Write("Heartbeat", "принят", "ok");
             }
             catch (AgentApiException ex) when (ex.IsAuthFailure)
             {
-                Console.Error.WriteLine("error: API key отклонён (401/403) при heartbeat");
+                CliColumns.Write("Heartbeat", "API key отклонён (401/403) при heartbeat", "ошибка");
                 return 1;
             }
             catch (Exception ex)
@@ -174,48 +190,55 @@ public static class PushCli
                 try
                 {
                     OfflineQueue.EnqueueHeartbeat(payload);
-                    Console.Error.WriteLine(
-                        $"error: heartbeat не отправлен, сохранён в очередь ({OfflineQueue.CountPending()}): {ex.Message}");
+                    CliColumns.Write(
+                        "Heartbeat",
+                        $"не отправлен, сохранён в очередь ({OfflineQueue.CountPending()}): {ex.Message}",
+                        "ошибка");
                 }
                 catch (Exception qex)
                 {
-                    Console.Error.WriteLine($"error: heartbeat не отправлен: {ex.Message}; очередь: {qex.Message}");
+                    CliColumns.Write(
+                        "Heartbeat",
+                        $"не отправлен: {ex.Message}; очередь: {qex.Message}",
+                        "ошибка");
                 }
 
                 return 1;
             }
 
-            if (response?.Config?.Settings != null)
+            if (response?.Config?.Settings != null && ApplyRemoteConfig(config, response.Config))
             {
-                ApplyRemoteConfig(config, response.Config);
-                Console.WriteLine("      Применена удалённая конфигурация агента.");
+                CliColumns.Write("Конфиг", "применён", "ok");
             }
 
             MinidumpHeartbeatUpload.RunAsync(client, config.ApiKey!, response?.Actions?.UploadMinidump, null, token)
                 .GetAwaiter()
                 .GetResult();
 
-            Console.WriteLine("Готово.");
+            Console.WriteLine("Готово");
             return 0;
         }
         catch (InvalidOperationException ex) when (ServerUrlRules.IsCleartextRejectedException(ex))
         {
-            Console.Error.WriteLine($"error: {ServerUrlRules.CleartextHttpRejectedMessage}");
+            CliColumns.Write("Сервер", ServerUrlRules.CleartextHttpRejectedMessage, "ошибка");
             return 1;
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"error: {ex.Message}");
+            CliColumns.Write("Ошибка", ex.Message, "ошибка");
             return 1;
         }
     }
 
-    private static void ApplyRemoteConfig(AgentConfig config, RemoteAgentConfigResponse remote)
+    private static bool ApplyRemoteConfig(AgentConfig config, RemoteAgentConfigResponse remote)
     {
-        if (ConfigStore.TakeRemoteConfig(config, remote))
+        if (!ConfigStore.TakeRemoteConfig(config, remote))
         {
-            ConfigStore.Save(config);
+            return false;
         }
+
+        ConfigStore.Save(config);
+        return true;
     }
 
     public static void PrintHelp()

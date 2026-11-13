@@ -32,15 +32,19 @@ public static class UpdateCli
             var config = ConfigStore.LoadOrCreate();
             if (string.IsNullOrWhiteSpace(config.ServerUrl))
             {
-                Console.Error.WriteLine(
-                    "error: не задан server_url. Укажите адрес сервера: bad -c или bad config set server_url <url>");
+                CliColumns.Write(
+                    "Обновление",
+                    "не задан server_url. Укажите адрес сервера: bad -c или bad config set server_url <url>",
+                    "ошибка");
                 return 1;
             }
 
             if (string.IsNullOrWhiteSpace(config.ApiKey))
             {
-                Console.Error.WriteLine(
-                    "error: нет ключа. Ждите заявку в панели и кнопку «Разрешить».");
+                CliColumns.Write(
+                    "Обновление",
+                    "нет ключа. Ждите заявку в панели и кнопку «Разрешить».",
+                    "ошибка");
                 return 1;
             }
 
@@ -49,7 +53,6 @@ public static class UpdateCli
             using var ct = new CancellationTokenSource(TimeSpan.FromMinutes(15));
             var token = ct.Token;
 
-            Console.WriteLine("Проверка обновлений на сервере…");
             var logger = NullLogger.Instance;
             var updater = new AgentUpdater(logger, agentVersion);
             try
@@ -57,32 +60,30 @@ public static class UpdateCli
                 var applying = updater.CheckAndApplyAsync(client, config, token).GetAwaiter().GetResult();
                 if (applying)
                 {
-                    Console.WriteLine(
-                        "Установка MSI запланирована — через несколько секунд. " +
-                        "Дождитесь перезапуска службы (не жмите Ctrl+C).");
+                    CliColumns.Write("Обновление", "установка запланирована", "ok");
                     // Сразу выходим: bad.cmd должен завершиться до msiexec / Restart Manager.
                     Environment.Exit(0);
                 }
 
-                Console.WriteLine("Обновление не требуется или отключено в конфиге.");
+                CliColumns.Write("Обновление", "не требуется", "без изменений");
             }
             catch (AgentApiException ex) when (ex.IsAuthFailure)
             {
-                Console.Error.WriteLine("error: API key отклонён (401/403) при проверке обновлений");
+                CliColumns.Write("Обновление", "API key отклонён (401/403) при проверке обновлений", "ошибка");
                 return 1;
             }
 
-            Console.WriteLine("Готово.");
+            Console.WriteLine("Готово");
             return 0;
         }
         catch (InvalidOperationException ex) when (ServerUrlRules.IsCleartextRejectedException(ex))
         {
-            Console.Error.WriteLine($"error: {ServerUrlRules.CleartextHttpRejectedMessage}");
+            CliColumns.Write("Обновление", ServerUrlRules.CleartextHttpRejectedMessage, "ошибка");
             return 1;
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"error: проверка обновлений не удалась: {ex.Message}");
+            CliColumns.Write("Обновление", $"проверка обновлений не удалась: {ex.Message}", "ошибка");
             return 1;
         }
     }

@@ -17,7 +17,7 @@ public static class DoctorCli
 
         if (args.Length > 0)
         {
-            Console.WriteLine("Связи нет.");
+            CliColumns.Write("Связь", "нет", "ошибка");
             return 1;
         }
 
@@ -26,7 +26,8 @@ public static class DoctorCli
             if (!File.Exists(ConfigStore.ConfigPath) || !ConfigStore.TryLoadForRead(out var config, out _))
             {
                 AgentSigningKey.ClearLocal();
-                Console.WriteLine("Связи нет.");
+                CliColumns.Write("Ключ", "стёрт", "ok");
+                CliColumns.Write("Связь", "нет", "ошибка");
                 return 1;
             }
 
@@ -38,6 +39,8 @@ public static class DoctorCli
             };
             ConfigStore.Save(fresh);
             AgentSigningKey.ClearLocal();
+            CliColumns.Write("Настройки", "сброшены", "ok");
+            CliColumns.Write("Ключ", "стёрт", "ok");
 
             if (!string.IsNullOrWhiteSpace(fresh.ApiKey))
             {
@@ -48,7 +51,7 @@ public static class DoctorCli
         }
         catch
         {
-            Console.WriteLine("Связи нет.");
+            CliColumns.Write("Связь", "нет", "ошибка");
             return 1;
         }
     }

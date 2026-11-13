@@ -15,7 +15,7 @@ public static class PingCli
 
         if (args.Length > 0)
         {
-            Console.WriteLine("Связи нет.");
+            CliColumns.Write("Связь", "нет", "ошибка");
             return 1;
         }
 
@@ -23,7 +23,7 @@ public static class PingCli
         {
             if (!ConfigStore.TryLoadForRead(out var config, out _))
             {
-                Console.WriteLine("Связи нет.");
+                CliColumns.Write("Связь", "нет", "ошибка");
                 return 1;
             }
 
@@ -31,7 +31,7 @@ public static class PingCli
                 || string.IsNullOrWhiteSpace(config.ApiKey)
                 || string.IsNullOrWhiteSpace(config.DeviceId))
             {
-                Console.WriteLine("Связи нет.");
+                CliColumns.Write("Связь", "нет", "ошибка");
                 return 1;
             }
 
@@ -42,12 +42,12 @@ public static class PingCli
                 config.ApiKey,
                 new HeartbeatQueuePayload { DeviceId = config.DeviceId },
                 cts.Token).GetAwaiter().GetResult();
-            Console.WriteLine("Связь есть.");
+            CliColumns.Write("Связь", "есть", "ok");
             return 0;
         }
         catch
         {
-            Console.WriteLine("Связи нет.");
+            CliColumns.Write("Связь", "нет", "ошибка");
             return 1;
         }
     }

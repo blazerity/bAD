@@ -25,15 +25,17 @@ public static class UninstallCli
 
         if (!OperatingSystem.IsWindows())
         {
-            Console.Error.WriteLine("error: снятие агента поддерживается только на Windows.");
+            CliColumns.Write("Снятие", "поддерживается только на Windows", "ошибка");
             return 1;
         }
 
         var productCode = AgentUninstaller.TryFindInstalledProductCode();
         if (productCode is null)
         {
-            Console.Error.WriteLine(
-                "error: установка MSI bAD не найдена в реестре (уже снята или ставилась не через MSI).");
+            CliColumns.Write(
+                "Снятие",
+                "установка MSI bAD не найдена в реестре (уже снята или ставилась не через MSI)",
+                "ошибка");
             return 1;
         }
 
@@ -48,21 +50,18 @@ public static class UninstallCli
                 && !answer.Equals("д", StringComparison.OrdinalIgnoreCase)
                 && !answer.Equals("да", StringComparison.OrdinalIgnoreCase))
             {
-                Console.WriteLine("Отменено.");
+                CliColumns.Write("Снятие", "отменено", "без изменений");
                 return 0;
             }
         }
 
-        Console.WriteLine($"Планируется msiexec /x {productCode} …");
         if (!AgentUninstaller.TryStartSilentUninstall(msg => Console.WriteLine(msg)))
         {
-            Console.Error.WriteLine("error: не удалось запустить msiexec для снятия.");
+            CliColumns.Write("Снятие", "не удалось запустить msiexec для снятия", "ошибка");
             return 1;
         }
 
-        Console.WriteLine(
-            "Снятие запланировано через несколько секунд. Закройте это окно или дождитесь выхода " +
-            "(не жмите Ctrl+C).");
+        CliColumns.Write("Снятие", "запланировано", "ok");
         Environment.Exit(0);
         return 0;
     }

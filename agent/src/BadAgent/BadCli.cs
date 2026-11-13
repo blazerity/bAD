@@ -26,6 +26,11 @@ public static class BadCli
                 return ConfigCli.Run(configArgs);
             }
 
+            if (IsInfoCommand(args))
+            {
+                return RunInfo(args, collector);
+            }
+
             if (IsHtml(args, out var htmlPathArg))
             {
                 return RunHtml(htmlPathArg, collector);
@@ -95,7 +100,10 @@ public static class BadCli
         args.Length > 0 && args[0] is "-c" or "--configure";
 
     private static bool IsAsciiCommand(string cmd) =>
-        cmd is "report" or "info" or "ascii";
+        cmd is "report" or "ascii";
+
+    private static bool IsInfoCommand(string[] args) =>
+        args.Length > 0 && args[0] == "info";
 
     private static bool TakeCommand(
         string[] args, out string[] rest, StringComparison comparison, params string[] verbs)
@@ -155,48 +163,84 @@ public static class BadCli
         return 0;
     }
 
+    private static int RunInfo(string[] args, IInventoryCollector? collector)
+    {
+        if (args.Length > 1)
+        {
+            if (args.Skip(1).All(IsHelpToken))
+            {
+                PrintInfoHelp();
+                return 0;
+            }
+
+            PrintHelp();
+            return 2;
+        }
+
+        var (snap, config) = Collect(collector);
+        CliColumns.Write("Версия", VersionUtil.GetAgentVersion());
+        CliColumns.Write("Сервер", config.ServerUrl);
+        CliColumns.Write("Hostname", snap.Host?.Hostname);
+        CliColumns.Write("device_id", snap.DeviceId);
+        CliColumns.Write("Модель", snap.Hardware?.Model);
+        return 0;
+    }
+
+    private static void PrintInfoHelp()
+    {
+        Console.WriteLine("bad info                 Версия, сервер, имя, device_id, модель");
+    }
+
     private static int RunHtml(string? pathArg, IInventoryCollector? collector)
     {
         var (snap, config) = Collect(collector);
         var path = ReportPathResolver.ResolveHtmlPath(pathArg, DateTime.Now);
-        var dir = Path.GetDirectoryName(path);
-        if (!string.IsNullOrEmpty(dir))
+        try
         {
-            Directory.CreateDirectory(dir);
-        }
-
-        if (!string.IsNullOrWhiteSpace(config.ServerUrl) && !string.IsNullOrWhiteSpace(config.ApiKey))
-        {
-            try
+            var dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir))
             {
-                var version = VersionUtil.GetAgentVersion();
-                using var client = new BadApiClient(config.ServerUrl, version);
-                using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(3));
-                var serverHtml = client.TryPostReportHtmlAsync(config.ApiKey!, snap, cts.Token)
-                    .GetAwaiter()
-                    .GetResult();
-                if (!string.IsNullOrEmpty(serverHtml))
+                Directory.CreateDirectory(dir);
+            }
+
+            if (!string.IsNullOrWhiteSpace(config.ServerUrl) && !string.IsNullOrWhiteSpace(config.ApiKey))
+            {
+                try
                 {
-                    File.WriteAllText(path, serverHtml);
-                    Console.WriteLine($"HTML-отчёт записан: {path}");
-                    return 0;
+                    var version = VersionUtil.GetAgentVersion();
+                    using var client = new BadApiClient(config.ServerUrl, version);
+                    using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+                    var serverHtml = client.TryPostReportHtmlAsync(config.ApiKey!, snap, cts.Token)
+                        .GetAwaiter()
+                        .GetResult();
+                    if (!string.IsNullOrEmpty(serverHtml))
+                    {
+                        File.WriteAllText(path, serverHtml);
+                        CliColumns.Write("Отчёт", path, "ok");
+                        return 0;
+                    }
+                }
+                catch (InvalidOperationException ex) when (ServerUrlRules.IsCleartextRejectedException(ex))
+                {
+                    CliColumns.Write("Отчёт", ServerUrlRules.CleartextHttpRejectedMessage, "ошибка");
+                    return 1;
+                }
+                catch
+                {
+                    // Сервер без маршрута / не HTML / сеть — локальный HtmlReportWriter.
                 }
             }
-            catch (InvalidOperationException ex) when (ServerUrlRules.IsCleartextRejectedException(ex))
-            {
-                Console.Error.WriteLine($"error: {ServerUrlRules.CleartextHttpRejectedMessage}");
-                return 1;
-            }
-            catch
-            {
-                // Сервер без маршрута / не HTML / сеть — локальный HtmlReportWriter.
-            }
-        }
 
-        var html = HtmlReportWriter.Write(snap, config);
-        File.WriteAllText(path, html);
-        Console.WriteLine($"HTML-отчёт записан: {path}");
-        return 0;
+            var html = HtmlReportWriter.Write(snap, config);
+            File.WriteAllText(path, html);
+            CliColumns.Write("Отчёт", path, "ok");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            CliColumns.Write("Отчёт", ex.Message, "ошибка");
+            return 1;
+        }
     }
 
     private static (InventorySnapshot Snap, AgentConfig Config) Collect(IInventoryCollector? collector)
@@ -217,27 +261,28 @@ public static class BadCli
     private static void PrintHelp()
     {
         Console.WriteLine("""
-Использование:
-  bad                      Локальный ASCII-отчёт inventory
+Использование: bad <команда>
+
+Отчёт
+  bad                      Локальный отчёт inventory
+  bad info                 Версия, сервер, имя, device_id, модель
   bad -r [path]            HTML-отчёт
-  bad -c                   Интерактивная настройка агента
-  bad -h                   Справка
-  bad config               Показать настройки (api_key / enrollment_token не печатаются)
-  bad config set <k> <v>   Один параметр (server_url в бою — https://)
-  bad push                 Синхронизация с сервером: очередь → inventory → heartbeat
-  bad ping                 Проверка связи с сервером: «Связь есть.» или «Связи нет.»
-  bad doctor               Сброс настроек агента и проверка связи
-  bad update               Проверка версии на сервере и установка MSI при необходимости
-  bad uninstall [-y]       Снять агент (msiexec, нужны права администратора)
-  bad service …            Управление службой Windows (от администратора)
 
-HTML (-r): без path — рабочий стол, bad_report_yyyyMMdd_HHmmss.html
-При заданных server_url и api_key — POST /v1/agent/report.html (иначе локальная генерация).
+Сервер
+  bad -c                   Настройка агента
+  bad config               Показать настройки
+  bad config set <ключ> <значение>   Один параметр
+  bad push                 Очередь, снимок, heartbeat
+  bad ping                 Проверка связи
+  bad doctor               Сброс настроек и проверка связи
+  bad update               Проверка версии и установка
 
-Служба:
-  bad service status|start|stop|restart
-
-Снятие также: bin\uninstall.cmd
+Служба
+  bad service status       Состояние службы badagent
+  bad service start        Запуск
+  bad service stop         Остановка
+  bad service restart      Перезапуск
+  bad uninstall [-y]       Снять агент
 """);
     }
 }

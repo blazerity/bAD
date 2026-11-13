@@ -28,23 +28,23 @@ public static class ServiceCli
                 "start" => Start(),
                 "stop" => Stop(),
                 "restart" => Restart(),
-                "help" or "-h" or "--help" => PrintUsage(),
+                "help" or "-h" or "--help" or "-?" or "/?" => PrintUsage(),
                 _ => Unknown(cmd)
             };
         }
         catch (InvalidOperationException ex)
         {
-            Console.Error.WriteLine($"error: {ex.Message}");
+            CliColumns.Write("Служба", ex.Message, "ошибка");
             return 1;
         }
         catch (System.ComponentModel.Win32Exception ex)
         {
-            Console.Error.WriteLine($"error: {ex.Message} (run elevated / as Administrator)");
+            CliColumns.Write("Служба", $"{ex.Message} (run elevated / as Administrator)", "ошибка");
             return 1;
         }
         catch (PlatformNotSupportedException ex)
         {
-            Console.Error.WriteLine($"error: {ex.Message}");
+            CliColumns.Write("Служба", ex.Message, "ошибка");
             return 1;
         }
     }
@@ -58,8 +58,12 @@ public static class ServiceCli
 
     private static int PrintUsage()
     {
-        Console.WriteLine("Usage: BadAgent.exe service <status|start|stop|restart>");
-        Console.WriteLine($"Windows service name: {ServiceName}");
+        Console.WriteLine("""
+bad service status       Состояние службы badagent
+bad service start        Запуск
+bad service stop         Остановка
+bad service restart      Перезапуск
+""");
         return 0;
     }
 
@@ -83,8 +87,8 @@ public static class ServiceCli
 
         using var sc = Open();
         sc.Refresh();
-        Console.WriteLine($"name={ServiceName}");
-        Console.WriteLine($"status={sc.Status}");
+        CliColumns.Write("Служба", ServiceName, "ok");
+        CliColumns.Write("Состояние", sc.Status.ToString());
         return 0;
     }
 
@@ -99,13 +103,15 @@ public static class ServiceCli
         sc.Refresh();
         if (sc.Status is ServiceControllerStatus.Running or ServiceControllerStatus.StartPending)
         {
-            Console.WriteLine($"{ServiceName} already {sc.Status}");
+            CliColumns.Write("Служба", ServiceName, "без изменений");
+            CliColumns.Write("Состояние", sc.Status.ToString());
             return 0;
         }
 
         sc.Start();
         sc.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(60));
-        Console.WriteLine($"{ServiceName} started");
+        CliColumns.Write("Служба", ServiceName, "ok");
+        CliColumns.Write("Состояние", sc.Status.ToString());
         return 0;
     }
 
@@ -120,13 +126,15 @@ public static class ServiceCli
         sc.Refresh();
         if (sc.Status is ServiceControllerStatus.Stopped or ServiceControllerStatus.StopPending)
         {
-            Console.WriteLine($"{ServiceName} already {sc.Status}");
+            CliColumns.Write("Служба", ServiceName, "без изменений");
+            CliColumns.Write("Состояние", sc.Status.ToString());
             return 0;
         }
 
         sc.Stop();
         sc.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(60));
-        Console.WriteLine($"{ServiceName} stopped");
+        CliColumns.Write("Служба", ServiceName, "ok");
+        CliColumns.Write("Состояние", sc.Status.ToString());
         return 0;
     }
 
@@ -143,13 +151,13 @@ public static class ServiceCli
         {
             sc.Stop();
             sc.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(60));
-            Console.WriteLine($"{ServiceName} stopped");
         }
 
         sc.Refresh();
         sc.Start();
         sc.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(60));
-        Console.WriteLine($"{ServiceName} restarted");
+        CliColumns.Write("Служба", ServiceName, "ok");
+        CliColumns.Write("Состояние", sc.Status.ToString());
         return 0;
     }
 }

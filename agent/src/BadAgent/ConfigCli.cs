@@ -94,6 +94,7 @@ public static class ConfigCli
         var previousServerUrl = cfg.ServerUrl;
         var anyChanged = false;
         var serverUrlChanged = false;
+        var changedKeys = new List<string>();
 
         output.WriteLine("Интерактивная настройка агента (bad -c)");
         output.WriteLine($"Файл: {ConfigStore.ConfigPath}");
@@ -103,7 +104,7 @@ public static class ConfigCli
 
         foreach (var key in InteractiveKeys)
         {
-            if (!PromptOneKey(input, output, cfg, key, ref anyChanged, ref serverUrlChanged))
+            if (!PromptOneKey(input, output, cfg, key, ref anyChanged, ref serverUrlChanged, changedKeys))
             {
                 break; // EOF
             }
@@ -112,13 +113,16 @@ public static class ConfigCli
         if (!anyChanged)
         {
             output.WriteLine();
-            output.WriteLine("Изменений нет — config.json не перезаписывали.");
+            output.WriteLine(CliColumns.Format("Настройки", "не перезаписывали", "без изменений"));
             return 0;
         }
 
         ConfigStore.Save(cfg);
         output.WriteLine();
-        output.WriteLine($"Сохранено: {ConfigStore.ConfigPath}");
+        foreach (var changed in changedKeys)
+        {
+            output.WriteLine(CliColumns.Format(changed, FormatValue(GetEditable(cfg, changed)), "ok"));
+        }
         if (serverUrlChanged)
         {
             PrintServerUrlWarning(previousServerUrl, cfg.ServerUrl, output);
@@ -134,7 +138,8 @@ public static class ConfigCli
         AgentConfig cfg,
         string key,
         ref bool anyChanged,
-        ref bool serverUrlChanged)
+        ref bool serverUrlChanged,
+        List<string> changedKeys)
     {
         var current = FormatValue(GetEditable(cfg, key));
         var hint = PromptHints.GetValueOrDefault(key, key);
@@ -190,6 +195,7 @@ public static class ConfigCli
                 }
 
                 anyChanged = true;
+                changedKeys.Add(key);
             }
 
             return true;
@@ -206,7 +212,6 @@ public static class ConfigCli
     private static int RunShow()
     {
         var readable = ConfigStore.TryLoadForRead(out var cfg, out var readError);
-        Console.WriteLine($"Файл: {ConfigStore.ConfigPath}");
         if (!readable)
         {
             Console.Error.WriteLine(
@@ -218,23 +223,15 @@ public static class ConfigCli
 
             cfg.DeviceId = DeviceIdentity.ResolveDeviceId();
         }
-        Console.WriteLine();
-        Console.WriteLine("Параметры (для изменения: bad -c):");
+        Console.WriteLine(CliColumns.Format("Файл", ConfigStore.ConfigPath));
         foreach (var key in InteractiveKeys)
         {
-            var manual = IsManual(cfg, key) ? "  [вручную на агенте]" : "";
-            Console.WriteLine($"  {key}={FormatValue(GetEditable(cfg, key))}{manual}");
+            var manual = IsManual(cfg, key) ? " [вручную на агенте]" : "";
+            CliColumns.Write(key, FormatValue(GetEditable(cfg, key)) + manual);
         }
 
-        Console.WriteLine();
-        Console.WriteLine("Служебные (только чтение):");
-        Console.WriteLine($"  device_id={MaskEmpty(cfg.DeviceId)}");
-        Console.WriteLine($"  remote_config_version={MaskEmpty(cfg.RemoteConfigVersion)}");
-        // Presence OK (security-cli-config-secrets); plaintext — никогда.
-        Console.WriteLine(
-            $"  api_key={(string.IsNullOrWhiteSpace(cfg.ApiKey) ? "(нет)" : "(задан, скрыт)")}");
-        Console.WriteLine(
-            $"  enrollment_code={(string.IsNullOrWhiteSpace(cfg.EnrollmentCode) ? "(нет)" : "(задан, скрыт)")}");
+        CliColumns.Write("device_id", cfg.DeviceId);
+        CliColumns.Write("remote_config_version", cfg.RemoteConfigVersion);
         return 0;
     }
 
@@ -242,40 +239,32 @@ public static class ConfigCli
     {
         if (args.Length != 1)
         {
-            Console.Error.WriteLine("error: использование: bad config get <ключ>");
+            CliColumns.Write("Ключ", "использование: bad config get <ключ>", "ошибка");
             return 2;
         }
 
         var key = NormalizeKey(args[0]);
         if (key is "api_key" or "enrollment_token" or "enrollment_code")
         {
-            Console.Error.WriteLine(
-                "error: значения api_key / enrollment_token / enrollment_code CLI не печатает (см. bad config — только «нет»/«задан, скрыт»).");
+            CliColumns.Write("Ключ", "секрет CLI не печатает", "ошибка");
             return 2;
         }
 
         if (ForbiddenKeys.Contains(key) || !IsEditable(key))
         {
-            Console.Error.WriteLine(
-                $"error: ключ '{key}' нельзя читать через config get " +
-                "или он не в списке изменяемых. См. bad -c / bad config.");
+            CliColumns.Write("Ключ", $"'{key}' нельзя читать через config get", "ошибка");
             return 2;
         }
 
         if (!ConfigStore.TryLoadForRead(out var cfg, out var readError))
         {
-            Console.Error.WriteLine(
-                "error: не удалось прочитать config.json (нужны права на чтение файла или администратор).");
-            if (!string.IsNullOrWhiteSpace(readError))
-            {
-                Console.Error.WriteLine($"Причина: {readError}");
-            }
-
+            var why = string.IsNullOrWhiteSpace(readError) ? "" : $" {readError}";
+            CliColumns.Write("Ключ", $"не удалось прочитать config.json.{why}", "ошибка");
             return 1;
         }
 
         var manual = IsManual(cfg, key) ? " [вручную на агенте]" : "";
-        Console.WriteLine($"{key}={FormatValue(GetEditable(cfg, key))}{manual}");
+        CliColumns.Write(key, FormatValue(GetEditable(cfg, key)) + manual);
         return 0;
     }
 
@@ -289,14 +278,14 @@ public static class ConfigCli
 
         if (args.Length != 1)
         {
-            Console.Error.WriteLine("error: использование: bad config unset <ключ>");
+            CliColumns.Write("Ключ", "использование: bad config unset <ключ>", "ошибка");
             return 2;
         }
 
         var key = NormalizeKey(args[0]);
         if (!IsEditable(key))
         {
-            Console.Error.WriteLine($"error: ключ '{args[0]}' не из списка изменяемых");
+            CliColumns.Write("Ключ", $"'{args[0]}' не из списка изменяемых", "ошибка");
             return 2;
         }
 
@@ -305,25 +294,25 @@ public static class ConfigCli
         {
             if (!cfg.ServerUrlLocal)
             {
-                Console.Error.WriteLine("error: у server_url нет маркера server_url_local");
+                CliColumns.Write("server_url", "нет маркера server_url_local", "ошибка");
                 return 1;
             }
 
             ConfigStore.MarkServerUrlLocal(cfg, false);
             ConfigStore.Save(cfg);
-            Console.WriteLine("ok: снят server_url_local (значение server_url не трогали)");
+            CliColumns.Write("server_url", "снят server_url_local", "ok");
             return 0;
         }
 
         if (!ConfigStore.IsAgentLocalKey(cfg, key))
         {
-            Console.Error.WriteLine($"error: у ключа '{key}' нет маркера agent_local");
+            CliColumns.Write(key, "нет маркера agent_local", "ошибка");
             return 1;
         }
 
         ConfigStore.ClearAgentLocalKey(cfg, key);
         ConfigStore.Save(cfg);
-        Console.WriteLine($"ok: снят agent_local для {key} (значение в файле не трогали)");
+        CliColumns.Write(key, "снят agent_local", "ok");
         return 0;
     }
 
@@ -337,15 +326,13 @@ public static class ConfigCli
 
         if (args.Length < 2)
         {
-            Console.Error.WriteLine("error: использование: bad config set <ключ> <значение>");
-            Console.Error.WriteLine("Подсказка: удобнее bad -c (интерактивно).");
+            CliColumns.Write("Ключ", "использование: bad config set <ключ> <значение>", "ошибка");
             return 2;
         }
 
         if (args.Length > 2)
         {
-            Console.Error.WriteLine(
-                "error: значение должно быть одним аргументом (без подстановки shell)");
+            CliColumns.Write("Ключ", "значение должно быть одним аргументом", "ошибка");
             return 2;
         }
 
@@ -356,23 +343,20 @@ public static class ConfigCli
         if (key.IndexOfAny(['|', ';', '&', '`', '$', '\n', '\r', '\0']) >= 0
             || valueRaw.IndexOfAny(['\n', '\r', '\0']) >= 0)
         {
-            Console.Error.WriteLine("error: недопустимые символы в ключе или значении");
+            CliColumns.Write("Ключ", "недопустимые символы в ключе или значении", "ошибка");
             return 2;
         }
 
         if (key is "api_key" or "enrollment_token" or "enrollment_code" || ForbiddenKeys.Contains(key))
         {
             // Не эхоить valueRaw — даже при попытке set секрета.
-            Console.Error.WriteLine(
-                $"error: ключ '{key}' запрещён для CLI (секреты и служебные поля не меняются; значение не принято)");
+            CliColumns.Write(key, "запрещён для CLI, значение не принято", "ошибка");
             return 2;
         }
 
         if (!IsEditable(key))
         {
-            Console.Error.WriteLine(
-                $"error: неизвестный или неразрешённый ключ '{key}'. " +
-                $"Допустимо: {string.Join(", ", EditableKeys)}");
+            CliColumns.Write(key, "неизвестный или неразрешённый ключ", "ошибка");
             return 2;
         }
 
@@ -381,7 +365,7 @@ public static class ConfigCli
         if (!TryApply(cfg, key, valueRaw, out var error))
         {
             // error — шаблон валидации (ServerUrlRules и т.п.); valueRaw не повторяем.
-            Console.Error.WriteLine($"error: {error}");
+            CliColumns.Write(key, error, "ошибка");
             return 1;
         }
 
@@ -391,13 +375,12 @@ public static class ConfigCli
         }
         else if (!ConfigStore.MarkAgentLocalKey(cfg, key))
         {
-            Console.Error.WriteLine($"error: не удалось пометить '{key}' как agent_local");
+            CliColumns.Write(key, "не удалось пометить как agent_local", "ошибка");
             return 1;
         }
 
         ConfigStore.Save(cfg);
-        Console.WriteLine($"ok: {key}={FormatValue(GetEditable(cfg, key))} [вручную на агенте]");
-        Console.WriteLine($"Записано в {ConfigStore.ConfigPath}");
+        CliColumns.Write(key, FormatValue(GetEditable(cfg, key)), "ok");
 
         if (key == "server_url")
         {
@@ -547,21 +530,17 @@ public static class ConfigCli
         _ => value.ToString() ?? ""
     };
 
-    private static string MaskEmpty(string? s) =>
-        string.IsNullOrWhiteSpace(s) ? "(не задан)" : s;
-
     private static void PrintHelp()
     {
         Console.WriteLine("""
 Настройки агента:
-  bad -c                          Интерактивная настройка (рекомендуется)
-  bad config                      Показать параметры (без plaintext секретов)
-  bad config set <ключ> <значение>  Power-user
+  bad -c                          Интерактивная настройка
+  bad config                      Показать параметры
+  bad config set <ключ> <значение>   Один параметр
   bad config get|unset <ключ>
 
 Изменяемые: server_url (в бою только https://), collect_*, интервалы.
-Значения api_key / enrollment_token CLI не печатает и не принимает в set
-(в bad config — только «(нет)» / «(задан, скрыт)»).
+Значения api_key / enrollment_token CLI не печатает и не принимает в set.
 http:// в server_url — только lab с BAD_ALLOW_HTTP=1 (правила ServerUrlRules).
 """);
     }
