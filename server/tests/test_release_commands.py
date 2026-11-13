@@ -129,7 +129,7 @@ def test_allow_empty_device_creates_card_and_flash_is_once() -> None:
         assert len(set(_hashes(client)) - before) == 1
 
 
-def test_allow_live_card_does_not_rotate_key() -> None:
+def test_allow_live_card_rotates_key() -> None:
     fingerprint = _fp()
     device_id = f"live-{uuid.uuid4().hex[:8]}"
     with TestClient(create_app()) as client:
@@ -156,10 +156,11 @@ def test_allow_live_card_does_not_rotate_key() -> None:
         )
         assert allowed.status_code == 303
         landed = client.get("/devices/enrollment-requests")
-        assert "Ключ карточки не изменён." in landed.text
-        assert _hashes(client)[device_id] == before
+        assert "Разрешено" in landed.text
+        assert _hashes(client)[device_id] != before
+        assert device_id in _hashes(client)
         row = client.app.state.db.get_enrollment_request(fingerprint.lower())
-        assert row["status"] == "pending"
+        assert row["status"] == "approved"
 
 
 def test_allow_placeholder_issues_nothing() -> None:

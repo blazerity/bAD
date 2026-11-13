@@ -2399,8 +2399,6 @@ def devices_allow_enrollment_request(
         return _see_other(
             request, page, message="Карточка отозвана. Кнопка её не возвращает."
         )
-    if existing:
-        return _see_other(request, page, message="Ключ карточки не изменён.")
     if not device_id:
         device_id = str(uuid.uuid4())
     api_key = generate_token("bad_ak_")
@@ -2414,7 +2412,7 @@ def devices_allow_enrollment_request(
             api_key_hash=hash_secret(api_key),
             agent_version=None,
             api_key_lookup=lookup,
-            allow_existing=False,
+            allow_existing=existing is not None,
             signing_pubkey=public,
             signing_key_fingerprint=fingerprint,
         )
