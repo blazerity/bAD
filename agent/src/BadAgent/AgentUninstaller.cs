@@ -8,8 +8,9 @@ namespace BadAgent;
 /// </summary>
 public static class AgentUninstaller
 {
-    public const string MsiDisplayName = "blazerity Asset Discovery Agent";
     public const string MsiUpgradeCode = "BADA0001-BADA-4B01-8BAD-00BADA000001";
+
+    private static readonly string[] MsiDisplayNames = ["bADagent Link", "bADagent"];
 
     /// <summary>
     /// Запускает <c>msiexec /x</c> без ожидания. Возвращает false, если ProductCode не найден или старт не удался.
@@ -38,7 +39,7 @@ public static class AgentUninstaller
         if (productCode is null)
         {
             warn?.Invoke(
-                $"Снятие агента: ProductCode MSI не найден (DisplayName «{MsiDisplayName}» / UpgradeCode {MsiUpgradeCode})");
+                $"Снятие агента: ProductCode MSI не найден (DisplayName «{MsiDisplayNames[0]}» / «{MsiDisplayNames[1]}» / UpgradeCode {MsiUpgradeCode})");
             WindowsEventLog.WriteWarning(
                 "bAD: команда снятия — установка MSI не найдена в реестре, служба не останавливается");
             return false;
@@ -108,7 +109,7 @@ public static class AgentUninstaller
             }
 
             var displayName = sub.GetValue("DisplayName") as string;
-            if (!string.Equals(displayName?.Trim(), MsiDisplayName, StringComparison.OrdinalIgnoreCase))
+            if (displayName is null || !MatchesDisplayName(displayName))
             {
                 continue;
             }
@@ -121,6 +122,20 @@ public static class AgentUninstaller
         }
 
         return null;
+    }
+
+    private static bool MatchesDisplayName(string displayName)
+    {
+        var trimmed = displayName.Trim();
+        foreach (var expected in MsiDisplayNames)
+        {
+            if (string.Equals(trimmed, expected, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     [SupportedOSPlatform("windows")]

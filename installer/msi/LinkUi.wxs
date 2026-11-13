@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Мастер Link: одно поле SERVERURL, без ProgressDlg и без готовых WixUI.
+  Подключение: <UIRef Id="LinkUi" /> в Product.wxs, сборка с LinkUi.wxs.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Fragment>
+    <UI Id="LinkUi">
+      <TextStyle Id="LinkUi_Font_Normal" FaceName="Tahoma" Size="8" />
+      <TextStyle Id="LinkUi_Font_Bigger" FaceName="Tahoma" Size="12" Bold="yes" />
+      <Property Id="DefaultUIFont" Value="LinkUi_Font_Normal" />
+
+      <DialogRef Id="ErrorDlg" />
+      <DialogRef Id="CancelDlg" />
+
+      <Dialog Id="ServerUrlDlg"
+              Width="370"
+              Height="170"
+              Title="bADagent Link">
+        <Control Id="Description" Type="Text" X="25" Y="40" Width="320" Height="15" Transparent="yes" NoPrefix="yes" Text="Адрес сервера" />
+        <Control Id="ServerUrlEdit" Type="Edit" X="25" Y="62" Width="320" Height="18" Property="SERVERURL" Text="{80}" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="124" Width="370" Height="0" />
+        <Control Id="Install" Type="PushButton" X="236" Y="130" Width="56" Height="17" Default="yes" Text="Установить">
+          <Publish Event="EndDialog" Value="Return" Condition="1" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="130" Width="56" Height="17" Cancel="yes" Text="Отмена">
+          <Publish Event="SpawnDialog" Value="CancelDlg" Condition="1" />
+        </Control>
+      </Dialog>
+
+      <InstallUISequence>
+        <Show Dialog="ServerUrlDlg" Before="ExecuteAction" Condition="NOT Installed" />
+      </InstallUISequence>
+    </UI>
+  </Fragment>
+</Wix>
