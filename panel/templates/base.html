@@ -131,13 +131,20 @@
   {% endif %}
   {% if user is defined and user and show_rail %}
   <div id="global-search-modal" class="global-search-modal" hidden>
-    <div class="global-search-backdrop" data-global-search-close tabindex="-1"></div>
-    <div class="global-search-dialog card-surface" role="dialog" aria-label="Поиск по парку">
+    <div class="global-search-backdrop" data-global-search-backdrop data-global-search-close tabindex="-1"></div>
+    <div class="global-search-dialog card-surface" data-global-search-dialog role="dialog" aria-label="Поиск по парку">
       <label class="sr-only" for="global-search-input">Поиск</label>
       <input id="global-search-input" class="panel-search-input global-search-input" type="search"
-        placeholder="имя, serial, IP, событие…" maxlength="128" autocomplete="off" data-global-search-input>
-      <div id="global-search-results" class="panel-search-dropdown global-search-results" hidden></div>
-      <p class="muted global-search-hint">от 2 символов · устройства, события, разделы параметров</p>
+        placeholder="имя, bad-id, серийный номер, UUID" maxlength="128" autocomplete="off" data-global-search-input>
+      <div class="global-search-short" data-global-search-short>
+        <div id="global-search-results" class="panel-search-dropdown global-search-results" hidden></div>
+        <button type="button" id="global-search-more" class="btn secondary global-search-more" hidden>Показать ещё</button>
+      </div>
+      <div id="global-search-expanded-body" class="global-search-expanded-body" hidden>
+        <div class="global-search-filters" data-global-search-filters aria-label="Фильтры"></div>
+        <div class="global-search-feed" data-global-search-feed tabindex="0"></div>
+      </div>
+      <p class="muted global-search-hint">от 2 символов · короткий список устройств</p>
     </div>
   </div>
   {% endif %}

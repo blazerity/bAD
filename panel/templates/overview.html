@@ -70,12 +70,8 @@
         placeholder="имя, bad-id, серийный номер, UUID" maxlength="128" autocomplete="off" data-overview-search
         aria-label="Поиск по парку">
     </div>
-    <div class="filter-chips overview-search-chips overview-search-chips-compact" data-overview-search-cats role="group" aria-label="Категории поиска">
-      <button type="button" class="filter-chip is-active" data-cat="devices">Устройства</button>
-      <button type="button" class="filter-chip is-active" data-cat="events">События</button>
-      <button type="button" class="filter-chip is-active" data-cat="settings">Параметры</button>
-    </div>
-    <div id="overview-search-results" class="card-surface overview-search-hits" hidden></div>
+    <div class="filter-chips overview-search-chips overview-search-chips-compact" data-overview-search-cats role="group" aria-label="Категории поиска" hidden></div>
+    <div id="overview-search-results" class="card-surface overview-search-hits" hidden aria-hidden="true"></div>
   </div>
 
   <section class="overview-problems card-surface" aria-labelledby="overview-problems-title">
