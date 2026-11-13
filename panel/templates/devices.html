@@ -9,7 +9,7 @@
 {% set order = order|default('') %}
 {% macro devices_sort_link(col, label) %}
 {% set next_order = 'desc' if sort == col and order == 'asc' else 'asc' %}
-{% set base_href = '/devices' | pager_url(1, q=q, tag=tag_filter, wave=wave, archive=show_archive, os=os_filter, ram=ram_filter, disk=disk_filter, cpu=cpu_filter, cpu_vendor=cpu_vendor_filter, agent=agent_filter, fresh=fresh_filter, model=model_filter, chassis=chassis_filter) %}
+{% set base_href = '/devices' | pager_url(1, q=q, tag=tag_filter, wave=wave, archive=show_archive, os=os_filter, ram=ram_filter, disk=disk_filter, cpu=cpu_filter, cpu_vendor=cpu_vendor_filter, agent=agent_filter, fresh=fresh_filter, model=model_filter, chassis=chassis_filter, auth=auth) %}
 {% set joiner = '&' if '?' in base_href else '?' %}
 <a class="devices-sort-btn" href="{{ base_href }}{{ joiner }}sort={{ col }}&order={{ next_order }}" {% if sort == col %}aria-sort="{{ 'ascending' if order == 'asc' else 'descending' }}"{% else %}aria-sort="none"{% endif %}>{{ label }}{% if sort == col %} {{ icon('chevron-up' if order == 'asc' else 'chevron-down') }}{% endif %}</a>
 {% endmacro %}
@@ -52,7 +52,7 @@
             data-live-skip data-devices-search>
         </div>
       </div>
-      <div id="devices-search-results" class="card-surface overview-search-hits devices-search-hits" hidden></div>
+      <div id="devices-search-results" class="card-surface overview-search-hits devices-search-hits" hidden aria-hidden="true"></div>
     </div>
   </div>
 

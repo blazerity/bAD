@@ -64,8 +64,15 @@
     function setExpanded(on) {
       expanded = !!on;
       modal.classList.toggle("global-search-expanded", expanded);
-      if (expandedBody) expandedBody.hidden = !expanded;
-      if (shortWrap) shortWrap.hidden = expanded;
+      if (expandedBody) {
+        expandedBody.hidden = false;
+        expandedBody.classList.toggle("is-visible-panel", expanded);
+        expandedBody.setAttribute("aria-hidden", expanded ? "false" : "true");
+      }
+      if (shortWrap) {
+        shortWrap.hidden = false;
+        shortWrap.classList.toggle("is-hidden-panel", expanded);
+      }
       if (moreBtn) moreBtn.hidden = expanded || trimmed().length < 2;
       setBackdropOpacity();
       if (dialog) dialog.classList.toggle("is-open", !modal.hidden);

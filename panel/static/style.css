@@ -2860,9 +2860,14 @@ button.copy-btn:focus-visible {
 }
 .global-search-dialog {
   position: relative;
-  width: min(36rem, 100%);
+  width: min(44rem, 100%);
+  height: min(78vh, 40rem);
+  max-height: min(78vh, 40rem);
   padding: 1rem 1.1rem 1.15rem;
   z-index: 1;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
   opacity: 0;
   transform: translateY(8px) scale(0.98);
   transform-origin: top center;
@@ -2872,11 +2877,23 @@ button.copy-btn:focus-visible {
   opacity: 1;
   transform: none;
 }
-.global-search-modal.global-search-expanded .global-search-dialog {
-  width: min(44rem, 100%);
-  max-height: min(78vh, 40rem);
+.global-search-short {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  opacity: 1;
+  transform: none;
+  transition: opacity 180ms ease-out, transform 180ms ease-out;
+  transform-origin: top center;
+}
+.global-search-short.is-hidden-panel {
+  opacity: 0;
+  transform: translateY(8px) scale(0.98);
+  pointer-events: none;
+  position: absolute;
+  width: calc(100% - 2.2rem);
+  visibility: hidden;
 }
 .global-search-expanded-body {
   display: flex;
@@ -2885,6 +2902,23 @@ button.copy-btn:focus-visible {
   margin-top: 0.75rem;
   min-height: 0;
   flex: 1;
+  opacity: 0;
+  transform: translateY(8px) scale(0.98);
+  transform-origin: top center;
+  transition: opacity 180ms ease-out, transform 180ms ease-out;
+}
+.global-search-expanded-body.is-visible-panel {
+  opacity: 1;
+  transform: none;
+  position: static;
+  visibility: visible;
+  pointer-events: auto;
+}
+.global-search-expanded-body:not(.is-visible-panel) {
+  position: absolute;
+  width: calc(100% - 2.2rem);
+  visibility: hidden;
+  pointer-events: none;
 }
 .global-search-filters {
   display: flex;
@@ -2959,10 +2993,20 @@ tbody.devices-live-in td {
 }
 @media (prefers-reduced-motion: reduce) {
   .global-search-backdrop,
-  .global-search-dialog {
+  .global-search-dialog,
+  .global-search-short,
+  .global-search-expanded-body {
     transition: none;
   }
   .global-search-dialog.is-open {
+    opacity: 1;
+    transform: none;
+  }
+  .global-search-expanded-body.is-visible-panel {
+    opacity: 1;
+    transform: none;
+  }
+  .global-search-short:not(.is-hidden-panel) {
     opacity: 1;
     transform: none;
   }

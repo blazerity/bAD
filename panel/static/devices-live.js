@@ -32,6 +32,14 @@
     return table.querySelector("tbody");
   }
 
+  function mergeLiveTbodies(table, tbody) {
+    if (!tbody) return;
+    table.querySelectorAll("tbody.devices-live-in").forEach(function (extra) {
+      while (extra.firstChild) tbody.appendChild(extra.firstChild);
+      extra.remove();
+    });
+  }
+
   function updateBadge(cell, state) {
     var badge = cell && cell.querySelector(".badge-fresh-online, .badge-fresh-recent, .badge-fresh-stale, .badge-fresh-unknown");
     if (!badge) return;
@@ -161,34 +169,42 @@
     });
 
     function applyPayload(data) {
+      if (!tbody) return;
+      mergeLiveTbodies(table, tbody);
       var list = data.devices || [];
-      var byId = {};
-      list.forEach(function (d) {
-        byId[d.bad_id] = d;
-      });
-      var existing = {};
+      var rowById = {};
       table.querySelectorAll("tr[data-bad-id]").forEach(function (tr) {
         var id = tr.getAttribute("data-bad-id");
-        if (!id) return;
-        existing[id] = tr;
-        if (byId[id]) applyRow(tr, byId[id]);
-        else tr.remove();
+        if (id) rowById[id] = tr;
       });
-      var newRows = [];
+      var newCount = 0;
+      var ordered = [];
       list.forEach(function (d) {
-        if (!d.bad_id || existing[d.bad_id]) return;
-        newRows.push(buildRow(d));
+        if (!d.bad_id) return;
+        var tr = rowById[d.bad_id];
+        if (!tr) {
+          tr = buildRow(d);
+          rowById[d.bad_id] = tr;
+          newCount += 1;
+        } else {
+          applyRow(tr, d);
+        }
+        ordered.push(tr);
       });
-      if (newRows.length && tbody) {
-        var wrap = document.createElement("tbody");
-        if (!reducedMotion()) wrap.className = "devices-live-in";
-        var frag = document.createDocumentFragment();
-        newRows.forEach(function (tr) {
-          frag.appendChild(tr);
-        });
-        wrap.appendChild(frag);
-        tbody.parentNode.insertBefore(wrap, tbody.nextSibling);
-        if (wrap.classList.contains("devices-live-in")) flashNewRows(wrap);
+      Object.keys(rowById).forEach(function (id) {
+        if (list.every(function (d) {
+          return d.bad_id !== id;
+        })) {
+          rowById[id].remove();
+        }
+      });
+      var frag = document.createDocumentFragment();
+      ordered.forEach(function (tr) {
+        frag.appendChild(tr);
+      });
+      tbody.appendChild(frag);
+      if (newCount > 0 && !reducedMotion()) {
+        flashNewRows(tbody);
       }
       var shown = document.getElementById("devices-shown-count");
       var totalEl = document.getElementById("devices-total-count");
