@@ -48,6 +48,9 @@
   {% if new_api_key and not report_mode %}
   <p class="ok warn-box">Новый ключ доступа агента (покажите один раз): <span class="mono">{{ copyable(new_api_key) }}</span></p>
   {% endif %}
+  {% if new_signing_key and not report_mode %}
+  <p class="ok warn-box">Новый ключ подписи (покажите один раз): <span class="mono">{{ copyable(new_signing_key) }}</span></p>
+  {% endif %}
 
   {% if duplicate_groups and not report_mode %}
   <div class="warn-box">
@@ -858,6 +861,7 @@
         <h2>Управление записью</h2>
         <p class="muted">Действия, которые меняют запись устройства в БД.</p>
 
+        {% if user.is_admin %}
         <h3>Теги</h3>
         <form method="post" action="/devices/{{ device.bad_id }}/tags" class="settings-form compact-form">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -868,6 +872,7 @@
             <button type="submit" class="subtle">Сохранить теги</button>
           </div>
         </form>
+        {% endif %}
 
         <h3>Доступ агента</h3>
         <p class="muted">После отзыва агент не сможет отправлять данные на сервер.</p>
@@ -881,7 +886,10 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button type="submit" class="subtle">Выпустить новый ключ</button>
           </form>
-          {% endif %}
+          <form method="post" action="/devices/{{ device.bad_id }}/signing-key" onsubmit="return confirm('Выпустить новый ключ подписи? Старые подписи снимков перестанут подходить.');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="subtle">Выпустить новый ключ подписи</button>
+          </form>
           {% if device.archived %}
           <form method="post" action="/devices/{{ device.bad_id }}/restore">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -892,6 +900,7 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button type="submit" class="subtle">В архив</button>
           </form>
+          {% endif %}
           {% endif %}
         </div>
 
