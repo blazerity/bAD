@@ -1575,7 +1575,10 @@ def overview_search_expanded_json(
     chassis_filter = (chassis or "").strip().casefold() or None
     if chassis_filter and chassis_filter not in {"laptop", "desktop", "server", "vm", "other"}:
         chassis_filter = None
-    hits = db.search_devices_global(query, limit=50)
+    start = max(0, int(offset))
+    hits = db.search_devices_global(
+        query, limit=start + _EXPANDED_PAGE * 3
+    )
     narrowed = []
     for device in hits:
         meta = device.get("meta") if isinstance(device.get("meta"), dict) else {}
@@ -1590,7 +1593,6 @@ def overview_search_expanded_json(
             chassis_filter=chassis_filter,
         ):
             narrowed.append(device)
-    start = max(0, int(offset))
     page = narrowed[start : start + _EXPANDED_PAGE]
     stale, recent = _freshness_limits(db, settings)
     devices_out = []

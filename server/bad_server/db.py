@@ -926,7 +926,7 @@ class Database:
         query = (q or "").strip()
         if not query:
             return []
-        cap = max(1, min(int(limit), 50))
+        cap = max(1, int(limit))
         like = f"%{query}%"
         sql = """
             SELECT bad_id, hostname, enrolled_at, last_seen_at,
