@@ -2424,11 +2424,13 @@ def devices_allow_enrollment_request(
         )
     except ValueError:
         return _see_other(request, page, message="Не удалось выпустить ключ.")
+    latest_archive = db.get_agent_update() or {}
     if not db.mark_enrollment_request_approved(
         request_id,
         bad_id,
         encrypt_secret(data_key, api_key),
         encrypt_secret(data_key, private),
+        str(latest_archive.get("archive_password_enc") or ""),
     ):
         return _see_other(request, page, message="Заявка уже не ждёт разрешения.")
     return _see_other(
@@ -4951,7 +4953,11 @@ def updates_settings_sync(
     settings: Settings = Depends(get_settings),
 ):
     try:
-        record = sync_from_github(db, settings)
+        record = sync_from_github(
+            db,
+            settings,
+            data_key=getattr(request.app.state, "data_key", "") or "",
+        )
         message = f"Синхронизировано: {record.get('version') if record else 'ok'}"
         error = None
     except Exception as exc:  # noqa: BLE001
@@ -5008,6 +5014,7 @@ async def updates_settings_upload(
             version=version,
             sha256=sha256,
             manifest_json=manifest_text,
+            data_key=getattr(request.app.state, "data_key", "") or "",
         )
         message = f"Загружено: {record.get('version')} ({record.get('msi_name')})"
         error = None

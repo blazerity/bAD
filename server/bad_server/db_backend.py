@@ -161,6 +161,7 @@ CREATE TABLE IF NOT EXISTS enrollment_requests (
   smbios_uuid TEXT,
   api_key_enc TEXT,
   signing_key_enc TEXT,
+  archive_password_enc TEXT,
   claimed_at TEXT
 );
 
@@ -267,7 +268,8 @@ CREATE TABLE IF NOT EXISTS agent_update (
   file_path TEXT NOT NULL,
   source_tag TEXT,
   release_url TEXT,
-  synced_at TEXT NOT NULL
+  synced_at TEXT NOT NULL,
+  archive_password_enc TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS agent_msi_versions (
@@ -278,7 +280,8 @@ CREATE TABLE IF NOT EXISTS agent_msi_versions (
   source TEXT NOT NULL DEFAULT 'github',
   source_tag TEXT,
   release_url TEXT,
-  mirrored_at TEXT NOT NULL
+  mirrored_at TEXT NOT NULL,
+  archive_password_enc TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS agent_policies (
