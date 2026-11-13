@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace BadAgent;
 
 /// <summary>
@@ -39,11 +41,6 @@ public static class BadCli
             if (IsPushCommand(args, out var pushRest))
             {
                 return PushCli.Run(pushRest);
-            }
-
-            if (IsPingCommand(args, out var pingRest))
-            {
-                return PingCli.Run(pingRest);
             }
 
             if (IsDoctorCommand(args, out var doctorRest))
@@ -130,9 +127,6 @@ public static class BadCli
     private static bool IsPushCommand(string[] args, out string[] rest) =>
         TakeCommand(args, out rest, StringComparison.OrdinalIgnoreCase, "push");
 
-    private static bool IsPingCommand(string[] args, out string[] rest) =>
-        TakeCommand(args, out rest, StringComparison.OrdinalIgnoreCase, "ping");
-
     private static bool IsDoctorCommand(string[] args, out string[] rest) =>
         TakeCommand(args, out rest, StringComparison.OrdinalIgnoreCase, "doctor");
 
@@ -177,13 +171,43 @@ public static class BadCli
             return 2;
         }
 
-        var (snap, config) = Collect(collector);
+        var shown = ServiceChannel.Call(new { op = "config-show" });
+        var cfg = shown is null ? new AgentConfig() : ConfigCli.PublicConfig(shown);
+        var snap = CollectPublic(collector, cfg);
         CliColumns.Write("Версия", VersionUtil.GetAgentVersion());
-        CliColumns.Write("Сервер", config.ServerUrl);
+        CliColumns.Write("Сервер", cfg.ServerUrl);
         CliColumns.Write("Hostname", snap.Host?.Hostname);
-        CliColumns.Write("device_id", snap.DeviceId);
+        CliColumns.Write("device_id", string.IsNullOrWhiteSpace(cfg.DeviceId) ? snap.DeviceId : cfg.DeviceId);
         CliColumns.Write("Модель", snap.Hardware?.Model);
-        return 0;
+        if (shown is null)
+        {
+            CliColumns.Write("Связь", "нет", "ошибка");
+            return 1;
+        }
+
+        var link = ServiceChannel.Call(new { op = "link" });
+        if (link is null)
+        {
+            CliColumns.Write("Связь", "нет", "ошибка");
+            return 1;
+        }
+
+        var kind = "down";
+        if (link.RootElement.TryGetProperty("values", out var values)
+            && values.TryGetProperty("kind", out var kindEl)
+            && kindEl.ValueKind == JsonValueKind.String)
+        {
+            kind = kindEl.GetString() ?? "down";
+        }
+
+        if (kind is "up" or "auth")
+        {
+            CliColumns.Write("Связь", "есть", "ok");
+            return 0;
+        }
+
+        CliColumns.Write("Связь", "нет", "ошибка");
+        return 1;
     }
 
     private static void PrintInfoHelp()
@@ -193,7 +217,15 @@ public static class BadCli
 
     private static int RunHtml(string? pathArg, IInventoryCollector? collector)
     {
-        var (snap, config) = Collect(collector);
+        var shown = ServiceChannel.Call(new { op = "config-show" });
+        if (shown is null)
+        {
+            ServiceChannel.ServiceDown();
+            return 1;
+        }
+
+        var config = ConfigCli.PublicConfig(shown);
+        var snap = CollectPublic(collector, config);
         var path = ReportPathResolver.ResolveHtmlPath(pathArg, DateTime.Now);
         try
         {
@@ -203,32 +235,33 @@ public static class BadCli
                 Directory.CreateDirectory(dir);
             }
 
-            if (!string.IsNullOrWhiteSpace(config.ServerUrl) && !string.IsNullOrWhiteSpace(config.ApiKey))
+            var reply = ServiceChannel.Call(new
             {
-                try
-                {
-                    var version = VersionUtil.GetAgentVersion();
-                    using var client = new BadApiClient(config.ServerUrl, version);
-                    using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(3));
-                    var serverHtml = client.TryPostReportHtmlAsync(config.ApiKey!, snap, cts.Token)
-                        .GetAwaiter()
-                        .GetResult();
-                    if (!string.IsNullOrEmpty(serverHtml))
-                    {
-                        File.WriteAllText(path, serverHtml);
-                        CliColumns.Write("Отчёт", path, "ok");
-                        return 0;
-                    }
-                }
-                catch (InvalidOperationException ex) when (ServerUrlRules.IsCleartextRejectedException(ex))
-                {
-                    CliColumns.Write("Отчёт", ServerUrlRules.CleartextHttpRejectedMessage, "ошибка");
-                    return 1;
-                }
-                catch
-                {
-                    // Сервер без маршрута / не HTML / сеть — локальный HtmlReportWriter.
-                }
+                op = "report",
+                snapshot = JsonSerializer.SerializeToElement(snap, AgentSigningKey.InventoryJsonOptions)
+            });
+            if (reply is null)
+            {
+                ServiceChannel.ServiceDown();
+                return 1;
+            }
+
+            if (reply.RootElement.TryGetProperty("exit", out var exitEl)
+                && exitEl.TryGetInt32(out var exit)
+                && exit != 0)
+            {
+                return ServiceChannel.Print(reply);
+            }
+
+            var serverHtml = reply.RootElement.TryGetProperty("html", out var htmlEl)
+                             && htmlEl.ValueKind == JsonValueKind.String
+                ? htmlEl.GetString()
+                : null;
+            if (!string.IsNullOrEmpty(serverHtml))
+            {
+                File.WriteAllText(path, serverHtml);
+                CliColumns.Write("Отчёт", path, "ok");
+                return 0;
             }
 
             var html = HtmlReportWriter.Write(snap, config);
@@ -241,6 +274,15 @@ public static class BadCli
             CliColumns.Write("Отчёт", ex.Message, "ошибка");
             return 1;
         }
+    }
+
+    private static InventorySnapshot CollectPublic(IInventoryCollector? collector, AgentConfig config)
+    {
+        var deviceId = config.DeviceId ?? "";
+        var version = VersionUtil.GetAgentVersion();
+        var options = CollectorOptions.FromConfig(config);
+        var c = collector ?? new InventoryCollector();
+        return c.Collect(deviceId, version, options);
     }
 
     private static (InventorySnapshot Snap, AgentConfig Config) Collect(IInventoryCollector? collector)
@@ -273,7 +315,6 @@ public static class BadCli
   bad config               Показать настройки
   bad config set <ключ> <значение>   Один параметр
   bad push                 Очередь, снимок, heartbeat
-  bad ping                 Проверка связи
   bad doctor               Сброс настроек и проверка связи
   bad update               Проверка версии и установка
 

@@ -6,6 +6,7 @@ import io
 import json
 import re
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -65,7 +66,16 @@ from .security import (
     new_device_signing_key,
     verify_secret,
 )
-from .sessions import SESSION_COOKIE, SESSION_MAX_AGE, WebUser, dump_session
+from .sessions import (
+    FLASH_COOKIE,
+    FLASH_MAX_AGE,
+    SESSION_COOKIE,
+    SESSION_MAX_AGE,
+    WebUser,
+    dump_flash,
+    dump_session,
+    load_flash,
+)
 from .agent_update import (
     delete_msi_version,
     ingest_uploaded_msi,
@@ -946,7 +956,61 @@ def _html(
         token,
         secure=cookie_secure_for_request(request, settings.cookie_secure),
     )
+    if getattr(request.state, "drop_flash_cookie", False):
+        resp.delete_cookie(FLASH_COOKIE, path="/")
     return resp
+
+
+# Забытый номер машины. «Разрешить» с ним ничего не выпускает.
+_RETIRED_DEVICE_ID = "6f0bc3d6-87c4-4608-9c01-e6e7c7d2e6c5"
+
+
+def _session_secret(request: Request) -> str:
+    return str(getattr(request.app.state, "session_secret", None) or "")
+
+
+def _take_flash(request: Request) -> dict[str, Any]:
+    """Один GET забирает текст. Следующий F5 куки уже не видит."""
+    token = request.cookies.get(FLASH_COOKIE)
+    if not token:
+        return {}
+    request.state.drop_flash_cookie = True
+    data = load_flash(_session_secret(request), token)
+    return data or {}
+
+
+def _see_other(request: Request, url: str, **payload: Any) -> RedirectResponse:
+    resp = RedirectResponse(url=url, status_code=303)
+    body = {key: value for key, value in payload.items() if value is not None}
+    secret = _session_secret(request)
+    if body and secret:
+        resp.set_cookie(
+            FLASH_COOKIE,
+            dump_flash(secret, body),
+            max_age=FLASH_MAX_AGE,
+            httponly=True,
+            samesite="lax",
+            path="/",
+        )
+    return resp
+
+
+def _flash_check(result: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    if not isinstance(result, dict):
+        return None
+    remote = result.get("remote") if isinstance(result.get("remote"), dict) else {}
+    sha = str(remote.get("sha") or "")
+    return {
+        "update_available": bool(result.get("update_available")),
+        "error": result.get("error"),
+        "remote": {
+            "short_sha": remote.get("short_sha"),
+            "sha": sha[:12],
+            "message": str(remote.get("message") or "")[:200],
+        }
+        if remote
+        else None,
+    }
 
 
 class LdapFormData:
@@ -2220,9 +2284,13 @@ def devices_page(
         model_filter=model_filter,
         chassis_filter=chassis_filter,
     )
-    flash_msg = (flash or "").strip() or getattr(request.state, "devices_flash", None)
+    flashed = _take_flash(request)
+    flash_msg = str(flashed.get("message") or "").strip()
     if flash_msg and len(flash_msg) > 200:
         flash_msg = flash_msg[:200]
+    pending_enrollment = (
+        db.list_pending_enrollment_requests() if user.is_admin else []
+    )
     active_fleet, _archived, fleet_stats, fleet_ops = _fleet_snapshot(db, settings)
     auth_api_count = sum(1 for d in active_fleet if _auth_is_api(d, snapshot_ids))
     dashboard = build_dashboard_stats(
@@ -2267,9 +2335,7 @@ def devices_page(
             "page_size": DEVICES_PAGE_SIZE,
             "export_qs": qs,
             "flash": flash_msg,
-            "enrollment_requests": db.list_pending_enrollment_requests()
-            if user.is_admin
-            else [],
+            "enrollment_count": len(pending_enrollment),
             "filter_chips": filter_chips,
             "park_empty": total == 0
             and not (
@@ -2295,28 +2361,48 @@ def devices_page(
     )
 
 
+@router.get("/devices/enrollment-requests", response_class=HTMLResponse)
+def enrollment_requests_page(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+):
+    flashed = _take_flash(request)
+    message = str(flashed.get("message") or "").strip()
+    return _html(
+        request,
+        "enrollment_requests.html",
+        {
+            "user": user,
+            "rows": db.list_pending_enrollment_requests(),
+            "flash": message[:200] if message else "",
+        },
+    )
+
+
 @router.post("/devices/enrollment-requests/{request_id}/allow")
 def devices_allow_enrollment_request(
     request_id: str,
     request: Request,
-    user: WebUser = Depends(require_web_admin),
+    _user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
-    settings: Settings = Depends(get_settings),
 ):
-    from .crypto_util import encrypt_secret
-
+    page = "/devices/enrollment-requests"
     row = db.get_enrollment_request(request_id)
     if not row or row["status"] != "pending":
-        request.state.devices_flash = "Заявка уже не ждёт разрешения."
-        return devices_page(request, user=user, db=db, settings=settings)
+        return _see_other(request, page, message="Заявка уже не ждёт разрешения.")
     device_id = str(row.get("device_id") or "").strip()
-    if not device_id:
-        request.state.devices_flash = "В заявке нет номера устройства."
-        return devices_page(request, user=user, db=db, settings=settings)
-    existing = db.get_device_auth_row(device_id)
+    if device_id.casefold() == _RETIRED_DEVICE_ID:
+        return _see_other(request, page, message="Ключ карточки не изменён.")
+    existing = db.get_device_auth_row(device_id) if device_id else None
     if existing and existing.get("revoked"):
-        request.state.devices_flash = "Карточка отозвана. Кнопка её не возвращает."
-        return devices_page(request, user=user, db=db, settings=settings)
+        return _see_other(
+            request, page, message="Карточка отозвана. Кнопка её не возвращает."
+        )
+    if existing:
+        return _see_other(request, page, message="Ключ карточки не изменён.")
+    if not device_id:
+        device_id = str(uuid.uuid4())
     api_key = generate_token("bad_ak_")
     private, public, fingerprint = new_device_signing_key()
     data_key = getattr(request.app.state, "data_key", "") or ""
@@ -2328,23 +2414,24 @@ def devices_allow_enrollment_request(
             api_key_hash=hash_secret(api_key),
             agent_version=None,
             api_key_lookup=lookup,
-            allow_existing=existing is not None,
+            allow_existing=False,
             signing_pubkey=public,
             signing_key_fingerprint=fingerprint,
         )
     except ValueError:
-        request.state.devices_flash = "Не удалось выпустить ключ."
-        return devices_page(request, user=user, db=db, settings=settings)
+        return _see_other(request, page, message="Не удалось выпустить ключ.")
     if not db.mark_enrollment_request_approved(
         request_id,
         device_id,
         encrypt_secret(data_key, api_key),
         encrypt_secret(data_key, private),
     ):
-        request.state.devices_flash = "Заявка уже не ждёт разрешения."
-        return devices_page(request, user=user, db=db, settings=settings)
-    request.state.devices_flash = "Разрешено. Агент заберёт ключ при следующем подключении."
-    return devices_page(request, user=user, db=db, settings=settings)
+        return _see_other(request, page, message="Заявка уже не ждёт разрешения.")
+    return _see_other(
+        request,
+        page,
+        message="Разрешено. Агент заберёт ключ при следующем подключении.",
+    )
 
 
 @router.get("/devices/export.csv")
@@ -5090,7 +5177,15 @@ def server_update_settings_page(
     user: WebUser = Depends(require_web_admin),
     settings: Settings = Depends(get_settings),
 ):
-    return _server_update_page(request, settings, user)
+    flashed = _take_flash(request)
+    return _server_update_page(
+        request,
+        settings,
+        user,
+        message=flashed.get("message"),
+        error=flashed.get("error"),
+        check=flashed.get("check"),
+    )
 
 
 @router.post("/settings/server-update/branch")
@@ -5104,14 +5199,10 @@ def server_update_set_branch(
         set_preferred_branch(branch, releases_dir(settings))
         message = f"Ветка обновления: {branch.strip()}"
         error = None
-        code = 200
     except ValueError as exc:
         message = None
         error = str(exc)
-        code = 400
-    return _server_update_page(
-        request, settings, user, message=message, error=error, status_code=code
-    )
+    return _see_other(request, "/settings/server-update", message=message, error=error)
 
 
 @router.post("/settings/server-update/check")
@@ -5128,31 +5219,25 @@ def server_update_check(
         if result.get("error"):
             message = None
             error = result["error"]
-            code = 502
         elif result.get("update_available"):
             remote = result.get("remote") or {}
             message = (
                 f"Доступно обновление: {remote.get('short_sha') or remote.get('sha')}"
             )
             error = None
-            code = 200
         else:
             message = "Установленная версия совпадает с HEAD ветки"
             error = None
-            code = 200
     except ValueError as exc:
         result = None
         message = None
         error = str(exc)
-        code = 400
-    return _server_update_page(
+    return _see_other(
         request,
-        settings,
-        user,
+        "/settings/server-update",
         message=message,
         error=error,
-        check=result,
-        status_code=code,
+        check=_flash_check(result),
     )
 
 
@@ -5172,7 +5257,7 @@ def server_update_apply(
             sha=sha,
             directory=root,
         )
-        message, error, code = server_outcome_for_apply_request(
+        message, error, _code = server_outcome_for_apply_request(
             root,
             req,
             ok_default="Обновление применено",
@@ -5185,14 +5270,10 @@ def server_update_apply(
     except ValueError as exc:
         message = None
         error = str(exc)
-        code = 400
     except OSError as exc:
         message = None
         error = f"Не удалось записать apply.request: {exc}"
-        code = 500
-    return _server_update_page(
-        request, settings, user, message=message, error=error, status_code=code
-    )
+    return _see_other(request, "/settings/server-update", message=message, error=error)
 
 
 @router.post("/settings/server-update/rollback")
@@ -5207,7 +5288,7 @@ def server_update_rollback(
         req = server_request_apply(
             action="rollback", slot_id=slot_id, directory=root
         )
-        message, error, code = server_outcome_for_apply_request(
+        message, error, _code = server_outcome_for_apply_request(
             root,
             req,
             ok_default="Откат выполнен",
@@ -5217,10 +5298,7 @@ def server_update_rollback(
     except ValueError as exc:
         message = None
         error = str(exc)
-        code = 400
-    return _server_update_page(
-        request, settings, user, message=message, error=error, status_code=code
-    )
+    return _see_other(request, "/settings/server-update", message=message, error=error)
 
 
 @router.post("/settings/server-update/token")
@@ -5233,7 +5311,7 @@ def server_update_set_token(
     root = releases_dir(settings)
     try:
         req = request_set_github_token(token, directory=root)
-        message, error, code = server_outcome_for_apply_request(
+        message, error, _code = server_outcome_for_apply_request(
             root,
             req,
             ok_default="Токен для обновлений сохранён (значение больше не показывается).",
@@ -5244,14 +5322,11 @@ def server_update_set_token(
     except ValueError as exc:
         message = None
         error = str(exc)
-        code = 400
-    return _server_update_page(
+    return _see_other(
         request,
-        get_settings(),
-        user,
+        "/settings/server-update",
         message=message,
         error=error,
-        status_code=code,
     )
 
 
@@ -5271,14 +5346,10 @@ def server_update_msi_trigger(
         )
         message = f"Запущена сборка установщика агента (ветка {meta.get('branch')})"
         error = None
-        code = 200
     except Exception as exc:  # noqa: BLE001
         message = None
         error = str(exc)
-        code = 502
-    return _server_update_page(
-        request, settings, user, message=message, error=error, status_code=code
-    )
+    return _see_other(request, "/settings/server-update", message=message, error=error)
 
 
 @router.post("/settings/server-update/msi/poll")
@@ -5298,19 +5369,13 @@ def server_update_msi_poll(
                 f"({meta['ingested'].get('msi_name')})"
             )
             error = meta.get("error")
-            code = 200 if not error else 502
         elif st == "completed" and conclusion != "success":
             message = None
             error = f"Сборка установщика завершилась с ошибкой: {conclusion}"
-            code = 502
         else:
             message = f"Статус сборки установщика: {st or '—'} / {conclusion or '—'}"
             error = meta.get("error")
-            code = 200
     except Exception as exc:  # noqa: BLE001
         message = None
         error = str(exc)
-        code = 502
-    return _server_update_page(
-        request, settings, user, message=message, error=error, status_code=code
-    )
+    return _see_other(request, "/settings/server-update", message=message, error=error)

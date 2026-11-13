@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% from "macros/icons.html" import icon %}
+{% block title %}Заявки на подключение — bAD{% endblock %}
+{% block content %}
+<section class="page devices-page">
+  <header class="page-header">
+    <h1 class="with-icon">{{ icon('devices') }}Заявки на подключение</h1>
+    <p class="page-lead muted"><a href="/devices">К устройствам</a></p>
+  </header>
+  {% if flash %}<p class="ok">{{ flash }}</p>{% endif %}
+  <div class="card-surface filter-card devices-enroll-card">
+    <div class="table-scroll devices-enroll-requests-scroll">
+      <table class="devices devices-enroll-requests">
+        <thead>
+          <tr><th>Имя</th><th>IP</th><th>Серийник</th><th>Статус</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td>{{ row.hostname }}</td>
+            <td class="mono">{{ row.ip or "—" }}</td>
+            <td class="mono">{{ row.serial or "—" }}</td>
+            <td>Ожидает разрешения</td>
+            <td>
+              <form method="post" action="/devices/enrollment-requests/{{ row.id }}/allow">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="btn secondary btn-compact">Разрешить</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+{% endblock %}

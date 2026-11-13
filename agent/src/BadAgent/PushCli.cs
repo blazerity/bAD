@@ -27,42 +27,55 @@ public static class PushCli
             return 2;
         }
 
-        return RunPush();
+        var reply = ServiceChannel.Call(new { op = "push" });
+        if (reply is null)
+        {
+            ServiceChannel.ServiceDown();
+            return 1;
+        }
+
+        return ServiceChannel.Print(reply);
     }
 
-    private static int RunPush()
+    internal static CliOutcome Execute()
     {
+        var outcome = new CliOutcome();
         try
         {
             var config = ConfigStore.LoadOrCreate();
-            if (string.IsNullOrWhiteSpace(config.DeviceId))
+            if (RetiredDevice.TryAssign(config))
             {
-                config.DeviceId = DeviceIdentity.ResolveDeviceId();
                 ConfigStore.Save(config);
+            }
+
+            CliOutcome Fail()
+            {
+                outcome.ExitCode = 1;
+                return outcome;
             }
 
             if (string.IsNullOrWhiteSpace(config.ServerUrl))
             {
-                CliColumns.Write(
+                outcome.Line(
                     "Сервер",
                     "не задан server_url. Укажите адрес сервера: bad -c или bad config set server_url <url>",
                     "ошибка");
-                return 1;
+                return Fail();
             }
 
             if (string.IsNullOrWhiteSpace(config.ApiKey))
             {
-                CliColumns.Write(
+                outcome.Line(
                     "Ключ",
                     "нет ключа. Ждите заявку в панели и кнопку «Разрешить».",
                     "ошибка");
-                return 1;
+                return Fail();
             }
 
             if (string.IsNullOrWhiteSpace(config.DeviceId))
             {
-                CliColumns.Write("device_id", "не задан", "ошибка");
-                return 1;
+                outcome.Line("device_id", "не задан", "ошибка");
+                return Fail();
             }
 
             var agentVersion = VersionUtil.GetAgentVersion();
@@ -78,36 +91,41 @@ public static class PushCli
             var pending = OfflineQueue.CountPending();
             if (pending == 0)
             {
-                CliColumns.Write("Очередь", "пусто", "ok");
+                outcome.Line("Очередь", "пусто", "ok");
             }
             else
             {
                 var flush = OfflineQueue.FlushAsync(client, config.ApiKey!, token).GetAwaiter().GetResult();
                 if (flush.AuthFailed)
                 {
-                    CliColumns.Write("Очередь", "API key отклонён (401/403) при отправке очереди", "ошибка");
-                    return 1;
+                    if (InvalidKeyReset.IsInvalidApiKey(flush.AuthException))
+                    {
+                        InvalidKeyReset.Forget(config, client, token);
+                    }
+
+                    outcome.Line("Очередь", "API key отклонён (401/403) при отправке очереди", "ошибка");
+                    return Fail();
                 }
 
                 if (flush.Success && flush.Sent > 0)
                 {
-                    CliColumns.Write("Очередь", $"отправлено {flush.Sent}", "ok");
+                    outcome.Line("Очередь", $"отправлено {flush.Sent}", "ok");
                 }
                 else if (flush.Deferred)
                 {
-                    CliColumns.Write("Очередь", $"отложено до {flush.NextRetryUtc:u}", "без изменений");
+                    outcome.Line("Очередь", $"отложено до {flush.NextRetryUtc:u}", "без изменений");
                 }
                 else if (!flush.Success)
                 {
-                    CliColumns.Write(
+                    outcome.Line(
                         "Очередь",
                         $"не удалось отправить: {flush.Error?.Message ?? "сеть"}",
                         "ошибка");
-                    return 1;
+                    return Fail();
                 }
                 else
                 {
-                    CliColumns.Write("Очередь", "отправлено 0", "ok");
+                    outcome.Line("Очередь", "отправлено 0", "ok");
                 }
             }
 
@@ -119,8 +137,8 @@ public static class PushCli
                 lastInventoryAt = DateTime.UtcNow;
                 lastInventoryOk = true;
                 lastInventoryError = null;
-                CliColumns.Write("Подпись", "сервер принял", "ok");
-                CliColumns.Write(
+                outcome.Line("Подпись", "сервер принял", "ok");
+                outcome.Line(
                     "Inventory",
                     $"отправлен, ошибок сборщика {snap.CollectorErrors.Count}",
                     "ok");
@@ -130,13 +148,18 @@ public static class PushCli
                 if (ex.Message.Contains("Inventory signature required", StringComparison.Ordinal)
                     || ex.Message.Contains("Invalid inventory signature", StringComparison.Ordinal))
                 {
-                    CliColumns.Write("Подпись", "сервер не принял", "ошибка");
-                    CliColumns.Write("Inventory", "не отправлен", "ошибка");
-                    return 1;
+                    outcome.Line("Подпись", "сервер не принял", "ошибка");
+                    outcome.Line("Inventory", "не отправлен", "ошибка");
+                    return Fail();
                 }
 
-                CliColumns.Write("Inventory", "API key отклонён (401/403) при отправке inventory", "ошибка");
-                return 1;
+                if (InvalidKeyReset.IsInvalidApiKey(ex))
+                {
+                    InvalidKeyReset.Forget(config, client, token);
+                }
+
+                outcome.Line("Inventory", "API key отклонён (401/403) при отправке inventory", "ошибка");
+                return Fail();
             }
             catch (Exception ex)
             {
@@ -145,20 +168,20 @@ public static class PushCli
                 try
                 {
                     OfflineQueue.EnqueueInventory(snap);
-                    CliColumns.Write(
+                    outcome.Line(
                         "Inventory",
                         $"не отправлен, сохранён в очередь ({OfflineQueue.CountPending()}): {ex.Message}",
                         "ошибка");
                 }
                 catch (Exception qex)
                 {
-                    CliColumns.Write(
+                    outcome.Line(
                         "Inventory",
                         $"не отправлен: {ex.Message}; очередь: {qex.Message}",
                         "ошибка");
                 }
 
-                return 1;
+                return Fail();
             }
 
             config = ConfigStore.LoadOrCreate();
@@ -178,55 +201,62 @@ public static class PushCli
             try
             {
                 response = client.SendHeartbeatAsync(config.ApiKey!, payload, token).GetAwaiter().GetResult();
-                CliColumns.Write("Heartbeat", "принят", "ok");
+                outcome.Line("Heartbeat", "принят", "ok");
             }
             catch (AgentApiException ex) when (ex.IsAuthFailure)
             {
-                CliColumns.Write("Heartbeat", "API key отклонён (401/403) при heartbeat", "ошибка");
-                return 1;
+                if (InvalidKeyReset.IsInvalidApiKey(ex))
+                {
+                    InvalidKeyReset.Forget(config, client, token);
+                }
+
+                outcome.Line("Heartbeat", "API key отклонён (401/403) при heartbeat", "ошибка");
+                return Fail();
             }
             catch (Exception ex)
             {
                 try
                 {
                     OfflineQueue.EnqueueHeartbeat(payload);
-                    CliColumns.Write(
+                    outcome.Line(
                         "Heartbeat",
                         $"не отправлен, сохранён в очередь ({OfflineQueue.CountPending()}): {ex.Message}",
                         "ошибка");
                 }
                 catch (Exception qex)
                 {
-                    CliColumns.Write(
+                    outcome.Line(
                         "Heartbeat",
                         $"не отправлен: {ex.Message}; очередь: {qex.Message}",
                         "ошибка");
                 }
 
-                return 1;
+                return Fail();
             }
 
             if (response?.Config?.Settings != null && ApplyRemoteConfig(config, response.Config))
             {
-                CliColumns.Write("Конфиг", "применён", "ok");
+                outcome.Line("Конфиг", "применён", "ok");
             }
 
             MinidumpHeartbeatUpload.RunAsync(client, config.ApiKey!, response?.Actions?.UploadMinidump, null, token)
                 .GetAwaiter()
                 .GetResult();
 
-            Console.WriteLine("Готово");
-            return 0;
+            outcome.Tail.Add("Готово");
+            return outcome;
         }
         catch (InvalidOperationException ex) when (ServerUrlRules.IsCleartextRejectedException(ex))
         {
-            CliColumns.Write("Сервер", ServerUrlRules.CleartextHttpRejectedMessage, "ошибка");
-            return 1;
+            outcome.Line("Сервер", ServerUrlRules.CleartextHttpRejectedMessage, "ошибка");
+            outcome.ExitCode = 1;
+            return outcome;
         }
         catch (Exception ex)
         {
-            CliColumns.Write("Ошибка", ex.Message, "ошибка");
-            return 1;
+            outcome.Line("Ошибка", ex.Message, "ошибка");
+            outcome.ExitCode = 1;
+            return outcome;
         }
     }
 

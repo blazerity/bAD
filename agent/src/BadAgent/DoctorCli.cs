@@ -1,9 +1,7 @@
-using Microsoft.Extensions.Logging.Abstractions;
-
 namespace BadAgent;
 
 /// <summary>
-/// Приводит файл настроек сломанного агента к значениям по умолчанию и проверяет связь.
+/// Связь, затем обновление, затем сброс лишнего. Ключ стирается только если сервер его принял.
 /// </summary>
 public static class DoctorCli
 {
@@ -21,65 +19,82 @@ public static class DoctorCli
             return 1;
         }
 
-        try
+        var reply = ServiceChannel.Call(new { op = "doctor" });
+        if (reply is null)
         {
-            if (!File.Exists(ConfigStore.ConfigPath) || !ConfigStore.TryLoadForRead(out var config, out _))
-            {
-                AgentSigningKey.ClearLocal();
-                CliColumns.Write("Ключ", "стёрт", "ok");
-                CliColumns.Write("Связь", "нет", "ошибка");
-                return 1;
-            }
-
-            var fresh = new AgentConfig
-            {
-                ServerUrl = config.ServerUrl ?? "",
-                DeviceId = string.IsNullOrWhiteSpace(config.DeviceId) ? null : config.DeviceId,
-                ApiKey = string.IsNullOrWhiteSpace(config.ApiKey) ? null : config.ApiKey,
-            };
-            ConfigStore.Save(fresh);
-            AgentSigningKey.ClearLocal();
-            CliColumns.Write("Настройки", "сброшены", "ok");
-            CliColumns.Write("Ключ", "стёрт", "ok");
-
-            if (!string.IsNullOrWhiteSpace(fresh.ApiKey))
-            {
-                TryInstallNewerMsi(fresh);
-            }
-
-            return PingCli.Run([]);
-        }
-        catch
-        {
-            CliColumns.Write("Связь", "нет", "ошибка");
+            ServiceChannel.ServiceDown();
             return 1;
         }
+
+        return ServiceChannel.Print(reply);
     }
 
-    private static void TryInstallNewerMsi(AgentConfig config)
+    internal static CliOutcome Execute()
     {
+        var outcome = new CliOutcome();
+        var config = ConfigStore.LoadOrCreate();
         if (string.IsNullOrWhiteSpace(config.ServerUrl))
         {
-            return;
+            outcome.Line("Сервер", "bad config set server_url", "ошибка");
+            outcome.ExitCode = 1;
+            return outcome;
         }
 
-        try
+        var kind = LinkProbe.Check(config);
+        if (kind == "no_url")
         {
-            var agentVersion = VersionUtil.GetAgentVersion();
-            using var client = new BadApiClient(config.ServerUrl, agentVersion);
-            using var ct = new CancellationTokenSource(TimeSpan.FromMinutes(15));
-            var updater = new AgentUpdater(NullLogger.Instance, agentVersion);
-            var applying = updater.CheckAndApplyAsync(client, config, ct.Token).GetAwaiter().GetResult();
-            if (applying)
+            outcome.Line("Сервер", "bad config set server_url", "ошибка");
+            outcome.ExitCode = 1;
+            return outcome;
+        }
+
+        if (kind == "auth")
+        {
+            outcome.Line("Связь", "есть", "ok");
+            outcome.Line("Ключ", "отклонён", "ошибка");
+            outcome.Line("Заявка", "ожидает «Разрешить»", "без изменений");
+            outcome.ExitCode = 1;
+            return outcome;
+        }
+
+        if (kind != "up")
+        {
+            outcome.Line("Связь", "нет", "ошибка");
+            outcome.ExitCode = 1;
+            return outcome;
+        }
+
+        outcome.Line("Связь", "есть", "ok");
+        var update = UpdateCli.Execute();
+        foreach (var line in update.Lines)
+        {
+            if (line.Field == "Обновление")
             {
-                Console.WriteLine(
-                    "Установка MSI запланирована — через несколько секунд. " +
-                    "Дождитесь перезапуска службы (не жмите Ctrl+C).");
+                outcome.Lines.Add(line);
             }
         }
-        catch (Exception)
+
+        if (update.KeyRejected)
         {
-            Console.Error.WriteLine("error: проверка обновлений не удалась");
+            outcome.ExitCode = 1;
+            return outcome;
         }
+
+        config = ConfigStore.LoadOrCreate();
+        var fresh = new AgentConfig
+        {
+            ServerUrl = config.ServerUrl ?? "",
+            DeviceId = string.IsNullOrWhiteSpace(config.DeviceId) ? null : config.DeviceId,
+            ApiKey = string.IsNullOrWhiteSpace(config.ApiKey) ? null : config.ApiKey,
+            PendingUpdateVersion = config.PendingUpdateVersion,
+            PendingUpdateStartedAt = config.PendingUpdateStartedAt,
+        };
+        ConfigStore.Save(fresh);
+        AgentSigningKey.ClearLocal();
+        outcome.Line("Настройки", "сброшены", "ok");
+        outcome.Line("Ключ", "стёрт", "ok");
+        outcome.StopAfterReply = update.StopAfterReply;
+        outcome.ExitCode = update.ExitCode;
+        return outcome;
     }
 }

@@ -34,34 +34,9 @@
       <div class="devices-enroll-strip">
         <div class="devices-enroll-strip-main">
           <span class="devices-enroll-strip-title">Заявки на подключение</span>
+          <span class="tnum">{{ enrollment_count }}</span>
         </div>
-        {% if enrollment_requests %}
-        <div class="table-scroll devices-enroll-requests-scroll">
-          <table class="devices devices-enroll-requests">
-            <thead>
-              <tr><th>Имя</th><th>IP</th><th>Серийник</th><th>Статус</th><th></th></tr>
-            </thead>
-            <tbody>
-              {% for row in enrollment_requests %}
-              <tr>
-                <td>{{ row.hostname }}</td>
-                <td class="mono">{{ row.ip or "—" }}</td>
-                <td class="mono">{{ row.serial or "—" }}</td>
-                <td>Ожидает разрешения</td>
-                <td>
-                  <form method="post" action="/devices/enrollment-requests/{{ row.id }}/allow">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <button type="submit" class="btn secondary btn-compact">Разрешить</button>
-                  </form>
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-        {% else %}
-        <p class="muted devices-enroll-empty">Заявок нет.</p>
-        {% endif %}
+        <a class="btn secondary btn-compact" href="/devices/enrollment-requests">Заявки</a>
       </div>
     </div>
   {% endif %}

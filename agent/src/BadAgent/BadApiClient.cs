@@ -360,16 +360,18 @@ public sealed class BadApiClient : IDisposable
             ? ""
             : DetailText(failure.Value.Body);
         var signed = trace.Signed ? "true" : "false";
+        var keyFp = ShortTrace(trace.KeyFp);
+        var canonSha = ShortTrace(trace.CanonSha256);
         if (logger is null)
         {
             Console.Error.WriteLine(
                 "inventory signature attempt={0} device_id={1} key_fp={2} signed={3} canon_len={4} canon_sha256={5} sig_len={6} status={7} detail={8}",
                 attempt,
                 snapshot.DeviceId,
-                trace.KeyFp,
+                keyFp,
                 signed,
                 trace.CanonLen,
-                trace.CanonSha256,
+                canonSha,
                 trace.SigLen,
                 statusCode,
                 detail);
@@ -380,14 +382,17 @@ public sealed class BadApiClient : IDisposable
             "inventory signature attempt={Attempt} device_id={DeviceId} key_fp={KeyFp} signed={Signed} canon_len={CanonLen} canon_sha256={CanonSha256} sig_len={SigLen} status={Status} detail={Detail}",
             attempt,
             snapshot.DeviceId,
-            trace.KeyFp,
+            keyFp,
             signed,
             trace.CanonLen,
-            trace.CanonSha256,
+            canonSha,
             trace.SigLen,
             statusCode,
             detail);
     }
+
+    private static string ShortTrace(string value) =>
+        string.IsNullOrEmpty(value) ? "" : value.Length <= 8 ? value : value[..8];
 
     private static string DetailText(string body)
     {

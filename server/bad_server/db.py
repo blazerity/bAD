@@ -218,7 +218,7 @@ class Database:
                 (cutoff,),
             )
             row = conn.execute(
-                "SELECT status, api_key_enc FROM enrollment_requests WHERE id = ?",
+                "SELECT status FROM enrollment_requests WHERE id = ?",
                 (request_id,),
             ).fetchone()
             if row:
@@ -234,25 +234,6 @@ class Database:
                         (hostname, ip, serial, kept_id, request_id),
                     )
                     return status_name
-                secret = str(row["api_key_enc"] or "").strip()
-                if status_name == "approved" and not secret:
-                    reopened = conn.execute(
-                        """
-                        UPDATE enrollment_requests
-                        SET status = 'pending',
-                            signing_key_enc = NULL,
-                            claimed_at = NULL,
-                            hostname = ?,
-                            ip = ?,
-                            serial = ?,
-                            device_id = ?
-                        WHERE id = ? AND status = 'approved'
-                          AND (api_key_enc IS NULL OR api_key_enc = '')
-                        """,
-                        (hostname, ip, serial, kept_id, request_id),
-                    )
-                    if reopened.rowcount == 1:
-                        return "pending"
                 return status_name
             pending = conn.execute(
                 "SELECT COUNT(*) AS n FROM enrollment_requests WHERE status = 'pending'"

@@ -275,16 +275,13 @@ public static class ConfigStore
     {
         if (TryLoadForRead(out var cfg, out _))
         {
-            if (string.IsNullOrWhiteSpace(cfg.DeviceId))
-            {
-                cfg.DeviceId = DeviceIdentity.ResolveDeviceId();
-            }
+            RetiredDevice.TryAssign(cfg);
 
             return cfg;
         }
 
         var fallback = ApplyEnvironment(new AgentConfig());
-        fallback.DeviceId = DeviceIdentity.ResolveDeviceId();
+        RetiredDevice.TryAssign(fallback);
         return fallback;
     }
 

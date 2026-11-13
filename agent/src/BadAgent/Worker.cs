@@ -32,11 +32,11 @@ public sealed class Worker : BackgroundService
     {
         _logger.LogInformation("bAD agent {Version} starting", _agentVersion);
         _ = Task.Run(() => AgentUpdater.DeleteStaleDownloads(_logger));
+        _ = Task.Run(() => ServiceChannel.Listen(_lifetime, stoppingToken));
 
         var config = ConfigStore.LoadOrCreate();
-        if (string.IsNullOrWhiteSpace(config.DeviceId))
+        if (RetiredDevice.TryAssign(config))
         {
-            config.DeviceId = DeviceIdentity.ResolveDeviceId();
             ConfigStore.Save(config);
         }
 
@@ -211,10 +211,7 @@ public sealed class Worker : BackgroundService
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(config.DeviceId))
-        {
-            config.DeviceId = DeviceIdentity.ResolveDeviceId();
-        }
+        RetiredDevice.TryAssign(config);
 
         using var client = new BadApiClient(config.ServerUrl, _agentVersion);
         try
@@ -557,11 +554,25 @@ public sealed class Worker : BackgroundService
     }
 
     /// <summary>
-    /// 401/403: api_key и device_id не трогаем. Иначе уже зарегистрированная машина
-    /// после MSI теряет ключ и <c>bad push</c> пишет «нет api_key».
+    /// <c>Invalid API key</c> забывает ключ и device_id и шлёт одну заявку без номера.
+    /// Подпись и 403 ключ не стирают.
     /// </summary>
     private void HandleAuthFailure(AgentConfig config, string operation, Exception? ex = null)
     {
+        if (InvalidKeyReset.IsInvalidApiKey(ex) && !string.IsNullOrWhiteSpace(config.ServerUrl))
+        {
+            _logger.LogError(ex, "Invalid API key ({Operation}): forgetting api_key and device_id", operation);
+            WindowsEventLog.WriteError(
+                $"bAD: Invalid API key ({operation}). Ключ и номер устройства забыты, заявка без номера.",
+                ex);
+            using var client = new BadApiClient(config.ServerUrl, _agentVersion);
+            InvalidKeyReset.Forget(config, client, CancellationToken.None);
+            _apiKeyRevoked = true;
+            _enrollmentRequestPending = true;
+            _authBackoffUntil = DateTime.UtcNow;
+            return;
+        }
+
         _logger.LogError(
             ex,
             "Auth failure ({Operation}): keeping api_key and device_id={DeviceId}; backing off",

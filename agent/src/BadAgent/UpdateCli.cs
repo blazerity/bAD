@@ -22,69 +22,86 @@ public static class UpdateCli
             return 2;
         }
 
-        return RunUpdate();
+        var reply = ServiceChannel.Call(new { op = "update" });
+        if (reply is null)
+        {
+            ServiceChannel.ServiceDown();
+            return 1;
+        }
+
+        return ServiceChannel.Print(reply);
     }
 
-    private static int RunUpdate()
+    internal static CliOutcome Execute()
     {
+        var outcome = new CliOutcome();
         try
         {
             var config = ConfigStore.LoadOrCreate();
             if (string.IsNullOrWhiteSpace(config.ServerUrl))
             {
-                CliColumns.Write(
+                outcome.Line(
                     "Обновление",
                     "не задан server_url. Укажите адрес сервера: bad -c или bad config set server_url <url>",
                     "ошибка");
-                return 1;
+                outcome.ExitCode = 1;
+                return outcome;
             }
 
             if (string.IsNullOrWhiteSpace(config.ApiKey))
             {
-                CliColumns.Write(
+                outcome.Line(
                     "Обновление",
                     "нет ключа. Ждите заявку в панели и кнопку «Разрешить».",
                     "ошибка");
-                return 1;
+                outcome.ExitCode = 1;
+                return outcome;
             }
 
             var agentVersion = VersionUtil.GetAgentVersion();
             using var client = new BadApiClient(config.ServerUrl, agentVersion);
             using var ct = new CancellationTokenSource(TimeSpan.FromMinutes(15));
-            var token = ct.Token;
-
             var logger = NullLogger.Instance;
             var updater = new AgentUpdater(logger, agentVersion);
             try
             {
-                var applying = updater.CheckAndApplyAsync(client, config, token).GetAwaiter().GetResult();
+                var applying = updater.CheckAndApplyAsync(client, config, ct.Token).GetAwaiter().GetResult();
                 if (applying)
                 {
-                    CliColumns.Write("Обновление", "установка запланирована", "ok");
-                    // Сразу выходим: bad.cmd должен завершиться до msiexec / Restart Manager.
-                    Environment.Exit(0);
+                    outcome.Line("Обновление", "установка запланирована", "ok");
+                    outcome.StopAfterReply = true;
+                    return outcome;
                 }
 
-                CliColumns.Write("Обновление", "не требуется", "без изменений");
+                outcome.Line("Обновление", "не требуется", "без изменений");
             }
             catch (AgentApiException ex) when (ex.IsAuthFailure)
             {
-                CliColumns.Write("Обновление", "API key отклонён (401/403) при проверке обновлений", "ошибка");
-                return 1;
+                if (InvalidKeyReset.IsInvalidApiKey(ex))
+                {
+                    InvalidKeyReset.Forget(config, client, CancellationToken.None);
+                }
+
+                outcome.KeyRejected = true;
+                outcome.Line("Обновление", "API key отклонён (401/403) при проверке обновлений", "ошибка");
+                outcome.ExitCode = 1;
+                return outcome;
             }
 
-            Console.WriteLine("Готово");
-            return 0;
+            outcome.Tail.Add("Готово");
+            return outcome;
         }
         catch (InvalidOperationException ex) when (ServerUrlRules.IsCleartextRejectedException(ex))
         {
-            CliColumns.Write("Обновление", ServerUrlRules.CleartextHttpRejectedMessage, "ошибка");
-            return 1;
+            outcome.Line("Обновление", ServerUrlRules.CleartextHttpRejectedMessage, "ошибка");
+            outcome.ExitCode = 1;
+            return outcome;
         }
         catch (Exception ex)
         {
-            CliColumns.Write("Обновление", $"проверка обновлений не удалась: {ex.Message}", "ошибка");
-            return 1;
+            outcome.Line("Обновление", $"проверка обновлений не удалась: {ex.Message}", "ошибка");
+            outcome.ExitCode = 1;
+            return outcome;
         }
     }
 

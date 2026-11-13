@@ -8,6 +8,9 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 SESSION_COOKIE = "bad_session"
 SESSION_MAX_AGE = 60 * 60 * 12  # 12 часов
 SESSION_SALT = "bad-web-session-v1"
+FLASH_COOKIE = "bad_flash"
+FLASH_MAX_AGE = 120
+FLASH_SALT = "bad-web-flash-v1"
 
 
 @dataclass
@@ -58,3 +61,21 @@ def load_session(secret: str, token: Optional[str]) -> Optional[WebUser]:
     if not isinstance(data, dict) or not data.get("u"):
         return None
     return WebUser.from_dict(data)
+
+
+def dump_flash(secret: str, payload: dict[str, Any]) -> str:
+    ser = URLSafeTimedSerializer(secret, salt=FLASH_SALT)
+    return ser.dumps(payload)
+
+
+def load_flash(secret: str, token: Optional[str]) -> Optional[dict[str, Any]]:
+    if not token or not secret:
+        return None
+    ser = URLSafeTimedSerializer(secret, salt=FLASH_SALT)
+    try:
+        data = ser.loads(token, max_age=FLASH_MAX_AGE)
+    except (BadSignature, SignatureExpired, Exception):
+        return None
+    if not isinstance(data, dict):
+        return None
+    return data

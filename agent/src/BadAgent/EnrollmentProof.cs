@@ -9,6 +9,17 @@ public static class EnrollmentProof
 {
     public static string ProofPath => Path.Combine(ConfigStore.ProgramDataDir, "enrollment_proof");
 
+    /// <summary>Уже лежащий секрет. Файла нет — null, новый не создаём.</summary>
+    public static string? ReadExistingFingerprintHex()
+    {
+        if (!File.Exists(ProofPath))
+        {
+            return null;
+        }
+
+        return HashFile();
+    }
+
     /// <summary>64 hex. null — файл есть, но прочитать его нельзя. Новый секрет тогда не пишется.</summary>
     public static string? TryFingerprintHex()
     {
@@ -35,6 +46,11 @@ public static class EnrollmentProof
             }
         }
 
+        return HashFile();
+    }
+
+    private static string? HashFile()
+    {
         try
         {
             var data = File.ReadAllBytes(ProofPath);

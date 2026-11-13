@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 
 namespace BadAgent;
 
@@ -81,17 +82,17 @@ public static class ConfigCli
     /// <summary>Интерактивный мастер <c>bad -c</c>. Пустой ввод — оставить текущее значение.</summary>
     public static int RunInteractive(TextReader? input = null, TextWriter? output = null)
     {
-        var elev = WindowsElevation.RequireElevatedOrExit("интерактивной настройки (bad -c)");
-        if (elev != 0)
-        {
-            return elev;
-        }
-
         input ??= Console.In;
         output ??= Console.Out;
 
-        var cfg = ConfigStore.LoadOrCreate();
-        var previousServerUrl = cfg.ServerUrl;
+        var shown = ServiceChannel.Call(new { op = "config-show" });
+        if (shown is null)
+        {
+            ServiceChannel.ServiceDown();
+            return 1;
+        }
+
+        var cfg = PublicConfig(shown);
         var anyChanged = false;
         var serverUrlChanged = false;
         var changedKeys = new List<string>();
@@ -117,18 +118,21 @@ public static class ConfigCli
             return 0;
         }
 
-        ConfigStore.Save(cfg);
-        output.WriteLine();
+        var patch = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var changed in changedKeys)
         {
-            output.WriteLine(CliColumns.Format(changed, FormatValue(GetEditable(cfg, changed)), "ok"));
-        }
-        if (serverUrlChanged)
-        {
-            PrintServerUrlWarning(previousServerUrl, cfg.ServerUrl, output);
+            patch[changed] = FormatValue(GetEditable(cfg, changed));
         }
 
-        return 0;
+        var saved = ServiceChannel.Call(new { op = "config-apply", values = patch });
+        if (saved is null)
+        {
+            ServiceChannel.ServiceDown();
+            return 1;
+        }
+
+        output.WriteLine();
+        return ServiceChannel.Print(saved);
     }
 
     /// <returns><c>false</c> при EOF (прервать опрос).</returns>
@@ -209,30 +213,54 @@ public static class ConfigCli
         return 2;
     }
 
-    private static int RunShow()
+    private static int RunShow() => CallService(new { op = "config-show" });
+
+    private static int CallService(object request)
     {
+        var reply = ServiceChannel.Call(request);
+        if (reply is null)
+        {
+            ServiceChannel.ServiceDown();
+            return 1;
+        }
+
+        return ServiceChannel.Print(reply);
+    }
+
+    internal static CliOutcome ExecuteShow()
+    {
+        var outcome = new CliOutcome();
         var readable = ConfigStore.TryLoadForRead(out var cfg, out var readError);
         if (!readable)
         {
-            Console.Error.WriteLine(
+            outcome.Tail.Add(
                 "Предупреждение: config.json недоступен для чтения — показаны значения по умолчанию и device_id машины.");
             if (!string.IsNullOrWhiteSpace(readError))
             {
-                Console.Error.WriteLine($"Причина: {readError}");
+                outcome.Tail.Add($"Причина: {readError}");
             }
 
-            cfg.DeviceId = DeviceIdentity.ResolveDeviceId();
+            RetiredDevice.TryAssign(cfg);
         }
-        Console.WriteLine(CliColumns.Format("Файл", ConfigStore.ConfigPath));
+
+        outcome.Line("Файл", ConfigStore.ConfigPath);
+        var values = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["device_id"] = cfg.DeviceId ?? "",
+            ["remote_config_version"] = cfg.RemoteConfigVersion ?? ""
+        };
         foreach (var key in InteractiveKeys)
         {
             var manual = IsManual(cfg, key) ? " [вручную на агенте]" : "";
-            CliColumns.Write(key, FormatValue(GetEditable(cfg, key)) + manual);
+            var shown = FormatValue(GetEditable(cfg, key));
+            outcome.Line(key, shown + manual);
+            values[key] = shown;
         }
 
-        CliColumns.Write("device_id", cfg.DeviceId);
-        CliColumns.Write("remote_config_version", cfg.RemoteConfigVersion);
-        return 0;
+        outcome.Line("device_id", cfg.DeviceId);
+        outcome.Line("remote_config_version", cfg.RemoteConfigVersion);
+        outcome.Values = values;
+        return outcome;
     }
 
     private static int RunGet(string[] args)
@@ -256,26 +284,42 @@ public static class ConfigCli
             return 2;
         }
 
+        return CallService(new { op = "config-get", key });
+    }
+
+    internal static CliOutcome ExecuteGet(string key)
+    {
+        var outcome = new CliOutcome();
+        key = NormalizeKey(key);
+        if (key is "api_key" or "enrollment_token" or "enrollment_code")
+        {
+            outcome.Line("Ключ", "секрет CLI не печатает", "ошибка");
+            outcome.ExitCode = 2;
+            return outcome;
+        }
+
+        if (ForbiddenKeys.Contains(key) || !IsEditable(key))
+        {
+            outcome.Line("Ключ", $"'{key}' нельзя читать через config get", "ошибка");
+            outcome.ExitCode = 2;
+            return outcome;
+        }
+
         if (!ConfigStore.TryLoadForRead(out var cfg, out var readError))
         {
             var why = string.IsNullOrWhiteSpace(readError) ? "" : $" {readError}";
-            CliColumns.Write("Ключ", $"не удалось прочитать config.json.{why}", "ошибка");
-            return 1;
+            outcome.Line("Ключ", $"не удалось прочитать config.json.{why}", "ошибка");
+            outcome.ExitCode = 1;
+            return outcome;
         }
 
         var manual = IsManual(cfg, key) ? " [вручную на агенте]" : "";
-        CliColumns.Write(key, FormatValue(GetEditable(cfg, key)) + manual);
-        return 0;
+        outcome.Line(key, FormatValue(GetEditable(cfg, key)) + manual);
+        return outcome;
     }
 
     private static int RunUnset(string[] args)
     {
-        var elev = WindowsElevation.RequireElevatedOrExit("изменения настроек (bad config unset)");
-        if (elev != 0)
-        {
-            return elev;
-        }
-
         if (args.Length != 1)
         {
             CliColumns.Write("Ключ", "использование: bad config unset <ключ>", "ошибка");
@@ -289,41 +333,51 @@ public static class ConfigCli
             return 2;
         }
 
+        return CallService(new { op = "config-unset", key });
+    }
+
+    internal static CliOutcome ExecuteUnset(string key)
+    {
+        var outcome = new CliOutcome();
+        key = NormalizeKey(key);
+        if (!IsEditable(key))
+        {
+            outcome.Line("Ключ", $"'{key}' не из списка изменяемых", "ошибка");
+            outcome.ExitCode = 2;
+            return outcome;
+        }
+
         var cfg = ConfigStore.LoadOrCreate();
         if (key == "server_url")
         {
             if (!cfg.ServerUrlLocal)
             {
-                CliColumns.Write("server_url", "нет маркера server_url_local", "ошибка");
-                return 1;
+                outcome.Line("server_url", "нет маркера server_url_local", "ошибка");
+                outcome.ExitCode = 1;
+                return outcome;
             }
 
             ConfigStore.MarkServerUrlLocal(cfg, false);
             ConfigStore.Save(cfg);
-            CliColumns.Write("server_url", "снят server_url_local", "ok");
-            return 0;
+            outcome.Line("server_url", "снят server_url_local", "ok");
+            return outcome;
         }
 
         if (!ConfigStore.IsAgentLocalKey(cfg, key))
         {
-            CliColumns.Write(key, "нет маркера agent_local", "ошибка");
-            return 1;
+            outcome.Line(key, "нет маркера agent_local", "ошибка");
+            outcome.ExitCode = 1;
+            return outcome;
         }
 
         ConfigStore.ClearAgentLocalKey(cfg, key);
         ConfigStore.Save(cfg);
-        CliColumns.Write(key, "снят agent_local", "ok");
-        return 0;
+        outcome.Line(key, "снят agent_local", "ok");
+        return outcome;
     }
 
     private static int RunSet(string[] args)
     {
-        var elev = WindowsElevation.RequireElevatedOrExit("изменения настроек (bad config set)");
-        if (elev != 0)
-        {
-            return elev;
-        }
-
         if (args.Length < 2)
         {
             CliColumns.Write("Ключ", "использование: bad config set <ключ> <значение>", "ошибка");
@@ -360,13 +414,42 @@ public static class ConfigCli
             return 2;
         }
 
+        return CallService(new { op = "config-set", key, value = valueRaw });
+    }
+
+    internal static CliOutcome ExecuteSet(string keyRaw, string valueRaw)
+    {
+        var outcome = new CliOutcome();
+        var key = NormalizeKey(keyRaw);
+        if (key.IndexOfAny(['|', ';', '&', '`', '$', '\n', '\r', '\0']) >= 0
+            || valueRaw.IndexOfAny(['\n', '\r', '\0']) >= 0)
+        {
+            outcome.Line("Ключ", "недопустимые символы в ключе или значении", "ошибка");
+            outcome.ExitCode = 2;
+            return outcome;
+        }
+
+        if (key is "api_key" or "enrollment_token" or "enrollment_code" || ForbiddenKeys.Contains(key))
+        {
+            outcome.Line(key, "запрещён для CLI, значение не принято", "ошибка");
+            outcome.ExitCode = 2;
+            return outcome;
+        }
+
+        if (!IsEditable(key))
+        {
+            outcome.Line(key, "неизвестный или неразрешённый ключ", "ошибка");
+            outcome.ExitCode = 2;
+            return outcome;
+        }
+
         var cfg = ConfigStore.LoadOrCreate();
         var previousServerUrl = cfg.ServerUrl;
         if (!TryApply(cfg, key, valueRaw, out var error))
         {
-            // error — шаблон валидации (ServerUrlRules и т.п.); valueRaw не повторяем.
-            CliColumns.Write(key, error, "ошибка");
-            return 1;
+            outcome.Line(key, error, "ошибка");
+            outcome.ExitCode = 1;
+            return outcome;
         }
 
         if (key == "server_url")
@@ -375,19 +458,66 @@ public static class ConfigCli
         }
         else if (!ConfigStore.MarkAgentLocalKey(cfg, key))
         {
-            CliColumns.Write(key, "не удалось пометить как agent_local", "ошибка");
-            return 1;
+            outcome.Line(key, "не удалось пометить как agent_local", "ошибка");
+            outcome.ExitCode = 1;
+            return outcome;
         }
 
         ConfigStore.Save(cfg);
-        CliColumns.Write(key, FormatValue(GetEditable(cfg, key)), "ok");
-
+        outcome.Line(key, FormatValue(GetEditable(cfg, key)), "ok");
         if (key == "server_url")
         {
-            PrintServerUrlWarning(previousServerUrl, cfg.ServerUrl, Console.Out);
+            RememberServerUrlWarning(previousServerUrl, cfg.ServerUrl, outcome);
         }
 
-        return 0;
+        return outcome;
+    }
+
+    internal static CliOutcome ExecuteApply(IReadOnlyDictionary<string, string> values)
+    {
+        var outcome = new CliOutcome();
+        var cfg = ConfigStore.LoadOrCreate();
+        var previousServerUrl = cfg.ServerUrl;
+        var serverUrlChanged = false;
+        foreach (var pair in values)
+        {
+            var key = NormalizeKey(pair.Key);
+            if (key is "api_key" or "enrollment_token" or "enrollment_code" || ForbiddenKeys.Contains(key) || !IsEditable(key))
+            {
+                outcome.Line(key, "запрещён для CLI, значение не принято", "ошибка");
+                outcome.ExitCode = 2;
+                return outcome;
+            }
+
+            if (!TryApply(cfg, key, pair.Value, out var error))
+            {
+                outcome.Line(key, error, "ошибка");
+                outcome.ExitCode = 1;
+                return outcome;
+            }
+
+            if (key == "server_url")
+            {
+                ConfigStore.MarkServerUrlLocal(cfg, true);
+                serverUrlChanged = true;
+            }
+            else if (!ConfigStore.MarkAgentLocalKey(cfg, key))
+            {
+                outcome.Line(key, "не удалось пометить как agent_local", "ошибка");
+                outcome.ExitCode = 1;
+                return outcome;
+            }
+
+            outcome.Line(key, FormatValue(GetEditable(cfg, key)), "ok");
+        }
+
+        ConfigStore.Save(cfg);
+        if (serverUrlChanged)
+        {
+            RememberServerUrlWarning(previousServerUrl, cfg.ServerUrl, outcome);
+        }
+
+        return outcome;
     }
 
     public static bool TryApply(AgentConfig config, string key, string value, out string? error)
@@ -462,6 +592,79 @@ public static class ConfigCli
         return true;
     }
 
+    internal static AgentConfig PublicConfig(JsonDocument reply)
+    {
+        var cfg = new AgentConfig();
+        if (!reply.RootElement.TryGetProperty("values", out var values)
+            || values.ValueKind != JsonValueKind.Object)
+        {
+            return cfg;
+        }
+
+        string Read(string name) =>
+            values.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.String
+                ? el.GetString() ?? ""
+                : "";
+
+        cfg.ServerUrl = Read("server_url");
+        cfg.DeviceId = string.IsNullOrWhiteSpace(Read("device_id")) ? null : Read("device_id");
+        if (bool.TryParse(Read("collect_hardware"), out var hardware))
+        {
+            cfg.CollectHardware = hardware;
+        }
+
+        if (bool.TryParse(Read("collect_users"), out var users))
+        {
+            cfg.CollectUsers = users;
+        }
+
+        if (bool.TryParse(Read("collect_software"), out var software))
+        {
+            cfg.CollectSoftware = software;
+        }
+
+        if (int.TryParse(Read("inventory_interval_hours"), out var inventory))
+        {
+            cfg.InventoryIntervalHours = inventory;
+        }
+
+        if (int.TryParse(Read("heartbeat_interval_minutes"), out var heartbeat))
+        {
+            cfg.HeartbeatIntervalMinutes = heartbeat;
+        }
+
+        if (int.TryParse(Read("update_check_interval_hours"), out var update))
+        {
+            cfg.UpdateCheckIntervalHours = update;
+        }
+
+        cfg.RemoteConfigVersion = Read("remote_config_version");
+        return cfg;
+    }
+
+    private static void RememberServerUrlWarning(string previous, string current, CliOutcome outcome)
+    {
+        if (current.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+        {
+            outcome.Tail.Add(
+                "Предупреждение: http:// принят только из‑за BAD_ALLOW_HTTP=1 (lab). " +
+                "В бою укажите https:// — иначе агент без opt-in не подключится.");
+        }
+        else
+        {
+            outcome.Tail.Add(
+                "Важно: в бою оставляйте server_url на https:// " +
+                "(cleartext без BAD_ALLOW_HTTP=1 служба отклонит — ServerUrlRules).");
+        }
+
+        if (!string.Equals(previous, current, StringComparison.OrdinalIgnoreCase))
+        {
+            outcome.Tail.Add(
+                "Смена server_url может потребовать повторный enroll на новом сервере. " +
+                "При ответе Invalid API key служба забывает ключ и номер устройства.");
+        }
+    }
+
     private static void PrintServerUrlWarning(string previous, string current, TextWriter output)
     {
         output.WriteLine();
@@ -482,7 +685,7 @@ public static class ConfigCli
         {
             output.WriteLine(
                 "Смена server_url может потребовать повторный enroll на новом сервере. " +
-                "При 401/403 служба api_key не удаляет.");
+                "При ответе Invalid API key служба забывает ключ и номер устройства.");
         }
     }
 
