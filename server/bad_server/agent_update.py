@@ -96,6 +96,17 @@ def sync_from_github(
         token=settings.github_token or "",
         api_base=settings.github_api_base,
     )
+    core = parse_semver(assets.version)
+    ver = f"{core[0]}.{core[1]}.{core[2]}" if core is not None else assets.version
+    existing = db.get_agent_msi_version(ver)
+    if existing:
+        logger.info(
+            "Agent MSI version=%s already in catalog, file left unchanged",
+            existing["version"],
+        )
+        record = dict(existing)
+        record.pop("archive_password_enc", None)
+        return record
     ver_dir = settings.agent_updates_dir / assets.version
     path = mirror_release_to_dir(
         assets,
@@ -107,8 +118,6 @@ def sync_from_github(
         raise RuntimeError("sealed archive is not accepted")
     password = new_password()
     payload = encrypt_zip(raw, password)
-    core = parse_semver(assets.version)
-    ver = f"{core[0]}.{core[1]}.{core[2]}" if core is not None else assets.version
     arc_name = safe_msi_filename(f"bad-agent-{ver}.arc")
     arc_path = (ver_dir / arc_name).resolve()
     try:
