@@ -107,10 +107,12 @@ jobs:
             if (-not $version) { $version = "1.0.1" }
             $releaseTag = "agent-v$version"
           }
-          if ($version -notmatch '^\d+\.\d+\.\d+') {
+          if ($version -notmatch '^(?<core>\d+\.\d+\.\d+)(?<pre>[-+][0-9A-Za-z.-]+)?$') {
             throw "Agent version must look like major.minor.patch, got: $version"
           }
+          $productVersion = $Matches.core
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "product_version=$productVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "tag=$releaseTag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "msi_name=bad-agent-$version.msi" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           Write-Host "Resolved agent version=$version release_tag=$releaseTag"
@@ -159,7 +161,7 @@ jobs:
             -ext WixToolset.Util.wixext `
             -arch x64 `
             -d AgentPublishDir=publish `
-            -d ProductVersion=${{ steps.ver.outputs.version }} `
+            -d ProductVersion=${{ steps.ver.outputs.product_version }} `
             -o $msi
           if (-not (Test-Path $msi)) { throw "MSI not produced: $msi" }
 

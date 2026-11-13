@@ -19,7 +19,7 @@ def _read_server_version() -> str:
                     return text.splitlines()[0].strip()
             except OSError:
                 continue
-    return "3.0"
+    return "0.4.0-beta"
 
 
 __version__ = _read_server_version()
