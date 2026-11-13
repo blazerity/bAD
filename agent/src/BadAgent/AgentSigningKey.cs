@@ -12,7 +12,7 @@ namespace BadAgent;
 /// </summary>
 public static class AgentSigningKey
 {
-    /// <summary>%ProgramData%\blazerity\bAD\signing_key — одна строка base64 (32 байта raw private).</summary>
+    /// <summary>%ProgramData%\blazerity\bADagent\signing_key — одна строка base64 (32 байта raw private).</summary>
     public static string KeyPath => Path.Combine(ConfigStore.ProgramDataDir, "signing_key");
 
     /// <summary>Маркер: POST /v1/agent/signing-key недоступен или секрет уже выдан на сервере.</summary>

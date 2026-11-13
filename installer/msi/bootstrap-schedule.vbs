@@ -21,14 +21,14 @@ Function BootstrapScheduleAction
   End If
 
   pd = sh.ExpandEnvironmentStrings("%ProgramData%")
-  updates = pd & "\blazerity\bAD\updates"
-  logs = pd & "\blazerity\bAD\logs"
+  updates = pd & "\blazerity\bADagent\updates"
+  logs = pd & "\blazerity\bADagent\logs"
   dest = updates & "\bad-agent-bootstrap.msi"
   blog = logs & "\msiexec-bootstrap.log"
   xmlPath = updates & "\bAD-bootstrap-task.xml"
 
   If Not fso.FolderExists(pd & "\blazerity") Then fso.CreateFolder pd & "\blazerity"
-  If Not fso.FolderExists(pd & "\blazerity\bAD") Then fso.CreateFolder pd & "\blazerity\bAD"
+  If Not fso.FolderExists(pd & "\blazerity\bADagent") Then fso.CreateFolder pd & "\blazerity\bADagent"
   If Not fso.FolderExists(updates) Then fso.CreateFolder updates
   If Not fso.FolderExists(logs) Then fso.CreateFolder logs
 
@@ -91,14 +91,14 @@ End Function
 Function GetAgentExe(fso, sh)
   Dim reg, pf
   On Error Resume Next
-  reg = sh.RegRead("HKLM\SOFTWARE\blazerity\bAD\InstallDir")
+  reg = sh.RegRead("HKLM\SOFTWARE\blazerity\bADagent\InstallDir")
   If Len(reg) > 0 Then
     If Right(reg, 1) = "\" Then reg = Left(reg, Len(reg) - 1)
     GetAgentExe = reg & "\bin\BadAgent.exe"
     Exit Function
   End If
   pf = sh.ExpandEnvironmentStrings("%ProgramFiles%")
-  GetAgentExe = pf & "\blazerity\bad agent\bin\BadAgent.exe"
+  GetAgentExe = pf & "\blazerity\bADagent\bin\BadAgent.exe"
 End Function
 
 Function VersionGreaterThanLegacy(ver)
@@ -135,9 +135,9 @@ Sub WriteLog(fso, sh, msg)
   On Error Resume Next
   Dim logs, path, ts, line, ts2, root
   root = sh.ExpandEnvironmentStrings("%ProgramData%")
-  logs = root & "\blazerity\bAD\logs"
+  logs = root & "\blazerity\bADagent\logs"
   If Not fso.FolderExists(root & "\blazerity") Then fso.CreateFolder root & "\blazerity"
-  If Not fso.FolderExists(root & "\blazerity\bAD") Then fso.CreateFolder root & "\blazerity\bAD"
+  If Not fso.FolderExists(root & "\blazerity\bADagent") Then fso.CreateFolder root & "\blazerity\bADagent"
   If Not fso.FolderExists(logs) Then fso.CreateFolder logs
   path = logs & "\msi-install.log"
   ts = Year(Now) & "-" & Right("0" & Month(Now), 2) & "-" & Right("0" & Day(Now), 2) & _

@@ -316,7 +316,7 @@ public static class BadCli
   bad update               Проверка версии и установка
 
 Служба
-  bad service status       Состояние службы badagent
+  bad service status       Состояние службы bADagent
   bad service start        Запуск
   bad service stop         Остановка
   bad service restart      Перезапуск

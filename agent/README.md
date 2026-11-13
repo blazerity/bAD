@@ -1,6 +1,6 @@
 # Агент
 
-Служба Windows `badagent` и команда `bad`. Версия — файл `VERSION` в этом каталоге.
+Служба Windows `bADagent` и команда `bad`. Версия — файл `VERSION` в этом каталоге.
 
 Сборка: `dotnet build BadAgent.sln -c Release`.
 

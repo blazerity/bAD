@@ -40,8 +40,8 @@ public static class UninstallCli
 
         if (!yes)
         {
-            Console.WriteLine("Будет выполнено снятие агента bAD (служба badagent + файлы в Program Files).");
-            Console.WriteLine("Каталог %ProgramData%\\blazerity\\bAD\\ (config, очередь, логи) также будет очищен.");
+            Console.WriteLine("Будет выполнено снятие агента bAD (служба bADagent + файлы в Program Files).");
+            Console.WriteLine("Каталог %ProgramData%\\blazerity\\bADagent\\ (config, очередь, логи) также будет очищен.");
             Console.Write("Продолжить? [y/N]: ");
             var answer = (Console.ReadLine() ?? "").Trim();
             if (!answer.Equals("y", StringComparison.OrdinalIgnoreCase)

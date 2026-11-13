@@ -18,7 +18,7 @@ function Write-BootstrapLog {
     $line = "{0:yyyy-MM-ddTHH:mm:ss.fffzzz} {1}" -f [DateTimeOffset]::Now, $Message
     try { Write-Host $line } catch { }
     try {
-        $logDir = Join-Path $env:ProgramData "blazerity\bAD\logs"
+        $logDir = Join-Path $env:ProgramData "blazerity\bADagent\logs"
         New-Item -ItemType Directory -Force -Path $logDir -ErrorAction SilentlyContinue | Out-Null
         Add-Content -Path (Join-Path $logDir "msi-install.log") -Value $line -Encoding UTF8 -ErrorAction SilentlyContinue
     } catch { }
@@ -49,9 +49,9 @@ if ($null -ne $installedVer -and $installedVer -gt $LegacyMaxVersion) {
     exit 0
 }
 
-$updatesDir = Join-Path (Join-Path $env:ProgramData "blazerity\bAD") "updates"
+$updatesDir = Join-Path (Join-Path $env:ProgramData "blazerity\bADagent") "updates"
 $destMsi = Join-Path $updatesDir "bad-agent-bootstrap.msi"
-$logDir = Join-Path (Join-Path $env:ProgramData "blazerity\bAD") "logs"
+$logDir = Join-Path (Join-Path $env:ProgramData "blazerity\bADagent") "logs"
 $bootstrapLog = Join-Path $logDir "msiexec-bootstrap.log"
 $marker = Join-Path $updatesDir $MarkerName
 

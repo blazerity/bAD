@@ -4,12 +4,12 @@ using System.ServiceProcess;
 namespace BadAgent;
 
 /// <summary>
-/// Elevated CLI для Windows-службы <c>badagent</c>.
+/// Elevated CLI для Windows-службы <c>bADagent</c>.
 /// Usage: BadAgent.exe service status|start|stop|restart
 /// </summary>
 public static class ServiceCli
 {
-    public const string ServiceName = "badagent";
+    public const string ServiceName = "bADagent";
 
     public static int Run(string[] args)
     {
@@ -64,7 +64,7 @@ public static class ServiceCli
     private static int PrintUsage()
     {
         Console.WriteLine("""
-bad service status       Состояние службы badagent
+bad service status       Состояние службы bADagent
 bad service start        Запуск
 bad service stop         Остановка
 bad service restart      Перезапуск

@@ -64,7 +64,7 @@ try {
     $script:ErrorFile = Join-Path $BadLogsDir "msi-ca-error.txt"
     Write-BadMsiLog "INFO write-config start ProductData=$BadProgramData"
 
-    $setupKey = "HKLM:\SOFTWARE\blazerity\bAD\Setup"
+    $setupKey = "HKLM:\SOFTWARE\blazerity\bADagent\Setup"
     $ServerUrl = ""
     if (Test-Path $setupKey) {
         try {

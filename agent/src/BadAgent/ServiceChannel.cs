@@ -6,7 +6,7 @@ using System.Text.Json;
 
 namespace BadAgent;
 
-/// <summary>Локальный канал одной машины: CLI просит, служба badagent отвечает. Ключ в ответ не входит.</summary>
+/// <summary>Локальный канал одной машины: CLI просит, служба bADagent отвечает. Ключ в ответ не входит.</summary>
 internal static class ServiceChannel
 {
     public const string PipeName = "bad-agent-cli";

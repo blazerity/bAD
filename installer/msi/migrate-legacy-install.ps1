@@ -8,7 +8,7 @@ function Write-MigrateLog {
     $line = "{0:yyyy-MM-ddTHH:mm:ss.fffzzz} {1}" -f [DateTimeOffset]::Now, $Message
     try { Write-Host $line } catch { }
     try {
-        $logDir = Join-Path $env:ProgramData "blazerity\bAD\logs"
+        $logDir = Join-Path $env:ProgramData "blazerity\bADagent\logs"
         if (-not (Test-Path $logDir)) {
             New-Item -ItemType Directory -Force -Path $logDir | Out-Null
         }

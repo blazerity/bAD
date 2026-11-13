@@ -1,5 +1,5 @@
-# Остановить badagent и дождаться выхода BadAgent.exe до RemoveExistingProducts (MajorUpgrade).
-# Deferred install, LocalSystem. InstallDir — из argv или HKLM\SOFTWARE\blazerity\bAD\InstallDir.
+# Остановить bADagent и дождаться выхода BadAgent.exe до RemoveExistingProducts (MajorUpgrade).
+# Deferred install, LocalSystem. InstallDir — из argv или HKLM\SOFTWARE\blazerity\bADagent\InstallDir.
 
 param(
     [string]$InstallDir = ""
@@ -14,7 +14,7 @@ function Write-StopLog {
     $line = "{0:yyyy-MM-ddTHH:mm:ss.fffzzz} {1}" -f [DateTimeOffset]::Now, $Message
     try { Write-Host $line } catch { }
     try {
-        $logDir = Join-Path $env:ProgramData "blazerity\bAD\logs"
+        $logDir = Join-Path $env:ProgramData "blazerity\bADagent\logs"
         if (-not (Test-Path -LiteralPath $logDir)) {
             New-Item -ItemType Directory -Force -Path $logDir | Out-Null
         }
@@ -35,8 +35,8 @@ $root = Get-BadAgentInstallDir -FromArg $InstallDir
 $exe = Join-Path (Join-Path $root "bin") "BadAgent.exe"
 Write-StopLog "INFO stop-agent-before-upgrade InstallDir=$root"
 
-if (-not (Test-ServiceExists -Name "badagent")) {
-    Write-StopLog "OK stop-agent-before-upgrade (service badagent not installed)"
+if (-not (Test-ServiceExists -Name "bADagent")) {
+    Write-StopLog "OK stop-agent-before-upgrade (service bADagent not installed)"
     exit 0
 }
 
@@ -49,8 +49,8 @@ try {
             exit 110
         }
     } else {
-        Write-StopLog "INFO stopping via Stop-Service badagent (exe missing)"
-        Stop-Service -Name "badagent" -Force -ErrorAction Stop
+        Write-StopLog "INFO stopping via Stop-Service bADagent (exe missing)"
+        Stop-Service -Name "bADagent" -Force -ErrorAction Stop
     }
 } catch {
     Write-StopLog "ERROR BAD_MSI_110 stop service: $($_.Exception.Message)"

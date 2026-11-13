@@ -210,10 +210,10 @@ public static class ConfigStore
             if (OperatingSystem.IsWindows())
             {
                 var pd = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-                return Path.Combine(pd, "blazerity", "bAD");
+                return Path.Combine(pd, "blazerity", "bADagent");
             }
 
-            return Path.Combine(Path.GetTempPath(), "blazerity-bad");
+            return Path.Combine(Path.GetTempPath(), "blazerity-bADagent");
         }
     }
 

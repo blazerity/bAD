@@ -30,7 +30,7 @@ internal static class MsiexecLauncher
             return false;
         }
 
-        var dir = Path.Combine(Path.GetTempPath(), "bad-agent-update");
+        var dir = Path.Combine(Path.GetTempPath(), "bADagent-update");
         Directory.CreateDirectory(dir);
         var scriptPath = Path.Combine(dir, $"msiexec-{Guid.NewGuid():N}.vbs");
 

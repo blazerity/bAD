@@ -24,7 +24,7 @@ public sealed class AgentUpdater
     }
 
     /// <summary>
-    /// Удаляет скачанные MSI в %TEMP%\bad-agent-update. Занятый файл пропускается.
+    /// Удаляет скачанные MSI в %TEMP%\bADagent-update. Занятый файл пропускается.
     /// </summary>
     public static void DeleteStaleDownloads(ILogger logger)
     {
@@ -33,7 +33,7 @@ public sealed class AgentUpdater
             return;
         }
 
-        var root = Path.Combine(Path.GetTempPath(), "bad-agent-update");
+        var root = Path.Combine(Path.GetTempPath(), "bADagent-update");
         if (!Directory.Exists(root))
         {
             return;
@@ -149,7 +149,7 @@ public sealed class AgentUpdater
         }
 
         DeleteStaleDownloads(_logger);
-        var tempDir = Path.Combine(Path.GetTempPath(), "bad-agent-update", Guid.NewGuid().ToString("N"));
+        var tempDir = Path.Combine(Path.GetTempPath(), "bADagent-update", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
         string msiPath;
         try
