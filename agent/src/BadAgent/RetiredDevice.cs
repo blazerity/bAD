@@ -3,8 +3,6 @@ namespace BadAgent;
 /// <summary>Номер, который служба забыла. Снова из MachineGuid его не пишем.</summary>
 internal static class RetiredDevice
 {
-    public const string PlaceholderId = "6f0bc3d6-87c4-4608-9c01-e6e7c7d2e6c5";
-
     private static string Path => System.IO.Path.Combine(ConfigStore.ProgramDataDir, "retired_device_id");
 
     public static void Remember(string? deviceId)

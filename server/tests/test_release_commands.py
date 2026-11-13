@@ -28,9 +28,6 @@ get_settings.cache_clear()
 
 from bad_server.app import create_app  # noqa: E402
 
-_PLACEHOLDER = "6f0bc3d6-87c4-4608-9c01-e6e7c7d2e6c5"
-
-
 def _fp() -> str:
     return uuid.uuid4().hex + uuid.uuid4().hex
 
@@ -118,8 +115,6 @@ def test_allow_empty_device_creates_card_and_flash_is_once() -> None:
         assert "Разрешено" not in second.text
         created = set(_hashes(client)) - before
         assert len(created) == 1
-        new_id = next(iter(created))
-        assert new_id != _PLACEHOLDER
         again = client.post(
             f"/devices/enrollment-requests/{fingerprint.lower()}/allow",
             data={"csrf_token": _csrf(second.text)},
@@ -163,11 +158,11 @@ def test_allow_live_card_rotates_key() -> None:
         assert row["status"] == "approved"
 
 
-def test_allow_placeholder_issues_nothing() -> None:
+def test_allow_any_device_id_issues_key() -> None:
     fingerprint = _fp()
+    device_id = "6f0bc3d6-87c4-4608-9c01-e6e7c7d2e6c5"
     with TestClient(create_app()) as client:
-        _request(client, fingerprint, hostname="OLD", device_id=_PLACEHOLDER)
-        before = set(_hashes(client))
+        _request(client, fingerprint, hostname="OLD", device_id=device_id)
         _login(client)
         page = client.get("/devices/enrollment-requests")
         client.post(
@@ -176,9 +171,10 @@ def test_allow_placeholder_issues_nothing() -> None:
             follow_redirects=False,
         )
         landed = client.get("/devices/enrollment-requests")
-        assert "Ключ карточки не изменён." in landed.text
-        assert _PLACEHOLDER not in _hashes(client)
-        assert set(_hashes(client)) == before
+        assert "Разрешено" in landed.text
+        assert device_id in _hashes(client)
+        row = client.app.state.db.get_enrollment_request(fingerprint.lower())
+        assert row["status"] == "approved"
 
 
 def test_approved_key_is_returned_once() -> None:

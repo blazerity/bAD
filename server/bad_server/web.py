@@ -961,10 +961,6 @@ def _html(
     return resp
 
 
-# Забытый номер машины. «Разрешить» с ним ничего не выпускает.
-_RETIRED_DEVICE_ID = "6f0bc3d6-87c4-4608-9c01-e6e7c7d2e6c5"
-
-
 def _session_secret(request: Request) -> str:
     return str(getattr(request.app.state, "session_secret", None) or "")
 
@@ -2392,8 +2388,6 @@ def devices_allow_enrollment_request(
     if not row or row["status"] != "pending":
         return _see_other(request, page, message="Заявка уже не ждёт разрешения.")
     device_id = str(row.get("device_id") or "").strip()
-    if device_id.casefold() == _RETIRED_DEVICE_ID:
-        return _see_other(request, page, message="Ключ карточки не изменён.")
     existing = db.get_device_auth_row(device_id) if device_id else None
     if existing and existing.get("revoked"):
         return _see_other(
