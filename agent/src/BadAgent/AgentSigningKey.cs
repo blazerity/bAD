@@ -146,6 +146,27 @@ public static class AgentSigningKey
         QuietFiles.TryDelete(KeyPath + ".tmp");
     }
 
+    /// <summary>Удаляет только битый файл ключа. Вызывает только <see cref="DoctorCli.Execute"/>.</summary>
+    internal static void QuarantineGarbage(CliOutcome outcome)
+    {
+        if (!File.Exists(KeyPath))
+        {
+            outcome.Line("Подпись", "файла нет", "без изменений");
+            return;
+        }
+
+        var fingerprint = CurrentFileFingerprint();
+        if (fingerprint.Length > 0)
+        {
+            outcome.Line("Подпись", "на месте", "ok");
+            return;
+        }
+
+        QuietFiles.TryDelete(KeyPath);
+        QuietFiles.TryDelete(KeyPath + ".tmp");
+        outcome.Line("Подпись", "битый файл удалён", "ok");
+    }
+
     /// <summary>
     /// Один раз с сервера, если локального файла нет. 404 / нет маршрута — без ошибки, без подписи.
     /// </summary>

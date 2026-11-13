@@ -312,7 +312,7 @@ public static class BadCli
   bad config               Показать настройки
   bad config set <ключ> <значение>   Один параметр
   bad push                 Очередь, снимок, heartbeat
-  bad doctor               Сброс настроек и проверка связи
+  bad doctor               Найти поломку агента и починить локальное
   bad update               Проверка версии и установка
 
 Служба

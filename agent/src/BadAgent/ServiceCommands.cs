@@ -119,16 +119,18 @@ internal static class LinkProbe
         return outcome;
     }
 
-    public static string Check(AgentConfig config)
+    public readonly record struct LinkProbeStatus(string Kind, AgentApiException? AuthException);
+
+    public static LinkProbeStatus Status(AgentConfig config)
     {
         if (string.IsNullOrWhiteSpace(config.ServerUrl))
         {
-            return "no_url";
+            return new LinkProbeStatus("no_url", null);
         }
 
         if (string.IsNullOrWhiteSpace(config.ApiKey) || string.IsNullOrWhiteSpace(config.BadId))
         {
-            return "down";
+            return new LinkProbeStatus("down", null);
         }
 
         try
@@ -140,22 +142,30 @@ internal static class LinkProbe
                 config.ApiKey,
                 new HeartbeatQueuePayload { BadId = config.BadId },
                 cts.Token).GetAwaiter().GetResult();
-            return "up";
+            return new LinkProbeStatus("up", null);
         }
         catch (AgentApiException ex) when (ex.IsAuthFailure)
         {
-            if (InvalidKeyReset.IsInvalidApiKey(ex))
-            {
-                using var client = new BadApiClient(config.ServerUrl, VersionUtil.GetAgentVersion());
-                InvalidKeyReset.Forget(config, client, CancellationToken.None);
-            }
-
-            return "auth";
+            return new LinkProbeStatus("auth", ex);
         }
         catch (Exception)
         {
-            return "down";
+            return new LinkProbeStatus("down", null);
         }
+    }
+
+    public static string Check(AgentConfig config)
+    {
+        var status = Status(config);
+        if (status.Kind == "auth"
+            && status.AuthException is { } ex
+            && InvalidKeyReset.IsInvalidApiKey(ex))
+        {
+            using var client = new BadApiClient(config.ServerUrl, VersionUtil.GetAgentVersion());
+            InvalidKeyReset.Forget(config, client, CancellationToken.None);
+        }
+
+        return status.Kind;
     }
 }
 
