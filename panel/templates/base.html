@@ -23,9 +23,9 @@
 <body class="{% block body_class %}mica-noise hcp-panel{% endblock %}">
   {% from "macros/icons.html" import icon %}
   {% set path = request.url.path if request is defined and request else '' %}
-  {% set show_rail = user is defined and user and (not user.must_change_password or qa_ui) %}
+  {% set show_rail = user is defined and user and not user.must_change_password %}
   {% macro brand_lockup() %}
-  <a class="brand-lockup" href="{% if user is defined and user and user.must_change_password and not qa_ui %}/account/password{% else %}/{% endif %}">
+  <a class="brand-lockup" href="{% if user is defined and user and user.must_change_password %}/account/password{% else %}/{% endif %}">
     <span class="brand-mark" aria-hidden="true"><img src="/static/favicon.ico" width="32" height="32" alt=""></span>
     <span class="brand-text">
       <span class="brand-title">bAD</span>
@@ -74,7 +74,7 @@
       </button>
     </div>
     {% endif %}
-    {% if user is defined and user and user.must_change_password and not qa_ui %}
+    {% if user is defined and user and user.must_change_password %}
       <nav class="nav nav-header-compact" aria-label="Смена пароля">
         {% if user.source == 'local' %}
         <a href="/account/password">{{ icon('password') }}<span>Пароль</span></a>
@@ -105,7 +105,7 @@
     {% endif %}
     </div>
   </header>
-  {% if tls_mode is defined and tls_mode == 'http' and not qa_ui %}
+  {% if tls_mode is defined and tls_mode == 'http' %}
   <div class="banner banner-http" role="status">
     Сайт пока без защищённого соединения — только доверенная сеть.
     Путь:
@@ -116,7 +116,7 @@
     {% endif %}
   </div>
   {% endif %}
-  {% if user is defined and user and user.must_change_password and not qa_ui %}
+  {% if user is defined and user and user.must_change_password %}
   <div class="banner">Используется пароль по умолчанию — <a href="/account/password">смените его сейчас</a>.</div>
   {% endif %}
   <main>

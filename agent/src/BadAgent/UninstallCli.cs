@@ -1,7 +1,7 @@
 namespace BadAgent;
 
 /// <summary>
-/// Локальное снятие агента: <c>bad uninstall</c> / <c>bin\uninstall.cmd</c> → msiexec /x.
+/// Локальное снятие агента: <c>bad uninstall</c> → msiexec /x.
 /// </summary>
 public static class UninstallCli
 {
@@ -72,8 +72,6 @@ public static class UninstallCli
   bad uninstall           Снять агент (нужны права администратора, с подтверждением)
   bad uninstall -y        Без подтверждения
   bad uninstall -h        Эта справка
-
-Также: bin\uninstall.cmd (тот же вызов).
 """);
     }
 }

@@ -3,7 +3,7 @@ using System.Text;
 namespace BadAgent;
 
 /// <summary>
-/// Запуск msiexec вне консоли <c>bad.cmd</c>.
+/// Запуск msiexec вне консоли <c>bad.exe</c>.
 /// Helper через .cmd + <c>Process.Start(UseShellExecute)</c> оставался в той же консоли —
 /// Restart Manager → Ctrl+C → «Завершить выполнение пакетного файла».
 /// </summary>
@@ -36,7 +36,7 @@ internal static class MsiexecLauncher
 
         var runCommand = BuildMsiexecRunCommand(msiexec, msiexecArguments);
         var vbs = new StringBuilder();
-        vbs.AppendLine("' bAD: отложенный msiexec — консоль bad.cmd должна закрыться до установки");
+        vbs.AppendLine("' bAD: отложенный msiexec — консоль bad.exe должна закрыться до установки");
         vbs.Append("WScript.Sleep ").Append(DelayMs).AppendLine();
         vbs.Append("CreateObject(\"WScript.Shell\").Run \"")
             .Append(EscapeVbsString(runCommand))

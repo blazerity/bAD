@@ -364,6 +364,38 @@
       },
     };
 
+    function wirePageSearchInput(input, opts) {
+      if (!input) return;
+      var box = opts && opts.resultsId ? document.getElementById(opts.resultsId) : null;
+      if (box) {
+        box.hidden = true;
+        box.setAttribute("aria-hidden", "true");
+      }
+      if (opts && opts.hideCats) {
+        var catRoot = document.querySelector("[data-overview-search-cats]");
+        if (catRoot) catRoot.hidden = true;
+      }
+      function openWithValue() {
+        openModal(input.value || "");
+      }
+      input.addEventListener("focus", openWithValue);
+      input.addEventListener("click", openWithValue);
+      input.addEventListener("input", function () {
+        window.badGlobalSearch.setQuery(input.value || "");
+      });
+      input.addEventListener("keydown", function (ev) {
+        if (ev.key === "Enter") ev.preventDefault();
+      });
+    }
+
+    wirePageSearchInput(document.querySelector("[data-devices-search]"), {
+      resultsId: "devices-search-results",
+    });
+    wirePageSearchInput(document.querySelector("[data-overview-search]"), {
+      resultsId: "overview-search-results",
+      hideCats: true,
+    });
+
     setBackdropOpacity();
   }
 
