@@ -2981,10 +2981,10 @@ button.copy-btn:focus-visible {
   margin-top: 0.35rem;
   font-size: 0.9rem;
 }
-tbody.devices-live-in {
+tr.devices-live-in {
   animation: devices-live-flash 200ms ease-out 1;
 }
-tbody.devices-live-in td {
+tr.devices-live-in td {
   background: transparent;
 }
 @keyframes devices-live-flash {
@@ -3015,7 +3015,7 @@ tbody.devices-live-in td {
     animation: none;
     opacity: 1;
   }
-  tbody.devices-live-in {
+  tr.devices-live-in {
     animation: none;
   }
 }

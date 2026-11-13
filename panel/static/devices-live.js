@@ -131,14 +131,16 @@
     return tr;
   }
 
-  function flashNewRows(tbody) {
-    if (!tbody || reducedMotion()) return;
-    tbody.classList.add("devices-live-in");
-    var onEnd = function () {
-      tbody.classList.remove("devices-live-in");
-      tbody.removeEventListener("animationend", onEnd);
-    };
-    tbody.addEventListener("animationend", onEnd);
+  function flashNewRows(rows) {
+    if (!rows || !rows.length || reducedMotion()) return;
+    function onEnd() {
+      this.classList.remove("devices-live-in");
+      this.removeEventListener("animationend", onEnd);
+    }
+    rows.forEach(function (tr) {
+      tr.classList.add("devices-live-in");
+      tr.addEventListener("animationend", onEnd);
+    });
   }
 
   function init() {
@@ -177,7 +179,7 @@
         var id = tr.getAttribute("data-bad-id");
         if (id) rowById[id] = tr;
       });
-      var newCount = 0;
+      var newRows = [];
       var ordered = [];
       list.forEach(function (d) {
         if (!d.bad_id) return;
@@ -185,7 +187,7 @@
         if (!tr) {
           tr = buildRow(d);
           rowById[d.bad_id] = tr;
-          newCount += 1;
+          newRows.push(tr);
         } else {
           applyRow(tr, d);
         }
@@ -203,8 +205,8 @@
         frag.appendChild(tr);
       });
       tbody.appendChild(frag);
-      if (newCount > 0 && !reducedMotion()) {
-        flashNewRows(tbody);
+      if (newRows.length) {
+        flashNewRows(newRows);
       }
       var shown = document.getElementById("devices-shown-count");
       var totalEl = document.getElementById("devices-total-count");
