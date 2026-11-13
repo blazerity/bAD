@@ -58,7 +58,7 @@ public static class AgentUninstaller
         var args = $"/x {productCode} /qn /norestart";
         try
         {
-            // Тот же паттерн, что у update: не держать msiexec в консоли bad.cmd.
+            // Тот же паттерн, что у update: не держать msiexec в консоли bad.exe.
             if (!MsiexecLauncher.StartDelayedDetached(args))
             {
                 error?.Invoke("Снятие агента: не удалось запустить msiexec");
@@ -139,7 +139,7 @@ public static class AgentUninstaller
     }
 
     [SupportedOSPlatform("windows")]
-    private static string? TryFindProductCodeByUpgradeCode()
+    internal static string? TryFindProductCodeByUpgradeCode()
     {
         var upgradePath = $@"SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UpgradeCodes\{{{MsiUpgradeCode}}}";
         using var upgradeKey = Registry.LocalMachine.OpenSubKey(upgradePath);

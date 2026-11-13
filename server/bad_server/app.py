@@ -202,10 +202,6 @@ async def lifespan(app: FastAPI):
 
     reset_process_start()
     settings = get_settings()
-    if settings.qa_ui:
-        logger.warning(
-            "BAD_QA_UI=1: режим QA для скриншотов панели — не включать в production"
-        )
     db = open_database(database_url=settings.database_url)
     settings.agent_updates_dir = resolve_agent_updates_dir(settings)
     try:
@@ -218,8 +214,6 @@ async def lifespan(app: FastAPI):
         logger.warning("Cannot create backup dir %s", settings.backup_dir)
 
     # Сохранить hashed site secrets, если plaintext-токены заданы через env
-    if settings.enrollment_token and not db.get_site_secret("enrollment_token_hash"):
-        db.set_site_secret("enrollment_token_hash", hash_secret(settings.enrollment_token))
     if settings.admin_token and not db.get_site_secret("admin_token_hash"):
         db.set_site_secret("admin_token_hash", hash_secret(settings.admin_token))
 

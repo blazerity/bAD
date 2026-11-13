@@ -21,7 +21,6 @@ DEFAULT_KEY_CANDIDATES = (
     Path("/etc/bad/data_key"),
     Path("/etc/bad/session_secret"),
     Path("/etc/bad/site.env"),
-    Path("/etc/bad/enrollment_token"),
 )
 
 

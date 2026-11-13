@@ -2,28 +2,7 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any, Iterable, Optional, Sequence, Union
-
-_PLACEHOLDER_RE = re.compile(r"\?")
-_COLLATE_NOCASE_RE = re.compile(
-    r"(\b[\w.]+)\s*=\s*\?\s*COLLATE\s+NOCASE",
-    re.IGNORECASE,
-)
-_INSERT_OR_IGNORE_RE = re.compile(
-    r"INSERT\s+OR\s+IGNORE\s+INTO",
-    re.IGNORECASE,
-)
-
-
-def adapt_sql(sql: str) -> str:
-    """SQLite-flavoured helpers → Postgres (placeholders, COLLATE, OR IGNORE)."""
-    text = _COLLATE_NOCASE_RE.sub(r"LOWER(\1) = LOWER(?)", sql)
-    had_ignore = bool(_INSERT_OR_IGNORE_RE.search(text))
-    text = _INSERT_OR_IGNORE_RE.sub("INSERT INTO", text)
-    if had_ignore and "ON CONFLICT" not in text.upper():
-        text = text.rstrip().rstrip(";") + " ON CONFLICT DO NOTHING"
-    return _PLACEHOLDER_RE.sub("%s", text)
 
 
 class CompatCursor:
@@ -61,7 +40,7 @@ class CompatConnection:
     def execute(
         self, sql: str, params: Optional[Union[Sequence[Any], dict[str, Any]]] = None
     ) -> CompatCursor:
-        cur = self._raw.execute(adapt_sql(sql), params or ())
+        cur = self._raw.execute(sql, params or ())
         return CompatCursor(cur)
 
     def executescript(self, script: str) -> None:

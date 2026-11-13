@@ -71,14 +71,11 @@ def backup_keys_status(
     session_exists = (
         session_secret_file.is_file() and session_secret_file.stat().st_size > 0
     )
-    legacy = bool(
-        secrets.get("legacy_keys_in_db") or secrets.get("legacy_keys_in_sqlite")
-    )
+    legacy = bool(secrets.get("legacy_keys_in_db"))
     keys_external = bool(secrets.get("ok")) and not legacy
     return {
         "keys_external": keys_external,
         "legacy_keys_in_db": legacy,
-        "legacy_keys_in_sqlite": legacy,  # alias для UI до переименования шаблонов
         "data_key_path": str(data_key_file),
         "session_secret_path": str(session_secret_file),
         "data_key_exists": data_exists,

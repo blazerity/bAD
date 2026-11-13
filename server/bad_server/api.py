@@ -59,7 +59,6 @@ from .schemas import (
     EnrollResponse,
     EnrollmentGrantBody,
     EnrollmentRequestBody,
-    EnrollmentRotateBody,
     HeartbeatRequest,
     IntegrationLookupBody,
     IntegrationRequestBody,
@@ -312,12 +311,6 @@ def enroll(
             detail="Device already enrolled",
         ) from exc
     if created:
-        try:
-            from .enrollment_ops import mark_device_enrolled
-
-            mark_device_enrolled(db)
-        except Exception:  # noqa: BLE001
-            logger.exception("last_enrollment_at stamp failed (ignored)")
         try:
             smtp_row = db.get_smtp_settings()
             notify_enroll(
@@ -897,15 +890,6 @@ def agent_update_check(
     )
 
 
-@router.get("/agent/update/msi")
-def agent_update_msi(
-    version: str = Query(default="", max_length=64),
-    _device=Depends(require_api_key),
-) -> FileResponse:
-    """MSI больше не отдаётся."""
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-
-
 class LinkProgressBody(BaseModel):
     received: int
     total: int
@@ -1323,41 +1307,13 @@ def admin_server_update_msi_poll(
     return {"status": "ok", "msi_build": meta}
 
 
-@router.post("/admin/enrollment/rotate")
-def admin_enrollment_rotate(
-    request: Request,
-    body: EnrollmentRotateBody,
-    _admin: str = Depends(require_admin_token),
-    db: Database = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-) -> dict[str, Any]:
-    """Сменить enrollment token. Plaintext в ответе один раз; token только в JSON body."""
-    from .enrollment_ops import rotate_enrollment_token
-
-    if request.query_params.get("token"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Pass enrollment token in JSON body, not query string",
-        )
-    result = rotate_enrollment_token(
-        db, settings, new_token=(body.token or "").strip() or None
-    )
-    return {
-        "status": "ok",
-        "token": result["token"],
-        "rotated_at": result.get("rotated_at"),
-        "wrote_token_file": result.get("wrote_token_file"),
-        "updated_site_env": result.get("updated_site_env"),
-    }
-
-
 @router.get("/admin/security-status")
 def admin_security_status(
     _admin: str = Depends(require_admin_token),
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
-    """Theme A: HTTPS-first + SEC-005 + enrollment rotation hooks (no plaintext secrets)."""
+    """Theme A: HTTPS-first + SEC-005 (no plaintext secrets)."""
     from .security_ops import security_status
 
     return security_status(db, settings)
