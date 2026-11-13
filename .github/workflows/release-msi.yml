@@ -115,7 +115,7 @@ jobs:
           "product_version=$productVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "tag=$releaseTag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "msi_name=bad-agent-$productVersion.msi" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          "arc_name=bad-agent-$productVersion.arc" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "zip_name=bad-agent-$productVersion.zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           Write-Host "Resolved agent version=$version release_tag=$releaseTag"
 
       - name: Build link service
@@ -124,7 +124,7 @@ jobs:
           $vs = & $vswhere -latest -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           if (-not $vs) { throw "Visual C++ tools not found" }
           $bat = Join-Path $vs "VC\Auxiliary\Build\vcvars64.bat"
-          cmd /c "`"$bat`" && cl /nologo /O2 /W3 /DUNICODE /D_UNICODE /Fe:installer\link\bADagent.exe installer\link\bADagent.c /link /SUBSYSTEM:WINDOWS"
+          cmd /c "`"$bat`" && cl /nologo /O2 /W3 /utf-8 /DUNICODE /D_UNICODE /Fe:installer\link\bADagent.exe installer\link\bADagent.c /link /SUBSYSTEM:WINDOWS && cl /nologo /O2 /W3 /utf-8 /DUNICODE /D_UNICODE /Fe:installer\link\bad.exe installer\link\bad.c /link /SUBSYSTEM:CONSOLE"
           if ($LASTEXITCODE -ne 0) { throw "cl failed: $LASTEXITCODE" }
 
       - name: Publish agent (win-x64 self-contained)
@@ -137,10 +137,10 @@ jobs:
             --self-contained true `
             -p:Version=${{ steps.ver.outputs.product_version }} `
             -o $out
-          python -m pip install cryptography
-          $env:PYTHONPATH = "server"
-          python -m bad_server.agent_arc pack $out "installer/msi/${{ steps.ver.outputs.arc_name }}"
-          if ($LASTEXITCODE -ne 0) { throw "arc pack failed: $LASTEXITCODE" }
+          $zip = Join-Path (Get-Location) "installer/msi/${{ steps.ver.outputs.zip_name }}"
+          if (Test-Path $zip) { Remove-Item -Force $zip }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [System.IO.Compression.ZipFile]::CreateFromDirectory((Resolve-Path $out).Path, $zip)
 
       - name: Install WiX toolset (dotnet tool)
         run: |
@@ -197,16 +197,12 @@ jobs:
       - name: Write agent-release.json + SHA256
         working-directory: installer/msi
         run: |
-          $arc = "${{ steps.ver.outputs.arc_name }}"
-          $hash = (Get-FileHash -Algorithm SHA256 -Path $arc).Hash.ToLowerInvariant()
-          $pwFile = "$arc.password"
-          $pw = (Get-Content -Raw -Path $pwFile).Trim()
-          Remove-Item -Force $pwFile
+          $zip = "${{ steps.ver.outputs.zip_name }}"
+          $hash = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash.ToLowerInvariant()
           $manifest = [ordered]@{
-            version           = "${{ steps.ver.outputs.product_version }}"
-            msi_name          = $arc
-            sha256            = $hash
-            archive_password  = $pw
+            version  = "${{ steps.ver.outputs.product_version }}"
+            msi_name = $zip
+            sha256   = $hash
           }
           $manifest | ConvertTo-Json -Compress | Set-Content -Path agent-release.json -Encoding utf8
           Write-Host "sha256=$hash"
@@ -217,7 +213,7 @@ jobs:
           name: bad-agent-msi-${{ steps.ver.outputs.version }}
           path: |
             installer/msi/${{ steps.ver.outputs.msi_name }}
-            installer/msi/${{ steps.ver.outputs.arc_name }}
+            installer/msi/${{ steps.ver.outputs.zip_name }}
             installer/msi/agent-release.json
 
       - name: Create or update GitHub Release
@@ -228,14 +224,14 @@ jobs:
           $tag = "${{ steps.ver.outputs.tag }}"
           $version = "${{ steps.ver.outputs.version }}"
           $msi = "installer/msi/${{ steps.ver.outputs.msi_name }}"
-          $arc = "installer/msi/${{ steps.ver.outputs.arc_name }}"
+          $zip = "installer/msi/${{ steps.ver.outputs.zip_name }}"
           $json = "installer/msi/agent-release.json"
           $title = "bAD agent $version"
           $notes = @"
           ## bAD agent $version
 
           - MSI: ``${{ steps.ver.outputs.msi_name }}``
-          - Archive: ``${{ steps.ver.outputs.arc_name }}``
+          - Zip: ``${{ steps.ver.outputs.zip_name }}``
           - Manifest: ``agent-release.json`` (version, msi_name, sha256)
 
           Install (elevated):
@@ -246,7 +242,7 @@ jobs:
           The on-prem server mirrors these assets; agents download updates from the server, not from GitHub.
           "@
           if (gh release view $tag 2>$null) {
-            gh release upload $tag $msi $arc $json --clobber
+            gh release upload $tag $msi $zip $json --clobber
           } else {
-            gh release create $tag $msi $arc $json --title $title --notes $notes
+            gh release create $tag $msi $zip $json --title $title --notes $notes
           }

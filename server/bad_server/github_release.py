@@ -17,6 +17,7 @@ MANIFEST_NAME = "agent-release.json"
 MSI_PREFIX = "bad-agent-"
 MSI_SUFFIX = ".msi"
 ARC_SUFFIX = ".arc"
+ZIP_SUFFIX = ".zip"
 
 
 @dataclass(frozen=True)
@@ -28,7 +29,6 @@ class ReleaseAssets:
     msi_download_url: str
     manifest_download_url: str
     release_url: str
-    archive_password: str = ""
 
 
 def _request_json(
@@ -86,7 +86,11 @@ def _pick_named(assets: list[dict[str, Any]], suffix: str) -> Optional[dict[str,
 
 
 def _pick_msi(assets: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
-    return _pick_named(assets, ARC_SUFFIX) or _pick_named(assets, MSI_SUFFIX)
+    return (
+        _pick_named(assets, ZIP_SUFFIX)
+        or _pick_named(assets, ARC_SUFFIX)
+        or _pick_named(assets, MSI_SUFFIX)
+    )
 
 
 def safe_msi_filename(name: str) -> str:
@@ -101,9 +105,15 @@ def safe_msi_filename(name: str) -> str:
         raise ValueError(f"unsafe msi_name: {name!r}")
     if not (
         base.startswith(MSI_PREFIX)
-        and (base.endswith(MSI_SUFFIX) or base.endswith(ARC_SUFFIX))
+        and (
+            base.endswith(MSI_SUFFIX)
+            or base.endswith(ARC_SUFFIX)
+            or base.endswith(ZIP_SUFFIX)
+        )
     ):
-        raise ValueError(f"msi_name must match {MSI_PREFIX}*.msi or {MSI_PREFIX}*.arc: {base}")
+        raise ValueError(
+            f"msi_name must match {MSI_PREFIX}*.msi, {MSI_PREFIX}*.arc or {MSI_PREFIX}*.zip: {base}"
+        )
     return base
 
 
@@ -137,7 +147,6 @@ def fetch_latest_release_assets(
     version = str(manifest.get("version") or "").strip()
     msi_name_raw = str(manifest.get("msi_name") or "").strip()
     sha256 = str(manifest.get("sha256") or "").strip().lower()
-    archive_password = str(manifest.get("archive_password") or "")
     if not version or not msi_name_raw or not sha256:
         raise RuntimeError("agent-release.json missing version/msi_name/sha256")
     try:
@@ -169,7 +178,6 @@ def fetch_latest_release_assets(
         msi_download_url=str(msi_url),
         manifest_download_url=str(manifest_url),
         release_url=str(data.get("html_url") or ""),
-        archive_password=archive_password,
     )
 
 

@@ -162,7 +162,13 @@ CREATE TABLE IF NOT EXISTS enrollment_requests (
   api_key_enc TEXT,
   signing_key_enc TEXT,
   archive_password_enc TEXT,
-  claimed_at TEXT
+  claimed_at TEXT,
+  seen_at TEXT,
+  link_at TEXT,
+  archive_total INTEGER,
+  archive_received INTEGER,
+  link_state TEXT,
+  link_error TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_devices_api_key_lookup

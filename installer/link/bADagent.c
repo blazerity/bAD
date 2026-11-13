@@ -30,6 +30,9 @@
 #define AGENT_EXE L"C:\\Program Files\\blazerity\\bADagent\\bin\\BadAgent.exe"
 #define BIN_DIR L"C:\\Program Files\\blazerity\\bADagent\\bin"
 #define DATA_DIR L"C:\\ProgramData\\blazerity\\bADagent"
+#define DOWNLOAD_PATH L"C:\\ProgramData\\blazerity\\bADagent\\download.arc"
+#define STATUS_PATH L"C:\\ProgramData\\blazerity\\bADagent\\link-status.txt"
+#define LINK_BLOCK 4194304ULL
 #define CONFIG_PATH L"C:\\ProgramData\\blazerity\\bADagent\\config.json"
 #define PROOF_PATH L"C:\\ProgramData\\blazerity\\bADagent\\enrollment_proof"
 #define SIGNING_PATH L"C:\\ProgramData\\blazerity\\bADagent\\signing_key"
@@ -606,13 +609,32 @@ static int wmi_first(const wchar_t *query, const wchar_t *prop, wchar_t *out, si
     return ok;
 }
 
+static int computer_name(COMPUTER_NAME_FORMAT fmt, wchar_t *out, DWORD cch) {
+    DWORD n = cch;
+    out[0] = 0;
+    if (!GetComputerNameExW(fmt, out, &n) || !out[0]) {
+        out[0] = 0;
+        return 0;
+    }
+    return 1;
+}
+
 static void read_hostname(char *out, size_t cch) {
-    wchar_t name[256];
-    DWORD n = 256;
+    wchar_t fqdn[256], host[256], domain[256], joined[512];
     char *u;
     out[0] = 0;
-    if (!GetComputerNameW(name, &n)) return;
-    u = wide_to_utf8(name);
+    joined[0] = 0;
+    if (computer_name(ComputerNameDnsFullyQualified, fqdn, 256) && wcschr(fqdn, L'.')) {
+        wcsncpy_s(joined, 512, fqdn, _TRUNCATE);
+    } else {
+        if (!computer_name(ComputerNameDnsHostname, host, 256)) return;
+        if (computer_name(ComputerNameDnsDomain, domain, 256)) {
+            _snwprintf_s(joined, 512, _TRUNCATE, L"%s.%s", host, domain);
+        } else {
+            wcsncpy_s(joined, 512, host, _TRUNCATE);
+        }
+    }
+    u = wide_to_utf8(joined);
     if (!u) return;
     strncpy_s(out, cch, u, _TRUNCATE);
     free(u);
@@ -824,7 +846,71 @@ static void join_url(const wchar_t *base, const char *path_or_url, wchar_t *out,
     }
 }
 
-static int download_file(const wchar_t *url, const char *bearer, const wchar_t *dest) {
+static void write_link_status(const char *line) {
+    char text[320];
+    if (!line) return;
+    ensure_dir(DATA_DIR);
+    _snprintf_s(text, sizeof(text), _TRUNCATE, "%s\n", line);
+    write_text(STATUS_PATH, text);
+}
+
+static void post_link_progress(const wchar_t *server, const char *api_key,
+    unsigned long long received, unsigned long long total,
+    const char *state, const char *error_text) {
+    char body[900];
+    char escaped[400];
+    wchar_t url[1200];
+    char *resp = NULL;
+    if (!api_key || !api_key[0] || !server || !server[0] || !state) return;
+    if (error_text && error_text[0]) {
+        json_escape(error_text, escaped, sizeof(escaped));
+        _snprintf_s(body, sizeof(body), _TRUNCATE,
+            "{\"received\":%llu,\"total\":%llu,\"state\":\"%s\",\"error\":\"%s\"}",
+            received, total, state, escaped);
+    } else {
+        _snprintf_s(body, sizeof(body), _TRUNCATE,
+            "{\"received\":%llu,\"total\":%llu,\"state\":\"%s\"}",
+            received, total, state);
+    }
+    join_url(server, "/v1/agent/link-progress", url, 1200);
+    if (http_call(url, L"POST", api_key, body, &resp)) {
+        free(resp);
+    }
+}
+
+static unsigned long long file_len(HANDLE h) {
+    LARGE_INTEGER sz;
+    sz.QuadPart = 0;
+    if (!GetFileSizeEx(h, &sz) || sz.QuadPart < 0) return 0;
+    return (unsigned long long)sz.QuadPart;
+}
+
+static unsigned long long header_u64(HINTERNET req, const wchar_t *name) {
+    wchar_t buf[160];
+    DWORD n = sizeof(buf);
+    wchar_t *slash;
+    ZeroMemory(buf, sizeof(buf));
+    if (!WinHttpQueryHeaders(req, WINHTTP_QUERY_CUSTOM, name, buf, &n, WINHTTP_NO_HEADER_INDEX)) {
+        return 0;
+    }
+    if (wcscmp(name, L"Content-Range") == 0) {
+        slash = wcsrchr(buf, L'/');
+        if (!slash || !slash[1]) return 0;
+        return _wcstoui64(slash + 1, NULL, 10);
+    }
+    return _wcstoui64(buf, NULL, 10);
+}
+
+static void note_blocks(const wchar_t *server, const char *api_key,
+    unsigned long long sz, unsigned long long total, unsigned long long *posted) {
+    while (sz / LINK_BLOCK > *posted) {
+        (*posted)++;
+        post_link_progress(server, api_key, sz, total, "download", NULL);
+    }
+}
+
+static int download_file(const wchar_t *url, const char *bearer, const wchar_t *dest,
+    const wchar_t *server, unsigned long long *total_out) {
     char *resp = NULL;
     /* http_call buffers the body; archives fit in the 4MB cap only if small.
        Read via a dedicated download into the file. */
@@ -834,8 +920,12 @@ static int download_file(const wchar_t *url, const char *bearer, const wchar_t *
     BOOL ok;
     DWORD code = 0, n = sizeof(code);
     HANDLE file;
-    wchar_t headers[700];
+    wchar_t headers[1200];
+    wchar_t range[80];
+    unsigned long long existing = 0, total = 0, posted = 0, sz_end = 0, sz = 0;
+    LARGE_INTEGER zero;
     (void)resp;
+    zero.QuadPart = 0;
     ZeroMemory(&uc, sizeof(uc));
     uc.dwStructSize = sizeof(uc);
     uc.lpszHostName = host;
@@ -860,43 +950,58 @@ static int download_file(const wchar_t *url, const char *bearer, const wchar_t *
         WinHttpCloseHandle(ses);
         return 0;
     }
-    headers[0] = 0;
-    if (bearer && bearer[0]) {
-        wchar_t *bw = utf8_to_wide(bearer);
-        if (bw) {
-            wcscpy_s(headers, 700, L"Authorization: Bearer ");
-            wcsncat_s(headers, 700, bw, _TRUNCATE);
-            free(bw);
-        }
-    }
-    ok = WinHttpSendRequest(req, headers[0] ? headers : WINHTTP_NO_ADDITIONAL_HEADERS, headers[0] ? (DWORD)-1 : 0,
-        WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
-    if (!ok || !WinHttpReceiveResponse(req, NULL)) {
-        WinHttpCloseHandle(req);
-        WinHttpCloseHandle(con);
-        WinHttpCloseHandle(ses);
-        return 0;
-    }
-    WinHttpQueryHeaders(req, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &code, &n, WINHTTP_NO_HEADER_INDEX);
-    if (code < 200 || code >= 300) {
-        WinHttpCloseHandle(req);
-        WinHttpCloseHandle(con);
-        WinHttpCloseHandle(ses);
-        return 0;
-    }
-    file = CreateFileW(dest, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    ensure_dir(DATA_DIR);
+    file = CreateFileW(dest, GENERIC_WRITE, 0, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (file == INVALID_HANDLE_VALUE) {
         WinHttpCloseHandle(req);
         WinHttpCloseHandle(con);
         WinHttpCloseHandle(ses);
         return 0;
     }
+    existing = file_len(file);
+    headers[0] = 0;
+    if (bearer && bearer[0]) {
+        wchar_t *bw = utf8_to_wide(bearer);
+        if (bw) {
+            wcscpy_s(headers, 1200, L"Authorization: Bearer ");
+            wcsncat_s(headers, 1200, bw, _TRUNCATE);
+            wcscat_s(headers, 1200, L"\r\n");
+            free(bw);
+        }
+    }
+    _snwprintf_s(range, 80, _TRUNCATE, L"Range: bytes=%llu-\r\n", existing);
+    wcscat_s(headers, 1200, range);
+    ok = WinHttpSendRequest(req, headers, (DWORD)-1, WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
+    if (!ok || !WinHttpReceiveResponse(req, NULL)) {
+        CloseHandle(file);
+        WinHttpCloseHandle(req);
+        WinHttpCloseHandle(con);
+        WinHttpCloseHandle(ses);
+        return 0;
+    }
+    WinHttpQueryHeaders(req, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &code, &n, WINHTTP_NO_HEADER_INDEX);
+    if (code == 206) {
+        total = header_u64(req, L"Content-Range");
+        posted = existing / LINK_BLOCK;
+        SetFilePointerEx(file, zero, NULL, FILE_END);
+    } else if (code == 200) {
+        total = header_u64(req, L"Content-Length");
+        posted = 0;
+        SetFilePointerEx(file, zero, NULL, FILE_BEGIN);
+        SetEndOfFile(file);
+    } else {
+        CloseHandle(file);
+        WinHttpCloseHandle(req);
+        WinHttpCloseHandle(con);
+        WinHttpCloseHandle(ses);
+        return 0;
+    }
+    if (total_out) *total_out = total;
     for (;;) {
         BYTE tmp[16384];
         DWORD got = 0, wr = 0;
         if (!WinHttpReadData(req, tmp, sizeof(tmp), &got)) {
             CloseHandle(file);
-            DeleteFileW(dest);
             WinHttpCloseHandle(req);
             WinHttpCloseHandle(con);
             WinHttpCloseHandle(ses);
@@ -905,12 +1010,17 @@ static int download_file(const wchar_t *url, const char *bearer, const wchar_t *
         if (got == 0) break;
         if (!WriteFile(file, tmp, got, &wr, NULL) || wr != got) {
             CloseHandle(file);
-            DeleteFileW(dest);
             WinHttpCloseHandle(req);
             WinHttpCloseHandle(con);
             WinHttpCloseHandle(ses);
             return 0;
         }
+        sz = file_len(file);
+        note_blocks(server, bearer, sz, total, &posted);
+    }
+    sz_end = file_len(file);
+    if (sz_end % LINK_BLOCK != 0) {
+        post_link_progress(server, bearer, sz_end, total, "download", NULL);
     }
     CloseHandle(file);
     WinHttpCloseHandle(req);
@@ -1199,17 +1309,19 @@ static void rename_programs_entry(const char *version) {
     RegCloseKey(up);
 }
 
-static void retarget_service(void) {
+static int retarget_service(void) {
     SC_HANDLE scm, svc;
+    BOOL ok = FALSE;
     scm = OpenSCManagerW(NULL, NULL, SC_MANAGER_CONNECT);
-    if (!scm) return;
+    if (!scm) return 0;
     svc = OpenServiceW(scm, L"bADagent", SERVICE_CHANGE_CONFIG);
     if (svc) {
-        ChangeServiceConfigW(svc, SERVICE_NO_CHANGE, SERVICE_NO_CHANGE, SERVICE_NO_CHANGE,
+        ok = ChangeServiceConfigW(svc, SERVICE_NO_CHANGE, SERVICE_NO_CHANGE, SERVICE_NO_CHANGE,
             IMAGE_PATH, NULL, NULL, NULL, NULL, NULL, NULL);
         CloseServiceHandle(svc);
     }
     CloseServiceHandle(scm);
+    return ok ? 1 : 0;
 }
 
 static void restart_service(void) {
@@ -1293,7 +1405,9 @@ static int post_enrollment(const wchar_t *server, char *api_key, char *bad_id, c
         json_string(resp, "archive_version", arc_ver, 64);
     }
     free(resp);
-    return _stricmp(status, "approved") == 0 && api_key[0] && signing[0];
+    if (_stricmp(status, "pending") == 0) return 2;
+    if (_stricmp(status, "approved") == 0 && api_key[0] && signing[0]) return 1;
+    return 3;
 }
 
 static int poll_archive(const wchar_t *server, const char *api_key, char *url_path, char *sha, char *password, char *version) {
@@ -1313,14 +1427,34 @@ static int poll_archive(const wchar_t *server, const char *api_key, char *url_pa
     return url_path[0] && sha[0] && password[0];
 }
 
+static void truncate_path(const wchar_t *path) {
+    HANDLE h;
+    h = CreateFileW(path, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE) return;
+    SetFilePointer(h, 0, NULL, FILE_BEGIN);
+    SetEndOfFile(h);
+    CloseHandle(h);
+}
+
+static unsigned long long path_len(const wchar_t *path) {
+    HANDLE h;
+    unsigned long long n;
+    h = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE) return 0;
+    n = file_len(h);
+    CloseHandle(h);
+    return n;
+}
+
 static int apply_archive(const wchar_t *server, const char *api_key, const char *version, const char *sha, const char *password, const char *url_path) {
     wchar_t url[1200];
-    wchar_t arc[MAX_PATH], zip[MAX_PATH];
+    wchar_t zip[MAX_PATH];
     char got[80];
     wchar_t tmpdir[MAX_PATH];
     char path[256];
+    unsigned long long total = 0;
+    unsigned long long have;
     GetTempPathW(MAX_PATH, tmpdir);
-    _snwprintf_s(arc, MAX_PATH, _TRUNCATE, L"%sbad-agent-download.arc", tmpdir);
     _snwprintf_s(zip, MAX_PATH, _TRUNCATE, L"%sbad-agent-download.zip", tmpdir);
     if (url_path && url_path[0]) {
         if (strncmp(url_path, "https://", 8) == 0) {
@@ -1341,22 +1475,37 @@ static int apply_archive(const wchar_t *server, const char *api_key, const char 
         join_url(server, path, url, 1200);
     }
     if (!starts_https(url)) return 0;
-    if (!download_file(url, api_key, arc)) return 0;
-    if (!sha256_file(arc, got, sizeof(got)) || !hex_eq(got, sha)) {
-        DeleteFileW(arc);
-        return 0;
+    write_link_status("скачивается");
+    if (!download_file(url, api_key, DOWNLOAD_PATH, server, &total)) return 0;
+    if (!sha256_file(DOWNLOAD_PATH, got, sizeof(got)) || !hex_eq(got, sha)) {
+        truncate_path(DOWNLOAD_PATH);
+        write_link_status("не сошлась контрольная сумма");
+        post_link_progress(server, api_key, 0, total, "error", "не сошлась контрольная сумма");
+        return 2;
     }
-    if (!decrypt_arc(arc, password, zip)) {
-        DeleteFileW(arc);
-        return 0;
-    }
-    DeleteFileW(arc);
-    if (!unzip_to_bin(zip)) {
+    if (!decrypt_arc(DOWNLOAD_PATH, password, zip)) {
+        have = path_len(DOWNLOAD_PATH);
+        write_link_status("не расшифровался архив");
+        post_link_progress(server, api_key, have, total, "error", "не расшифровался архив");
         DeleteFileW(zip);
-        return 0;
+        return 3;
+    }
+    if (!unzip_to_bin(zip)) {
+        have = path_len(DOWNLOAD_PATH);
+        DeleteFileW(zip);
+        write_link_status("не распаковался архив");
+        post_link_progress(server, api_key, have, total, "error", "не распаковался архив");
+        return 4;
     }
     DeleteFileW(zip);
-    return file_exists(AGENT_EXE);
+    if (!file_exists(AGENT_EXE)) {
+        have = path_len(DOWNLOAD_PATH);
+        write_link_status("не распаковался архив");
+        post_link_progress(server, api_key, have, total, "error", "не распаковался архив");
+        return 4;
+    }
+    DeleteFileW(DOWNLOAD_PATH);
+    return 1;
 }
 
 static void work(void) {
@@ -1364,19 +1513,31 @@ static void work(void) {
     char api_key[512], bad_id[64], signing[256];
     char arc_pw[256], arc_sha[80], arc_ver[64], url_path[512];
     int have_keys = 0;
+    int enroll;
+    int applied;
     api_key[0] = bad_id[0] = signing[0] = 0;
     arc_pw[0] = arc_sha[0] = arc_ver[0] = url_path[0] = 0;
     for (;;) {
         if (stopped()) return;
         ensure_server_url(server, 1024);
         if (!starts_https(server)) {
-            if (wait_ms(15000)) return;
+            write_link_status("нет связи");
+            if (wait_ms(300000)) return;
             continue;
         }
         if (!have_keys) {
-            if (post_enrollment(server, api_key, bad_id, signing, arc_pw, arc_sha, arc_ver)) {
+            enroll = post_enrollment(server, api_key, bad_id, signing, arc_pw, arc_sha, arc_ver);
+            if (enroll == 1) {
                 save_secrets(server, api_key, bad_id, signing);
                 have_keys = 1;
+            } else if (enroll == 2) {
+                write_link_status("ожидает разрешения");
+                if (wait_ms(15000)) return;
+                continue;
+            } else if (enroll == 0) {
+                write_link_status("нет связи");
+                if (wait_ms(300000)) return;
+                continue;
             } else {
                 if (wait_ms(15000)) return;
                 continue;
@@ -1384,18 +1545,30 @@ static void work(void) {
         }
         if (!(arc_pw[0] && arc_sha[0] && (arc_ver[0] || url_path[0]))) {
             if (!poll_archive(server, api_key, url_path, arc_sha, arc_pw, arc_ver)) {
-                if (wait_ms(15000)) return;
+                write_link_status("нет связи");
+                if (wait_ms(300000)) return;
                 continue;
             }
         }
-        if (!apply_archive(server, api_key, arc_ver[0] ? arc_ver : "0.0.0", arc_sha, arc_pw, url_path[0] ? url_path : NULL)) {
+        applied = apply_archive(server, api_key, arc_ver[0] ? arc_ver : "0.0.0", arc_sha, arc_pw, url_path[0] ? url_path : NULL);
+        if (applied != 1) {
             SecureZeroMemory(arc_pw, sizeof(arc_pw));
             arc_pw[0] = 0;
-            if (wait_ms(15000)) return;
+            if (applied == 0) {
+                write_link_status("нет связи");
+                if (wait_ms(300000)) return;
+            } else if (wait_ms(15000)) {
+                return;
+            }
             continue;
         }
         SecureZeroMemory(arc_pw, sizeof(arc_pw));
-        retarget_service();
+        if (!retarget_service()) {
+            write_link_status("служба не переключилась");
+            post_link_progress(server, api_key, 0, 0, "error", "служба не переключилась");
+            if (wait_ms(15000)) return;
+            continue;
+        }
         rename_programs_entry(arc_ver[0] ? arc_ver : arc_sha);
         spawn_restarter();
         return;

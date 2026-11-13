@@ -51,7 +51,7 @@
     </StandardDirectory>
 
     <Component Id="BadCmdShim" Directory="INSTALLFOLDER" Guid="BADA0008-BADA-4B01-8BAD-00BADA000008">
-      <File Id="BadCmd" Source="bad.cmd" KeyPath="yes" />
+      <File Id="BadExe" Source="..\link\bad.exe" KeyPath="yes" />
     </Component>
 
     <Component Id="ProgramDataDir" Directory="BADDATA" Guid="BADA0003-BADA-4B01-8BAD-00BADA000003" Permanent="yes">

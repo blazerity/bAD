@@ -18,7 +18,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from . import __version__
 from .agent_config import (
@@ -47,6 +47,8 @@ from .device_uninstall import (
     heartbeat_should_send_uninstall,
     mark_uninstall_sent_patch,
 )
+from pydantic import BaseModel
+
 from .config import Settings, get_settings
 from .db import Database
 from .schemas import (
@@ -360,6 +362,8 @@ def heartbeat(
         config_local=config_local_payload,
         config_local_provided=config_local_provided,
     )
+    if (body.agent_version or "").strip():
+        db.mark_enrollment_installed(target_id)
     meta = db.get_device_meta(target_id) or {}
     meta = expire_uninstall_request_if_needed(db, target_id, meta)
     refresh_pending = refresh_request_pending(meta)
@@ -599,6 +603,8 @@ def inventory(
         meta=meta,
         retention=settings.snapshot_retention,
     )
+    if (body.agent_version or "").strip():
+        db.mark_enrollment_installed(target_id)
     return {"status": "ok", "snapshot_id": stored["snapshot_id"]}
 
 
@@ -900,14 +906,31 @@ def agent_update_msi(
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
 
+class LinkProgressBody(BaseModel):
+    received: int
+    total: int
+    state: str
+    error: Optional[str] = None
+
+
+def _range_start(header: str) -> Optional[int]:
+    text = (header or "").strip()
+    if not text.lower().startswith("bytes="):
+        return None
+    left = text[6:].split("-", 1)[0].strip()
+    if not left.isdigit():
+        return None
+    return int(left)
+
+
 @router.get("/agent/update/archive")
 def agent_update_archive(
+    request: Request,
     version: str = Query(default="", max_length=64),
     _device=Depends(require_api_key),
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
-) -> FileResponse:
-    """Скачать байты архива (auth: API key агента)."""
+) -> Response:
     from .github_release import safe_msi_filename
     from .agent_update import resolve_target_msi
 
@@ -946,11 +969,45 @@ def agent_update_archive(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Mirrored archive file missing on disk",
         )
+    total = path.stat().st_size
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": f'attachment; filename="{safe_name}"',
+    }
+    start = _range_start(request.headers.get("range") or "")
+    if start is not None and start < total:
+        with path.open("rb") as handle:
+            handle.seek(start)
+            chunk = handle.read()
+        headers["Content-Range"] = f"bytes {start}-{total - 1}/{total}"
+        return Response(
+            content=chunk,
+            status_code=206,
+            media_type="application/octet-stream",
+            headers=headers,
+        )
     return FileResponse(
         path,
         media_type="application/octet-stream",
         filename=safe_name,
+        headers={"Accept-Ranges": "bytes"},
     )
+
+
+@router.post("/agent/link-progress")
+def agent_link_progress(
+    body: LinkProgressBody,
+    device=Depends(require_api_key),
+    db: Database = Depends(get_db),
+) -> dict[str, str]:
+    db.set_link_progress(
+        str(device["bad_id"]),
+        body.received,
+        body.total,
+        body.state,
+        body.error or "",
+    )
+    return {"status": "ok"}
 
 
 @router.get("/admin/agent-update")

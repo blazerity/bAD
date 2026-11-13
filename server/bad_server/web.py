@@ -2071,6 +2071,7 @@ def _devices_wave_context(
     chassis_filter: Optional[str] = None,
     auth: Optional[str] = None,
     snapshot_ids: Optional[set[str]] = None,
+    hide_ids: Optional[set[str]] = None,
 ) -> tuple[list[dict], int, int, int]:
     # Индекс дублей всегда по всему парку (meta), иначе поиск/тег ломают бейджи.
     fleet = db.list_devices(archived=None)
@@ -2092,6 +2093,8 @@ def _devices_wave_context(
     query_cf = (query or "").strip().casefold() or None
     raw: list[dict] = []
     for d in fleet:
+        if hide_ids and str(d.get("bad_id") or "") in hide_ids:
+            continue
         is_archived = bool(d.get("archived"))
         if show_archive:
             if not is_archived:
@@ -2217,6 +2220,7 @@ def devices_page(
         auth_filter = ""
     page_i = max(1, int(page or 1))
     snapshot_ids = _inventory_bad_ids(db)
+    hidden = {str(item) for item in db.approved_enrollment_bad_ids() if item}
     devices, total, pages, page_i = _devices_wave_context(
         db,
         settings,
@@ -2236,6 +2240,7 @@ def devices_page(
         chassis_filter=chassis_filter,
         auth=auth_filter,
         snapshot_ids=snapshot_ids,
+        hide_ids=hidden,
     )
 
     agent_update = db.get_agent_update()
@@ -2278,6 +2283,18 @@ def devices_page(
         db.list_pending_enrollment_requests() if user.is_admin else []
     )
     active_fleet, _archived, fleet_stats, fleet_ops = _fleet_snapshot(db, settings)
+    if hidden:
+        active_fleet = [
+            d for d in active_fleet if str(d.get("bad_id") or "") not in hidden
+        ]
+        _archived = [
+            d for d in _archived if str(d.get("bad_id") or "") not in hidden
+        ]
+        fleet_stats = db.overview_stats(
+            stale_after_seconds=effective_stale_after_seconds(db, settings),
+            active=active_fleet,
+            archived=_archived,
+        )
     auth_api_count = sum(1 for d in active_fleet if _auth_is_api(d, snapshot_ids))
     dashboard = build_dashboard_stats(
         db,
@@ -2347,6 +2364,97 @@ def devices_page(
     )
 
 
+_LINK_BLOCK = 4194304
+
+
+def _stamp_older_than(stamp: object, seconds: int) -> bool:
+    text = str(stamp or "").strip()
+    if not text:
+        return True
+    try:
+        moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - moment).total_seconds() > seconds
+
+
+def _pending_enrollment_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        stale = _stamp_older_than(row.get("seen_at"), 360)
+        out.append(
+            {
+                "id": row.get("id"),
+                "hostname": row.get("hostname"),
+                "ip": row.get("ip"),
+                "serial": row.get("serial"),
+                "status_text": "нет связи" if stale else "Ожидает разрешения",
+            }
+        )
+    return out
+
+
+def _current_arc_size(db: Database) -> int:
+    current = db.get_agent_update() or {}
+    path = Path(str(current.get("file_path") or ""))
+    try:
+        if path.is_file():
+            return path.stat().st_size
+    except OSError:
+        return 0
+    return 0
+
+
+def _approved_enrollment_rows(
+    db: Database, rows: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    disk: Optional[int] = None
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        total = int(row.get("archive_total") or 0)
+        if total <= 0:
+            if disk is None:
+                disk = _current_arc_size(db)
+            total = disk
+        received = int(row.get("archive_received") or 0)
+        count = (total + _LINK_BLOCK - 1) // _LINK_BLOCK if total > 0 else 0
+        state = str(row.get("link_state") or "")
+        fresh = not _stamp_older_than(row.get("link_at"), 360)
+        downloading = state == "download" and fresh
+        cubes: list[str] = []
+        marked = False
+        for index in range(count):
+            if received >= (index + 1) * _LINK_BLOCK:
+                cubes.append("done")
+            elif downloading and not marked:
+                cubes.append("download")
+                marked = True
+            else:
+                cubes.append("wait")
+        if state == "error":
+            status_text = str(row.get("link_error") or "")
+            status_kind = "error"
+        elif not fresh:
+            status_text = "нет связи"
+            status_kind = ""
+        else:
+            status_text = ""
+            status_kind = ""
+        out.append(
+            {
+                "id": row.get("id"),
+                "hostname": row.get("hostname"),
+                "ip": row.get("ip"),
+                "cubes": cubes,
+                "status_text": status_text,
+                "status_kind": status_kind,
+            }
+        )
+    return out
+
+
 @router.get("/devices/enrollment-requests", response_class=HTMLResponse)
 def enrollment_requests_page(
     request: Request,
@@ -2360,7 +2468,10 @@ def enrollment_requests_page(
         "enrollment_requests.html",
         {
             "user": user,
-            "rows": db.list_pending_enrollment_requests(),
+            "pending_rows": _pending_enrollment_rows(db.list_pending_enrollment_requests()),
+            "approved_rows": _approved_enrollment_rows(
+                db, db.list_approved_enrollment_requests()
+            ),
             "flash": message[:200] if message else "",
         },
     )

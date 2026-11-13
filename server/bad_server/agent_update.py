@@ -31,7 +31,7 @@ _SEMVER_RE = re.compile(
     re.IGNORECASE,
 )
 _VERSION_FROM_MSI_RE = re.compile(
-    r"^bad-agent-(?P<ver>\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)\.(?:arc|msi)$",
+    r"^bad-agent-(?P<ver>\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)\.(?:zip|arc|msi)$",
     re.IGNORECASE,
 )
 
@@ -102,14 +102,40 @@ def sync_from_github(
         ver_dir,
         token=settings.github_token or "",
     )
+    raw = path.read_bytes()
+    if raw.startswith(MAGIC):
+        raise RuntimeError("sealed archive is not accepted")
+    password = new_password()
+    payload = encrypt_zip(raw, password)
+    core = parse_semver(assets.version)
+    ver = f"{core[0]}.{core[1]}.{core[2]}" if core is not None else assets.version
+    arc_name = safe_msi_filename(f"bad-agent-{ver}.arc")
+    arc_path = (ver_dir / arc_name).resolve()
+    try:
+        arc_path.relative_to(ver_dir)
+    except ValueError as exc:
+        raise RuntimeError("archive path escapes updates dir") from exc
+    tmp = ver_dir / f".{arc_name}.tmp"
+    tmp.write_bytes(payload)
+    tmp.replace(arc_path)
+    digest = sha256_hex(payload)
+    if path.resolve() != arc_path.resolve():
+        path.unlink(missing_ok=True)
+    (ver_dir / "agent-release.json").write_text(
+        json.dumps(
+            {"version": ver, "msi_name": arc_name, "sha256": digest},
+            separators=(",", ":"),
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     key = resolve_data_key(db, settings, data_key)
-    password = assets.archive_password or ""
     password_enc = encrypt_secret(key, password) if key and password else ""
     record = db.set_agent_update(
-        version=assets.version,
-        msi_name=assets.msi_name,
-        sha256=assets.sha256,
-        file_path=str(path),
+        version=ver,
+        msi_name=arc_name,
+        sha256=digest,
+        file_path=str(arc_path),
         source_tag=assets.tag,
         release_url=assets.release_url,
         source="github",
@@ -158,8 +184,8 @@ def ingest_uploaded_msi(
         manifest = parsed
 
     name = (filename or "").strip()
-    if name and not name.lower().endswith(".arc"):
-        raise ValueError("catalog file must be bad-agent-X.Y.Z.arc")
+    if name and not name.lower().endswith(".zip"):
+        raise ValueError("catalog file must be bad-agent-X.Y.Z.zip")
     ver = (
         sanitize_update_target(version)
         or sanitize_update_target(manifest.get("version"))
@@ -167,26 +193,21 @@ def ingest_uploaded_msi(
         or version_from_msi_name(str(manifest.get("msi_name") or ""))
     )
     if not ver or ver == UPDATE_TARGET_LATEST:
-        raise ValueError("version required (form, manifest, or bad-agent-X.Y.Z.arc name)")
+        raise ValueError("version required (form, manifest, or bad-agent-X.Y.Z.zip name)")
 
     core = parse_semver(ver)
     if core is None:
-        raise ValueError("version required (form, manifest, or bad-agent-X.Y.Z.arc name)")
+        raise ValueError("version required (form, manifest, or bad-agent-X.Y.Z.zip name)")
     ver = f"{core[0]}.{core[1]}.{core[2]}"
     uploaded_digest = sha256_hex(raw)
     expected = (sha256 or str(manifest.get("sha256") or "")).strip().lower()
     if expected and expected != uploaded_digest:
         raise ValueError(f"sha256 mismatch: expected {expected}, got {uploaded_digest}")
 
-    password = str(manifest.get("archive_password") or "")
     if raw.startswith(MAGIC):
-        if not password:
-            raise ValueError("archive password required")
-        payload = raw
-    else:
-        if not password:
-            password = new_password()
-        payload = encrypt_zip(raw, password)
+        raise ValueError("sealed archive is not accepted")
+    password = new_password()
+    payload = encrypt_zip(raw, password)
     msi_name = safe_msi_filename(f"bad-agent-{ver}.arc")
     digest = sha256_hex(payload)
 

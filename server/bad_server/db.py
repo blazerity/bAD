@@ -103,6 +103,42 @@ class Database:
             )
             conn.execute(
                 """
+                ALTER TABLE enrollment_requests
+                ADD COLUMN IF NOT EXISTS seen_at TEXT
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE enrollment_requests
+                ADD COLUMN IF NOT EXISTS link_at TEXT
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE enrollment_requests
+                ADD COLUMN IF NOT EXISTS archive_total INTEGER
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE enrollment_requests
+                ADD COLUMN IF NOT EXISTS archive_received INTEGER
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE enrollment_requests
+                ADD COLUMN IF NOT EXISTS link_state TEXT
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE enrollment_requests
+                ADD COLUMN IF NOT EXISTS link_error TEXT
+                """
+            )
+            conn.execute(
+                """
                 ALTER TABLE agent_msi_versions
                 ADD COLUMN IF NOT EXISTS archive_password_enc TEXT NOT NULL DEFAULT ''
                 """
@@ -259,10 +295,11 @@ class Database:
                         SET hostname = ?, ip = ?, serial = ?,
                             bad_id = COALESCE(?, bad_id),
                             machine_guid = ?,
-                            smbios_uuid = ?
+                            smbios_uuid = ?,
+                            seen_at = ?
                         WHERE id = ? AND status = 'pending'
                         """,
-                        (hostname, ip, serial, kept_id, guid, uuid, request_id),
+                        (hostname, ip, serial, kept_id, guid, uuid, now, request_id),
                     )
                     return status_name
                 return status_name
@@ -275,10 +312,10 @@ class Database:
                 """
                 INSERT INTO enrollment_requests(
                   id, hostname, ip, serial, created_at, status, bad_id,
-                  machine_guid, smbios_uuid
-                ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+                  machine_guid, smbios_uuid, seen_at
+                ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
                 """,
-                (request_id, hostname, ip, serial, now, kept_id, guid, uuid),
+                (request_id, hostname, ip, serial, now, kept_id, guid, uuid, now),
             )
         return "pending"
 
@@ -286,13 +323,66 @@ class Database:
         with self.connection() as conn:
             rows = conn.execute(
                 """
-                SELECT id, hostname, ip, serial, created_at
+                SELECT id, hostname, ip, serial, created_at, seen_at
                 FROM enrollment_requests
                 WHERE status = 'pending'
                 ORDER BY created_at
                 """
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def list_approved_enrollment_requests(self) -> list[dict[str, Any]]:
+        with self.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, hostname, ip, bad_id, seen_at, link_at,
+                       archive_total, archive_received, link_state, link_error
+                FROM enrollment_requests
+                WHERE status = 'approved'
+                ORDER BY created_at
+                """
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def set_link_progress(
+        self,
+        bad_id: str,
+        received: int,
+        total: int,
+        state: str,
+        error: str,
+    ) -> None:
+        with self.connection() as conn:
+            conn.execute(
+                """
+                UPDATE enrollment_requests
+                SET archive_received = ?, archive_total = ?,
+                    link_state = ?, link_error = ?, link_at = ?
+                WHERE bad_id = ? AND status = 'approved'
+                """,
+                (int(received), int(total), state or "", error or "", utc_now(), bad_id),
+            )
+
+    def mark_enrollment_installed(self, bad_id: str) -> None:
+        with self.connection() as conn:
+            conn.execute(
+                """
+                UPDATE enrollment_requests
+                SET status = 'installed'
+                WHERE bad_id = ? AND status = 'approved'
+                """,
+                (bad_id,),
+            )
+
+    def approved_enrollment_bad_ids(self) -> list[str]:
+        with self.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT bad_id FROM enrollment_requests
+                WHERE status = 'approved' AND bad_id IS NOT NULL
+                """
+            ).fetchall()
+        return [str(row["bad_id"]) for row in rows if row["bad_id"]]
 
     def get_enrollment_request(self, request_id: str) -> Optional[dict[str, Any]]:
         with self.connection() as conn:
