@@ -112,10 +112,10 @@ def create_enrollment_grant(
     _admin: str = Depends(require_admin_token),
     db: Database = Depends(get_db),
 ) -> dict[str, str]:
-    """Заявка админа: одноразовый код, привязанный к device_id. Второй enroll — отказ."""
+    """Заявка админа: одноразовый код, привязанный к bad_id. Второй enroll — отказ."""
     code = generate_token("bad_ot_")
-    db.create_enrollment_grant(body.device_id, enrollment_code_hash(code))
-    return {"code": code, "device_id": body.device_id}
+    db.create_enrollment_grant(body.bad_id, enrollment_code_hash(code))
+    return {"code": code, "bad_id": body.bad_id}
 
 
 def _enforce_enroll_rate(request: Request) -> None:
@@ -169,9 +169,22 @@ def submit_enrollment_request(
     hostname = body.hostname.strip()
     ip = (body.ip or "").strip()
     serial = _display_serial(body.serial or "")
-    device_id = (body.device_id or "").strip()
+    from .bad_id import is_bad_id
+
+    raw_bad_id = (body.bad_id or "").strip()
+    if raw_bad_id and not is_bad_id(raw_bad_id):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="bad_id")
+    bad_id = raw_bad_id
+    guid = body.machine_guid or ""
+    uuid = body.smbios_uuid or ""
     status_name = db.save_enrollment_request(
-        request_id, hostname, ip, serial, device_id
+        request_id,
+        hostname,
+        ip,
+        serial,
+        bad_id,
+        guid or "",
+        uuid or "",
     )
     if status_name is None:
         return {"status": "busy"}
@@ -195,7 +208,7 @@ def submit_enrollment_request(
         return {"status": "approved"}
     return {
         "status": "approved",
-        "device_id": taken["device_id"],
+        "bad_id": taken["bad_id"],
         "api_key": api_key,
         "signing_key": signing_key,
     }
@@ -222,7 +235,7 @@ def enroll(
         )
     # Не сжигаем код здесь: upsert сожжёт его в той же транзакции, что и INSERT.
     grant_hash = enrollment_code_hash(bearer)
-    if not db.enrollment_grant_usable(grant_hash, body.device_id):
+    if not db.enrollment_grant_usable(grant_hash, body.bad_id):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or spent enrollment code",
@@ -234,7 +247,7 @@ def enroll(
         "(enrollment token alone cannot un-revoke)"
     )
 
-    existing = db.get_device_auth_row(body.device_id)
+    existing = db.get_device_auth_row(body.bad_id)
     allow_existing = False
     if existing:
         if existing.get("revoked"):
@@ -265,7 +278,7 @@ def enroll(
         signing_private, signing_public, signing_fingerprint = new_device_signing_key()
     try:
         created = db.upsert_device_on_enroll(
-            device_id=body.device_id,
+            bad_id=body.bad_id,
             hostname=body.hostname,
             api_key_hash=api_key_hash,
             agent_version=body.agent_version,
@@ -288,10 +301,10 @@ def enroll(
                 detail=_REVOKED_DETAIL,
             ) from exc
         if code == "bad_id_collision":
-            logger.error("enroll bad_id collision for device_id=%s", body.device_id)
+            logger.error("enroll bad_id collision for bad_id=%s", body.bad_id)
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="bad_id collision for this device_id",
+                detail="bad_id collision for this bad_id",
             ) from exc
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -309,14 +322,14 @@ def enroll(
             notify_enroll(
                 db,
                 smtp_row,
-                device_id=body.device_id,
+                bad_id=body.bad_id,
                 hostname=body.hostname,
             )
         except Exception:  # noqa: BLE001
             logger.exception("SMTP enroll alert failed (ignored)")
     return EnrollResponse(
         api_key=api_key,
-        device_id=body.device_id,
+        bad_id=body.bad_id,
         signing_key=signing_private if created else None,
     )
 
@@ -327,15 +340,16 @@ def heartbeat(
     device=Depends(require_api_key),
     db: Database = Depends(get_db),
 ) -> dict[str, Any]:
-    if body.device_id != device["device_id"]:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="device_id mismatch")
+    if body.bad_id != device["bad_id"]:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="bad_id mismatch")
+    target_id = body.bad_id
     # Omit/null config_local → keep previous; present (incl. keys:[]) → sanitize + store/clear.
     config_local_provided = body.config_local is not None
     config_local_payload = (
         body.config_local.sanitized() if body.config_local is not None else None
     )
     db.update_heartbeat(
-        device_id=body.device_id,
+        bad_id=target_id,
         agent_version=body.agent_version,
         last_inventory_at=body.last_inventory_at,
         health={
@@ -347,17 +361,17 @@ def heartbeat(
         config_local=config_local_payload,
         config_local_provided=config_local_provided,
     )
-    meta = db.get_device_meta(body.device_id) or {}
-    meta = expire_uninstall_request_if_needed(db, body.device_id, meta)
+    meta = db.get_device_meta(target_id) or {}
+    meta = expire_uninstall_request_if_needed(db, target_id, meta)
     refresh_pending = refresh_request_pending(meta)
     send_uninstall = heartbeat_should_send_uninstall(meta)
     effective = db.compute_device_effective_config(
-        body.device_id, use_inventory=refresh_pending or not body.config_version
+        target_id, use_inventory=refresh_pending or not body.config_version
     )
     assert effective is not None
     if body.config_version and body.config_version != effective["version"]:
         effective = db.compute_device_effective_config(
-            body.device_id, use_inventory=True
+            target_id, use_inventory=True
         )
     resp: dict[str, Any] = {
         "status": "ok",
@@ -391,7 +405,7 @@ def heartbeat(
     if send_uninstall:
         ack_patch = {**(ack_patch or {}), **mark_uninstall_sent_patch()}
     if ack_patch:
-        db.patch_device_meta(body.device_id, ack_patch)
+        db.patch_device_meta(target_id, ack_patch)
     return resp
 
 
@@ -421,7 +435,7 @@ def agent_minidump(
 ) -> dict[str, str]:
     """Один запрошенный минидамп. MEMORY.DMP и тела больше 8 МБ не принимаются."""
     name = Path(file.filename or "").name
-    meta = db.get_device_meta(device["device_id"]) or {}
+    meta = db.get_device_meta(device["bad_id"]) or {}
     pending = meta.get(REQUEST_META)
     if not isinstance(pending, str) or not dump_name_ok(pending):
         raise HTTPException(
@@ -458,7 +472,7 @@ def agent_minidump(
     if parsed:
         reads[pending] = parsed
     db.patch_device_meta(
-        device["device_id"],
+        device["bad_id"],
         {REQUEST_META: None, READS_META: reads},
     )
     return {"status": "ok"}
@@ -472,10 +486,10 @@ def issue_agent_signing_key(
     """Ключ устройства из Authorization получает новую пару. Старый секрет не хранится."""
     old_fp = str(device.get("signing_key_fingerprint") or "").strip()
     private, public, fingerprint = new_device_signing_key()
-    issued = db.claim_device_signing_key(device["device_id"], public, fingerprint)
+    issued = db.claim_device_signing_key(device["bad_id"], public, fingerprint)
     logger.info(
-        "signing key replace device_id=%s old_fp=%s new_fp=%s issued=%s",
-        device["device_id"],
+        "signing key replace bad_id=%s old_fp=%s new_fp=%s issued=%s",
+        device["bad_id"],
         old_fp,
         fingerprint if issued else "",
         "true" if issued else "false",
@@ -491,10 +505,10 @@ def agent_config(
     db: Database = Depends(get_db),
 ) -> dict[str, Any]:
     """Enrolled-агент забирает свои эффективные remote settings (в рамках API key)."""
-    effective = db.compute_device_effective_config(device["device_id"])
+    effective = db.compute_device_effective_config(device["bad_id"])
     assert effective is not None
     return {
-        "device_id": device["device_id"],
+        "bad_id": device["bad_id"],
         "version": effective["version"],
         "settings": effective["settings"],
     }
@@ -524,11 +538,11 @@ def _log_inventory_signature(
         sig_len = "0"
     key_fp = str(device.get("signing_key_fingerprint") or "").strip() if pubkey else ""
     line = (
-        "inventory signature device_id=%s status=%s detail=%s key_fp=%s "
+        "inventory signature bad_id=%s status=%s detail=%s key_fp=%s "
         "signature_present=%s canon_len=%s canon_sha256=%s sig_len=%s"
     )
     fields = (
-        device.get("device_id") or "",
+        device.get("bad_id") or "",
         status_code,
         detail,
         key_fp,
@@ -549,9 +563,9 @@ def _accepted_inventory(
     db: Database,
     settings: Settings,
 ) -> dict[str, Any]:
-    """Проверка device_id, схемы, подписи и бюджета. Один путь для снимка и HTML-отчёта."""
-    if body.device_id != device["device_id"]:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="device_id mismatch")
+    """Проверка bad_id, схемы, подписи и бюджета. Один путь для снимка и HTML-отчёта."""
+    if body.bad_id != device["bad_id"]:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="bad_id mismatch")
     if body.schema_version not in settings.known_schema_versions:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -608,48 +622,6 @@ def _snapshot_smbios_uuid(payload: Optional[dict[str, Any]]) -> Optional[str]:
     return Database.normalize_smbios_uuid(raw)
 
 
-def _clone_split_secret_name(device_id: str) -> str:
-    return f"clone_split_key:{device_id}"
-
-
-def _issue_clone_device(
-    db: Database,
-    request: Request,
-    device: dict[str, Any],
-    *,
-    hostname: Optional[str],
-    agent_version: Optional[str],
-    smbios_uuid: str,
-) -> dict[str, Optional[str]]:
-    """Вторая карточка или уже созданная для этой пары старый id + чужой UUID."""
-    data_key = getattr(request.app.state, "data_key", "") or ""
-    existing = db.find_clone_split_device(str(device["device_id"]), smbios_uuid)
-    if existing:
-        stored = db.get_site_secret(_clone_split_secret_name(existing)) or ""
-        api_key = decrypt_secret(data_key, stored) if stored else None
-        return {"device_id": existing, "api_key": api_key}
-
-    child_id = str(uuid.uuid4())
-    while child_id in {str(device["device_id"]), smbios_uuid}:
-        child_id = str(uuid.uuid4())
-    api_key = generate_token("bad_ak_")
-    lookup = api_key_lookup(data_key, api_key) if data_key else None
-    db.insert_clone_device(
-        device_id=child_id,
-        hostname=hostname,
-        api_key_hash=hash_secret(api_key),
-        api_key_lookup=lookup,
-        agent_version=agent_version,
-        signing_pubkey=(device.get("signing_pubkey") or None),
-        signing_key_fingerprint=(device.get("signing_key_fingerprint") or None),
-        split_from=str(device["device_id"]),
-    )
-    db.set_site_secret(
-        _clone_split_secret_name(child_id), encrypt_secret(data_key, api_key)
-    )
-    return {"device_id": child_id, "api_key": api_key}
-
-
 @router.post("/inventory")
 def inventory(
     body: InventoryRequest,
@@ -686,23 +658,13 @@ def inventory(
     # Кэш сигналов дубля (не PK): serial/uuid/bios/board/disk — без auto-merge
     meta.update(db.identity_signals_for_meta(identity))
     new_uuid = _snapshot_smbios_uuid(payload)
-    previous = db.latest_snapshot_payload(str(device["device_id"]))
+    previous = db.latest_snapshot_payload(str(device["bad_id"]))
     old_uuid = _snapshot_smbios_uuid(previous)
-    split: Optional[dict[str, Optional[str]]] = None
-    target_id = str(device["device_id"])
     if new_uuid and old_uuid and new_uuid != old_uuid:
-        split = _issue_clone_device(
-            db,
-            request,
-            device,
-            hostname=hostname if isinstance(hostname, str) else None,
-            agent_version=body.agent_version,
-            smbios_uuid=new_uuid,
-        )
-        if split.get("device_id"):
-            target_id = str(split["device_id"])
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="board changed")
+    target_id = str(device["bad_id"])
     stored = db.store_inventory(
-        device_id=target_id,
+        bad_id=target_id,
         schema_version=body.schema_version,
         payload=payload,
         hostname=hostname,
@@ -710,17 +672,7 @@ def inventory(
         meta=meta,
         retention=settings.snapshot_retention,
     )
-    if split is None:
-        own_meta = db.get_device_meta(target_id) or {}
-        if own_meta.get("split_from"):
-            db.delete_site_secret(_clone_split_secret_name(target_id))
-    response: dict[str, Any] = {"status": "ok", "snapshot_id": stored["snapshot_id"]}
-    issued_id = (split or {}).get("device_id")
-    issued_key = (split or {}).get("api_key")
-    if issued_id and issued_key:
-        response["device_id"] = issued_id
-        response["api_key"] = issued_key
-    return response
+    return {"status": "ok", "snapshot_id": stored["snapshot_id"]}
 
 
 @router.post("/agent/report.html", response_class=HTMLResponse)
@@ -735,7 +687,7 @@ def agent_report_html(
     from .web import render_device_report
 
     try:
-        return render_device_report(db, settings, device["device_id"], payload)
+        return render_device_report(db, settings, device["bad_id"], payload)
     except LookupError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
 
@@ -770,19 +722,10 @@ def list_devices(
 
 
 def _device_card(db: Database, ref: str) -> dict[str, Any] | None:
-    from .bad_id import is_bad_id
-    from .wave_21_migration import resolve_device_ref
-
-    canonical = ref
-    if is_bad_id(ref):
-        resolved = resolve_device_ref(db, ref)
-        if not resolved:
-            return None
-        canonical = resolved
-    detail = db.get_device_detail(canonical)
+    detail = db.get_device_detail(ref)
     if not detail:
         return None
-    detail["duplicates"] = db.find_duplicate_devices(canonical)
+    detail["duplicates"] = db.find_duplicate_devices(ref)
     return detail
 
 
@@ -793,13 +736,13 @@ def _note_integration_read(db: Database, reader: dict[str, str]) -> None:
         record_use(db, reader["id"])
 
 
-@router.get("/devices/{device_id}")
+@router.get("/devices/{bad_id}")
 def get_device(
-    device_id: str,
+    bad_id: str,
     db: Database = Depends(get_db),
     reader: dict[str, str] = Depends(_device_reader),
 ) -> dict[str, Any]:
-    detail = _device_card(db, device_id)
+    detail = _device_card(db, bad_id)
     if not detail:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
     _note_integration_read(db, reader)
@@ -875,94 +818,94 @@ def lookup_integration_device(
     db: Database = Depends(get_db),
     reader: dict[str, str] = Depends(_device_reader),
 ) -> dict[str, Any]:
-    detail = _device_card(db, body.device_id)
+    detail = _device_card(db, body.bad_id)
     if not detail:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
     _note_integration_read(db, reader)
     return detail
 
 
-@router.post("/devices/{device_id}/revoke")
+@router.post("/devices/{bad_id}/revoke")
 def revoke_device(
-    device_id: str,
+    bad_id: str,
     _admin: str = Depends(require_admin_token),
     db: Database = Depends(get_db),
 ) -> dict[str, Any]:
-    if not db.set_device_revoked(device_id, True):
+    if not db.set_device_revoked(bad_id, True):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
-    return {"status": "ok", "device_id": device_id, "revoked": True}
+    return {"status": "ok", "bad_id": bad_id, "revoked": True}
 
 
-@router.post("/devices/{device_id}/request-refresh")
+@router.post("/devices/{bad_id}/request-refresh")
 def request_device_refresh_api(
-    device_id: str,
+    bad_id: str,
     _admin: str = Depends(require_admin_token),
     db: Database = Depends(get_db),
 ) -> dict[str, Any]:
-    if not set_device_refresh_request(db, device_id):
+    if not set_device_refresh_request(db, bad_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
-    return {"status": "ok", "device_id": device_id, "refresh_requested": True}
+    return {"status": "ok", "bad_id": bad_id, "refresh_requested": True}
 
 
-@router.post("/devices/{device_id}/rotate-key")
+@router.post("/devices/{bad_id}/rotate-key")
 def rotate_device_key(
-    device_id: str,
+    bad_id: str,
     request: Request,
     _admin: str = Depends(require_admin_token),
     db: Database = Depends(get_db),
 ) -> dict[str, Any]:
-    if not db.get_device_detail(device_id):
+    if not db.get_device_detail(bad_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
     api_key = generate_token("bad_ak_")
     data_key = getattr(request.app.state, "data_key", "") or ""
     lookup = api_key_lookup(data_key, api_key) if data_key else None
     db.rotate_device_api_key(
-        device_id, hash_secret(api_key), api_key_lookup=lookup
+        bad_id, hash_secret(api_key), api_key_lookup=lookup
     )
     return {
         "status": "ok",
-        "device_id": device_id,
+        "bad_id": bad_id,
         "api_key": api_key,
         "revoked": False,
     }
 
 
-@router.post("/devices/{device_id}/archive")
+@router.post("/devices/{bad_id}/archive")
 def archive_device(
-    device_id: str,
+    bad_id: str,
     _admin: str = Depends(require_admin_token),
     db: Database = Depends(get_db),
 ) -> dict[str, Any]:
-    if not db.set_device_archived(device_id, True):
+    if not db.set_device_archived(bad_id, True):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
-    return {"status": "ok", "device_id": device_id, "archived": True}
+    return {"status": "ok", "bad_id": bad_id, "archived": True}
 
 
-@router.post("/devices/{device_id}/restore")
+@router.post("/devices/{bad_id}/restore")
 def restore_device(
-    device_id: str,
+    bad_id: str,
     _admin: str = Depends(require_admin_token),
     db: Database = Depends(get_db),
 ) -> dict[str, Any]:
-    if not db.set_device_archived(device_id, False):
+    if not db.set_device_archived(bad_id, False):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
-    return {"status": "ok", "device_id": device_id, "archived": False}
+    return {"status": "ok", "bad_id": bad_id, "archived": False}
 
 
-@router.delete("/devices/{device_id}")
+@router.delete("/devices/{bad_id}")
 def delete_device(
-    device_id: str,
+    bad_id: str,
     _admin: str = Depends(require_admin_token),
     db: Database = Depends(get_db),
 ) -> dict[str, Any]:
-    if not db.delete_device(device_id):
+    if not db.delete_device(bad_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
-    return {"status": "ok", "device_id": device_id, "deleted": True}
+    return {"status": "ok", "bad_id": bad_id, "deleted": True}
 
 
 @router.get("/events")
 def list_events(
-    device_id: str | None = Query(default=None, max_length=128),
+    bad_id: str | None = Query(default=None, max_length=128),
     q: str | None = Query(default=None, max_length=128),
     importance: str | None = Query(default=None, max_length=16),
     limit: int = Query(default=100, ge=1, le=500),
@@ -970,12 +913,12 @@ def list_events(
     _admin: str = Depends(require_admin_token),
     db: Database = Depends(get_db),
 ) -> dict[str, Any]:
-    device_filter = (device_id or "").strip() or None
+    device_filter = (bad_id or "").strip() or None
     q_filter = (q or "").strip() or None
     imp = (importance or "").strip().casefold() or None
     return {
         "events": db.list_device_events(
-            device_id=device_filter,
+            bad_id=device_filter,
             limit=limit,
             offset=offset,
             q=q_filter,
@@ -983,27 +926,27 @@ def list_events(
             include_detail=False,
         ),
         "total": db.count_device_events(
-            device_id=device_filter, q=q_filter, importance=imp
+            bad_id=device_filter, q=q_filter, importance=imp
         ),
         "limit": limit,
         "offset": offset,
     }
 
 
-@router.put("/devices/{device_id}/tags")
+@router.put("/devices/{bad_id}/tags")
 def put_device_tags(
-    device_id: str,
+    bad_id: str,
     body: DeviceTagsBody,
     _admin: str = Depends(require_admin_token),
     db: Database = Depends(get_db),
 ) -> dict[str, Any]:
     try:
-        saved = db.set_device_tags(device_id, body.tags)
+        saved = db.set_device_tags(bad_id, body.tags)
     except KeyError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Device not found"
         ) from exc
-    return {"device_id": device_id, "tags": saved}
+    return {"bad_id": bad_id, "tags": saved}
 
 
 @router.get("/agent/update/check")
@@ -1497,17 +1440,17 @@ def admin_delete_policy(
     return {"status": "ok"}
 
 
-@router.get("/admin/devices/{device_id}/config")
+@router.get("/admin/devices/{bad_id}/config")
 def admin_device_config(
-    device_id: str,
+    bad_id: str,
     _admin: str = Depends(require_admin_token),
     db: Database = Depends(get_db),
 ) -> dict[str, Any]:
-    effective = db.compute_device_effective_config(device_id)
+    effective = db.compute_device_effective_config(bad_id)
     if not effective:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
     return {
-        "device_id": device_id,
+        "bad_id": bad_id,
         "defaults": dict(DEFAULT_AGENT_SETTINGS),
         "allowed_setting_keys": sorted(ALLOWED_SETTING_KEYS),
         "effective": effective["settings"],
@@ -1525,21 +1468,21 @@ def admin_device_config(
     }
 
 
-@router.put("/admin/devices/{device_id}/config-override")
+@router.put("/admin/devices/{bad_id}/config-override")
 def admin_set_device_override(
-    device_id: str,
+    bad_id: str,
     body: DeviceConfigOverrideBody,
     _admin: str = Depends(require_admin_token),
     db: Database = Depends(get_db),
 ) -> dict[str, Any]:
     cleaned = sanitize_settings(body.settings)
     try:
-        override = db.set_device_config_override(device_id, cleaned)
+        override = db.set_device_config_override(bad_id, cleaned)
     except KeyError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Device not found"
         ) from exc
-    effective = db.compute_device_effective_config(device_id)
+    effective = db.compute_device_effective_config(bad_id)
     assert effective is not None
     return {
         "override": override,
@@ -1548,17 +1491,17 @@ def admin_set_device_override(
     }
 
 
-@router.delete("/admin/devices/{device_id}/config-override")
+@router.delete("/admin/devices/{bad_id}/config-override")
 def admin_delete_device_override(
-    device_id: str,
+    bad_id: str,
     _admin: str = Depends(require_admin_token),
     db: Database = Depends(get_db),
 ) -> dict[str, Any]:
-    detail = db.get_device_detail(device_id)
+    detail = db.get_device_detail(bad_id)
     if not detail:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
-    db.delete_device_config_override(device_id)
-    effective = db.compute_device_effective_config(device_id)
+    db.delete_device_config_override(bad_id)
+    effective = db.compute_device_effective_config(bad_id)
     assert effective is not None
     return {
         "status": "ok",

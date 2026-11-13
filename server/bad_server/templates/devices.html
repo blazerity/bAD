@@ -250,7 +250,7 @@
           <span class="devices-stack-chevron" aria-hidden="true">›</span>
         </div>
         <p class="mono devices-stack-id">
-          {% if d.bad_id %}{{ d.bad_id }}{% else %}{{ d.device_id }}{% endif %}
+          {{ d.bad_id }}
         </p>
         {% if d.is_duplicate or d.revoked or d.has_agent_local %}
         <p class="devices-stack-badges">
@@ -297,11 +297,7 @@
           <a class="device-cell-link" href="{{ d.device_href }}">
             <span class="device-cell-host" title="{{ d.hostname or '' }}">{{ d.hostname or '(неизвестно)' }}</span>
           </a>
-          {% if d.bad_id %}
           <span class="mono device-cell-id">{{ d.bad_id }}</span>
-          {% else %}
-          <span class="mono muted device-cell-id">{{ d.device_id }}</span>
-          {% endif %}
           {% if d.is_duplicate %}
             {% set kinds = d.dup_kinds or [] %}
             <span class="badge badge-stale" title="Возможный дубль">дубль</span>

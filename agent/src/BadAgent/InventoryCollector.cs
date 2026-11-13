@@ -38,7 +38,7 @@ public sealed class InventoryCollector : IInventoryCollector
         var snap = new InventorySnapshot
         {
             SchemaVersion = 2,
-            DeviceId = deviceId,
+            BadId = deviceId,
             CollectedAt = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
             AgentVersion = agentVersion
         };
@@ -423,7 +423,7 @@ public sealed class InventoryCollector : IInventoryCollector
                         productName = obj["Name"]?.ToString();
                         productSerial = obj["IdentifyingNumber"]?.ToString();
                         productVendor = obj["Vendor"]?.ToString();
-                        // Отдельное поле для duplicates; не device_id / не PK.
+                        // Отдельное поле для duplicates; не bad_id / не PK.
                         hw.SmbiosUuid = HardwareMaps.CleanSmbiosUuid(obj["UUID"]?.ToString());
                         break;
                     }

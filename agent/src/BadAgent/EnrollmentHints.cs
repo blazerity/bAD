@@ -54,6 +54,25 @@ public static class EnrollmentHints
         return null;
     }
 
+    /// <summary>SMBIOS UUID. Заглушка, ошибка WMI и не-Windows дают null.</summary>
+    public static string? ReadSmbiosUuid()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return null;
+        }
+
+        try
+        {
+            return HardwareMaps.CleanSmbiosUuid(
+                WmiHelper.QueryFirst("SELECT UUID FROM Win32_ComputerSystemProduct", "UUID"));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public static string? TryHardwareSerial()
     {
         if (!OperatingSystem.IsWindows())
@@ -97,7 +116,7 @@ public static class EnrollmentHints
 
 public readonly record struct EnrollmentRequestResult(
     string Status,
-    string? DeviceId,
+    string? BadId,
     string? ApiKey,
     string? SigningKeyBase64,
     bool RouteMissing);

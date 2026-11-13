@@ -46,7 +46,7 @@ public sealed class BadApiClient : IDisposable
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", enrollmentBearer);
         req.Content = JsonContent.Create(new
         {
-            device_id = deviceId,
+            bad_id = deviceId,
             hostname,
             agent_version = _agentVersion
         });
@@ -61,7 +61,7 @@ public sealed class BadApiClient : IDisposable
         using var doc = JsonDocument.Parse(body);
         var apiKey = doc.RootElement.GetProperty("api_key").GetString()
                      ?? throw new InvalidOperationException("enroll response missing api_key");
-        var returnedId = doc.RootElement.GetProperty("device_id").GetString() ?? deviceId;
+        var returnedId = doc.RootElement.GetProperty("bad_id").GetString() ?? deviceId;
         string? signingKey = null;
         if (doc.RootElement.TryGetProperty("signing_key", out var skEl)
             && skEl.ValueKind == JsonValueKind.String)
@@ -78,7 +78,9 @@ public sealed class BadApiClient : IDisposable
         string ip,
         string serial,
         string fingerprint,
-        string? deviceId,
+        string? badId,
+        string? machineGuid,
+        string? smbiosUuid,
         CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/enrollment-requests");
@@ -89,9 +91,15 @@ public sealed class BadApiClient : IDisposable
             ["serial"] = serial ?? "",
             ["fingerprint"] = fingerprint,
         };
-        if (!string.IsNullOrWhiteSpace(deviceId))
+        if (!string.IsNullOrWhiteSpace(badId))
         {
-            payload["device_id"] = deviceId.Trim();
+            payload["bad_id"] = badId.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(smbiosUuid))
+        {
+            payload["machine_guid"] = machineGuid ?? "";
+            payload["smbios_uuid"] = smbiosUuid;
         }
 
         req.Content = JsonContent.Create(payload, options: JsonOptions);
@@ -114,13 +122,13 @@ public sealed class BadApiClient : IDisposable
             ? stEl.GetString() ?? "pending"
             : "pending";
 
-        string? returnedDeviceId = null;
+        string? returnedBadId = null;
         string? apiKey = null;
         string? signingKey = null;
-        if (doc.RootElement.TryGetProperty("device_id", out var idEl)
+        if (doc.RootElement.TryGetProperty("bad_id", out var idEl)
             && idEl.ValueKind == JsonValueKind.String)
         {
-            returnedDeviceId = idEl.GetString();
+            returnedBadId = idEl.GetString();
         }
 
         if (doc.RootElement.TryGetProperty("api_key", out var keyEl)
@@ -135,7 +143,7 @@ public sealed class BadApiClient : IDisposable
             signingKey = skEl.GetString();
         }
 
-        return new EnrollmentRequestResult(status, returnedDeviceId, apiKey, signingKey, RouteMissing: false);
+        return new EnrollmentRequestResult(status, returnedBadId, apiKey, signingKey, RouteMissing: false);
     }
 
     /// <summary>Один раз выдать ключ подписи для уже enrolled устройства (secure-channel 3).</summary>
@@ -188,7 +196,7 @@ public sealed class BadApiClient : IDisposable
         // config_local — контракт API Lead (keys = agent_local; optional settings / server_url).
         req.Content = JsonContent.Create(new
         {
-            device_id = payload.DeviceId,
+            bad_id = payload.BadId,
             agent_version = _agentVersion,
             last_inventory_at = payload.LastInventoryAt,
             config_version = payload.ConfigVersion,
@@ -334,7 +342,7 @@ public sealed class BadApiClient : IDisposable
         var oldFingerprint = AgentSigningKey.CurrentFileFingerprint();
         AgentSigningKey.ClearLocal();
         await AgentSigningKey.EnsureFromServerAsync(
-            this, apiKey, logger, ct, snapshot.DeviceId, oldFingerprint);
+            this, apiKey, logger, ct, snapshot.BadId, oldFingerprint);
         AgentSigningKey.TrySignInventory(snapshot, out _);
         var again = await PostInventoryAsync(apiKey, snapshot, ct);
         LogInventoryAttempt(logger, 2, snapshot, again);
@@ -365,9 +373,9 @@ public sealed class BadApiClient : IDisposable
         if (logger is null)
         {
             Console.Error.WriteLine(
-                "inventory signature attempt={0} device_id={1} key_fp={2} signed={3} canon_len={4} canon_sha256={5} sig_len={6} status={7} detail={8}",
+                "inventory signature attempt={0} bad_id={1} key_fp={2} signed={3} canon_len={4} canon_sha256={5} sig_len={6} status={7} detail={8}",
                 attempt,
-                snapshot.DeviceId,
+                snapshot.BadId,
                 keyFp,
                 signed,
                 trace.CanonLen,
@@ -379,9 +387,9 @@ public sealed class BadApiClient : IDisposable
         }
 
         logger.LogInformation(
-            "inventory signature attempt={Attempt} device_id={DeviceId} key_fp={KeyFp} signed={Signed} canon_len={CanonLen} canon_sha256={CanonSha256} sig_len={SigLen} status={Status} detail={Detail}",
+            "inventory signature attempt={Attempt} bad_id={DeviceId} key_fp={KeyFp} signed={Signed} canon_len={CanonLen} canon_sha256={CanonSha256} sig_len={SigLen} status={Status} detail={Detail}",
             attempt,
-            snapshot.DeviceId,
+            snapshot.BadId,
             keyFp,
             signed,
             trace.CanonLen,
@@ -431,8 +439,7 @@ public sealed class BadApiClient : IDisposable
         using var resp = await _http.SendAsync(req, ct);
         if (resp.IsSuccessStatusCode)
         {
-            var accepted = await resp.Content.ReadAsStringAsync(ct);
-            TrySaveIssuedDevice(accepted);
+            _ = await resp.Content.ReadAsStringAsync(ct);
             return null;
         }
 
@@ -441,46 +448,6 @@ public sealed class BadApiClient : IDisposable
     }
 
     private readonly record struct InventoryPostFailure(System.Net.HttpStatusCode Status, string Body);
-
-    /// <summary>
-    /// 200 с новым device_id и api_key — вторая карточка. Ключ в журнал не пишется.
-    /// </summary>
-    private static void TrySaveIssuedDevice(string body)
-    {
-        if (string.IsNullOrWhiteSpace(body))
-        {
-            return;
-        }
-
-        try
-        {
-            using var doc = JsonDocument.Parse(body);
-            var root = doc.RootElement;
-            if (!root.TryGetProperty("device_id", out var idEl)
-                || idEl.ValueKind != JsonValueKind.String
-                || !root.TryGetProperty("api_key", out var keyEl)
-                || keyEl.ValueKind != JsonValueKind.String)
-            {
-                return;
-            }
-
-            var deviceId = idEl.GetString();
-            var apiKey = keyEl.GetString();
-            if (string.IsNullOrWhiteSpace(deviceId) || string.IsNullOrWhiteSpace(apiKey))
-            {
-                return;
-            }
-
-            var config = ConfigStore.LoadOrCreate();
-            config.DeviceId = deviceId;
-            config.ApiKey = apiKey;
-            ConfigStore.Save(config);
-        }
-        catch (JsonException)
-        {
-            // Успешный приём без этих полей остаётся обычным.
-        }
-    }
 
     /// <summary>HTML отчёт с сервера (панель): тот же snapshot, что inventory.</summary>
     public async Task<string?> TryPostReportHtmlAsync(string apiKey, InventorySnapshot snapshot, CancellationToken ct)
@@ -562,4 +529,4 @@ public sealed class BadApiClient : IDisposable
     public void Dispose() => _http.Dispose();
 }
 
-public readonly record struct EnrollResult(string ApiKey, string DeviceId, string? SigningKeyBase64);
+public readonly record struct EnrollResult(string ApiKey, string BadId, string? SigningKeyBase64);

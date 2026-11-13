@@ -235,8 +235,8 @@ public static class HardwareMaps
     }
 
     /// <summary>
-    /// SMBIOS UUID для inventory / fallback id: trim; отсев all-F и all-zero.
-    /// Не primary <c>device_id</c> (MachineGuid остаётся ключом установки).
+    /// SMBIOS UUID для inventory: trim; отсев all-F и all-zero.
+    /// Не номер машины <c>bad_id</c>.
     /// </summary>
     public static string? CleanSmbiosUuid(string? raw)
     {

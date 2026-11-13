@@ -36,7 +36,7 @@ public static class HtmlReportWriter
         sb.AppendLine("<main>");
         sb.AppendLine("<section class=\"hero\">");
         sb.AppendLine($"<h1 class=\"with-icon\">{Icon("host")}{hostname}</h1>");
-        sb.AppendLine($"<p class=\"muted\">device_id: <code>{Enc(snap.DeviceId)}</code> · agent {Enc(snap.AgentVersion)} · schema {snap.SchemaVersion}</p>");
+        sb.AppendLine($"<p class=\"muted\">bad_id: <code>{Enc(snap.BadId)}</code> · agent {Enc(snap.AgentVersion)} · schema {snap.SchemaVersion}</p>");
         sb.AppendLine($"<p class=\"muted\">собрано: {TimeFormat.FormatFreshnessHtml(snap.CollectedAt)}</p>");
 
         if (config is not null && !string.IsNullOrWhiteSpace(config.ServerUrl))

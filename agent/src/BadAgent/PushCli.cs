@@ -43,10 +43,6 @@ public static class PushCli
         try
         {
             var config = ConfigStore.LoadOrCreate();
-            if (RetiredDevice.TryAssign(config))
-            {
-                ConfigStore.Save(config);
-            }
 
             CliOutcome Fail()
             {
@@ -72,9 +68,9 @@ public static class PushCli
                 return Fail();
             }
 
-            if (string.IsNullOrWhiteSpace(config.DeviceId))
+            if (string.IsNullOrWhiteSpace(config.BadId))
             {
-                outcome.Line("device_id", "не задан", "ошибка");
+                outcome.Line("bad_id", "не задан", "ошибка");
                 return Fail();
             }
 
@@ -96,6 +92,13 @@ public static class PushCli
             else
             {
                 var flush = OfflineQueue.FlushAsync(client, config.ApiKey!, token).GetAwaiter().GetResult();
+                if (flush.BoardChanged)
+                {
+                    InvalidKeyReset.Forget(config, client, token);
+                    outcome.Line("Плата", "другая, заявка отправлена", "ошибка");
+                    return Fail();
+                }
+
                 if (flush.AuthFailed)
                 {
                     if (InvalidKeyReset.IsInvalidApiKey(flush.AuthException))
@@ -130,7 +133,7 @@ public static class PushCli
             }
 
             var options = CollectorOptions.FromConfig(config);
-            var snap = collector.Collect(config.DeviceId!, agentVersion, options);
+            var snap = collector.Collect(config.BadId!, agentVersion, options);
             try
             {
                 client.SendInventoryAsync(config.ApiKey!, snap, token).GetAwaiter().GetResult();
@@ -161,6 +164,12 @@ public static class PushCli
                 outcome.Line("Inventory", "API key отклонён (401/403) при отправке inventory", "ошибка");
                 return Fail();
             }
+            catch (AgentApiException ex) when (ex.IsBoardChanged)
+            {
+                InvalidKeyReset.Forget(config, client, token);
+                outcome.Line("Плата", "другая, заявка отправлена", "ошибка");
+                return Fail();
+            }
             catch (Exception ex)
             {
                 lastInventoryOk = false;
@@ -187,7 +196,7 @@ public static class PushCli
             config = ConfigStore.LoadOrCreate();
             var payload = new HeartbeatQueuePayload
             {
-                DeviceId = config.DeviceId!,
+                BadId = config.BadId!,
                 LastInventoryAt = lastInventoryAt?.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
                 ConfigVersion = config.RemoteConfigVersion,
                 LastInventoryOk = lastInventoryOk,

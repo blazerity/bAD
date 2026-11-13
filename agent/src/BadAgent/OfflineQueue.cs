@@ -79,7 +79,6 @@ public static class OfflineQueue
             .ToList();
 
         var sent = 0;
-        string? issuedDeviceId = null;
         foreach (var file in files)
         {
             ct.ThrowIfCancellationRequested();
@@ -112,29 +111,12 @@ public static class OfflineQueue
                 {
                     var snap = JsonSerializer.Deserialize<InventorySnapshot>(item.Body)
                                ?? throw new InvalidOperationException("bad inventory payload");
-                    if (!string.IsNullOrWhiteSpace(issuedDeviceId))
-                    {
-                        snap.DeviceId = issuedDeviceId;
-                    }
-
                     await client.SendInventoryAsync(apiKey, snap, ct, logger);
-                    if (ConfigStore.TryLoadForRead(out var fresh, out _)
-                        && !string.IsNullOrWhiteSpace(fresh.ApiKey)
-                        && !string.IsNullOrWhiteSpace(fresh.DeviceId))
-                    {
-                        apiKey = fresh.ApiKey;
-                        issuedDeviceId = fresh.DeviceId;
-                    }
                 }
                 else if (string.Equals(item.Kind, "heartbeat", StringComparison.OrdinalIgnoreCase))
                 {
                     var hb = JsonSerializer.Deserialize<HeartbeatQueuePayload>(item.Body)
                              ?? throw new InvalidOperationException("bad heartbeat payload");
-                    if (!string.IsNullOrWhiteSpace(issuedDeviceId))
-                    {
-                        hb.DeviceId = issuedDeviceId;
-                    }
-
                     await client.SendHeartbeatAsync(apiKey, hb, ct);
                 }
                 else
@@ -148,6 +130,10 @@ public static class OfflineQueue
                 meta.ConsecutiveFailures = 0;
                 meta.NextRetryUtc = null;
                 SaveMeta(meta);
+            }
+            catch (AgentApiException ex) when (ex.IsBoardChanged)
+            {
+                return OfflineFlushResult.CreateBoardChanged();
             }
             catch (AgentApiException ex) when (ex.IsAuthFailure)
             {
@@ -308,8 +294,8 @@ public static class OfflineQueue
 
 public sealed class HeartbeatQueuePayload
 {
-    [JsonPropertyName("device_id")]
-    public string DeviceId { get; set; } = "";
+    [JsonPropertyName("bad_id")]
+    public string BadId { get; set; } = "";
 
     [JsonPropertyName("last_inventory_at")]
     public string? LastInventoryAt { get; set; }
@@ -338,6 +324,7 @@ public sealed class OfflineFlushResult
 {
     public bool Success { get; private init; }
     public bool AuthFailed { get; private init; }
+    public bool BoardChanged { get; private init; }
     public bool Deferred { get; private init; }
     public int Sent { get; private init; }
     public TimeSpan? RetryAfter { get; private init; }
@@ -356,4 +343,6 @@ public sealed class OfflineFlushResult
 
     public static OfflineFlushResult CreateAuthFailed(AgentApiException ex) =>
         new() { AuthFailed = true, AuthException = ex };
+
+    public static OfflineFlushResult CreateBoardChanged() => new() { BoardChanged = true };
 }

@@ -33,7 +33,7 @@ public static class ConfigCli
     {
         "api_key",
         "enrollment_token",
-        "device_id",
+        "bad_id",
         "pending_update_version",
         "pending_update_started_at",
         "remote_config_version",
@@ -234,19 +234,17 @@ public static class ConfigCli
         if (!readable)
         {
             outcome.Tail.Add(
-                "Предупреждение: config.json недоступен для чтения — показаны значения по умолчанию и device_id машины.");
+                "Предупреждение: config.json недоступен для чтения — показаны значения по умолчанию.");
             if (!string.IsNullOrWhiteSpace(readError))
             {
                 outcome.Tail.Add($"Причина: {readError}");
             }
-
-            RetiredDevice.TryAssign(cfg);
         }
 
         outcome.Line("Файл", ConfigStore.ConfigPath);
         var values = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["device_id"] = cfg.DeviceId ?? "",
+            ["bad_id"] = cfg.BadId ?? "",
             ["remote_config_version"] = cfg.RemoteConfigVersion ?? ""
         };
         foreach (var key in InteractiveKeys)
@@ -257,7 +255,7 @@ public static class ConfigCli
             values[key] = shown;
         }
 
-        outcome.Line("device_id", cfg.DeviceId);
+        outcome.Line("bad_id", cfg.BadId);
         outcome.Line("remote_config_version", cfg.RemoteConfigVersion);
         outcome.Values = values;
         return outcome;
@@ -607,7 +605,7 @@ public static class ConfigCli
                 : "";
 
         cfg.ServerUrl = Read("server_url");
-        cfg.DeviceId = string.IsNullOrWhiteSpace(Read("device_id")) ? null : Read("device_id");
+        cfg.BadId = string.IsNullOrWhiteSpace(Read("bad_id")) ? null : Read("bad_id");
         if (bool.TryParse(Read("collect_hardware"), out var hardware))
         {
             cfg.CollectHardware = hardware;

@@ -26,13 +26,13 @@ internal static class InvalidKeyReset
 
     public static void Forget(AgentConfig config, BadApiClient client, CancellationToken ct)
     {
-        if (!string.IsNullOrWhiteSpace(config.DeviceId))
+        if (!string.IsNullOrWhiteSpace(config.BadId))
         {
-            RetiredDevice.Remember(config.DeviceId);
+            RetiredDevice.Remember(config.BadId);
         }
 
         config.ApiKey = null;
-        config.DeviceId = null;
+        config.BadId = null;
         ConfigStore.Save(config);
 
         var fingerprint = EnrollmentProof.ReadExistingFingerprintHex();
@@ -45,7 +45,14 @@ internal static class InvalidKeyReset
         try
         {
             client.SubmitEnrollmentRequestAsync(
-                hostname, ip, serial, fingerprint, deviceId: null, ct).GetAwaiter().GetResult();
+                hostname,
+                ip,
+                serial,
+                fingerprint,
+                null,
+                DeviceIdentity.ReadMachineGuid(),
+                EnrollmentHints.ReadSmbiosUuid(),
+                ct).GetAwaiter().GetResult();
         }
         catch (Exception)
         {

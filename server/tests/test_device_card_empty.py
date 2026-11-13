@@ -51,21 +51,21 @@ _EMPTY_TITLES = [
 ]
 
 
-def _device_id() -> str:
-    return f"card-{uuid.uuid4().hex[:8]}"
+def _bad_id() -> str:
+    return "BAD-" + uuid.uuid4().hex[:8].upper()
 
 
-def _enroll(client: TestClient, device_id: str) -> None:
+def _enroll(client: TestClient, bad_id: str) -> None:
     grant = client.post(
         "/v1/enrollment-grants",
         headers=_ADMIN,
-        json={"device_id": device_id},
+        json={"bad_id": bad_id},
     )
     assert grant.status_code == 200, grant.text
     enrolled = client.post(
         "/v1/enroll",
         headers={"Authorization": f"Bearer {grant.json()['code']}"},
-        json={"device_id": device_id, "hostname": "CARD"},
+        json={"bad_id": bad_id, "hostname": "CARD"},
     )
     assert enrolled.status_code == 200, enrolled.text
 
@@ -89,12 +89,12 @@ def _panel(html: str, panel_id: str) -> str:
 
 
 def test_card_without_snapshot_keeps_empty_sections() -> None:
-    device_id = _device_id()
+    bad_id = _bad_id()
     with TestClient(create_app()) as client:
-        _enroll(client, device_id)
+        _enroll(client, bad_id)
         ctx = _device_config_context(
             client.app.state.db,
-            device_id,
+            bad_id,
             user=_user(),
             settings=get_settings(),
             active_view="cpu",
@@ -115,17 +115,17 @@ def test_card_without_snapshot_keeps_empty_sections() -> None:
 
 
 def test_gpu_panel_unchanged_when_present() -> None:
-    device_id = _device_id()
+    bad_id = _bad_id()
     payload = {
         "schema_version": 2,
-        "device_id": device_id,
+        "bad_id": bad_id,
         "hardware": {"gpus": [{"name": "Intel UHD"}]},
     }
     with TestClient(create_app()) as client:
-        _enroll(client, device_id)
+        _enroll(client, bad_id)
         ctx = _device_config_context(
             client.app.state.db,
-            device_id,
+            bad_id,
             user=_user(),
             settings=get_settings(),
             active_view="gpu",
@@ -140,16 +140,16 @@ def test_gpu_panel_unchanged_when_present() -> None:
 
 
 def test_report_does_not_keep_empty_sections() -> None:
-    device_id = _device_id()
+    bad_id = _bad_id()
     payload = {
         "schema_version": 2,
-        "device_id": device_id,
+        "bad_id": bad_id,
         "hardware": {"gpus": [{"name": "Intel UHD"}]},
     }
     with TestClient(create_app()) as client:
-        _enroll(client, device_id)
+        _enroll(client, bad_id)
         report = render_device_report(
-            client.app.state.db, get_settings(), device_id, payload
+            client.app.state.db, get_settings(), bad_id, payload
         )
     text = report.body.decode("utf-8")
     assert "данных не получено" not in text

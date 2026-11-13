@@ -41,14 +41,14 @@ def post(base: str, path: str, body: dict, token: str | None = None) -> dict:
         return json.loads(raw) if raw else {}
 
 
-def _cpu_for(device_id: str) -> dict:
-    key = "amd" if "dev" in device_id or "lab" in device_id else "intel"
+def _cpu_for(bad_id: str) -> dict:
+    key = "amd" if "DEV" in bad_id or "LAB" in bad_id else "intel"
     return dict(CPUS[key])
 
 
 DEVICES = [
     {
-        "device_id": "ws-finance-01",
+        "bad_id": "BAD-A11CE001",
         "hostname": "WS-FINANCE-01",
         "agent_version": "1.3.1",
         "os": "Windows 11 Pro",
@@ -62,7 +62,7 @@ DEVICES = [
         "ip": "10.42.1.11",
     },
     {
-        "device_id": "ws-ops-02",
+        "bad_id": "BAD-B22CE002",
         "hostname": "WS-OPS-02",
         "agent_version": "1.3.1",
         "os": "Windows 11 Pro",
@@ -76,7 +76,7 @@ DEVICES = [
         "ip": "10.42.1.22",
     },
     {
-        "device_id": "ws-dev-03",
+        "bad_id": "BAD-C33CE003",
         "hostname": "WS-DEV-03",
         "agent_version": "1.2.2",
         "os": "Windows 10 Pro",
@@ -90,7 +90,7 @@ DEVICES = [
         "ip": "10.42.3.33",
     },
     {
-        "device_id": "lt-sales-04",
+        "bad_id": "BAD-D44CE004",
         "hostname": "LT-SALES-04",
         "agent_version": "1.3.1",
         "os": "Windows 11 Pro",
@@ -104,7 +104,7 @@ DEVICES = [
         "ip": "10.42.2.44",
     },
     {
-        "device_id": "ws-lab-05",
+        "bad_id": "BAD-E55CE005",
         "hostname": "WS-LAB-05",
         "agent_version": "1.3.0",
         "os": "Windows 10 Pro",
@@ -118,7 +118,7 @@ DEVICES = [
         "ip": "10.99.0.55",
     },
     {
-        "device_id": "ws-qa-06",
+        "bad_id": "BAD-F66CE006",
         "hostname": "WS-QA-06",
         "agent_version": "1.3.1",
         "os": "Windows 11 Pro",
@@ -139,7 +139,7 @@ def seed_one(base: str, enroll_token: str, d: dict, collected_at: str) -> None:
         base,
         "/v1/enroll",
         {
-            "device_id": d["device_id"],
+            "bad_id": d["bad_id"],
             "hostname": d["hostname"],
             "agent_version": d["agent_version"],
         },
@@ -149,7 +149,7 @@ def seed_one(base: str, enroll_token: str, d: dict, collected_at: str) -> None:
     disk_bytes = int(d["disk_gb"]) * GB
     inv = {
         "schema_version": 2,
-        "device_id": d["device_id"],
+        "bad_id": d["bad_id"],
         "agent_version": d["agent_version"],
         "collected_at": collected_at,
         "host": {
@@ -163,7 +163,7 @@ def seed_one(base: str, enroll_token: str, d: dict, collected_at: str) -> None:
             "chassis_type": "laptop" if d["hostname"].startswith("LT-") else "desktop",
             "serial_number": d["serial"],
             "ram_bytes": d["ram_bytes"],
-            "cpu": _cpu_for(d["device_id"]),
+            "cpu": _cpu_for(d["bad_id"]),
             "disks": [
                 {
                     "model": "NVMe Demo",
@@ -192,7 +192,7 @@ def seed_one(base: str, enroll_token: str, d: dict, collected_at: str) -> None:
         "users": {"logged_on": [f"{d['domain'].split('.')[0]}\\{d['user']}"]},
     }
     post(base, "/v1/inventory", inv, token=key)
-    if d["device_id"] in {"ws-finance-01", "ws-dev-03"}:
+    if d["hostname"] in {"WS-FINANCE-01", "WS-DEV-03"}:
         inv2 = json.loads(json.dumps(inv))
         inv2["collected_at"] = collected_at.replace("T12:", "T13:")
         inv2["hardware"]["ram_bytes"] = d["ram_bytes"] + 8 * GB
@@ -201,13 +201,13 @@ def seed_one(base: str, enroll_token: str, d: dict, collected_at: str) -> None:
         base,
         "/v1/heartbeat",
         {
-            "device_id": d["device_id"],
+            "bad_id": d["bad_id"],
             "agent_version": d["agent_version"],
             "last_inventory_ok": True,
         },
         token=key,
     )
-    print("OK", d["device_id"], d["hostname"])
+    print("OK", d["bad_id"], d["hostname"])
 
 
 def main() -> int:
@@ -228,7 +228,7 @@ def main() -> int:
             seed_one(args.base, args.token, d, now)
         except urllib.error.HTTPError as e:
             body = e.read().decode(errors="replace")
-            print("FAIL", d["device_id"], e.code, body, file=sys.stderr)
+            print("FAIL", d["bad_id"], e.code, body, file=sys.stderr)
             return 1
     print(f"DONE seeded={len(DEVICES)}")
     return 0

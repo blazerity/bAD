@@ -36,7 +36,7 @@ def uninstall_request_active(
 
 def expire_uninstall_request_if_needed(
     db: Database,
-    device_id: str,
+    bad_id: str,
     meta: dict[str, Any],
     *,
     now: Optional[datetime] = None,
@@ -49,7 +49,7 @@ def expire_uninstall_request_if_needed(
             requested_at = parse_utc(str(requested))
             if requested_at and _now(now) - requested_at > UNINSTALL_TTL:
                 db.patch_device_meta(
-                    device_id,
+                    bad_id,
                     {
                         "uninstall_requested_at": None,
                         "uninstall_not_delivered_at": utc_now(),
@@ -117,9 +117,9 @@ def uninstall_ui_context(meta: dict[str, Any], *, now: Optional[datetime] = None
     }
 
 
-def request_device_uninstall(db: Database, device_id: str) -> tuple[bool, str]:
+def request_device_uninstall(db: Database, bad_id: str) -> tuple[bool, str]:
     """Поставить команду снятия. False + reason если нельзя."""
-    detail = db.get_device_detail(device_id)
+    detail = db.get_device_detail(bad_id)
     if not detail:
         return False, "missing"
     if detail.get("revoked"):
@@ -129,18 +129,18 @@ def request_device_uninstall(db: Database, device_id: str) -> tuple[bool, str]:
         meta = {}
     if uninstall_request_active(meta):
         return True, "already_pending"
-    db.patch_device_meta(device_id, start_new_uninstall_request_patch())
+    db.patch_device_meta(bad_id, start_new_uninstall_request_patch())
     return True, "ok"
 
 
-def cancel_device_uninstall(db: Database, device_id: str) -> bool:
-    detail = db.get_device_detail(device_id)
+def cancel_device_uninstall(db: Database, bad_id: str) -> bool:
+    detail = db.get_device_detail(bad_id)
     if not detail:
         return False
     meta = detail.get("meta") or {}
     if not uninstall_request_active(meta):
         return False
-    db.patch_device_meta(device_id, clear_uninstall_request_patch())
+    db.patch_device_meta(bad_id, clear_uninstall_request_patch())
     return True
 
 
@@ -151,7 +151,7 @@ def device_uninstall_confirm_value(detail: dict[str, Any]) -> str:
     bad = (detail.get("bad_id") or "").strip()
     if bad:
         return bad
-    return str(detail.get("device_id") or "").strip()
+    return str(detail.get("bad_id") or "").strip()
 
 
 def uninstall_confirm_matches(detail: dict[str, Any], typed: str) -> bool:
@@ -162,7 +162,7 @@ def uninstall_confirm_matches(detail: dict[str, Any], typed: str) -> bool:
         device_uninstall_confirm_value(detail),
         (detail.get("hostname") or "").strip(),
         (detail.get("bad_id") or "").strip(),
-        str(detail.get("device_id") or "").strip(),
+        str(detail.get("bad_id") or "").strip(),
     ):
         if candidate and text == candidate:
             return True

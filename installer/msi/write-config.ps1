@@ -95,7 +95,7 @@ try {
     }
 
     if ($existing) {
-        # Весь прежний объект, не новый с тремя полями: api_key / device_id остаются.
+        # Весь прежний объект, не новый с тремя полями: api_key / bad_id остаются.
         if ($ServerUrl) {
             $existing.server_url = $ServerUrl.TrimEnd('/')
         }

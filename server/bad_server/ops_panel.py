@@ -540,12 +540,12 @@ def aggregate_incident_feed(
     def _fresh(
         ev: dict[str, Any],
         created: Optional[datetime],
-        device_id: str,
+        bad_id: str,
         event_type: str,
     ) -> dict[str, Any]:
         return {
             "id": ev.get("id"),
-            "device_id": device_id,
+            "bad_id": bad_id,
             "type": event_type,
             "summary": ev.get("summary"),
             "created_at": ev.get("created_at"),
@@ -561,7 +561,7 @@ def aggregate_incident_feed(
     groups: dict[tuple[str, str], dict[str, Any]] = {}
     order: list[tuple[str, str]] = []
     for ev in events:
-        did = str(ev.get("device_id") or "")
+        did = str(ev.get("bad_id") or "")
         etype = str(ev.get("type") or "")
         key = (did, etype)
         created = parse_iso(ev.get("created_at"))
@@ -585,7 +585,7 @@ def aggregate_incident_feed(
     out: list[dict[str, Any]] = []
     for key in order:
         g = groups[key]
-        did = str(g.get("device_id") or "")
+        did = str(g.get("bad_id") or "")
         device = devices_by_id.get(did) or {}
         meta = device.get("meta") if isinstance(device.get("meta"), dict) else {}
         user = str(meta.get("last_logged_on") or "").strip()
@@ -601,7 +601,7 @@ def aggregate_incident_feed(
         out.append(
             {
                 "id": g.get("id"),
-                "device_id": did,
+                "bad_id": did,
                 "bad_id": g.get("bad_id") or device.get("bad_id"),
                 "hostname": hostname,
                 "user": user or None,
@@ -680,7 +680,7 @@ def build_dashboard_stats(
             key = str(disk_label)
             storage_counts[key] = storage_counts.get(key, 0) + 1
     scan_cap = min(len(active), INVENTORY_SCAN_CAP)
-    scan_ids = [d["device_id"] for d in active[:scan_cap]]
+    scan_ids = [d["bad_id"] for d in active[:scan_cap]]
     payloads = db.latest_inventory_payloads(scan_ids, cap=INVENTORY_SCAN_CAP) if scan_ids else {}
     need_payload: list[str] = []
     scanned = 0
@@ -691,9 +691,9 @@ def build_dashboard_stats(
             key = normalize_os_caption(caption)
             os_counts[key] = os_counts.get(key, 0) + 1
         else:
-            need_payload.append(d["device_id"])
-    for device_id, payload in payloads.items():
-        if device_id not in need_payload:
+            need_payload.append(d["bad_id"])
+    for bad_id, payload in payloads.items():
+        if bad_id not in need_payload:
             continue
         scanned += 1
         host = payload.get("host") if isinstance(payload, dict) else None
@@ -861,7 +861,7 @@ def filter_devices_by_wave(
 
     def _match(d: dict[str, Any]) -> bool:
         if wave == "drift":
-            return d.get("device_id") in drift_ids
+            return d.get("bad_id") in drift_ids
         if wave == "revoked":
             return bool(d.get("revoked"))
         if wave == "agent_local":

@@ -9,7 +9,7 @@
 </div>
 {% endif %}
 {% endmacro %}
-{% block title %}{{ device.hostname or device.device_id }} — bAD{% endblock %}
+{% block title %}{{ device.hostname or device.bad_id }} — bAD{% endblock %}
 {% block content %}
 {% set hw = hardware_summary %}
 {% set view = active_view or 'overview' %}
@@ -32,7 +32,7 @@
         <span class="badge badge-uninstall badge-uninstall-{{ uninstall.badge }}">{{ uninstall.badge_label }}</span>
         {% endif %}
         {% if user.is_admin %}
-        <form method="post" action="/devices/{{ device.device_id }}/request-refresh" class="device-refresh-form">
+        <form method="post" action="/devices/{{ device.bad_id }}/request-refresh" class="device-refresh-form">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button type="submit" class="btn secondary btn-compact">Обновить политику</button>
         </form>
@@ -55,7 +55,7 @@
     {% for g in duplicate_groups %}
     <p>{{ g.label }}:
       {% for d in g.devices %}
-        <span class="dup-name">{{ device_link(d.device_id, d.hostname or d.device_id, d.chassis_type) }}</span>{% if not loop.last %}<span class="dup-sep">, </span>{% endif %}
+        <span class="dup-name">{{ device_link(d.bad_id, d.hostname or d.bad_id, d.chassis_type) }}</span>{% if not loop.last %}<span class="dup-sep">, </span>{% endif %}
       {% endfor %}
     </p>
     {% endfor %}
@@ -72,8 +72,8 @@
     {% set merge_rows = [] %}
     {% for g in duplicate_groups %}
       {% for d in g.devices %}
-        {% if d.device_id and d.merge_matched and d.device_id not in merge_seen %}
-          {% set _ = merge_seen.append(d.device_id) %}
+        {% if d.bad_id and d.merge_matched and d.bad_id not in merge_seen %}
+          {% set _ = merge_seen.append(d.bad_id) %}
           {% set _ = merge_rows.append(d) %}
         {% endif %}
       {% endfor %}
@@ -90,13 +90,13 @@
           {% set _ = match_labels.append(merge_label.get(k, k)) %}
         {% endfor %}
         <li class="dup-merge-row">
-          {{ device_link(d.device_id, d.hostname or d.device_id, d.chassis_type) }}
-          <span class="mono muted">{{ d.device_id }}</span>
+          {{ device_link(d.bad_id, d.hostname or d.bad_id, d.chassis_type) }}
+          <span class="mono muted">{{ d.bad_id }}</span>
           <span class="muted dup-merge-matched">совпало: {{ match_labels|join(', ') }}</span>
-          <form method="post" action="/devices/{{ device.device_id }}/merge" class="dup-merge-form"
-                onsubmit="return confirm('Объединить «{{ d.hostname or d.device_id }}» в эту карточку?\nСовпало: {{ match_labels|join(', ') }}\nИстория перейдёт сюда, донор будет в архиве.');">
+          <form method="post" action="/devices/{{ device.bad_id }}/merge" class="dup-merge-form"
+                onsubmit="return confirm('Объединить «{{ d.hostname or d.bad_id }}» в эту карточку?\nСовпало: {{ match_labels|join(', ') }}\nИстория перейдёт сюда, донор будет в архиве.');">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input type="hidden" name="donor_id" value="{{ d.device_id }}">
+            <input type="hidden" name="donor_id" value="{{ d.bad_id }}">
             <button type="submit" class="subtle">Объединить в эту карточку</button>
           </form>
         </li>
@@ -606,7 +606,7 @@
           {% endif %}
         </dl>
         {% if not report_mode and user.is_admin and f.name and f.name|lower != 'memory.dmp' %}
-        <form method="post" action="/devices/{{ device.device_id }}/minidump-request">
+        <form method="post" action="/devices/{{ device.bad_id }}/minidump-request">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="name" value="{{ f.name }}">
           <button type="submit" class="subtle">Разобрать</button>
@@ -651,7 +651,7 @@
           </li>
           {% endfor %}
         </ul>
-        <p class="muted"><a href="/events?device_id={{ device.device_id }}">Все события этого устройства</a></p>
+        <p class="muted"><a href="/events?bad_id={{ device.bad_id }}">Все события этого устройства</a></p>
         {% else %}
         <p class="muted">Событий изменений пока нет.</p>
         {% endif %}
@@ -792,7 +792,7 @@
         <p class="muted">
           Пустое поле не сохраняется. Заданные значения перекрывают политики только для этого устройства.
         </p>
-        <form method="post" action="/devices/{{ device.device_id }}/config-override" class="settings-form compact-form">
+        <form method="post" action="/devices/{{ device.bad_id }}/config-override" class="settings-form compact-form">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
           <label for="inventory_interval_hours">Интервал инвентаризации (часы)
@@ -871,12 +871,9 @@
       <div class="device-panel {% if view == 'admin' %}is-active{% endif %}" data-device-panel="admin">
         <h2>Управление записью</h2>
         <p class="muted">Действия, которые меняют запись устройства в БД.</p>
-        <dl class="meta meta-compact">
-          <div><dt>Служебный идентификатор</dt><dd class="mono">{{ copyable(device.device_id) }}</dd></div>
-        </dl>
 
         <h3>Теги</h3>
-        <form method="post" action="/devices/{{ device.device_id }}/tags" class="settings-form compact-form">
+        <form method="post" action="/devices/{{ device.bad_id }}/tags" class="settings-form compact-form">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <label for="tags">Теги (через запятую)</label>
           <input id="tags" name="tags" type="text" maxlength="512"
@@ -890,22 +887,22 @@
         <p class="muted">После отзыва агент не сможет отправлять данные на сервер.</p>
         <div class="form-actions">
           {% if user.is_admin %}
-          <form method="post" action="/devices/{{ device.device_id }}/revoke" onsubmit="return confirm('Отозвать доступ этого агента?');">
+          <form method="post" action="/devices/{{ device.bad_id }}/revoke" onsubmit="return confirm('Отозвать доступ этого агента?');">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button type="submit" class="subtle">Отозвать доступ</button>
           </form>
-          <form method="post" action="/devices/{{ device.device_id }}/rotate-key" onsubmit="return confirm('Выпустить новый ключ доступа агента? Старый перестанет работать.');">
+          <form method="post" action="/devices/{{ device.bad_id }}/rotate-key" onsubmit="return confirm('Выпустить новый ключ доступа агента? Старый перестанет работать.');">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button type="submit" class="subtle">Выпустить новый ключ</button>
           </form>
           {% endif %}
           {% if device.archived %}
-          <form method="post" action="/devices/{{ device.device_id }}/restore">
+          <form method="post" action="/devices/{{ device.bad_id }}/restore">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button type="submit" class="subtle">Вернуть из архива</button>
           </form>
           {% else %}
-          <form method="post" action="/devices/{{ device.device_id }}/archive">
+          <form method="post" action="/devices/{{ device.bad_id }}/archive">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button type="submit" class="subtle">В архив</button>
           </form>
@@ -930,7 +927,7 @@
           Ожидание следующего heartbeat агента.
           {% endif %}
         </p>
-        <form method="post" action="/devices/{{ device.device_id }}/uninstall/cancel" class="form-actions">
+        <form method="post" action="/devices/{{ device.bad_id }}/uninstall/cancel" class="form-actions">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button type="submit" class="subtle">Отменить снятие</button>
         </form>
@@ -940,7 +937,7 @@
           Компьютер сейчас не на связи. Команда уйдёт, когда агент снова выйдет на сервер.
         </p>
         {% endif %}
-        <form id="device-uninstall-form" method="post" action="/devices/{{ device.device_id }}/uninstall" class="settings-form compact-form"
+        <form id="device-uninstall-form" method="post" action="/devices/{{ device.bad_id }}/uninstall" class="settings-form compact-form"
           onsubmit="return confirm('Снять агент bAD с компьютера «{{ uninstall_confirm }}»? Программа удалится с ПК. Карточка в панели останется.');">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <label for="uninstall_confirm">Подтверждение</label>
@@ -954,12 +951,12 @@
 
         {% if user.is_admin %}
         <h3>Удаление</h3>
-        <p class="muted">Для подтверждения введите <span class="mono">{{ device.device_id }}</span>.</p>
-        <form method="post" action="/devices/{{ device.device_id }}/delete" class="settings-form compact-form"
+        <p class="muted">Для подтверждения введите <span class="mono">{{ device.bad_id }}</span>.</p>
+        <form method="post" action="/devices/{{ device.bad_id }}/delete" class="settings-form compact-form"
           onsubmit="return confirm('Удалить устройство навсегда?');">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <label for="confirm">Подтверждение</label>
-          <input id="confirm" name="confirm" type="text" autocomplete="off" placeholder="{{ device.device_id }}">
+          <input id="confirm" name="confirm" type="text" autocomplete="off" placeholder="{{ device.bad_id }}">
           <div class="form-actions">
             <button type="submit" class="danger subtle-danger">Удалить устройство</button>
           </div>

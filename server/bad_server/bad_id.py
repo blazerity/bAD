@@ -1,4 +1,4 @@
-"""Публичный bad-id: BAD- и 10 символов Crockford из секрета сервера."""
+"""Номер машины: BAD- и 8 hex. HMAC прежний, сообщение — MachineGuid и UUID."""
 
 from __future__ import annotations
 
@@ -8,29 +8,35 @@ import re
 import secrets
 from typing import Any, Optional
 
-_BAD_ID_RE = re.compile(r"^BAD-[0-9A-HJKMNP-TV-Z]{6}(?:[0-9A-HJKMNP-TV-Z]{4})?$")
-_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
-_BAD_ID_BODY_LEN = 10
+_BAD_ID_RE = re.compile(r"^BAD-[0-9A-F]{8}$")
 _KEY_NAME = "bad_id_hmac_key"
 
 
 def is_bad_id(ref: str) -> bool:
-    """Код панели: текущие 10 символов и прежние 6 (до пересчёта)."""
-    return bool(_BAD_ID_RE.match((ref or "").strip()))
+    return _BAD_ID_RE.match((ref or "").strip()) is not None
 
 
-def bad_id_for_device(device_id: str, key: str) -> str:
-    """Один и тот же device_id и секрет всегда дают один код.
+def normalize_machine_guid(raw: Optional[str]) -> str:
+    """Пробелы, одна пара фигурных скобок, нижний регистр. Дефисы остаются."""
+    text = (raw or "").strip()
+    if len(text) >= 2 and text.startswith("{") and text.endswith("}"):
+        text = text[1:-1].strip()
+    return text.lower()
 
-    В расчёт берётся строка device_id как она хранится, без смены регистра:
-    от регистра зависит первичный ключ, и общий регистр склеил бы две строки.
-    """
+
+def bad_id_from_board(machine_guid: str, smbios_uuid: str, key: str) -> str:
+    """HMAC-SHA256, UTF-8. Первые 4 байта дайджеста — восемь верхних hex."""
+    message = f"{machine_guid}\n{smbios_uuid}"
     digest = hmac.new(
         key.encode("utf-8"),
-        device_id.encode("utf-8"),
+        message.encode("utf-8"),
         hashlib.sha256,
     ).digest()
-    return "BAD-" + _encode_crockford(digest, _BAD_ID_BODY_LEN)
+    return "BAD-" + digest[:4].hex().upper()
+
+
+def random_bad_id() -> str:
+    return "BAD-" + secrets.token_hex(4).upper()
 
 
 def ensure_bad_id_key(db: Any) -> str:
@@ -49,18 +55,3 @@ def ensure_bad_id_key(db: Any) -> str:
     if not stored:
         raise RuntimeError("bad_id key was not stored")
     return str(stored)
-
-
-def device_panel_href(bad_id: Optional[str], device_id: str) -> str:
-    ref = (bad_id or "").strip() or device_id
-    return f"/devices/{ref}"
-
-
-def _encode_crockford(digest: bytes, length: int) -> str:
-    bits = int.from_bytes(digest, "big")
-    total_bits = len(digest) * 8
-    chars: list[str] = []
-    for i in range(length):
-        shift = total_bits - (i + 1) * 5
-        chars.append(_ALPHABET[(bits >> shift) & 31])
-    return "".join(chars)

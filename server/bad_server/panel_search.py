@@ -32,7 +32,7 @@ def device_search_meta_line(device: dict[str, Any]) -> str:
 
 _MATCH_FIELDS: tuple[tuple[str, str], ...] = (
     ("имя", "hostname"),
-    ("идентификатор", "device_id"),
+    ("идентификатор", "bad_id"),
     ("серийный номер", "serial_number"),
     ("UUID", "smbios_uuid"),
     ("BIOS", "bios_serial"),
@@ -89,7 +89,7 @@ def device_match_label(
     if not q:
         return ""
     host = (device.get("hostname") or "").casefold()
-    did = str(device.get("device_id") or "").casefold()
+    did = str(device.get("bad_id") or "").casefold()
     if q in host:
         return "имя"
     if q in did:
@@ -155,7 +155,7 @@ def event_match_label(event: dict[str, Any], query: str) -> str:
     q = (query or "").strip().casefold()
     if not q:
         return ""
-    for key in ("summary", "type", "hostname", "device_id"):
+    for key in ("summary", "type", "hostname", "bad_id"):
         val = str(event.get(key) or "").casefold()
         if q in val:
             if key == "summary":

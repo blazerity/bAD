@@ -10,8 +10,8 @@
   <article class="event-digest-card polarity-{{ visual.polarity }} event-digest-card--wide">
     <header class="event-digest-card__device">
       <div class="event-digest-card__device-head">
-        <div class="event-digest-card__device-name">{{ device_link(event.device_id, event.hostname or event.device_id, chassis_type) }}</div>
-        <div class="event-digest-card__device-id mono muted">{{ event.device_id }}</div>
+        <div class="event-digest-card__device-name">{{ device_link(event.bad_id, event.hostname or event.bad_id, chassis_type) }}</div>
+        <div class="event-digest-card__device-id mono muted">{{ event.bad_id }}</div>
       </div>
       {% if hardware_model %}
       <p class="event-digest-card__device-meta muted">
@@ -50,8 +50,8 @@
   </article>
 
   <p class="muted event-detail-links">
-    <a href="/devices/{{ event.device_id }}">Карточка устройства</a>
-    · <a href="/events?device_id={{ event.device_id }}">Все события устройства</a>
+    <a href="/devices/{{ event.bad_id }}">Карточка устройства</a>
+    · <a href="/events?bad_id={{ event.bad_id }}">Все события устройства</a>
   </p>
   <p class="muted event-detail-metafoot">
     Событие <span class="mono">#{{ event.id }}</span>

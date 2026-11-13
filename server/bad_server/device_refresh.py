@@ -96,15 +96,15 @@ def heartbeat_refresh_meta_patch(
 
 def set_device_refresh_request(
     db: Database,
-    device_id: str,
+    bad_id: str,
     *,
     refresh_inventory: bool = True,
     refresh_update_check: bool = True,
 ) -> bool:
-    if not db.get_device_detail(device_id):
+    if not db.get_device_detail(bad_id):
         return False
     db.patch_device_meta(
-        device_id,
+        bad_id,
         {
             "refresh_requested_at": utc_now(),
             "refresh_inventory": refresh_inventory,

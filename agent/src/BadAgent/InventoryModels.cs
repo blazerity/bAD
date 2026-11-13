@@ -7,8 +7,8 @@ public sealed class InventorySnapshot
     [JsonPropertyName("schema_version")]
     public int SchemaVersion { get; set; } = 2;
 
-    [JsonPropertyName("device_id")]
-    public string DeviceId { get; set; } = "";
+    [JsonPropertyName("bad_id")]
+    public string BadId { get; set; } = "";
 
     [JsonPropertyName("collected_at")]
     public string CollectedAt { get; set; } = "";
@@ -146,7 +146,7 @@ public sealed class HardwareInfo
     public string? BaseboardSerial { get; set; }
 
     /// <summary>
-    /// SMBIOS system UUID (<c>Win32_ComputerSystemProduct.UUID</c>). Не PK / не device_id.
+    /// SMBIOS system UUID (<c>Win32_ComputerSystemProduct.UUID</c>). Не номер машины.
     /// Null если placeholder (all-F / all-zero).
     /// </summary>
     [JsonPropertyName("smbios_uuid")]

@@ -15,8 +15,8 @@ public sealed class AgentConfig
     [JsonPropertyName("api_key")]
     public string? ApiKey { get; set; }
 
-    [JsonPropertyName("device_id")]
-    public string? DeviceId { get; set; }
+    [JsonPropertyName("bad_id")]
+    public string? BadId { get; set; }
 
     [JsonPropertyName("inventory_interval_hours")]
     public int InventoryIntervalHours { get; set; } = 6;
@@ -170,7 +170,7 @@ public static class ConfigStore
 {
     /// <summary>
     /// Allowlist remote → agent (server <c>ALLOWED_SETTING_KEYS</c>). Тема A/C: не расширять
-    /// unsafe knobs (<c>server_url</c>, secrets, <c>device_id</c>).
+    /// unsafe knobs (<c>server_url</c>, secrets, <c>bad_id</c>).
     /// </summary>
     public static readonly HashSet<string> RemoteSettingsAllowlist = new(StringComparer.Ordinal)
     {
@@ -275,14 +275,10 @@ public static class ConfigStore
     {
         if (TryLoadForRead(out var cfg, out _))
         {
-            RetiredDevice.TryAssign(cfg);
-
             return cfg;
         }
 
-        var fallback = ApplyEnvironment(new AgentConfig());
-        RetiredDevice.TryAssign(fallback);
-        return fallback;
+        return ApplyEnvironment(new AgentConfig());
     }
 
     private static void EnsureServiceDataDirs()
@@ -338,7 +334,7 @@ public static class ConfigStore
 
     /// <summary>
     /// Применяет только knobs из <see cref="RemoteSettingsAllowlist"/>.
-    /// Не трогает server_url, api_key, device_id, enrollment_token (и любые ключи вне allowlist).
+    /// Не трогает server_url, api_key, bad_id, enrollment_token (и любые ключи вне allowlist).
     /// Ключи из <see cref="AgentConfig.AgentLocalKeys"/> не перезаписываются.
     /// </summary>
     public static bool ApplyRemoteSettings(AgentConfig config, RemoteAgentSettings settings)

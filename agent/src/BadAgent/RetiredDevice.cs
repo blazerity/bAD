@@ -1,18 +1,18 @@
 namespace BadAgent;
 
-/// <summary>Номер, который служба забыла. Снова из MachineGuid его не пишем.</summary>
+/// <summary>Забытый номер. Очередь его больше не шлёт. Файл только retired_bad_id.</summary>
 internal static class RetiredDevice
 {
-    private static string Path => System.IO.Path.Combine(ConfigStore.ProgramDataDir, "retired_device_id");
+    private static string Path => System.IO.Path.Combine(ConfigStore.ProgramDataDir, "retired_bad_id");
 
-    public static void Remember(string? deviceId)
+    public static void Remember(string? badId)
     {
-        if (string.IsNullOrWhiteSpace(deviceId))
+        if (string.IsNullOrWhiteSpace(badId))
         {
             return;
         }
 
-        var id = deviceId.Trim();
+        var id = badId.Trim();
         var known = Read();
         if (known.Any(item => string.Equals(item, id, StringComparison.OrdinalIgnoreCase)))
         {
@@ -24,33 +24,15 @@ internal static class RetiredDevice
         File.WriteAllLines(Path, known);
     }
 
-    public static bool Blocks(string? deviceId)
+    public static bool Blocks(string? badId)
     {
-        if (string.IsNullOrWhiteSpace(deviceId))
+        if (string.IsNullOrWhiteSpace(badId))
         {
             return false;
         }
 
-        var id = deviceId.Trim();
+        var id = badId.Trim();
         return Read().Any(item => string.Equals(item, id, StringComparison.OrdinalIgnoreCase));
-    }
-
-    /// <summary>Пустой device_id заполняется, только если это не забытый номер.</summary>
-    public static bool TryAssign(AgentConfig config)
-    {
-        if (!string.IsNullOrWhiteSpace(config.DeviceId))
-        {
-            return false;
-        }
-
-        var resolved = DeviceIdentity.ResolveDeviceId();
-        if (string.IsNullOrWhiteSpace(resolved) || Blocks(resolved))
-        {
-            return false;
-        }
-
-        config.DeviceId = resolved;
-        return true;
     }
 
     private static List<string> Read()

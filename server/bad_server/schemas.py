@@ -20,7 +20,7 @@ def _require_settings(value: dict[str, Any]) -> dict[str, Any]:
 
 
 class EnrollRequest(BaseModel):
-    device_id: str = Field(min_length=1, max_length=128)
+    bad_id: str = Field(min_length=12, max_length=12, pattern=r"^BAD-[0-9A-F]{8}$")
     hostname: Optional[str] = Field(default=None, max_length=255)
     agent_version: Optional[str] = Field(default=None, max_length=64)
     # Proof-of-possession for re-enroll of an existing device (SEC-001).
@@ -29,13 +29,13 @@ class EnrollRequest(BaseModel):
 
 class EnrollResponse(BaseModel):
     api_key: str
-    device_id: str
+    bad_id: str
     # Только новому устройству. Старый агент поле игнорирует.
     signing_key: Optional[str] = None
 
 
 class EnrollmentGrantBody(BaseModel):
-    device_id: str = Field(min_length=1, max_length=128)
+    bad_id: str = Field(min_length=12, max_length=12, pattern=r"^BAD-[0-9A-F]{8}$")
 
 
 class EnrollmentRequestBody(BaseModel):
@@ -44,8 +44,10 @@ class EnrollmentRequestBody(BaseModel):
     serial: Optional[str] = Field(default="", max_length=128)
     # SHA256 локального секрета агента (64 hex). Серийник сюда не входит.
     fingerprint: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-fA-F]{64}$")
-    # Уже записанный номер. Пусто — у заявки нет карточки, новую req- не создаём.
-    device_id: Optional[str] = Field(default=None, max_length=128)
+    # Уже выданный номер. Пусто — номер появится в «Разрешить».
+    bad_id: Optional[str] = Field(default=None, max_length=128)
+    machine_guid: Optional[str] = Field(default=None, max_length=128)
+    smbios_uuid: Optional[str] = Field(default=None, max_length=128)
 
 
 class ConfigLocalPayload(BaseModel):
@@ -62,7 +64,7 @@ class ConfigLocalPayload(BaseModel):
 
 
 class HeartbeatRequest(BaseModel):
-    device_id: str = Field(min_length=1, max_length=128)
+    bad_id: str = Field(min_length=12, max_length=12, pattern=r"^BAD-[0-9A-F]{8}$")
     agent_version: Optional[str] = Field(default=None, max_length=64)
     last_inventory_at: Optional[str] = None
     config_version: Optional[str] = Field(default=None, max_length=64)
@@ -84,7 +86,7 @@ class InventoryRequest(BaseModel):
     """
 
     schema_version: int
-    device_id: str = Field(min_length=1, max_length=128)
+    bad_id: str = Field(min_length=12, max_length=12, pattern=r"^BAD-[0-9A-F]{8}$")
     collected_at: Optional[str] = None
     agent_version: Optional[str] = None
     host: Optional[dict[str, Any]] = None
@@ -152,7 +154,7 @@ class IntegrationRequestBody(BaseModel):
 
 
 class IntegrationLookupBody(BaseModel):
-    device_id: str = Field(min_length=1, max_length=128)
+    bad_id: str = Field(min_length=12, max_length=12, pattern=r"^BAD-[0-9A-F]{8}$")
 
 
 class EnrollmentRotateBody(BaseModel):

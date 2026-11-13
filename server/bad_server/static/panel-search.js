@@ -18,7 +18,7 @@
       }
       items.forEach(function (d) {
         var a = document.createElement("a");
-        a.href = d.href || "/devices/" + encodeURIComponent(d.device_id);
+        a.href = d.href || "/devices/" + encodeURIComponent(d.bad_id);
         a.className =
           "live-search-item device-link chassis-" + (d.chassis_type || "other");
         a.title = d.chassis_label || "";
@@ -29,7 +29,7 @@
         body.className = "live-search-body";
         var label = document.createElement("span");
         label.className = "device-link__label";
-        label.textContent = d.hostname || d.device_id;
+        label.textContent = d.hostname || d.bad_id;
         var reason = document.createElement("span");
         reason.className = "live-search-reason muted";
         var parts = [];

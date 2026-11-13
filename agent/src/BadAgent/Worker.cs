@@ -35,10 +35,6 @@ public sealed class Worker : BackgroundService
         _ = Task.Run(() => ServiceChannel.Listen(_lifetime, stoppingToken));
 
         var config = ConfigStore.LoadOrCreate();
-        if (RetiredDevice.TryAssign(config))
-        {
-            ConfigStore.Save(config);
-        }
 
         // Проверка обновлений при старте (далее по update_check_interval_hours).
         _nextUpdateCheck = DateTime.UtcNow;
@@ -84,31 +80,21 @@ public sealed class Worker : BackgroundService
                     if (!string.IsNullOrWhiteSpace(config.EnrollmentCode))
                     {
                         _logger.LogWarning(
-                            "API key revoked/cleared; waiting for re-enroll with enrollment code (device_id={DeviceId})",
-                            config.DeviceId);
+                            "API key revoked/cleared; waiting for re-enroll with enrollment code (bad_id={DeviceId})",
+                            config.BadId);
                         await Task.Delay(TimeSpan.FromMinutes(30), stoppingToken);
                         continue;
                     }
                 }
 
-                if (string.IsNullOrWhiteSpace(config.ApiKey))
+                if (string.IsNullOrWhiteSpace(config.ApiKey) || string.IsNullOrWhiteSpace(config.BadId))
                 {
-                    if (_enrollmentRequestPending)
+                    if (!_enrollmentRequestPending)
                     {
-                        // Опрос enrollment-requests — см. интервал в конце цикла (~15 с).
-                    }
-                    else
-                    {
-                        _logger.LogError("Missing api_key or device_id after enroll attempt");
+                        _logger.LogError("Missing api_key or bad_id after enroll attempt");
                         await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
-                        continue;
                     }
-                }
 
-                if (string.IsNullOrWhiteSpace(config.DeviceId))
-                {
-                    _logger.LogError("Missing device_id after enroll attempt");
-                    await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
                     continue;
                 }
 
@@ -153,7 +139,9 @@ public sealed class Worker : BackgroundService
                     nextInventory = DateTime.UtcNow + inventoryEvery;
                 }
 
-                if (DateTime.UtcNow >= nextHeartbeat)
+                if (DateTime.UtcNow >= nextHeartbeat
+                    && !string.IsNullOrWhiteSpace(config.ApiKey)
+                    && !string.IsNullOrWhiteSpace(config.BadId))
                 {
                     await RunHeartbeatAsync(client, config, stoppingToken);
                     config = ConfigStore.LoadOrCreate();
@@ -211,8 +199,6 @@ public sealed class Worker : BackgroundService
             return;
         }
 
-        RetiredDevice.TryAssign(config);
-
         using var client = new BadApiClient(config.ServerUrl, _agentVersion);
         try
         {
@@ -236,18 +222,25 @@ public sealed class Worker : BackgroundService
     private async Task EnrollWithCodeAsync(BadApiClient client, AgentConfig config, CancellationToken ct)
     {
         _enrollmentRequestPending = false;
-        _logger.LogInformation("Enrolling device {DeviceId} with enrollment code", config.DeviceId);
+        if (string.IsNullOrWhiteSpace(config.BadId))
+        {
+            _logger.LogError("Enrollment code requires bad_id already issued");
+            _authBackoffUntil = DateTime.UtcNow.AddMinutes(15);
+            return;
+        }
+
+        _logger.LogInformation("Enrolling device {BadId} with enrollment code", config.BadId);
         var enrollResult = await client.EnrollAsync(
             config.EnrollmentCode!.Trim(),
-            config.DeviceId!,
+            config.BadId!,
             Environment.MachineName,
             ct);
-        ApplyEnrollmentSecrets(config, enrollResult.ApiKey, enrollResult.DeviceId, enrollResult.SigningKeyBase64);
+        ApplyEnrollmentSecrets(config, enrollResult.ApiKey, enrollResult.BadId, enrollResult.SigningKeyBase64);
         config.EnrollmentCode = null;
         ConfigStore.Save(config);
         _apiKeyRevoked = false;
         _logger.LogInformation("Enrollment succeeded; enrollment secrets cleared from config");
-        WindowsEventLog.WriteInfo($"bAD: устройство {enrollResult.DeviceId} успешно зарегистрировано.");
+        WindowsEventLog.WriteInfo($"bAD: устройство {enrollResult.BadId} успешно зарегистрировано.");
     }
 
     private async Task PollEnrollmentRequestAsync(BadApiClient client, AgentConfig config, CancellationToken ct)
@@ -266,7 +259,9 @@ public sealed class Worker : BackgroundService
             ip,
             serial,
             fingerprint,
-            string.IsNullOrWhiteSpace(config.DeviceId) ? null : config.DeviceId,
+            string.IsNullOrWhiteSpace(config.BadId) ? null : config.BadId,
+            DeviceIdentity.ReadMachineGuid(),
+            EnrollmentHints.ReadSmbiosUuid(),
             ct);
         if (result.RouteMissing)
         {
@@ -298,6 +293,11 @@ public sealed class Worker : BackgroundService
             && !string.IsNullOrWhiteSpace(result.ApiKey))
         {
             config.ApiKey = result.ApiKey;
+            if (!string.IsNullOrWhiteSpace(result.BadId))
+            {
+                config.BadId = result.BadId;
+            }
+
             if (!string.IsNullOrWhiteSpace(result.SigningKeyBase64))
             {
                 AgentSigningKey.SavePrivateKeyBase64(result.SigningKeyBase64);
@@ -306,8 +306,8 @@ public sealed class Worker : BackgroundService
             ConfigStore.Save(config);
             _apiKeyRevoked = false;
             _enrollmentRequestPending = false;
-            _logger.LogInformation("Enrollment approved for device {DeviceId}", config.DeviceId);
-            WindowsEventLog.WriteInfo($"bAD: регистрация разрешена, устройство {config.DeviceId}.");
+            _logger.LogInformation("Enrollment approved for device {DeviceId}", config.BadId);
+            WindowsEventLog.WriteInfo($"bAD: регистрация разрешена, устройство {config.BadId}.");
             return;
         }
 
@@ -329,7 +329,7 @@ public sealed class Worker : BackgroundService
         string? signingKeyBase64)
     {
         config.ApiKey = apiKey;
-        config.DeviceId = deviceId;
+        config.BadId = deviceId;
         if (!string.IsNullOrWhiteSpace(signingKeyBase64))
         {
             AgentSigningKey.SavePrivateKeyBase64(signingKeyBase64);
@@ -354,6 +354,12 @@ public sealed class Worker : BackgroundService
         if (result.AuthFailed)
         {
             HandleAuthFailure(config, "queue", result.AuthException);
+            return;
+        }
+
+        if (result.BoardChanged)
+        {
+            InvalidKeyReset.Forget(config, client, ct);
             return;
         }
 
@@ -382,13 +388,18 @@ public sealed class Worker : BackgroundService
 
     private async Task RunInventoryAsync(BadApiClient client, AgentConfig config, CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(config.BadId))
+        {
+            return;
+        }
+
         _logger.LogInformation(
             "Collecting inventory (hardware={Hw} users={Users} software={Sw})",
             config.CollectHardware,
             config.CollectUsers,
             config.CollectSoftware);
         var options = CollectorOptions.FromConfig(config);
-        var snap = _collector.Collect(config.DeviceId!, _agentVersion, options);
+        var snap = _collector.Collect(config.BadId!, _agentVersion, options);
         try
         {
             await client.SendInventoryAsync(config.ApiKey!, snap, ct, _logger);
@@ -412,6 +423,10 @@ public sealed class Worker : BackgroundService
             _lastInventoryError = TextLimit.Truncate("auth_failed", 200);
             HandleAuthFailure(config, "inventory", ex);
         }
+        catch (AgentApiException ex) when (ex.IsBoardChanged)
+        {
+            InvalidKeyReset.Forget(config, client, ct);
+        }
         catch (Exception ex)
         {
             _lastInventoryOk = false;
@@ -433,12 +448,17 @@ public sealed class Worker : BackgroundService
 
     private async Task RunHeartbeatAsync(BadApiClient client, AgentConfig config, CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(config.BadId))
+        {
+            return;
+        }
+
         var last = _lastInventoryAt?.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'");
         var uptime = (long)Math.Max(0, (DateTime.UtcNow - _startedAtUtc).TotalSeconds);
         var freeBytes = TrySystemDriveFreeBytes();
         var payload = new HeartbeatQueuePayload
         {
-            DeviceId = config.DeviceId!,
+            BadId = config.BadId!,
             LastInventoryAt = last,
             ConfigVersion = config.RemoteConfigVersion,
             LastInventoryOk = _lastInventoryOk,
@@ -554,14 +574,14 @@ public sealed class Worker : BackgroundService
     }
 
     /// <summary>
-    /// <c>Invalid API key</c> забывает ключ и device_id и шлёт одну заявку без номера.
+    /// <c>Invalid API key</c> забывает ключ и bad_id и шлёт одну заявку без номера.
     /// Подпись и 403 ключ не стирают.
     /// </summary>
     private void HandleAuthFailure(AgentConfig config, string operation, Exception? ex = null)
     {
         if (InvalidKeyReset.IsInvalidApiKey(ex) && !string.IsNullOrWhiteSpace(config.ServerUrl))
         {
-            _logger.LogError(ex, "Invalid API key ({Operation}): forgetting api_key and device_id", operation);
+            _logger.LogError(ex, "Invalid API key ({Operation}): forgetting api_key and bad_id", operation);
             WindowsEventLog.WriteError(
                 $"bAD: Invalid API key ({operation}). Ключ и номер устройства забыты, заявка без номера.",
                 ex);
@@ -575,11 +595,11 @@ public sealed class Worker : BackgroundService
 
         _logger.LogError(
             ex,
-            "Auth failure ({Operation}): keeping api_key and device_id={DeviceId}; backing off",
+            "Auth failure ({Operation}): keeping api_key and bad_id={DeviceId}; backing off",
             operation,
-            config.DeviceId);
+            config.BadId);
         WindowsEventLog.WriteError(
-            $"bAD: API key отклонён ({operation}, 401/403). Ключ в config.json сохранён, device_id={config.DeviceId}.",
+            $"bAD: API key отклонён ({operation}, 401/403). Ключ в config.json сохранён, bad_id={config.BadId}.",
             ex);
 
         _apiKeyRevoked = true;

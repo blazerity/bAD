@@ -224,7 +224,7 @@ def versions_pinned_in_config(db: Database) -> set[str]:
             pinned.add(target)
     # overrides
     for d in db.list_devices(archived=None):
-        ov = db.get_device_config_override(d["device_id"])
+        ov = db.get_device_config_override(d["bad_id"])
         if not ov:
             continue
         target = sanitize_update_target((ov.get("settings") or {}).get("update_target"))
@@ -320,7 +320,7 @@ def effective_settings_for_device(
     meta = device.get("meta") if isinstance(device.get("meta"), dict) else {}
     override = override_settings
     if override is None:
-        row = db.get_device_config_override(device.get("device_id") or "")
+        row = db.get_device_config_override(device.get("bad_id") or "")
         override = row.get("settings") if row else None
     computed = compute_effective_config(
         hostname=device.get("hostname"),
@@ -446,7 +446,7 @@ def ops_update_signals(
             revoked_active += 1
             continue
         # {} = нет override; None нельзя — effective_* уйдёт в get_device_config_override (N+1)
-        ov = overrides.get(d.get("device_id") or "", {})
+        ov = overrides.get(d.get("bad_id") or "", {})
         settings = effective_settings_for_device(
             db,
             d,
@@ -461,7 +461,7 @@ def ops_update_signals(
         if target != UPDATE_TARGET_LATEST and not mirrored:
             pinned_missing.append(
                 {
-                    "device_id": d["device_id"],
+                    "bad_id": d["bad_id"],
                     "hostname": d.get("hostname"),
                     "target": target,
                     "agent_version": d.get("agent_version"),
@@ -479,7 +479,7 @@ def ops_update_signals(
             )
             drift.append(
                 {
-                    "device_id": d["device_id"],
+                    "bad_id": d["bad_id"],
                     "hostname": d.get("hostname"),
                     "agent_version": have,
                     "target": target,
@@ -495,7 +495,7 @@ def ops_update_signals(
         or (latest or {}).get("mirrored_at"),
         "mirror_empty": not versions,
         "version_drift": drift[:25],
-        "version_drift_ids": [d["device_id"] for d in drift],
+        "version_drift_ids": [d["bad_id"] for d in drift],
         "version_drift_count": len(drift),
         "pinned_missing": pinned_missing[:25],
         "pinned_missing_count": len(pinned_missing),

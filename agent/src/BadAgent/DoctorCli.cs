@@ -84,7 +84,7 @@ public static class DoctorCli
         var fresh = new AgentConfig
         {
             ServerUrl = config.ServerUrl ?? "",
-            DeviceId = string.IsNullOrWhiteSpace(config.DeviceId) ? null : config.DeviceId,
+            BadId = string.IsNullOrWhiteSpace(config.BadId) ? null : config.BadId,
             ApiKey = string.IsNullOrWhiteSpace(config.ApiKey) ? null : config.ApiKey,
             PendingUpdateVersion = config.PendingUpdateVersion,
             PendingUpdateStartedAt = config.PendingUpdateStartedAt,

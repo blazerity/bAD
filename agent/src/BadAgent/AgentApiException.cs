@@ -8,6 +8,10 @@ public sealed class AgentApiException : HttpRequestException
     public bool IsAuthFailure =>
         StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden;
 
+    public bool IsBoardChanged =>
+        StatusCode == HttpStatusCode.Conflict
+        && (Message?.Contains("board changed", StringComparison.Ordinal) ?? false);
+
     public AgentApiException(HttpStatusCode statusCode, string message)
         : base(message, null, statusCode)
     {

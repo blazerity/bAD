@@ -19,7 +19,7 @@
   <div class="card-surface filter-card events-filter-card">
   <form method="get" action="/events" class="events-filter-form" data-live-submit data-live-delay="350">
     {% if device_filter %}
-    <input type="hidden" name="device_id" value="{{ device_filter }}">
+    <input type="hidden" name="bad_id" value="{{ device_filter }}">
     {% endif %}
     {% if importance %}
     <input type="hidden" name="importance" value="{{ importance }}">
@@ -50,7 +50,7 @@
       {% if event_filter_counts %}
       <div class="filter-chips events-importance-chips" role="group" aria-label="Важность">
         {% set chip_qs = '' %}
-        {% if device_filter %}{% set chip_qs = chip_qs ~ 'device_id=' ~ device_filter|urlencode ~ '&' %}{% endif %}
+        {% if device_filter %}{% set chip_qs = chip_qs ~ 'bad_id=' ~ device_filter|urlencode ~ '&' %}{% endif %}
         {% if q %}{% set chip_qs = chip_qs ~ 'q=' ~ q|urlencode ~ '&' %}{% endif %}
         {% if event_type %}{% set chip_qs = chip_qs ~ 'type=' ~ event_type|urlencode ~ '&' %}{% endif %}
         {% if date_from %}{% set chip_qs = chip_qs ~ 'date_from=' ~ date_from|urlencode ~ '&' %}{% endif %}
@@ -93,7 +93,7 @@
           <span class="events-stack-type-label muted">{{ e.type|format_event_type }}</span>
         </div>
         <p class="events-stack-summary event-summary-text">{{ e.summary | event_summary_anchor_hostname(e.hostname) }}</p>
-        <p class="events-stack-device">{{ device_link(e.device_id, e.hostname or e.device_id, e.chassis_type) }}</p>
+        <p class="events-stack-device">{{ device_link(e.bad_id, e.hostname or e.bad_id, e.chassis_type) }}</p>
       </a>
     </li>
     {% endfor %}
@@ -133,7 +133,7 @@
             </span>
           </a>
         </td>
-        <td>{{ device_link(e.device_id, e.hostname or e.device_id, e.chassis_type) }}</td>
+        <td>{{ device_link(e.bad_id, e.hostname or e.bad_id, e.chassis_type) }}</td>
         <td><span class="badge badge-importance badge-importance-{{ imp }}">{{ imp|importance_label_ru }}</span></td>
         <td class="mono muted">{{ local_time(e.created_at, mode='stack') }}</td>
         <td class="col-chevron"><a class="row-chevron" href="/events/{{ e.id }}" aria-label="Открыть событие"></a></td>
@@ -143,7 +143,7 @@
   </table>
   </div>
   </div>
-  {{ table_pager('/events', page, pages, total, page_size, q=q, device_id=device_filter, importance=importance, event_type=event_type, date_from=date_from, date_to=date_to) }}
+  {{ table_pager('/events', page, pages, total, page_size, q=q, bad_id=device_filter, importance=importance, event_type=event_type, date_from=date_from, date_to=date_to) }}
   {% endif %}
 </section>
 {% endblock %}

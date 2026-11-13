@@ -18,12 +18,12 @@
 {%- endmacro %}
 
 
-{% macro device_link(device_id, label=none, chassis_type=none, extra_class='') -%}
+{% macro device_link(bad_id, label=none, chassis_type=none, extra_class='') -%}
 {%- set ct = chassis_icon_name(chassis_type) -%}
 {%- set title = (chassis_type or 'other')|format_chassis -%}
-<a href="/devices/{{ device_id }}" class="device-link{% if extra_class %} {{ extra_class }}{% endif %}" title="{{ title }}">
+<a href="/devices/{{ bad_id }}" class="device-link{% if extra_class %} {{ extra_class }}{% endif %}" title="{{ title }}">
   <span class="device-link__icon" aria-hidden="true">{{ icon(ct) }}</span>
-  <span class="device-link__label">{{ label if label is not none else device_id }}</span>
+  <span class="device-link__label">{{ label if label is not none else bad_id }}</span>
 </a>
 {%- endmacro %}
 

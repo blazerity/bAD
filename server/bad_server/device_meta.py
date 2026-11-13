@@ -308,7 +308,6 @@ def meta_search_haystack(meta: dict[str, Any]) -> str:
         str(meta.get("hardware_model") or ""),
         str(meta.get("chassis_type") or ""),
         str(meta.get("cpu_name") or ""),
-        str(meta.get("bad_id") or ""),
         str(meta.get("last_logged_on") or ""),
         str(meta.get("ram_bucket") or ""),
         str(meta.get("disk_bucket") or ""),

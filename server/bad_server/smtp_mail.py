@@ -524,7 +524,7 @@ def build_inventory_digest_email(
 
 def build_hardware_email(
     *,
-    device_id: str,
+    bad_id: str,
     hostname: Optional[str],
     events: list[dict[str, Any]],
     from_addr: str,
@@ -533,8 +533,8 @@ def build_hardware_email(
     """Образец digest для тестовой отправки из настроек почты."""
     sample_groups = [
         {
-            "device_id": device_id,
-            "bad_id": "BAD-7K2M9Q4XNP",
+            "bad_id": bad_id,
+            "bad_id": "BAD-7A2B9C4D",
             "hostname": hostname or "WORKSTATION-01",
             "chassis_type": "desktop",
             "hardware_model": "Dell OptiPlex 7090 (пример)",
@@ -555,8 +555,8 @@ def build_hardware_email(
             ],
         },
         {
-            "device_id": "sample-device-2",
-            "bad_id": "BAD-3H8R5T6WCD",
+            "bad_id": "sample-device-2",
+            "bad_id": "BAD-3F8E5D6C",
             "hostname": "LAPTOP-02",
             "chassis_type": "laptop",
             "hardware_model": "Lenovo ThinkPad T14",
@@ -680,11 +680,11 @@ def flush_inventory_mail_digest(
 
     groups_map: dict[str, dict[str, Any]] = {}
     for ev in filtered:
-        did = str(ev.get("device_id") or "")
+        did = str(ev.get("bad_id") or "")
         if did not in groups_map:
             detail = db.get_device_detail(did) if did else None
             base = {
-                "device_id": did,
+                "bad_id": did,
                 "hostname": ev.get("hostname"),
                 "events": [],
             }
@@ -786,58 +786,58 @@ def notify_enroll(
     db: "Database",
     smtp_row: dict[str, Any],
     *,
-    device_id: str,
+    bad_id: str,
     hostname: Optional[str],
 ) -> None:
     """Поставить событие enroll в очередь digest (soft-fail)."""
     try:
-        host = hostname or device_id
+        host = hostname or bad_id
         db.insert_device_event(
-            device_id,
+            bad_id,
             "device_enrolled",
             f"Зарегистрировано новое устройство: {host}",
             detail={"hostname": hostname},
         )
     except Exception:  # noqa: BLE001
-        logger.exception("Enqueue enroll event failed for %s", device_id)
+        logger.exception("Enqueue enroll event failed for %s", bad_id)
 
 
 def notify_device_back_online(
     db: "Database",
     smtp_row: dict[str, Any],
     *,
-    device_id: str,
+    bad_id: str,
     hostname: Optional[str],
 ) -> None:
     """Событие «снова на связи» после stale (очередь digest)."""
     try:
-        host = hostname or device_id
+        host = hostname or bad_id
         db.insert_device_event(
-            device_id,
+            bad_id,
             "device_back_online",
             "Устройство снова вышло на связь",
             detail={"hostname": hostname, "summary_host": host},
         )
     except Exception:  # noqa: BLE001
-        logger.exception("Enqueue back-online event failed for %s", device_id)
+        logger.exception("Enqueue back-online event failed for %s", bad_id)
 
 
 def notify_stale_device(
     db: "Database",
     smtp_row: dict[str, Any],
     *,
-    device_id: str,
+    bad_id: str,
     hostname: Optional[str],
     last_seen_at: Optional[str],
 ) -> None:
     """Поставить событие stale в очередь digest (soft-fail)."""
     try:
-        host = hostname or device_id
+        host = hostname or bad_id
         db.insert_device_event(
-            device_id,
+            bad_id,
             "device_stale",
             f"Устройство перестало присылать heartbeat: {host}",
             detail={"hostname": hostname, "last_seen_at": last_seen_at},
         )
     except Exception:  # noqa: BLE001
-        logger.exception("Enqueue stale event failed for %s", device_id)
+        logger.exception("Enqueue stale event failed for %s", bad_id)

@@ -24,7 +24,7 @@ public static class AsciiReportWriter
         if (useBox)
         {
             sb.Append(BoxTop(title));
-            Row(sb, useBox, "device_id", snap.DeviceId);
+            Row(sb, useBox, "bad_id", snap.BadId);
             Row(sb, useBox, "Собрано", TimeFormat.FormatForReport(snap.CollectedAt));
             Row(sb, useBox, "Агент", snap.AgentVersion);
             Row(sb, useBox, "Schema", snap.SchemaVersion.ToString(CultureInfo.InvariantCulture));
@@ -46,7 +46,7 @@ public static class AsciiReportWriter
         else
         {
             sb.AppendLine(title.Trim());
-            PlainRow(sb, "device_id", snap.DeviceId);
+            PlainRow(sb, "bad_id", snap.BadId);
             PlainRow(sb, "Собрано", TimeFormat.FormatForReport(snap.CollectedAt));
             PlainRow(sb, "Агент", snap.AgentVersion);
             PlainRow(sb, "Schema", snap.SchemaVersion.ToString(CultureInfo.InvariantCulture));

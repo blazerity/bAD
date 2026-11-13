@@ -71,8 +71,8 @@ def _csrf(html: str) -> str:
 
 def _hashes(client: TestClient) -> dict[str, str]:
     with client.app.state.db.connection() as conn:
-        rows = conn.execute("SELECT device_id, api_key_hash FROM devices").fetchall()
-    return {row["device_id"]: row["api_key_hash"] for row in rows}
+        rows = conn.execute("SELECT bad_id, api_key_hash FROM devices").fetchall()
+    return {row["bad_id"]: row["api_key_hash"] for row in rows}
 
 
 def test_pending_repeat_updates_one_row() -> None:
@@ -126,22 +126,22 @@ def test_allow_empty_device_creates_card_and_flash_is_once() -> None:
 
 def test_allow_live_card_rotates_key() -> None:
     fingerprint = _fp()
-    device_id = f"live-{uuid.uuid4().hex[:8]}"
+    bad_id = "BAD-" + uuid.uuid4().hex[:8].upper()
     with TestClient(create_app()) as client:
         grant = client.post(
             "/v1/enrollment-grants",
             headers={"Authorization": "Bearer test-admin-token-change-me-please-32b"},
-            json={"device_id": device_id},
+            json={"bad_id": bad_id},
         )
         assert grant.status_code == 200, grant.text
         enrolled = client.post(
             "/v1/enroll",
             headers={"Authorization": f"Bearer {grant.json()['code']}"},
-            json={"device_id": device_id, "hostname": "LIVE"},
+            json={"bad_id": bad_id, "hostname": "LIVE"},
         )
         assert enrolled.status_code == 200, enrolled.text
-        before = _hashes(client)[device_id]
-        _request(client, fingerprint, hostname="LIVE", device_id=device_id)
+        before = _hashes(client)[bad_id]
+        _request(client, fingerprint, hostname="LIVE", bad_id=bad_id)
         _login(client)
         page = client.get("/devices/enrollment-requests")
         allowed = client.post(
@@ -152,17 +152,17 @@ def test_allow_live_card_rotates_key() -> None:
         assert allowed.status_code == 303
         landed = client.get("/devices/enrollment-requests")
         assert "Разрешено" in landed.text
-        assert _hashes(client)[device_id] != before
-        assert device_id in _hashes(client)
+        assert _hashes(client)[bad_id] != before
+        assert bad_id in _hashes(client)
         row = client.app.state.db.get_enrollment_request(fingerprint.lower())
         assert row["status"] == "approved"
 
 
-def test_allow_any_device_id_issues_key() -> None:
+def test_allow_any_bad_id_issues_key() -> None:
     fingerprint = _fp()
-    device_id = "6f0bc3d6-87c4-4608-9c01-e6e7c7d2e6c5"
+    bad_id = "6f0bc3d6-87c4-4608-9c01-e6e7c7d2e6c5"
     with TestClient(create_app()) as client:
-        _request(client, fingerprint, hostname="OLD", device_id=device_id)
+        _request(client, fingerprint, hostname="OLD", bad_id=bad_id)
         _login(client)
         page = client.get("/devices/enrollment-requests")
         client.post(
@@ -172,9 +172,12 @@ def test_allow_any_device_id_issues_key() -> None:
         )
         landed = client.get("/devices/enrollment-requests")
         assert "Разрешено" in landed.text
-        assert device_id in _hashes(client)
+        assert bad_id not in _hashes(client)
+        issued = [item for item in _hashes(client) if item.startswith("BAD-")]
+        assert len(issued) == 1
         row = client.app.state.db.get_enrollment_request(fingerprint.lower())
         assert row["status"] == "approved"
+        assert row["bad_id"] == issued[0]
 
 
 def test_approved_key_is_returned_once() -> None:

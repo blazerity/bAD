@@ -177,7 +177,7 @@ public static class BadCli
         CliColumns.Write("Версия", VersionUtil.GetAgentVersion());
         CliColumns.Write("Сервер", cfg.ServerUrl);
         CliColumns.Write("Hostname", snap.Host?.Hostname);
-        CliColumns.Write("device_id", string.IsNullOrWhiteSpace(cfg.DeviceId) ? snap.DeviceId : cfg.DeviceId);
+        CliColumns.Write("bad_id", cfg.BadId ?? "");
         CliColumns.Write("Модель", snap.Hardware?.Model);
         if (shown is null)
         {
@@ -212,7 +212,7 @@ public static class BadCli
 
     private static void PrintInfoHelp()
     {
-        Console.WriteLine("bad info                 Версия, сервер, имя, device_id, модель");
+        Console.WriteLine("bad info                 Версия, сервер, имя, bad_id, модель");
     }
 
     private static int RunHtml(string? pathArg, IInventoryCollector? collector)
@@ -278,7 +278,7 @@ public static class BadCli
 
     private static InventorySnapshot CollectPublic(IInventoryCollector? collector, AgentConfig config)
     {
-        var deviceId = config.DeviceId ?? "";
+        var deviceId = config.BadId ?? "";
         var version = VersionUtil.GetAgentVersion();
         var options = CollectorOptions.FromConfig(config);
         var c = collector ?? new InventoryCollector();
@@ -288,10 +288,7 @@ public static class BadCli
     private static (InventorySnapshot Snap, AgentConfig Config) Collect(IInventoryCollector? collector)
     {
         var config = ConfigStore.LoadForReport();
-        var deviceId = string.IsNullOrWhiteSpace(config.DeviceId)
-            ? DeviceIdentity.ResolveDeviceId()
-            : config.DeviceId;
-        config.DeviceId = deviceId;
+        var deviceId = config.BadId ?? "";
 
         var version = VersionUtil.GetAgentVersion();
         var options = CollectorOptions.FromConfig(config);
@@ -307,7 +304,7 @@ public static class BadCli
 
 Отчёт
   bad                      Локальный отчёт inventory
-  bad info                 Версия, сервер, имя, device_id, модель
+  bad info                 Версия, сервер, имя, bad_id, модель
   bad -r [path]            HTML-отчёт
 
 Сервер

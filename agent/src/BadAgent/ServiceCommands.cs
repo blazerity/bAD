@@ -126,7 +126,7 @@ internal static class LinkProbe
             return "no_url";
         }
 
-        if (string.IsNullOrWhiteSpace(config.ApiKey) || string.IsNullOrWhiteSpace(config.DeviceId))
+        if (string.IsNullOrWhiteSpace(config.ApiKey) || string.IsNullOrWhiteSpace(config.BadId))
         {
             return "down";
         }
@@ -138,7 +138,7 @@ internal static class LinkProbe
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             _ = client.SendHeartbeatAsync(
                 config.ApiKey,
-                new HeartbeatQueuePayload { DeviceId = config.DeviceId },
+                new HeartbeatQueuePayload { BadId = config.BadId },
                 cts.Token).GetAwaiter().GetResult();
             return "up";
         }

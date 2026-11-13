@@ -101,7 +101,6 @@ from .panel_search import (
     highlight_match,
     matched_serial_subtitle,
 )
-from .bad_id import device_panel_href
 from .fleet_buckets import (
     disk_role,
     format_cpu_short,
@@ -109,7 +108,6 @@ from .fleet_buckets import (
     meta_facet_matches,
     normalize_os_caption,
 )
-from .wave_21_migration import resolve_device_ref
 from .device_uninstall import (
     cancel_device_uninstall,
     device_uninstall_confirm_value,
@@ -360,7 +358,7 @@ def _freshness_limits(db: Database, settings: Settings) -> tuple[int, int]:
 
 
 def _chassis_map_for_devices(devices: list[dict]) -> dict[str, str]:
-    return {str(d["device_id"]): _chassis_type_from_device(d) for d in devices if d.get("device_id")}
+    return {str(d["bad_id"]): _chassis_type_from_device(d) for d in devices if d.get("bad_id")}
 
 
 def _format_event_type(value: object, empty: str = "") -> str:
@@ -523,7 +521,7 @@ def _pager_url(
     tag: str = "",
     wave: str = "",
     archive: bool = False,
-    device_id: str = "",
+    bad_id: str = "",
     importance: str = "",
     event_type: str = "",
     date_from: str = "",
@@ -541,8 +539,8 @@ def _pager_url(
 ) -> str:
     """URL списка с сохранением фильтров (серверная пагинация ?page=)."""
     params: dict[str, str] = {}
-    if device_id:
-        params["device_id"] = device_id
+    if bad_id:
+        params["bad_id"] = bad_id
     if q:
         params["q"] = q
     if tag:
@@ -1196,7 +1194,7 @@ def _normalize_overview_priority_feed(
         if i in used or not isinstance(ev, dict):
             continue
         etype = str(ev.get("type") or "")
-        did = str(ev.get("device_id") or "")
+        did = str(ev.get("bad_id") or "")
         ts = parse_iso(ev.get("created_at"))
         merged = dict(ev)
         if etype in disk_pair and did and ts is not None:
@@ -1205,7 +1203,7 @@ def _normalize_overview_priority_feed(
             for j, other in indexed:
                 if j <= i or j in used or not isinstance(other, dict):
                     continue
-                if str(other.get("device_id") or "") != did:
+                if str(other.get("bad_id") or "") != did:
                     continue
                 if str(other.get("type") or "") != want:
                     continue
@@ -1252,7 +1250,7 @@ def _overview_feed_event_rows(
         imp = event_importance(str(e.get("type") or ""))
         if imp not in ("critical", "high"):
             continue
-        did = str(e.get("device_id") or "")
+        did = str(e.get("bad_id") or "")
         dev = fleet_by_id.get(did) or {}
         host = str(dev.get("hostname") or dev.get("bad_id") or did or "—")
         eid = e.get("id")
@@ -1368,20 +1366,20 @@ def _overview_page_context(
         settings=settings,
     )
     chassis_by_id = _chassis_map_for_devices(active)
-    fleet_by_id = {str(d["device_id"]): d for d in active if d.get("device_id")}
+    fleet_by_id = {str(d["bad_id"]): d for d in active if d.get("bad_id")}
     for d in ops.get("version_drift") or []:
         if isinstance(d, dict):
-            d["chassis_type"] = chassis_by_id.get(str(d.get("device_id") or ""), "other")
+            d["chassis_type"] = chassis_by_id.get(str(d.get("bad_id") or ""), "other")
     raw_feed: list[dict[str, Any]] = []
     for e in stats.get("recent_hardware_events") or []:
         if not isinstance(e, dict):
             continue
-        did = str(e.get("device_id") or "")
+        did = str(e.get("bad_id") or "")
         e = dict(e)
         e["chassis_type"] = chassis_by_id.get(did, "other")
         dev = fleet_by_id.get(did) or {}
         e["bad_id"] = dev.get("bad_id")
-        e["device_href"] = device_panel_href(dev.get("bad_id"), did)
+        e["device_href"] = f"/devices/{did}"
         e["importance"] = event_importance(str(e.get("type") or ""))
         raw_feed.append(e)
     # Берём больше сырых строк, чтобы после схлопывания осталось 7
@@ -1392,12 +1390,12 @@ def _overview_page_context(
             eid = int(e.get("id") or 0)
             if eid in seen_ids:
                 continue
-            did = str(e.get("device_id") or "")
+            did = str(e.get("bad_id") or "")
             e = dict(e)
             e["chassis_type"] = chassis_by_id.get(did, "other")
             dev = fleet_by_id.get(did) or {}
             e["bad_id"] = dev.get("bad_id")
-            e["device_href"] = device_panel_href(dev.get("bad_id"), did)
+            e["device_href"] = f"/devices/{did}"
             e["importance"] = event_importance(str(e.get("type") or ""))
             raw_feed.append(e)
             seen_ids.add(eid)
@@ -1528,12 +1526,12 @@ def overview_search_json(
         include_detail=False,
     )
     payloads = db.latest_inventory_payloads(
-        [str(d.get("device_id") or "") for d in devices],
+        [str(d.get("bad_id") or "") for d in devices],
         cap=max(len(devices), 1),
     )
     dev_out = []
     for d in devices:
-        did = d["device_id"]
+        did = d["bad_id"]
         label = d.get("hostname") or did
         hw = None
         payload = payloads.get(str(did))
@@ -1545,10 +1543,10 @@ def overview_search_json(
         dev_out.append(
             {
                 "kind": "device",
-                "device_id": did,
+                "bad_id": did,
                 "bad_id": d.get("bad_id"),
                 "hostname": label,
-                "href": device_panel_href(d.get("bad_id"), did),
+                "href": f"/devices/{did}",
                 "chassis_type": _chassis_type_from_device(d),
                 "match_reason": reason,
                 "title_html": highlight_match(label, query),
@@ -1565,14 +1563,14 @@ def overview_search_json(
                 "kind": "event",
                 "id": eid,
                 "href": f"/events/{eid}",
-                "device_id": e.get("device_id"),
-                "hostname": e.get("hostname") or e.get("device_id"),
+                "bad_id": e.get("bad_id"),
+                "hostname": e.get("hostname") or e.get("bad_id"),
                 "type": e.get("type"),
                 "summary": e.get("summary"),
                 "match_reason": event_match_label(e, query),
                 "title_html": highlight_match(e.get("summary") or "", query),
                 "subtitle_html": highlight_match(
-                    e.get("hostname") or e.get("device_id") or "", query
+                    e.get("hostname") or e.get("bad_id") or "", query
                 ),
                 "created_at": e.get("created_at"),
             }
@@ -1715,9 +1713,8 @@ def _enrich_device_row(
         stale_after_seconds=stale_after_seconds,
         recent_after_seconds=recent_after_seconds,
     )
-    device["bad_id"] = device.get("bad_id") or meta.get("bad_id")
-    did = str(device.get("device_id") or "")
-    device["device_href"] = device_panel_href(device.get("bad_id"), did)
+    did = str(device.get("bad_id") or "")
+    device["device_href"] = f"/devices/{did}"
     # Список: номинал ОЗУ (8/16/32…) + DDR; без «Майкрософт» в ОС.
     ram_list = meta.get("ram_list_display")
     if not ram_list:
@@ -1759,8 +1756,8 @@ def _overview_search_users(query: str, fleet: list[dict]) -> list[dict]:
     groups: dict[str, dict[str, Any]] = {}
     for d in fleet:
         meta = d.get("meta") if isinstance(d.get("meta"), dict) else {}
-        did = str(d.get("device_id") or "")
-        href = device_panel_href(d.get("bad_id"), did)
+        did = str(d.get("bad_id") or "")
+        href = f"/devices/{did}"
         host = d.get("hostname") or did
         entries: list[tuple[str, str]] = []
         logged = normalize_logged_on_list(meta.get("logged_on"))
@@ -2030,19 +2027,19 @@ def _attach_duplicate_signals(
 ) -> None:
     """Пометить строки списка: is_duplicate + kinds (без merge)."""
     for d in devices:
-        sig = device_signals.get(d["device_id"]) or {}
+        sig = device_signals.get(d["bad_id"]) or {}
         d["dup_kinds"] = list(sig.get("kinds") or [])
         d["is_duplicate"] = bool(sig.get("is_duplicate"))
         d["has_agent_local"] = device_has_agent_local(d)
 
 
-def _inventory_device_ids(db: Database) -> set[str]:
+def _inventory_bad_ids(db: Database) -> set[str]:
     """Устройства, у которых сервер уже принял снимок."""
     with db.connection() as conn:
         rows = conn.execute(
-            "SELECT DISTINCT device_id FROM inventory_snapshots"
+            "SELECT DISTINCT bad_id FROM inventory_snapshots"
         ).fetchall()
-    return {str(row["device_id"]) for row in rows if row and row.get("device_id")}
+    return {str(row["bad_id"]) for row in rows if row and row.get("bad_id")}
 
 
 def _contact_is_after_enroll(device: dict) -> bool:
@@ -2053,7 +2050,7 @@ def _contact_is_after_enroll(device: dict) -> bool:
 
 def _auth_is_api(device: dict, snapshot_ids: set[str]) -> bool:
     """Снимок или контакт позже регистрации — связь уже с ключом устройства."""
-    if str(device.get("device_id") or "") in snapshot_ids:
+    if str(device.get("bad_id") or "") in snapshot_ids:
         return True
     return _contact_is_after_enroll(device)
 
@@ -2091,7 +2088,7 @@ def _devices_wave_context(
         drift_ids = set(ops.get("version_drift_ids") or [])
 
     # Фильтр списка без второго SELECT: тот же fleet.
-    known_snapshots = snapshot_ids if snapshot_ids is not None else _inventory_device_ids(db)
+    known_snapshots = snapshot_ids if snapshot_ids is not None else _inventory_bad_ids(db)
     auth_filter = (auth or "").strip()
     if auth_filter != "api":
         auth_filter = ""
@@ -2114,7 +2111,7 @@ def _devices_wave_context(
                 continue
         if query_cf:
             hay = (
-                f"{d.get('device_id') or ''} {d.get('hostname') or ''} "
+                f"{d.get('bad_id') or ''} {d.get('hostname') or ''} "
                 f"{d.get('bad_id') or ''}"
             ).casefold()
             if query_cf not in hay:
@@ -2226,7 +2223,7 @@ def devices_page(
     if auth_filter != "api":
         auth_filter = ""
     page_i = max(1, int(page or 1))
-    snapshot_ids = _inventory_device_ids(db)
+    snapshot_ids = _inventory_bad_ids(db)
     devices, total, pages, page_i = _devices_wave_context(
         db,
         settings,
@@ -2387,21 +2384,43 @@ def devices_allow_enrollment_request(
     row = db.get_enrollment_request(request_id)
     if not row or row["status"] != "pending":
         return _see_other(request, page, message="Заявка уже не ждёт разрешения.")
-    device_id = str(row.get("device_id") or "").strip()
-    existing = db.get_device_auth_row(device_id) if device_id else None
+    from .bad_id import (
+        bad_id_from_board,
+        ensure_bad_id_key,
+        is_bad_id,
+        normalize_machine_guid,
+        random_bad_id,
+    )
+
+    presented = str(row.get("bad_id") or "")
+    if is_bad_id(presented):
+        bad_id = presented.strip()
+    else:
+        guid = normalize_machine_guid(str(row.get("machine_guid") or ""))
+        uuid_value = db.normalize_smbios_uuid(row.get("smbios_uuid")) or ""
+        if guid and uuid_value:
+            bad_id = bad_id_from_board(guid, uuid_value, ensure_bad_id_key(db))
+        else:
+            bad_id = ""
+            for _ in range(5):
+                candidate = random_bad_id()
+                if not db.get_device_auth_row(candidate):
+                    bad_id = candidate
+                    break
+            if not bad_id:
+                return _see_other(request, page, message="Не удалось выпустить ключ.")
+    existing = db.get_device_auth_row(bad_id)
     if existing and existing.get("revoked"):
         return _see_other(
             request, page, message="Карточка отозвана. Кнопка её не возвращает."
         )
-    if not device_id:
-        device_id = str(uuid.uuid4())
     api_key = generate_token("bad_ak_")
     private, public, fingerprint = new_device_signing_key()
     data_key = getattr(request.app.state, "data_key", "") or ""
     lookup = api_key_lookup(data_key, api_key) if data_key else None
     try:
         db.upsert_device_on_enroll(
-            device_id=device_id,
+            bad_id=bad_id,
             hostname=row.get("hostname"),
             api_key_hash=hash_secret(api_key),
             agent_version=None,
@@ -2414,7 +2433,7 @@ def devices_allow_enrollment_request(
         return _see_other(request, page, message="Не удалось выпустить ключ.")
     if not db.mark_enrollment_request_approved(
         request_id,
-        device_id,
+        bad_id,
         encrypt_secret(data_key, api_key),
         encrypt_secret(data_key, private),
     ):
@@ -2449,15 +2468,15 @@ def devices_csv_export(
             ops = ops_update_signals(
                 db, stale_after_seconds=effective_stale_after_seconds(db, settings)
             )
-            drift_ids = {d["device_id"] for d in (ops.get("version_drift") or [])}
+            drift_ids = {d["bad_id"] for d in (ops.get("version_drift") or [])}
         by_id = {
-            d["device_id"]: d
+            d["bad_id"]: d
             for d in db.list_devices(
                 tag=tag_filter, archived=show_archive, q=query
             )
         }
         as_devices = [
-            by_id[r["device_id"]] for r in rows if r.get("device_id") in by_id
+            by_id[r["bad_id"]] for r in rows if r.get("bad_id") in by_id
         ]
         if wave_filter == "dup":
             # Индекс по всему парку — иначе wave=dup режет «сирот» без пары в выборке.
@@ -2474,11 +2493,11 @@ def devices_csv_export(
             drift_ids=drift_ids,
             stale_after_seconds=effective_stale_after_seconds(db, settings),
         )
-        kept_ids = {d["device_id"] for d in filtered}
-        rows = [r for r in rows if r.get("device_id") in kept_ids]
+        kept_ids = {d["bad_id"] for d in filtered}
+        rows = [r for r in rows if r.get("bad_id") in kept_ids]
     buf = io.StringIO()
     fields = [
-        "device_id",
+        "bad_id",
         "hostname",
         "tags",
         "agent_version",
@@ -2529,7 +2548,7 @@ def devices_search_json(
     )
     payloads = (
         db.latest_inventory_payloads(
-            [str(d.get("device_id") or "") for d in rows],
+            [str(d.get("bad_id") or "") for d in rows],
             cap=max(len(rows), 1),
         )
         if len(query) >= 2
@@ -2537,9 +2556,9 @@ def devices_search_json(
     )
     out = []
     for d in rows:
-        label = d.get("hostname") or d["device_id"]
+        label = d.get("hostname") or d["bad_id"]
         hw = None
-        payload = payloads.get(str(d.get("device_id") or ""))
+        payload = payloads.get(str(d.get("bad_id") or ""))
         if isinstance(payload, dict):
             raw_hw = payload.get("hardware")
             hw = raw_hw if isinstance(raw_hw, dict) else None
@@ -2547,9 +2566,9 @@ def devices_search_json(
         meta_line = matched_serial_subtitle(d, query, hardware=hw) or reason
         out.append(
             {
-                "device_id": d["device_id"],
+                "bad_id": d["bad_id"],
                 "hostname": label,
-                "href": device_panel_href(d.get("bad_id"), d["device_id"]),
+                "href": f"/devices/{d['bad_id']}",
                 "chassis_type": _chassis_type_from_device(d),
                 "chassis_label": _format_chassis(_chassis_type_from_device(d)),
                 "match_reason": reason,
@@ -2597,7 +2616,7 @@ def event_detail_page(
         )
     from .smtp_mail import event_visual
 
-    device_id = str(event.get("device_id") or "")
+    bad_id = str(event.get("bad_id") or "")
     chassis = "other"
     user_display_name = None
     user_presence = ""
@@ -2605,8 +2624,8 @@ def event_detail_page(
     hardware_model = None
     hardware_manufacturer = None
     device_detail = None
-    if device_id:
-        device_detail = db.get_device_detail(device_id)
+    if bad_id:
+        device_detail = db.get_device_detail(bad_id)
         if device_detail:
             chassis = _chassis_type_from_device(device_detail)
             device_meta = (
@@ -2664,7 +2683,7 @@ def event_detail_page(
 @router.get("/events", response_class=HTMLResponse)
 def events_page(
     request: Request,
-    device_id: Optional[str] = None,
+    bad_id: Optional[str] = None,
     q: Optional[str] = None,
     importance: Optional[str] = None,
     type: Optional[str] = None,
@@ -2674,7 +2693,7 @@ def events_page(
     user: WebUser = Depends(require_web_user),
     db: Database = Depends(get_db),
 ):
-    device_filter = (device_id or "").strip() or None
+    device_filter = (bad_id or "").strip() or None
     q_filter = (q or "").strip() or None
     imp = (importance or "").strip().casefold() or None
     if imp == "default":
@@ -2685,7 +2704,7 @@ def events_page(
     page_i = max(1, int(page or 1))
     page_size = EVENTS_PAGE_SIZE
     count_kw = {
-        "device_id": device_filter,
+        "bad_id": device_filter,
         "q": q_filter,
         "importance": imp,
         "event_type": type_filter,
@@ -2698,7 +2717,7 @@ def events_page(
         page_i = pages
     offset = (page_i - 1) * page_size
     events = db.list_device_events(
-        device_id=device_filter,
+        bad_id=device_filter,
         limit=page_size,
         offset=offset,
         q=q_filter,
@@ -2712,12 +2731,12 @@ def events_page(
 
     chassis_by_id = _chassis_map_for_devices(db.list_devices(archived=None))
     for e in events:
-        e["chassis_type"] = chassis_by_id.get(str(e.get("device_id") or ""), "other")
+        e["chassis_type"] = chassis_by_id.get(str(e.get("bad_id") or ""), "other")
         e["event_icon"] = event_visual(str(e.get("type") or "")).get("icon") or "events"
     today_d = datetime.now(timezone.utc).date()
     yesterday_d = today_d - timedelta(days=1)
     chip_kw = {
-        "device_id": device_filter,
+        "bad_id": device_filter,
         "q": q_filter,
         "event_type": type_filter,
         "date_from": date_from_f,
@@ -2736,7 +2755,7 @@ def events_page(
         shown_total = db.count_device_events(**narrow_kw)
         p: dict[str, str] = {}
         if device_filter:
-            p["device_id"] = device_filter
+            p["bad_id"] = device_filter
         if q_filter:
             p["q"] = q_filter
         if type_filter:
@@ -2823,7 +2842,7 @@ def _apply_inventory_overlay(detail: dict, payload: dict) -> dict:
 
 def _device_config_context(
     db: Database,
-    device_id: str,
+    bad_id: str,
     *,
     user: WebUser,
     settings: Settings,
@@ -2833,12 +2852,12 @@ def _device_config_context(
     inventory_payload: Optional[dict] = None,
     keep_empty_sections: bool = True,
 ) -> Optional[dict]:
-    detail = db.get_device_detail(device_id)
+    detail = db.get_device_detail(bad_id)
     if not detail:
         return None
     if inventory_payload is not None:
         detail = _apply_inventory_overlay(detail, inventory_payload)
-    effective = db.compute_device_effective_config(device_id)
+    effective = db.compute_device_effective_config(bad_id)
     assert effective is not None
     override = effective.get("override") or {}
     override_settings = override.get("settings") if override else {}
@@ -2899,9 +2918,9 @@ def _device_config_context(
         recent_after_seconds=recent_sec,
     )
     recent_events = db.list_device_events(
-        device_id=device_id, limit=20, include_detail=False
+        bad_id=bad_id, limit=20, include_detail=False
     )
-    duplicates = db.find_duplicate_devices(device_id)
+    duplicates = db.find_duplicate_devices(bad_id)
     dup_groups = _duplicate_groups(duplicates)
     for g in dup_groups:
         for d in g.get("devices") or []:
@@ -2936,7 +2955,7 @@ def _device_config_context(
         user_presence_caption = "последний" if user_display_name else ""
     uninstall = uninstall_ui_context(device_meta)
     uninstall_confirm = device_uninstall_confirm_value(detail)
-    device_href = device_panel_href(detail.get("bad_id"), device_id)
+    device_href = f"/devices/{bad_id}"
     return {
         "device": detail,
         "device_href": device_href,
@@ -3012,20 +3031,20 @@ def _panel_css() -> str:
 def render_device_report(
     db: Database,
     settings: Settings,
-    device_id: str,
+    bad_id: str,
     inventory_payload: dict,
 ) -> HTMLResponse:
     """Самодостаточный HTML карточки. Снимок не сохраняется."""
     ctx = _device_config_context(
         db,
-        device_id,
+        bad_id,
         user=WebUser(username="agent", role="operator", source="local"),
         settings=settings,
         inventory_payload=inventory_payload,
         keep_empty_sections=False,
     )
     if ctx is None:
-        raise LookupError(device_id)
+        raise LookupError(bad_id)
     ctx["report_mode"] = True
     ctx["inline_css"] = _panel_css()
     html_doc = templates.get_template("device_detail.html").render(ctx)
@@ -3054,29 +3073,29 @@ def _device_inventory_signing_line(device: dict[str, Any]) -> dict[str, str]:
     return {"state": "issued", "label": f"ключ · {short}"}
 
 
-def _missing_device(request: Request, device_id: str, user: WebUser):
+def _missing_device(request: Request, bad_id: str, user: WebUser):
     return _html(
         request,
         "device_missing.html",
-        {"device_id": device_id, "user": user},
+        {"bad_id": bad_id, "user": user},
         status_code=404,
     )
 
 
-def _archive_device(db: Database, device_id: str, archived: bool):
-    canonical = resolve_device_ref(db, device_id)
+def _archive_device(db: Database, bad_id: str, archived: bool):
+    canonical = (bad_id if db.get_device_auth_row(bad_id) else None)
     if not canonical:
         return RedirectResponse(url="/devices", status_code=303)
     detail = db.get_device_detail(canonical) or {}
-    panel_ref = device_panel_href(detail.get("bad_id"), canonical)
+    panel_ref = f"/devices/{canonical}"
     if not db.set_device_archived(canonical, archived):
         return RedirectResponse(url="/devices", status_code=303)
     return RedirectResponse(url=f"{panel_ref}?view=admin", status_code=303)
 
 
-@router.get("/devices/{device_id}", response_class=HTMLResponse)
+@router.get("/devices/{bad_id}", response_class=HTMLResponse)
 def device_detail_page(
-    device_id: str,
+    bad_id: str,
     request: Request,
     user: WebUser = Depends(require_web_user),
     db: Database = Depends(get_db),
@@ -3088,10 +3107,10 @@ def device_detail_page(
     uninstall_error: Optional[str] = None,
     delete_error: Optional[str] = None,
 ):
-    canonical = resolve_device_ref(db, device_id)
+    canonical = (bad_id if db.get_device_auth_row(bad_id) else None)
     if not canonical:
-        return _missing_device(request, device_id, user)
-    device_id = canonical
+        return _missing_device(request, bad_id, user)
+    bad_id = canonical
     flash_message = None
     error = None
     if refresh_sent == "1":
@@ -3104,7 +3123,7 @@ def device_detail_page(
         error = _UNINSTALL_CONFIRM_MISMATCH
     ctx = _device_config_context(
         db,
-        device_id,
+        bad_id,
         user=user,
         settings=settings,
         message=flash_message,
@@ -3112,30 +3131,30 @@ def device_detail_page(
         active_view=view or ("admin" if uninstall_error == "1" else None),
     )
     if not ctx:
-        return _missing_device(request, device_id, user)
+        return _missing_device(request, bad_id, user)
     return _html(request, "device_detail.html", ctx)
 
 
-@router.post("/devices/{device_id}/request-refresh")
+@router.post("/devices/{bad_id}/request-refresh")
 def device_request_refresh(
-    device_id: str,
+    bad_id: str,
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
 ):
-    canonical = resolve_device_ref(db, device_id)
+    canonical = (bad_id if db.get_device_auth_row(bad_id) else None)
     if not canonical:
         return RedirectResponse(url="/devices", status_code=303)
-    device_id = canonical
-    if not set_device_refresh_request(db, device_id):
+    bad_id = canonical
+    if not set_device_refresh_request(db, bad_id):
         return RedirectResponse(url="/devices", status_code=303)
     return RedirectResponse(
-        url=f"/devices/{device_id}?refresh_sent=1",
+        url=f"/devices/{bad_id}?refresh_sent=1",
         status_code=303,
     )
 
 
-def _inventory_minidump_names(db: Database, device_id: str) -> set[str]:
-    detail = db.get_device_detail(device_id) or {}
+def _inventory_minidump_names(db: Database, bad_id: str) -> set[str]:
+    detail = db.get_device_detail(bad_id) or {}
     latest = detail.get("latest_inventory") if isinstance(detail, dict) else None
     payload = latest.get("payload") if isinstance(latest, dict) else None
     md = payload.get("minidumps") if isinstance(payload, dict) else None
@@ -3147,14 +3166,14 @@ def _inventory_minidump_names(db: Database, device_id: str) -> set[str]:
     return names
 
 
-@router.post("/devices/{device_id}/minidump-request")
+@router.post("/devices/{bad_id}/minidump-request")
 def device_minidump_request(
-    device_id: str,
+    bad_id: str,
     name: str = Form(""),
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
 ):
-    canonical = resolve_device_ref(db, device_id)
+    canonical = (bad_id if db.get_device_auth_row(bad_id) else None)
     if not canonical:
         return RedirectResponse(url="/devices", status_code=303)
     wanted = (name or "").strip()
@@ -3167,28 +3186,28 @@ def device_minidump_request(
     )
 
 
-@router.post("/devices/{device_id}/uninstall")
+@router.post("/devices/{bad_id}/uninstall")
 def device_uninstall_order(
-    device_id: str,
+    bad_id: str,
     confirm: str = Form(""),
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    canonical = resolve_device_ref(db, device_id)
+    canonical = (bad_id if db.get_device_auth_row(bad_id) else None)
     if not canonical:
         return RedirectResponse(url="/devices", status_code=303)
-    device_id = canonical
-    detail = db.get_device_detail(device_id)
+    bad_id = canonical
+    detail = db.get_device_detail(bad_id)
     if not detail:
         return RedirectResponse(url="/devices", status_code=303)
-    panel_ref = device_panel_href(detail.get("bad_id"), device_id)
+    panel_ref = f"/devices/{bad_id}"
     if not uninstall_confirm_matches(detail, confirm):
         return RedirectResponse(
             url=f"{panel_ref}?view=admin&uninstall_error=1",
             status_code=303,
         )
-    ok, reason = request_device_uninstall(db, device_id)
+    ok, reason = request_device_uninstall(db, bad_id)
     if not ok:
         if reason == "revoked":
             return RedirectResponse(
@@ -3202,19 +3221,19 @@ def device_uninstall_order(
     )
 
 
-@router.post("/devices/{device_id}/uninstall/cancel")
+@router.post("/devices/{bad_id}/uninstall/cancel")
 def device_uninstall_cancel(
-    device_id: str,
+    bad_id: str,
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
 ):
-    canonical = resolve_device_ref(db, device_id)
+    canonical = (bad_id if db.get_device_auth_row(bad_id) else None)
     if not canonical:
         return RedirectResponse(url="/devices", status_code=303)
-    device_id = canonical
-    detail = db.get_device_detail(device_id) or {}
-    panel_ref = device_panel_href(detail.get("bad_id"), device_id)
-    if not cancel_device_uninstall(db, device_id):
+    bad_id = canonical
+    detail = db.get_device_detail(bad_id) or {}
+    panel_ref = f"/devices/{bad_id}"
+    if not cancel_device_uninstall(db, bad_id):
         return RedirectResponse(url="/devices", status_code=303)
     return RedirectResponse(
         url=f"{panel_ref}?view=admin&uninstall_cancelled=1",
@@ -3222,23 +3241,23 @@ def device_uninstall_cancel(
     )
 
 
-@router.post("/devices/{device_id}/revoke")
+@router.post("/devices/{bad_id}/revoke")
 def device_revoke(
-    device_id: str,
+    bad_id: str,
     request: Request,
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    canonical = resolve_device_ref(db, device_id)
+    canonical = (bad_id if db.get_device_auth_row(bad_id) else None)
     if not canonical:
-        return _missing_device(request, device_id, user)
-    device_id = canonical
-    if not db.set_device_revoked(device_id, True):
-        return _missing_device(request, device_id, user)
+        return _missing_device(request, bad_id, user)
+    bad_id = canonical
+    if not db.set_device_revoked(bad_id, True):
+        return _missing_device(request, bad_id, user)
     ctx = _device_config_context(
         db,
-        device_id,
+        bad_id,
         user=user,
         settings=settings,
         message="Доступ отозван: агент не сможет связаться с сервером до повторной регистрации или выпуска нового ключа",
@@ -3248,29 +3267,29 @@ def device_revoke(
     return _html(request, "device_detail.html", ctx)
 
 
-@router.post("/devices/{device_id}/rotate-key")
+@router.post("/devices/{bad_id}/rotate-key")
 def device_rotate_key(
-    device_id: str,
+    bad_id: str,
     request: Request,
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    canonical = resolve_device_ref(db, device_id)
+    canonical = (bad_id if db.get_device_auth_row(bad_id) else None)
     if not canonical:
-        return _missing_device(request, device_id, user)
-    device_id = canonical
-    if not db.get_device_detail(device_id):
-        return _missing_device(request, device_id, user)
+        return _missing_device(request, bad_id, user)
+    bad_id = canonical
+    if not db.get_device_detail(bad_id):
+        return _missing_device(request, bad_id, user)
     api_key = generate_token("bad_ak_")
     data_key = getattr(request.app.state, "data_key", "") or ""
     lookup = api_key_lookup(data_key, api_key) if data_key else None
     db.rotate_device_api_key(
-        device_id, hash_secret(api_key), api_key_lookup=lookup
+        bad_id, hash_secret(api_key), api_key_lookup=lookup
     )
     ctx = _device_config_context(
         db,
-        device_id,
+        bad_id,
         user=user,
         settings=settings,
         message="Выпущен новый ключ доступа агента. Сохраните его — повторно показать нельзя.",
@@ -3281,42 +3300,42 @@ def device_rotate_key(
     return _html(request, "device_detail.html", ctx)
 
 
-@router.post("/devices/{device_id}/archive")
+@router.post("/devices/{bad_id}/archive")
 def device_archive(
-    device_id: str,
+    bad_id: str,
     user: WebUser = Depends(require_web_user),
     db: Database = Depends(get_db),
 ):
-    return _archive_device(db, device_id, True)
+    return _archive_device(db, bad_id, True)
 
 
-@router.post("/devices/{device_id}/restore")
+@router.post("/devices/{bad_id}/restore")
 def device_restore(
-    device_id: str,
+    bad_id: str,
     user: WebUser = Depends(require_web_user),
     db: Database = Depends(get_db),
 ):
-    return _archive_device(db, device_id, False)
+    return _archive_device(db, bad_id, False)
 
 
-@router.post("/devices/{device_id}/delete")
+@router.post("/devices/{bad_id}/delete")
 def device_delete(
-    device_id: str,
+    bad_id: str,
     confirm: str = Form(""),
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
 ):
-    canonical = resolve_device_ref(db, device_id)
+    canonical = (bad_id if db.get_device_auth_row(bad_id) else None)
     if not canonical:
         return RedirectResponse(url="/devices", status_code=303)
-    device_id = canonical
-    detail = db.get_device_detail(device_id) or {}
-    panel_ref = device_panel_href(detail.get("bad_id"), device_id)
-    if (confirm or "").strip() != device_id:
+    bad_id = canonical
+    detail = db.get_device_detail(bad_id) or {}
+    panel_ref = f"/devices/{bad_id}"
+    if (confirm or "").strip() != bad_id:
         return RedirectResponse(
             url=f"{panel_ref}?delete_error=1", status_code=303
         )
-    db.delete_device(device_id)
+    db.delete_device(bad_id)
     return RedirectResponse(url="/devices", status_code=303)
 
 
@@ -3372,12 +3391,12 @@ def device_merge(
     settings: Settings = Depends(get_settings),
 ):
     """Явный admin merge дублей. Не /v1; ключ донора отзывает merge_devices (DB)."""
-    survivor_canonical = resolve_device_ref(db, survivor_id)
+    survivor_canonical = (survivor_id if db.get_device_auth_row(survivor_id) else None)
     if not survivor_canonical:
         return _missing_device(request, survivor_id, user)
     survivor_id = survivor_canonical
     donor = (donor_id or "").strip()
-    donor_resolved = resolve_device_ref(db, donor) if donor else None
+    donor_resolved = (donor if donor and db.get_device_auth_row(donor) else None)
     if donor and donor_resolved:
         donor = donor_resolved
     if not donor:
@@ -3425,26 +3444,26 @@ def device_merge(
     )
 
 
-@router.post("/devices/{device_id}/tags")
+@router.post("/devices/{bad_id}/tags")
 def device_tags_save(
-    device_id: str,
+    bad_id: str,
     request: Request,
     user: WebUser = Depends(require_web_user),
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
     tags: str = Form(""),
 ):
-    canonical = resolve_device_ref(db, device_id)
+    canonical = (bad_id if db.get_device_auth_row(bad_id) else None)
     if not canonical:
-        return _missing_device(request, device_id, user)
-    device_id = canonical
+        return _missing_device(request, bad_id, user)
+    bad_id = canonical
     try:
-        db.set_device_tags(device_id, tags)
+        db.set_device_tags(bad_id, tags)
     except KeyError:
-        return _missing_device(request, device_id, user)
+        return _missing_device(request, bad_id, user)
     ctx = _device_config_context(
         db,
-        device_id,
+        bad_id,
         user=user,
         settings=settings,
         message="Теги сохранены",
@@ -3454,9 +3473,9 @@ def device_tags_save(
     return _html(request, "device_detail.html", ctx)
 
 
-@router.post("/devices/{device_id}/config-override")
+@router.post("/devices/{bad_id}/config-override")
 def device_config_override_save(
-    device_id: str,
+    bad_id: str,
     request: Request,
     user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
@@ -3471,17 +3490,17 @@ def device_config_override_save(
     collect_software: str = Form(""),
     clear_override: Optional[str] = Form(None),
 ):
-    canonical = resolve_device_ref(db, device_id)
+    canonical = (bad_id if db.get_device_auth_row(bad_id) else None)
     if not canonical:
-        return _missing_device(request, device_id, user)
-    device_id = canonical
+        return _missing_device(request, bad_id, user)
+    bad_id = canonical
     if clear_override is not None:
-        if not db.get_device_detail(device_id):
-            return _missing_device(request, device_id, user)
-        db.delete_device_config_override(device_id)
+        if not db.get_device_detail(bad_id):
+            return _missing_device(request, bad_id, user)
+        db.delete_device_config_override(bad_id)
         ctx = _device_config_context(
             db,
-            device_id,
+            bad_id,
             user=user,
             settings=settings,
             message="Ручное переопределение очищено",
@@ -3505,14 +3524,14 @@ def device_config_override_save(
     if not cleaned:
         ctx = _device_config_context(
             db,
-            device_id,
+            bad_id,
             user=user,
             settings=settings,
             error="Укажите хотя бы одно поле ручной настройки (или очистите)",
             active_view="config",
         )
         if not ctx:
-            return _missing_device(request, device_id, user)
+            return _missing_device(request, bad_id, user)
         return _html(
             request, "device_detail.html", ctx, status_code=400
         )
@@ -3520,7 +3539,7 @@ def device_config_override_save(
     if pin_err:
         ctx = _device_config_context(
             db,
-            device_id,
+            bad_id,
             user=user,
             settings=settings,
             error=pin_err,
@@ -3529,12 +3548,12 @@ def device_config_override_save(
         assert ctx is not None
         return _html(request, "device_detail.html", ctx, status_code=400)
     try:
-        db.set_device_config_override(device_id, cleaned)
+        db.set_device_config_override(bad_id, cleaned)
     except KeyError:
-        return _missing_device(request, device_id, user)
+        return _missing_device(request, bad_id, user)
     ctx = _device_config_context(
         db,
-        device_id,
+        bad_id,
         user=user,
         settings=settings,
         message="Ручное переопределение сохранено",
@@ -4754,7 +4773,7 @@ def mail_settings_test(
             status_code=400,
         )
     msg = build_hardware_email(
-        device_id="test-device",
+        bad_id="test-device",
         hostname="TEST-HOST",
         events=[],
         from_addr=parsed["from_addr"],

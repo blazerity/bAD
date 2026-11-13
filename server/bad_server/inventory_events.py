@@ -26,7 +26,7 @@ MAX_INVENTORY_JSON_BYTES = 1_500_000
 INVENTORY_TOP_KEYS = frozenset(
     {
         "schema_version",
-        "device_id",
+        "bad_id",
         "collected_at",
         "agent_version",
         "host",

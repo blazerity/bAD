@@ -82,10 +82,3 @@ def ensure_trgm_search_indexes(database_url: str) -> None:
         "ON devices USING gin (hostname gin_trgm_ops)",
     )
 
-
-def ensure_devices_bad_id_index(database_url: str) -> None:
-    create_index_concurrently(
-        database_url,
-        "idx_devices_bad_id",
-        "CREATE UNIQUE INDEX CONCURRENTLY idx_devices_bad_id ON devices(bad_id)",
-    )

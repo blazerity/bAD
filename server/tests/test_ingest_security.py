@@ -28,34 +28,34 @@ get_settings.cache_clear()
 from bad_server.app import create_app  # noqa: E402
 
 
-def _snap_count(client: TestClient, device_id: str) -> int:
+def _snap_count(client: TestClient, bad_id: str) -> int:
     db = client.app.state.db
     with db.connection() as conn:
         row = conn.execute(
-            "SELECT COUNT(*) AS n FROM inventory_snapshots WHERE device_id = ?",
-            (device_id,),
+            "SELECT COUNT(*) AS n FROM inventory_snapshots WHERE bad_id = ?",
+            (bad_id,),
         ).fetchone()
     return int(row["n"])
 
 
-def _device_id(prefix: str) -> str:
-    return f"{prefix}-{uuid.uuid4().hex[:8]}"
+def _bad_id(prefix: str) -> str:
+    return "BAD-" + uuid.uuid5(uuid.NAMESPACE_URL, f"{prefix}-{uuid.uuid4()}").hex[:8].upper()
 
 
 def test_old_agent_shared_token_without_signature() -> None:
-    device_id = _device_id("legacy-agent")
+    bad_id = _bad_id("legacy-agent")
     with TestClient(create_app()) as client:
         enrolled = client.post(
             "/v1/enroll",
             headers={"Authorization": "Bearer test-enrollment-token-change-me-please"},
-            json={"device_id": device_id, "hostname": "LEGACY"},
+            json={"bad_id": bad_id, "hostname": "LEGACY"},
         )
         assert enrolled.status_code == 200, enrolled.text
         api_key = enrolled.json()["api_key"]
         beat = client.post(
             "/v1/heartbeat",
             headers={"Authorization": f"Bearer {api_key}"},
-            json={"device_id": device_id},
+            json={"bad_id": bad_id},
         )
         assert beat.status_code == 200, beat.text
         inv = client.post(
@@ -63,45 +63,45 @@ def test_old_agent_shared_token_without_signature() -> None:
             headers={"Authorization": f"Bearer {api_key}"},
             json={
                 "schema_version": 2,
-                "device_id": device_id,
+                "bad_id": bad_id,
                 "software": {"programs": [{"name": "notepad"}]},
             },
         )
         assert inv.status_code == 200, inv.text
-        assert _snap_count(client, device_id) == 1
+        assert _snap_count(client, bad_id) == 1
 
 
 def test_one_time_code_burns() -> None:
-    device_id = _device_id("granted-pc")
+    bad_id = _bad_id("granted-pc")
     with TestClient(create_app()) as client:
         grant = client.post(
             "/v1/enrollment-grants",
             headers={"Authorization": "Bearer test-admin-token-change-me-please-32b"},
-            json={"device_id": device_id},
+            json={"bad_id": bad_id},
         )
         assert grant.status_code == 200, grant.text
         code = grant.json()["code"]
         first = client.post(
             "/v1/enroll",
             headers={"Authorization": f"Bearer {code}"},
-            json={"device_id": device_id},
+            json={"bad_id": bad_id},
         )
         assert first.status_code == 200, first.text
         second = client.post(
             "/v1/enroll",
             headers={"Authorization": f"Bearer {code}"},
-            json={"device_id": device_id},
+            json={"bad_id": bad_id},
         )
         assert second.status_code == 401, second.text
 
 
 def test_unsigned_snapshot_and_signing_key_once() -> None:
-    device_id = _device_id("old-sign")
+    bad_id = _bad_id("old-sign")
     with TestClient(create_app()) as client:
         enrolled = client.post(
             "/v1/enroll",
             headers={"Authorization": "Bearer test-enrollment-token-change-me-please"},
-            json={"device_id": device_id, "hostname": "OLD"},
+            json={"bad_id": bad_id, "hostname": "OLD"},
         )
         assert enrolled.status_code == 200, enrolled.text
         api_key = enrolled.json()["api_key"]
@@ -111,16 +111,16 @@ def test_unsigned_snapshot_and_signing_key_once() -> None:
                 """
                 UPDATE devices
                 SET signing_pubkey = NULL, signing_key_fingerprint = NULL
-                WHERE device_id = ?
+                WHERE bad_id = ?
                 """,
-                (device_id,),
+                (bad_id,),
             )
         inv = client.post(
             "/v1/inventory",
             headers={"Authorization": f"Bearer {api_key}"},
             json={
                 "schema_version": 2,
-                "device_id": device_id,
+                "bad_id": bad_id,
                 "software": {"programs": [{"name": "notepad"}]},
             },
         )
@@ -147,12 +147,12 @@ def test_inventory_signature_uses_agent_canon() -> None:
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-    device_id = _device_id("signed")
+    bad_id = _bad_id("signed")
     with TestClient(create_app()) as client:
         enrolled = client.post(
             "/v1/enroll",
             headers={"Authorization": "Bearer test-enrollment-token-change-me-please"},
-            json={"device_id": device_id, "hostname": "SIGNED"},
+            json={"bad_id": bad_id, "hostname": "SIGNED"},
         )
         assert enrolled.status_code == 200, enrolled.text
         secret = enrolled.json()["signing_key"]
@@ -167,13 +167,13 @@ def test_inventory_signature_uses_agent_canon() -> None:
         assert fingerprint == fingerprint.lower()
         with client.app.state.db.connection() as conn:
             row = conn.execute(
-                "SELECT signing_key_fingerprint FROM devices WHERE device_id = ?",
-                (device_id,),
+                "SELECT signing_key_fingerprint FROM devices WHERE bad_id = ?",
+                (bad_id,),
             ).fetchone()
         assert row["signing_key_fingerprint"] == fingerprint
         payload = {
             "schema_version": 2,
-            "device_id": device_id,
+            "bad_id": bad_id,
             "software": {"programs": [{"name": "блокнот"}]},
         }
         canon = json.dumps(
@@ -211,7 +211,7 @@ def test_enrollment_request_waits_for_admin() -> None:
     body = {
         "hostname": "NEW-PC",
         "ip": "10.1.1.5",
-        "serial": _device_id("sn"),
+        "serial": _bad_id("sn"),
         "fingerprint": _fingerprint("owner"),
     }
     with TestClient(create_app()) as client:
@@ -227,12 +227,12 @@ def test_enrollment_request_waits_for_admin() -> None:
                 "SELECT id FROM enrollment_requests WHERE serial = ?",
                 (body["serial"],),
             ).fetchone()
-        device_id = "req-" + generate_token("")[:12]
+        bad_id = "req-" + generate_token("")[:12]
         api_key = generate_token("bad_ak_")
         private, public, fingerprint = new_device_signing_key()
         data_key = client.app.state.data_key
         db.upsert_device_on_enroll(
-            device_id=device_id,
+            bad_id=bad_id,
             hostname=body["hostname"],
             api_key_hash=hash_secret(api_key),
             agent_version=None,
@@ -241,7 +241,7 @@ def test_enrollment_request_waits_for_admin() -> None:
         )
         assert db.mark_enrollment_request_approved(
             row["id"],
-            device_id,
+            bad_id,
             encrypt_secret(data_key, api_key),
             encrypt_secret(data_key, private),
         )
@@ -258,7 +258,7 @@ def test_stranger_same_serial_gets_no_key() -> None:
     from bad_server.crypto_util import encrypt_secret
     from bad_server.security import generate_token, hash_secret, new_device_signing_key
 
-    serial = _device_id("shared-sn")
+    serial = _bad_id("shared-sn")
     owner = {
         "hostname": "OWNER-PC",
         "ip": "10.1.1.5",
@@ -281,12 +281,12 @@ def test_stranger_same_serial_gets_no_key() -> None:
                 (owner["fingerprint"],),
             ).fetchone()
         assert owner_row["hostname"] == "OWNER-PC"
-        device_id = "req-" + generate_token("")[:12]
+        bad_id = "req-" + generate_token("")[:12]
         api_key = generate_token("bad_ak_")
         private, public, fingerprint = new_device_signing_key()
         data_key = client.app.state.data_key
         db.upsert_device_on_enroll(
-            device_id=device_id,
+            bad_id=bad_id,
             hostname=owner["hostname"],
             api_key_hash=hash_secret(api_key),
             agent_version=None,
@@ -295,7 +295,7 @@ def test_stranger_same_serial_gets_no_key() -> None:
         )
         assert db.mark_enrollment_request_approved(
             owner["fingerprint"],
-            device_id,
+            bad_id,
             encrypt_secret(data_key, api_key),
             encrypt_secret(data_key, private),
         )
@@ -305,8 +305,8 @@ def test_stranger_same_serial_gets_no_key() -> None:
         assert "signing_key" not in stolen.json()
         with db.connection() as conn:
             card = conn.execute(
-                "SELECT hostname FROM devices WHERE device_id = ?",
-                (device_id,),
+                "SELECT hostname FROM devices WHERE bad_id = ?",
+                (bad_id,),
             ).fetchone()
         assert card["hostname"] == "OWNER-PC"
         claimed = client.post("/v1/enrollment-requests", json=owner)
@@ -385,32 +385,32 @@ def test_pending_queue_expires_and_caps() -> None:
 def test_unbound_install_code_once() -> None:
     from bad_server.security import enrollment_code_hash, generate_token
 
-    device_id = _device_id("install")
+    bad_id = _bad_id("install")
     code = generate_token("bad_ot_")
     with TestClient(create_app()) as client:
         client.app.state.db.create_enrollment_grant("", enrollment_code_hash(code))
         first = client.post(
             "/v1/enroll",
             headers={"Authorization": f"Bearer {code}"},
-            json={"device_id": device_id, "hostname": "INSTALL"},
+            json={"bad_id": bad_id, "hostname": "INSTALL"},
         )
         assert first.status_code == 200, first.text
         assert first.json()["api_key"]
         second = client.post(
             "/v1/enroll",
             headers={"Authorization": f"Bearer {code}"},
-            json={"device_id": _device_id("install2")},
+            json={"bad_id": _bad_id("install2")},
         )
         assert second.status_code == 401, second.text
 
 
 def test_panel_flags_override_defaults() -> None:
-    device_id = _device_id("flagged")
+    bad_id = _bad_id("flagged")
     with TestClient(create_app()) as client:
         enrolled = client.post(
             "/v1/enroll",
             headers={"Authorization": "Bearer test-enrollment-token-change-me-please"},
-            json={"device_id": device_id},
+            json={"bad_id": bad_id},
         )
         assert enrolled.status_code == 200, enrolled.text
         api_key = enrolled.json()["api_key"]
@@ -420,7 +420,7 @@ def test_panel_flags_override_defaults() -> None:
             denied = client.post(
                 "/v1/inventory",
                 headers={"Authorization": f"Bearer {api_key}"},
-                json={"schema_version": 2, "device_id": device_id},
+                json={"schema_version": 2, "bad_id": bad_id},
             )
             assert denied.status_code == 401, denied.text
         finally:
@@ -428,7 +428,7 @@ def test_panel_flags_override_defaults() -> None:
         ok = client.post(
             "/v1/inventory",
             headers={"Authorization": f"Bearer {api_key}"},
-            json={"schema_version": 2, "device_id": device_id},
+            json={"schema_version": 2, "bad_id": bad_id},
         )
         assert ok.status_code == 200, ok.text
         db.set_site_secret("allow_shared_enrollment", "0")
@@ -436,7 +436,7 @@ def test_panel_flags_override_defaults() -> None:
             blocked = client.post(
                 "/v1/enroll",
                 headers={"Authorization": "Bearer test-enrollment-token-change-me-please"},
-                json={"device_id": _device_id("shared-off")},
+                json={"bad_id": _bad_id("shared-off")},
             )
             assert blocked.status_code == 401, blocked.text
         finally:
@@ -444,12 +444,12 @@ def test_panel_flags_override_defaults() -> None:
 
 
 def test_fat_inventory_does_not_write() -> None:
-    device_id = _device_id("fat-pc")
+    bad_id = _bad_id("fat-pc")
     with TestClient(create_app()) as client:
         enrolled = client.post(
             "/v1/enroll",
             headers={"Authorization": "Bearer test-enrollment-token-change-me-please"},
-            json={"device_id": device_id},
+            json={"bad_id": bad_id},
         )
         assert enrolled.status_code == 200, enrolled.text
         api_key = enrolled.json()["api_key"]
@@ -459,27 +459,27 @@ def test_fat_inventory_does_not_write() -> None:
             headers={"Authorization": f"Bearer {api_key}"},
             json={
                 "schema_version": 2,
-                "device_id": device_id,
+                "bad_id": bad_id,
                 "software": {"programs": programs},
             },
         )
         assert inv.status_code == 400, inv.text
-        assert _snap_count(client, device_id) == 0
+        assert _snap_count(client, bad_id) == 0
 
 
 def test_agent_report_html_is_enrolled_card_without_admin() -> None:
-    device_id = _device_id("report-pc")
+    bad_id = _bad_id("report-pc")
     with TestClient(create_app()) as client:
         enrolled = client.post(
             "/v1/enroll",
             headers={"Authorization": "Bearer test-enrollment-token-change-me-please"},
-            json={"device_id": device_id, "hostname": "STORED-NAME"},
+            json={"bad_id": bad_id, "hostname": "STORED-NAME"},
         )
         assert enrolled.status_code == 200, enrolled.text
         api_key = enrolled.json()["api_key"]
         bare = client.post(
             "/v1/agent/report.html",
-            json={"schema_version": 2, "device_id": device_id},
+            json={"schema_version": 2, "bad_id": bad_id},
         )
         assert bare.status_code == 401, bare.text
         report = client.post(
@@ -487,7 +487,7 @@ def test_agent_report_html_is_enrolled_card_without_admin() -> None:
             headers={"Authorization": f"Bearer {api_key}"},
             json={
                 "schema_version": 2,
-                "device_id": device_id,
+                "bad_id": bad_id,
                 "agent_version": "9.9.9-report",
                 "host": {"hostname": "WS-REPORT-HOST"},
                 "hardware": {"model": "Model-XYZ-Report", "chassis_type": "desktop"},
@@ -513,7 +513,7 @@ def test_agent_report_html_is_enrolled_card_without_admin() -> None:
         assert "<button" not in body
         assert ">Версия<" in body
         assert ">Version<" not in body
-        assert _snap_count(client, device_id) == 0
+        assert _snap_count(client, bad_id) == 0
 
 
 def _tiny_minidump() -> bytes:
@@ -554,12 +554,12 @@ def test_minidump_request_upload_writes_cause_on_card() -> None:
     assert cause_label(0xD1, "nvlddmkm.sys") == "драйвер"
     assert dump_name_ok("MEMORY.DMP") is False
     dump_name = "012345-67890-01.dmp"
-    device_id = _device_id("minidump")
+    bad_id = _bad_id("minidump")
     with TestClient(create_app()) as client:
         enrolled = client.post(
             "/v1/enroll",
             headers={"Authorization": "Bearer test-enrollment-token-change-me-please"},
-            json={"device_id": device_id, "hostname": "DUMP-PC"},
+            json={"bad_id": bad_id, "hostname": "DUMP-PC"},
         )
         assert enrolled.status_code == 200, enrolled.text
         api_key = enrolled.json()["api_key"]
@@ -568,7 +568,7 @@ def test_minidump_request_upload_writes_cause_on_card() -> None:
             headers={"Authorization": f"Bearer {api_key}"},
             json={
                 "schema_version": 2,
-                "device_id": device_id,
+                "bad_id": bad_id,
                 "minidumps": {"count": 1, "files": [{"name": dump_name}]},
             },
         )
@@ -590,13 +590,13 @@ def test_minidump_request_upload_writes_cause_on_card() -> None:
             follow_redirects=False,
         )
         assert logged.status_code == 303, logged.text
-        page = client.get(f"/devices/{device_id}")
+        page = client.get(f"/devices/{bad_id}")
         assert page.status_code == 200, page.text
         assert "Разобрать" in page.text
         form_token = re.search(r'name="csrf_token" value="([^"]+)"', page.text)
         assert form_token is not None
         asked = client.post(
-            f"/devices/{device_id}/minidump-request",
+            f"/devices/{bad_id}/minidump-request",
             data={"csrf_token": form_token.group(1), "name": dump_name},
             follow_redirects=False,
         )
@@ -604,7 +604,7 @@ def test_minidump_request_upload_writes_cause_on_card() -> None:
         beat = client.post(
             "/v1/heartbeat",
             headers={"Authorization": f"Bearer {api_key}"},
-            json={"device_id": device_id},
+            json={"bad_id": bad_id},
         )
         assert beat.status_code == 200, beat.text
         assert beat.json()["actions"]["upload_minidump"] == dump_name
@@ -635,24 +635,24 @@ def test_minidump_request_upload_writes_cause_on_card() -> None:
         again = client.post(
             "/v1/heartbeat",
             headers={"Authorization": f"Bearer {api_key}"},
-            json={"device_id": device_id},
+            json={"bad_id": bad_id},
         )
         assert again.status_code == 200, again.text
         assert "upload_minidump" not in (again.json().get("actions") or {})
-        card = client.get(f"/devices/{device_id}")
+        card = client.get(f"/devices/{bad_id}")
         assert card.status_code == 200, card.text
         assert "драйвер · 0x000000D1 · nvlddmkm.sys" in card.text
 
 
-def _device_row(client: TestClient, device_id: str) -> dict:
+def _device_row(client: TestClient, bad_id: str) -> dict:
     with client.app.state.db.connection() as conn:
         row = conn.execute(
             """
             SELECT api_key_hash, signing_pubkey, signing_key_fingerprint,
                    shared_exchange_at, revoked
-            FROM devices WHERE device_id = ?
+            FROM devices WHERE bad_id = ?
             """,
-            (device_id,),
+            (bad_id,),
         ).fetchone()
     assert row is not None
     return dict(row)
@@ -661,24 +661,24 @@ def _device_row(client: TestClient, device_id: str) -> dict:
 def test_shared_token_exchanges_existing_device_once() -> None:
     """Уже известное устройство один раз получает новый ключ общим токеном."""
     token = "test-enrollment-token-change-me-please"
-    device_id = _device_id("exchange")
+    bad_id = _bad_id("exchange")
     with TestClient(create_app()) as client:
         first = client.post(
             "/v1/enroll",
             headers={"Authorization": f"Bearer {token}"},
-            json={"device_id": device_id, "hostname": "EXCHANGE"},
+            json={"bad_id": bad_id, "hostname": "EXCHANGE"},
         )
         assert first.status_code == 200, first.text
         first_key = first.json()["api_key"]
         assert first.json().get("signing_key")
-        before = _device_row(client, device_id)
+        before = _device_row(client, bad_id)
         assert not before["shared_exchange_at"]
 
         proved = client.post(
             "/v1/enroll",
             headers={"Authorization": f"Bearer {token}"},
             json={
-                "device_id": device_id,
+                "bad_id": bad_id,
                 "hostname": "EXCHANGE",
                 "current_api_key": first_key,
             },
@@ -687,7 +687,7 @@ def test_shared_token_exchanges_existing_device_once() -> None:
         proved_key = proved.json()["api_key"]
         assert proved_key != first_key
         assert not proved.json().get("signing_key")
-        after_proof = _device_row(client, device_id)
+        after_proof = _device_row(client, bad_id)
         assert after_proof["api_key_hash"] != before["api_key_hash"]
         assert after_proof["signing_pubkey"] == before["signing_pubkey"]
         assert after_proof["signing_key_fingerprint"] == before["signing_key_fingerprint"]
@@ -696,13 +696,13 @@ def test_shared_token_exchanges_existing_device_once() -> None:
         exchanged = client.post(
             "/v1/enroll",
             headers={"Authorization": f"Bearer {token}"},
-            json={"device_id": device_id, "hostname": "EXCHANGE"},
+            json={"bad_id": bad_id, "hostname": "EXCHANGE"},
         )
         assert exchanged.status_code == 200, exchanged.text
         new_key = exchanged.json()["api_key"]
         assert new_key not in {first_key, proved_key}
         assert not exchanged.json().get("signing_key")
-        after = _device_row(client, device_id)
+        after = _device_row(client, bad_id)
         assert after["shared_exchange_at"]
         assert after["api_key_hash"] != after_proof["api_key_hash"]
         assert after["signing_pubkey"] == before["signing_pubkey"]
@@ -711,36 +711,36 @@ def test_shared_token_exchanges_existing_device_once() -> None:
         repeat = client.post(
             "/v1/enroll",
             headers={"Authorization": f"Bearer {token}"},
-            json={"device_id": device_id, "hostname": "EXCHANGE"},
+            json={"bad_id": bad_id, "hostname": "EXCHANGE"},
         )
         assert repeat.status_code == 409, repeat.text
-        assert _device_row(client, device_id)["api_key_hash"] == after["api_key_hash"]
+        assert _device_row(client, bad_id)["api_key_hash"] == after["api_key_hash"]
 
         old_beat = client.post(
             "/v1/heartbeat",
             headers={"Authorization": f"Bearer {proved_key}"},
-            json={"device_id": device_id},
+            json={"bad_id": bad_id},
         )
         assert old_beat.status_code == 401, old_beat.text
         new_beat = client.post(
             "/v1/heartbeat",
             headers={"Authorization": f"Bearer {new_key}"},
-            json={"device_id": device_id},
+            json={"bad_id": bad_id},
         )
         assert new_beat.status_code == 200, new_beat.text
 
         stranger = client.post(
             "/v1/enroll",
             headers={"Authorization": "Bearer not-the-shared-token"},
-            json={"device_id": device_id},
+            json={"bad_id": bad_id},
         )
         assert stranger.status_code == 401, stranger.text
 
-        revoked_id = _device_id("exchange-revoked")
+        revoked_id = _bad_id("exchange-revoked")
         enrolled = client.post(
             "/v1/enroll",
             headers={"Authorization": f"Bearer {token}"},
-            json={"device_id": revoked_id},
+            json={"bad_id": revoked_id},
         )
         assert enrolled.status_code == 200, enrolled.text
         revoked = client.post(
@@ -752,7 +752,7 @@ def test_shared_token_exchanges_existing_device_once() -> None:
         denied = client.post(
             "/v1/enroll",
             headers={"Authorization": f"Bearer {token}"},
-            json={"device_id": revoked_id},
+            json={"bad_id": revoked_id},
         )
         assert denied.status_code == 403, denied.text
         assert _device_row(client, revoked_id)["api_key_hash"] == revoked_hash

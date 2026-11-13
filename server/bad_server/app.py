@@ -164,12 +164,12 @@ async def _stale_alert_loop(app: FastAPI) -> None:
                         notify_stale_device(
                             db,
                             smtp_row,
-                            device_id=device["device_id"],
+                            bad_id=device["bad_id"],
                             hostname=device.get("hostname"),
                             last_seen_at=device.get("last_seen_at"),
                         )
                         db.patch_device_meta(
-                            device["device_id"], {"stale_notified_at": utc_now()}
+                            device["bad_id"], {"stale_notified_at": utc_now()}
                         )
                     recovered = db.devices_recovered_from_stale(
                         stale_after_seconds=stale_sec
@@ -178,11 +178,11 @@ async def _stale_alert_loop(app: FastAPI) -> None:
                         notify_device_back_online(
                             db,
                             smtp_row,
-                            device_id=device["device_id"],
+                            bad_id=device["bad_id"],
                             hostname=device.get("hostname"),
                         )
                         db.patch_device_meta(
-                            device["device_id"], {"stale_notified_at": None}
+                            device["bad_id"], {"stale_notified_at": None}
                         )
                     return len(needing) + len(recovered)
 

@@ -13,7 +13,7 @@
       '<span class="search-hit-type">Устройства</span>' +
       '<span class="search-hit-arrow" aria-hidden="true">↗</span>';
     a.querySelector(".search-hit-title").innerHTML =
-      d.title_html || d.hostname || d.device_id || "";
+      d.title_html || d.hostname || d.bad_id || "";
     var meta = a.querySelector(".search-hit-meta");
     if (d.subtitle_html) meta.innerHTML = d.subtitle_html;
     else if (d.match_reason) meta.textContent = d.match_reason;

@@ -211,7 +211,7 @@ public static class AgentSigningKey
         if (logger is null)
         {
             Console.Error.WriteLine(
-                "inventory signing key replace device_id={0} old_fp={1} issued={2} new_fp={3}",
+                "inventory signing key replace bad_id={0} old_fp={1} issued={2} new_fp={3}",
                 deviceId,
                 oldFp,
                 issuedText,
@@ -220,7 +220,7 @@ public static class AgentSigningKey
         }
 
         logger.LogInformation(
-            "inventory signing key replace device_id={DeviceId} old_fp={OldFp} issued={Issued} new_fp={NewFp}",
+            "inventory signing key replace bad_id={DeviceId} old_fp={OldFp} issued={Issued} new_fp={NewFp}",
             deviceId,
             oldFp,
             issuedText,

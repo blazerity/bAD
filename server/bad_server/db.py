@@ -126,13 +126,9 @@ class Database:
                     "idx_devices_last_seen skipped on start (retry later): %s", exc
                 )
         ensure_trgm_search_indexes(self.database_url)
-        from .wave_21_migration import (
-            run_bad_id_formula_migration,
-            run_wave_21_migration,
-        )
+        from .bad_id import ensure_bad_id_key
 
-        run_wave_21_migration(self)
-        run_bad_id_formula_migration(self)
+        ensure_bad_id_key(self)
 
     @contextmanager
     def connection(self) -> Iterator[CompatConnection]:
@@ -171,28 +167,28 @@ class Database:
         with self.connection() as conn:
             conn.execute("DELETE FROM site_secrets WHERE key = ?", (key,))
 
-    def enrollment_grant_usable(self, code_hash: str, device_id: str) -> bool:
+    def enrollment_grant_usable(self, code_hash: str, bad_id: str) -> bool:
         with self.connection() as conn:
             row = conn.execute(
                 """
-                SELECT device_id, used_at FROM enrollment_grants
+                SELECT bad_id, used_at FROM enrollment_grants
                 WHERE code_hash = ?
                 """,
                 (code_hash,),
             ).fetchone()
         if not row or row["used_at"]:
             return False
-        bound = row["device_id"] or ""
-        return bound == device_id or bound == ""
+        bound = row["bad_id"] or ""
+        return bound == bad_id or bound == ""
 
-    def create_enrollment_grant(self, device_id: str, code_hash: str) -> None:
+    def create_enrollment_grant(self, bad_id: str, code_hash: str) -> None:
         with self.connection() as conn:
             conn.execute(
                 """
-                INSERT INTO enrollment_grants(code_hash, device_id, created_at)
+                INSERT INTO enrollment_grants(code_hash, bad_id, created_at)
                 VALUES (?, ?, ?)
                 """,
-                (code_hash, device_id, utc_now()),
+                (code_hash, bad_id, utc_now()),
             )
 
     def save_enrollment_request(
@@ -201,11 +197,18 @@ class Database:
         hostname: str,
         ip: str,
         serial: str,
-        device_id: str = "",
+        bad_id: str = "",
+        machine_guid: str = "",
+        smbios_uuid: str = "",
     ) -> Optional[str]:
-        """Создать или обновить заявку по отпечатку. None — pending уже на потолке."""
+        """Создать или обновить заявку по отпечатку. None — pending уже на потолке.
+
+        Уже лежащий BAD- не заменяется. Текст не вида BAD- и 8 hex номером не пишется.
+        """
         now = utc_now()
-        kept_id = (device_id or "").strip() or None
+        kept_id = (bad_id or "").strip() or None
+        guid = machine_guid or ""
+        uuid = smbios_uuid or ""
         cutoff = (
             datetime.now(timezone.utc) - PENDING_ENROLLMENT_TTL
         ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -228,10 +231,12 @@ class Database:
                         """
                         UPDATE enrollment_requests
                         SET hostname = ?, ip = ?, serial = ?,
-                            device_id = COALESCE(?, device_id)
+                            bad_id = COALESCE(?, bad_id),
+                            machine_guid = ?,
+                            smbios_uuid = ?
                         WHERE id = ? AND status = 'pending'
                         """,
-                        (hostname, ip, serial, kept_id, request_id),
+                        (hostname, ip, serial, kept_id, guid, uuid, request_id),
                     )
                     return status_name
                 return status_name
@@ -243,10 +248,11 @@ class Database:
             conn.execute(
                 """
                 INSERT INTO enrollment_requests(
-                  id, hostname, ip, serial, created_at, status, device_id
-                ) VALUES (?, ?, ?, ?, ?, 'pending', ?)
+                  id, hostname, ip, serial, created_at, status, bad_id,
+                  machine_guid, smbios_uuid
+                ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)
                 """,
-                (request_id, hostname, ip, serial, now, kept_id),
+                (request_id, hostname, ip, serial, now, kept_id, guid, uuid),
             )
         return "pending"
 
@@ -273,7 +279,7 @@ class Database:
     def mark_enrollment_request_approved(
         self,
         request_id: str,
-        device_id: str,
+        bad_id: str,
         api_key_enc: str,
         signing_key_enc: str,
     ) -> bool:
@@ -281,11 +287,11 @@ class Database:
             updated = conn.execute(
                 """
                 UPDATE enrollment_requests
-                SET status = 'approved', device_id = ?,
+                SET status = 'approved', bad_id = ?,
                     api_key_enc = ?, signing_key_enc = ?
                 WHERE id = ? AND status = 'pending'
                 """,
-                (device_id, api_key_enc, signing_key_enc, request_id),
+                (bad_id, api_key_enc, signing_key_enc, request_id),
             )
         return updated.rowcount == 1
 
@@ -294,7 +300,7 @@ class Database:
         with self.connection() as conn:
             row = conn.execute(
                 """
-                SELECT device_id, status, api_key_enc, signing_key_enc
+                SELECT bad_id, status, api_key_enc, signing_key_enc
                 FROM enrollment_requests WHERE id = ?
                 FOR UPDATE
                 """,
@@ -303,7 +309,7 @@ class Database:
             if not row:
                 return None
             if row["status"] != "approved" or not row["api_key_enc"]:
-                return {"status": row["status"], "device_id": row["device_id"]}
+                return {"status": row["status"], "bad_id": row["bad_id"]}
             conn.execute(
                 """
                 UPDATE enrollment_requests
@@ -314,22 +320,22 @@ class Database:
             )
         return {
             "status": "approved",
-            "device_id": row["device_id"],
+            "bad_id": row["bad_id"],
             "api_key_enc": row["api_key_enc"],
             "signing_key_enc": row["signing_key_enc"],
         }
 
-    def get_device_auth_row(self, device_id: str) -> Optional[dict[str, Any]]:
+    def get_device_auth_row(self, bad_id: str) -> Optional[dict[str, Any]]:
         with self.connection() as conn:
             row = conn.execute(
-                "SELECT device_id, api_key_hash, revoked, shared_exchange_at "
-                "FROM devices WHERE device_id = ?",
-                (device_id,),
+                "SELECT bad_id, api_key_hash, revoked, shared_exchange_at "
+                "FROM devices WHERE bad_id = ?",
+                (bad_id,),
             ).fetchone()
         return dict(row) if row else None
 
     def claim_device_signing_key(
-        self, device_id: str, pubkey: str, fingerprint: str
+        self, bad_id: str, pubkey: str, fingerprint: str
     ) -> bool:
         """Записать новую пару. Повтор с тем же ключом устройства заменяет открытый ключ."""
         with self.connection() as conn:
@@ -337,15 +343,15 @@ class Database:
                 """
                 UPDATE devices
                 SET signing_pubkey = ?, signing_key_fingerprint = ?
-                WHERE device_id = ?
+                WHERE bad_id = ?
                 """,
-                (pubkey, fingerprint, device_id),
+                (pubkey, fingerprint, bad_id),
             )
         return updated.rowcount == 1
 
     def upsert_device_on_enroll(
         self,
-        device_id: str,
+        bad_id: str,
         hostname: Optional[str],
         api_key_hash: str,
         agent_version: Optional[str],
@@ -359,7 +365,7 @@ class Database:
         """Создать устройство или (при allow_existing) обновить ключ.
 
         True — создана новая строка. Без allow_existing повторный enroll
-        существующего device_id не делается (SEC-001).
+        существующего bad_id не делается (SEC-001).
         """
         now = utc_now()
         with self.connection() as conn:
@@ -368,20 +374,20 @@ class Database:
                     """
                 UPDATE enrollment_grants
                 SET used_at = ?,
-                    device_id = CASE WHEN device_id = '' THEN ? ELSE device_id END
+                    bad_id = CASE WHEN bad_id = '' THEN ? ELSE bad_id END
                 WHERE code_hash = ? AND used_at IS NULL
-                  AND (device_id = ? OR device_id = '')
+                  AND (bad_id = ? OR bad_id = '')
                 """,
-                (now, device_id, grant_code_hash, device_id),
+                (now, bad_id, grant_code_hash, bad_id),
             )
                 if spent.rowcount != 1:
                     raise ValueError("grant_invalid")
             existing = conn.execute(
                 """
-                SELECT device_id, revoked FROM devices WHERE device_id = ?
+                SELECT bad_id, revoked FROM devices WHERE bad_id = ?
                 FOR UPDATE
                 """,
-                (device_id,),
+                (bad_id,),
             ).fetchone()
             if existing:
                 if not allow_existing:
@@ -399,7 +405,7 @@ class Database:
                             agent_version = COALESCE(?, agent_version),
                             signing_pubkey = ?,
                             signing_key_fingerprint = ?
-                        WHERE device_id = ?
+                        WHERE bad_id = ?
                         """,
                         (
                             hostname,
@@ -409,7 +415,7 @@ class Database:
                             agent_version,
                             signing_pubkey,
                             signing_key_fingerprint,
-                            device_id,
+                            bad_id,
                         ),
                     )
                 else:
@@ -421,7 +427,7 @@ class Database:
                             api_key_lookup = ?,
                             last_seen_at = ?,
                             agent_version = COALESCE(?, agent_version)
-                        WHERE device_id = ?
+                        WHERE bad_id = ?
                         """,
                         (
                             hostname,
@@ -429,29 +435,19 @@ class Database:
                             api_key_lookup,
                             now,
                             agent_version,
-                            device_id,
+                            bad_id,
                         ),
                     )
                 return False
-            from .bad_id import bad_id_for_device, ensure_bad_id_key
-
-            bad_id = bad_id_for_device(device_id, ensure_bad_id_key(self))
-            dup = conn.execute(
-                "SELECT device_id FROM devices WHERE bad_id = ?",
-                (bad_id,),
-            ).fetchone()
-            if dup:
-                raise ValueError("bad_id_collision")
             conn.execute(
                 """
                 INSERT INTO devices(
-                  device_id, bad_id, hostname, api_key_hash, api_key_lookup,
+                  bad_id, hostname, api_key_hash, api_key_lookup,
                   enrolled_at, last_seen_at, agent_version, meta_json,
                   revoked, archived, signing_pubkey, signing_key_fingerprint
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
                 """,
                 (
-                    device_id,
                     bad_id,
                     hostname,
                     api_key_hash,
@@ -500,8 +496,8 @@ class Database:
                 if verify_fn(candidate["api_key_hash"], api_key):
                     if lookup_hash:
                         conn.execute(
-                            "UPDATE devices SET api_key_lookup = ? WHERE device_id = ?",
-                            (lookup_hash, candidate["device_id"]),
+                            "UPDATE devices SET api_key_lookup = ? WHERE bad_id = ?",
+                            (lookup_hash, candidate["bad_id"]),
                         )
                     return candidate
         return None
@@ -528,31 +524,31 @@ class Database:
             return normalize_tags(raw)
         return normalize_tags(parsed)
 
-    def _lock_device_meta(self, conn: CompatConnection, device_id: str) -> dict[str, Any]:
+    def _lock_device_meta(self, conn: CompatConnection, bad_id: str) -> dict[str, Any]:
         row = conn.execute(
-            "SELECT meta_json FROM devices WHERE device_id = ? FOR UPDATE",
-            (device_id,),
+            "SELECT meta_json FROM devices WHERE bad_id = ? FOR UPDATE",
+            (bad_id,),
         ).fetchone()
         if not row:
-            raise KeyError(device_id)
+            raise KeyError(bad_id)
         return self._parse_meta(row["meta_json"])
 
     def _save_device_meta(
-        self, conn: CompatConnection, device_id: str, meta: dict[str, Any]
+        self, conn: CompatConnection, bad_id: str, meta: dict[str, Any]
     ) -> None:
         conn.execute(
-            "UPDATE devices SET meta_json = ? WHERE device_id = ?",
+            "UPDATE devices SET meta_json = ? WHERE bad_id = ?",
             (
                 _compact_json(meta),
-                device_id,
+                bad_id,
             ),
         )
 
-    def get_device_meta(self, device_id: str) -> Optional[dict[str, Any]]:
+    def get_device_meta(self, bad_id: str) -> Optional[dict[str, Any]]:
         with self.connection() as conn:
             row = conn.execute(
-                "SELECT meta_json FROM devices WHERE device_id = ?",
-                (device_id,),
+                "SELECT meta_json FROM devices WHERE bad_id = ?",
+                (bad_id,),
             ).fetchone()
         if not row:
             return None
@@ -579,19 +575,18 @@ class Database:
         if query:
             like = f"%{query}%"
             clauses.append(
-                "(hostname ILIKE ? OR device_id ILIKE ? OR bad_id ILIKE ? "
+                "(hostname ILIKE ? OR bad_id ILIKE ? "
                 "OR COALESCE(meta_json, '') ILIKE ? "
                 "OR COALESCE(tags_json, '') ILIKE ?)"
             )
-            params.extend([like, like, like, like, like])
+            params.extend([like, like, like, like])
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         return where, params
 
     @staticmethod
     def _device_row_dict(row: Any) -> dict[str, Any]:
         return {
-            "device_id": row["device_id"],
-            "bad_id": row["bad_id"] if row["bad_id"] else None,
+            "bad_id": row["bad_id"],
             "hostname": row["hostname"],
             "enrolled_at": row["enrolled_at"],
             "last_seen_at": row["last_seen_at"],
@@ -607,7 +602,7 @@ class Database:
 
     def update_heartbeat(
         self,
-        device_id: str,
+        bad_id: str,
         agent_version: Optional[str],
         last_inventory_at: Optional[str] = None,
         health: Optional[dict[str, Any]] = None,
@@ -626,7 +621,7 @@ class Database:
         with self.connection() as conn:
             meta = None
             if touch_meta:
-                meta = self._lock_device_meta(conn, device_id)
+                meta = self._lock_device_meta(conn, bad_id)
                 if last_inventory_at:
                     meta["last_inventory_at"] = last_inventory_at
                 meta.update(health)
@@ -645,16 +640,16 @@ class Database:
                 UPDATE devices
                 SET last_seen_at = ?,
                     agent_version = COALESCE(?, agent_version)
-                WHERE device_id = ?
+                WHERE bad_id = ?
                 """,
-                (now, agent_version, device_id),
+                (now, agent_version, bad_id),
             )
             if meta is not None:
-                self._save_device_meta(conn, device_id, meta)
+                self._save_device_meta(conn, bad_id, meta)
 
     def store_inventory(
         self,
-        device_id: str,
+        bad_id: str,
         schema_version: int,
         payload: dict[str, Any],
         hostname: Optional[str],
@@ -667,12 +662,12 @@ class Database:
         now = utc_now()
         payload_json = _compact_json(payload)
         with self.connection() as conn:
-            prev_row = self._latest_snapshot_row(conn, device_id)
+            prev_row = self._latest_snapshot_row(conn, bad_id)
             previous = (
                 self._snapshot_payload(prev_row["payload_json"]) if prev_row else None
             )
 
-            merged_meta = self._lock_device_meta(conn, device_id)
+            merged_meta = self._lock_device_meta(conn, bad_id)
             merged_meta.update(meta or {})
             users_block = (
                 payload.get("users")
@@ -692,18 +687,18 @@ class Database:
                     last_seen_at = ?,
                     agent_version = COALESCE(?, agent_version),
                     meta_json = ?
-                WHERE device_id = ?
+                WHERE bad_id = ?
                 """,
-                (hostname, now, agent_version, meta_json, device_id),
+                (hostname, now, agent_version, meta_json, bad_id),
             )
             cur = conn.execute(
                 """
                 INSERT INTO inventory_snapshots(
-                  device_id, received_at, schema_version, payload_json
+                  bad_id, received_at, schema_version, payload_json
                 ) VALUES (?, ?, ?, ?)
                 RETURNING id
                 """,
-                (device_id, now, schema_version, payload_json),
+                (bad_id, now, schema_version, payload_json),
             )
             row = cur.fetchone()
             snapshot_id = int(row["id"] if row else 0)
@@ -713,7 +708,7 @@ class Database:
                 detail = event.get("detail")
                 self._insert_device_event(
                     conn,
-                    device_id,
+                    bad_id,
                     event["type"],
                     event["summary"],
                     _compact_json(detail if detail is not None else {}),
@@ -724,98 +719,24 @@ class Database:
             conn.execute(
                 """
                 DELETE FROM inventory_snapshots
-                WHERE device_id = ?
+                WHERE bad_id = ?
                   AND id NOT IN (
                     SELECT id FROM inventory_snapshots
-                    WHERE device_id = ?
+                    WHERE bad_id = ?
                     ORDER BY received_at DESC, id DESC
                     LIMIT ?
                   )
                 """,
-                (device_id, device_id, retention),
+                (bad_id, bad_id, retention),
             )
             return {"snapshot_id": snapshot_id, "events": events}
 
-    def latest_snapshot_payload(self, device_id: str) -> Optional[dict[str, Any]]:
+    def latest_snapshot_payload(self, bad_id: str) -> Optional[dict[str, Any]]:
         with self.connection() as conn:
-            row = self._latest_snapshot_row(conn, device_id)
+            row = self._latest_snapshot_row(conn, bad_id)
         if not row:
             return None
         return self._snapshot_payload(row["payload_json"])
-
-    def insert_clone_device(
-        self,
-        device_id: str,
-        hostname: Optional[str],
-        api_key_hash: str,
-        api_key_lookup: Optional[str],
-        agent_version: Optional[str],
-        signing_pubkey: Optional[str],
-        signing_key_fingerprint: Optional[str],
-        split_from: str,
-    ) -> None:
-        """Вторая карточка клона: свой id и ключ, тот же ключ подписи, без снимков."""
-        from .bad_id import bad_id_for_device, ensure_bad_id_key
-
-        bad_id = bad_id_for_device(device_id, ensure_bad_id_key(self))
-        now = utc_now()
-        meta_json = _compact_json({"split_from": split_from})
-        with self.connection() as conn:
-            dup = conn.execute(
-                "SELECT device_id FROM devices WHERE bad_id = ?",
-                (bad_id,),
-            ).fetchone()
-            if dup:
-                raise ValueError("bad_id_collision")
-            conn.execute(
-                """
-                INSERT INTO devices(
-                  device_id, bad_id, hostname, api_key_hash, api_key_lookup,
-                  enrolled_at, last_seen_at, agent_version, meta_json,
-                  revoked, archived, signing_pubkey, signing_key_fingerprint
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
-                """,
-                (
-                    device_id,
-                    bad_id,
-                    hostname,
-                    api_key_hash,
-                    api_key_lookup,
-                    now,
-                    now,
-                    agent_version,
-                    meta_json,
-                    signing_pubkey,
-                    signing_key_fingerprint,
-                ),
-            )
-
-    def find_clone_split_device(self, split_from: str, smbios_uuid: str) -> Optional[str]:
-        """Строка, уже отделённая от split_from с тем же UUID снимка."""
-        with self.connection() as conn:
-            rows = conn.execute(
-                """
-                SELECT device_id, meta_json FROM devices
-                WHERE meta_json LIKE ?
-                """,
-                ('%"split_from"%',),
-            ).fetchall()
-        for row in rows:
-            meta = self._parse_meta(row["meta_json"])
-            if meta.get("split_from") != split_from:
-                continue
-            payload = self.latest_snapshot_payload(str(row["device_id"]))
-            hardware = (
-                payload.get("hardware")
-                if isinstance(payload, dict) and isinstance(payload.get("hardware"), dict)
-                else None
-            )
-            found = self.normalize_smbios_uuid(
-                hardware.get("smbios_uuid") if hardware else None
-            )
-            if found == smbios_uuid:
-                return str(row["device_id"])
-        return None
 
     def list_devices(
         self,
@@ -830,7 +751,7 @@ class Database:
             tag=tag, archived=archived, q=q
         )
         sql = f"""
-            SELECT device_id, bad_id, hostname, enrolled_at, last_seen_at,
+            SELECT bad_id, hostname, enrolled_at, last_seen_at,
                    agent_version, meta_json, tags_json, revoked, archived,
                    shared_exchange_at
             FROM devices
@@ -890,17 +811,16 @@ class Database:
         # meta_json уже содержит disk/monitor/ram serials после свежего inventory;
         # payload_json — запасной путь для старых снимков до обновления meta.
         sql = """
-            SELECT device_id, bad_id, hostname, enrolled_at, last_seen_at,
+            SELECT bad_id, hostname, enrolled_at, last_seen_at,
                    agent_version, meta_json, tags_json, revoked, archived
             FROM devices
             WHERE hostname ILIKE ?
-               OR device_id ILIKE ?
                OR bad_id ILIKE ?
                OR COALESCE(meta_json, '') ILIKE ?
                OR COALESCE(tags_json, '') ILIKE ?
                OR EXISTS (
                     SELECT 1 FROM inventory_snapshots s
-                    WHERE s.device_id = devices.device_id
+                    WHERE s.bad_id = devices.bad_id
                       AND s.payload_json ILIKE ?
                )
             ORDER BY COALESCE(last_seen_at, enrolled_at) DESC NULLS LAST
@@ -908,16 +828,16 @@ class Database:
         """
         with self.connection() as conn:
             rows = conn.execute(
-                sql, (like, like, like, like, like, like, cap)
+                sql, (like, like, like, like, like, cap)
             ).fetchall()
         return [self._device_row_dict(row) for row in rows]
 
     def get_device_event(self, event_id: int) -> Optional[dict[str, Any]]:
         sql = """
-            SELECT e.id, e.device_id, e.type, e.summary, e.detail_json,
+            SELECT e.id, e.bad_id, e.type, e.summary, e.detail_json,
                    e.created_at, d.hostname
             FROM device_events e
-            LEFT JOIN devices d ON d.device_id = e.device_id
+            LEFT JOIN devices d ON d.bad_id = e.bad_id
             WHERE e.id = ?
         """
         with self.connection() as conn:
@@ -935,7 +855,7 @@ class Database:
                     seen[key] = tag
         return sorted(seen.values(), key=str.casefold)
 
-    def set_device_tags(self, device_id: str, tags: Any) -> list[str]:
+    def set_device_tags(self, bad_id: str, tags: Any) -> list[str]:
         """Нормализовать и сохранить tags. Единая точка записи для очистки тегов."""
         from .device_health import normalize_tags
 
@@ -943,17 +863,17 @@ class Database:
         payload = _compact_json(clean)
         with self.connection() as conn:
             cur = conn.execute(
-                "UPDATE devices SET tags_json = ? WHERE device_id = ?",
-                (payload, device_id),
+                "UPDATE devices SET tags_json = ? WHERE bad_id = ?",
+                (payload, bad_id),
             )
             if cur.rowcount == 0:
-                raise KeyError(device_id)
+                raise KeyError(bad_id)
         return clean
 
     def _event_list_filters(
         self,
         *,
-        device_id: Optional[str],
+        bad_id: Optional[str],
         q: Optional[str],
         importance: Optional[str],
         event_type: Optional[str] = None,
@@ -964,9 +884,9 @@ class Database:
 
         clauses: list[str] = []
         params: list[Any] = []
-        if device_id:
-            clauses.append("e.device_id = ?")
-            params.append(device_id)
+        if bad_id:
+            clauses.append("e.bad_id = ?")
+            params.append(bad_id)
         imp = (importance or "").strip().casefold()
         if imp and imp != "all":
             types = sorted(types_at_least(imp))
@@ -986,7 +906,7 @@ class Database:
             like = f"%{query}%"
             clauses.append(
                 "(e.summary ILIKE ? OR e.type ILIKE ? OR d.hostname ILIKE ? "
-                "OR e.device_id ILIKE ?)"
+                "OR e.bad_id ILIKE ?)"
             )
             params.extend([like, like, like, like])
         et = (event_type or "").strip()
@@ -1007,7 +927,7 @@ class Database:
     def list_device_events(
         self,
         *,
-        device_id: Optional[str] = None,
+        bad_id: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
         q: Optional[str] = None,
@@ -1021,13 +941,13 @@ class Database:
         offset = max(0, int(offset))
         detail_col = ", e.detail_json" if include_detail else ""
         sql = f"""
-            SELECT e.id, e.device_id, e.type, e.summary, e.created_at,
+            SELECT e.id, e.bad_id, e.type, e.summary, e.created_at,
                    d.hostname{detail_col}
             FROM device_events e
-            LEFT JOIN devices d ON d.device_id = e.device_id
+            LEFT JOIN devices d ON d.bad_id = e.bad_id
         """
         where, params = self._event_list_filters(
-            device_id=device_id,
+            bad_id=bad_id,
             q=q,
             importance=importance,
             event_type=event_type,
@@ -1044,10 +964,10 @@ class Database:
     def list_unmailed_device_events(self, limit: int = 5000) -> list[dict[str, Any]]:
         limit = max(1, min(int(limit), 5000))
         sql = """
-            SELECT e.id, e.device_id, e.type, e.summary, e.detail_json,
+            SELECT e.id, e.bad_id, e.type, e.summary, e.detail_json,
                    e.created_at, d.hostname
             FROM device_events e
-            LEFT JOIN devices d ON d.device_id = e.device_id
+            LEFT JOIN devices d ON d.bad_id = e.bad_id
             WHERE e.mailed_at IS NULL
             ORDER BY e.created_at ASC, e.id ASC
             LIMIT ?
@@ -1058,7 +978,7 @@ class Database:
 
     def insert_device_event(
         self,
-        device_id: str,
+        bad_id: str,
         event_type: str,
         summary: str,
         detail: Optional[dict[str, Any]] = None,
@@ -1067,7 +987,7 @@ class Database:
         with self.connection() as conn:
             self._insert_device_event(
                 conn,
-                device_id,
+                bad_id,
                 event_type,
                 summary,
                 _compact_json(detail if detail is not None else {}),
@@ -1077,7 +997,7 @@ class Database:
     def _insert_device_event(
         self,
         conn: CompatConnection,
-        device_id: str,
+        bad_id: str,
         event_type: str,
         summary: str,
         detail_json: str,
@@ -1086,21 +1006,21 @@ class Database:
         conn.execute(
             """
             INSERT INTO device_events(
-              device_id, type, summary, detail_json, created_at
+              bad_id, type, summary, detail_json, created_at
             ) VALUES (?, ?, ?, ?, ?)
             """,
-            (device_id, event_type, summary, detail_json, created_at),
+            (bad_id, event_type, summary, detail_json, created_at),
         )
 
-    def _latest_snapshot_row(self, conn: CompatConnection, device_id: str) -> Any:
+    def _latest_snapshot_row(self, conn: CompatConnection, bad_id: str) -> Any:
         return conn.execute(
             """
             SELECT payload_json FROM inventory_snapshots
-            WHERE device_id = ?
+            WHERE bad_id = ?
             ORDER BY received_at DESC, id DESC
             LIMIT 1
             """,
-            (device_id,),
+            (bad_id,),
         ).fetchone()
 
     @staticmethod
@@ -1121,7 +1041,7 @@ class Database:
         for row in rows:
             entry: dict[str, Any] = {
                 "id": row["id"],
-                "device_id": row["device_id"],
+                "bad_id": row["bad_id"],
                 "hostname": row["hostname"],
                 "type": row["type"],
                 "summary": row["summary"],
@@ -1215,7 +1135,7 @@ class Database:
     def count_device_events(
         self,
         *,
-        device_id: Optional[str] = None,
+        bad_id: Optional[str] = None,
         q: Optional[str] = None,
         importance: Optional[str] = None,
         event_type: Optional[str] = None,
@@ -1225,10 +1145,10 @@ class Database:
         sql = """
             SELECT COUNT(*) AS c
             FROM device_events e
-            LEFT JOIN devices d ON d.device_id = e.device_id
+            LEFT JOIN devices d ON d.bad_id = e.bad_id
         """
         where, params = self._event_list_filters(
-            device_id=device_id,
+            bad_id=bad_id,
             q=q,
             importance=importance,
             event_type=event_type,
@@ -1272,10 +1192,10 @@ class Database:
             row = conn.execute(sql, params).fetchone()
         return int(row["c"] if row else 0)
 
-    def get_device_detail(self, device_id: str) -> Optional[dict[str, Any]]:
+    def get_device_detail(self, bad_id: str) -> Optional[dict[str, Any]]:
         with self.connection() as conn:
             device = conn.execute(
-                "SELECT * FROM devices WHERE device_id = ?", (device_id,)
+                "SELECT * FROM devices WHERE bad_id = ?", (bad_id,)
             ).fetchone()
             if not device:
                 return None
@@ -1283,11 +1203,11 @@ class Database:
                 """
                 SELECT id, received_at, schema_version, payload_json
                 FROM inventory_snapshots
-                WHERE device_id = ?
+                WHERE bad_id = ?
                 ORDER BY received_at DESC, id DESC
                 LIMIT 1
                 """,
-                (device_id,),
+                (bad_id,),
             ).fetchone()
         meta = self._parse_meta(device["meta_json"])
         inventory = None
@@ -1330,8 +1250,7 @@ class Database:
         if not disk_serials:
             disk_serials = list(from_meta.get("disk_serials") or [])
         return {
-            "device_id": device["device_id"],
-            "bad_id": device["bad_id"] if device.get("bad_id") else None,
+            "bad_id": device["bad_id"],
             "hostname": device["hostname"],
             "enrolled_at": device["enrolled_at"],
             "last_seen_at": device["last_seen_at"],
@@ -1871,11 +1790,11 @@ class Database:
             return cur.rowcount > 0
 
     def list_device_config_overrides_map(self) -> dict[str, dict[str, Any]]:
-        """device_id → settings dict (для batch drift без N запросов)."""
+        """bad_id → settings dict (для batch drift без N запросов)."""
         out: dict[str, dict[str, Any]] = {}
         with self.connection() as conn:
             rows = conn.execute(
-                "SELECT device_id, settings_json FROM device_config_overrides"
+                "SELECT bad_id, settings_json FROM device_config_overrides"
             ).fetchall()
         for row in rows:
             try:
@@ -1883,17 +1802,17 @@ class Database:
             except json.JSONDecodeError:
                 settings = {}
             if isinstance(settings, dict):
-                out[str(row["device_id"])] = settings
+                out[str(row["bad_id"])] = settings
         return out
 
-    def get_device_config_override(self, device_id: str) -> Optional[dict[str, Any]]:
+    def get_device_config_override(self, bad_id: str) -> Optional[dict[str, Any]]:
         with self.connection() as conn:
             row = conn.execute(
                 """
-                SELECT device_id, settings_json, updated_at
-                FROM device_config_overrides WHERE device_id = ?
+                SELECT bad_id, settings_json, updated_at
+                FROM device_config_overrides WHERE bad_id = ?
                 """,
-                (device_id,),
+                (bad_id,),
             ).fetchone()
         if not row:
             return None
@@ -1902,56 +1821,56 @@ class Database:
         except json.JSONDecodeError:
             settings = {}
         return {
-            "device_id": row["device_id"],
+            "bad_id": row["bad_id"],
             "settings": settings if isinstance(settings, dict) else {},
             "updated_at": row["updated_at"],
         }
 
     def set_device_config_override(
-        self, device_id: str, settings: dict[str, Any]
+        self, bad_id: str, settings: dict[str, Any]
     ) -> dict[str, Any]:
         now = utc_now()
         payload = _compact_json(settings)
         with self.connection() as conn:
             exists = conn.execute(
-                "SELECT device_id FROM devices WHERE device_id = ?", (device_id,)
+                "SELECT bad_id FROM devices WHERE bad_id = ?", (bad_id,)
             ).fetchone()
             if not exists:
-                raise KeyError(device_id)
+                raise KeyError(bad_id)
             conn.execute(
                 """
-                INSERT INTO device_config_overrides(device_id, settings_json, updated_at)
+                INSERT INTO device_config_overrides(bad_id, settings_json, updated_at)
                 VALUES (?, ?, ?)
-                ON CONFLICT(device_id) DO UPDATE SET
+                ON CONFLICT(bad_id) DO UPDATE SET
                   settings_json = excluded.settings_json,
                   updated_at = excluded.updated_at
                 """,
-                (device_id, payload, now),
+                (bad_id, payload, now),
             )
-        override = self.get_device_config_override(device_id)
+        override = self.get_device_config_override(bad_id)
         assert override is not None
         return override
 
-    def delete_device_config_override(self, device_id: str) -> bool:
+    def delete_device_config_override(self, bad_id: str) -> bool:
         with self.connection() as conn:
             cur = conn.execute(
-                "DELETE FROM device_config_overrides WHERE device_id = ?",
-                (device_id,),
+                "DELETE FROM device_config_overrides WHERE bad_id = ?",
+                (bad_id,),
             )
             return cur.rowcount > 0
 
-    def latest_inventory_payload(self, device_id: str) -> Optional[dict[str, Any]]:
+    def latest_inventory_payload(self, bad_id: str) -> Optional[dict[str, Any]]:
         with self.connection() as conn:
-            snap = self._latest_snapshot_row(conn, device_id)
+            snap = self._latest_snapshot_row(conn, bad_id)
         if not snap:
             return None
         return self._snapshot_payload(snap["payload_json"])
 
     def latest_inventory_payloads(
-        self, device_ids: list[str], *, cap: int = 500
+        self, bad_ids: list[str], *, cap: int = 500
     ) -> dict[str, dict[str, Any]]:
-        """Latest inventory payload по device_id (один проход, cap для Дашборда D4/D5)."""
-        ids = [d for d in device_ids if d][: max(0, int(cap))]
+        """Latest inventory payload по bad_id (один проход, cap для Дашборда D4/D5)."""
+        ids = [d for d in bad_ids if d][: max(0, int(cap))]
         if not ids:
             return {}
         out: dict[str, dict[str, Any]] = {}
@@ -1960,10 +1879,10 @@ class Database:
             # Postgres: DISTINCT ON; CompatConnection прокидывает как есть.
             rows = conn.execute(
                 f"""
-                SELECT DISTINCT ON (device_id) device_id, payload_json
+                SELECT DISTINCT ON (bad_id) bad_id, payload_json
                 FROM inventory_snapshots
-                WHERE device_id IN ({placeholders})
-                ORDER BY device_id, received_at DESC, id DESC
+                WHERE bad_id IN ({placeholders})
+                ORDER BY bad_id, received_at DESC, id DESC
                 """,
                 tuple(ids),
             ).fetchall()
@@ -1973,26 +1892,26 @@ class Database:
             except (TypeError, json.JSONDecodeError):
                 continue
             if isinstance(payload, dict):
-                out[str(row["device_id"])] = payload
+                out[str(row["bad_id"])] = payload
         return out
 
     def compute_device_effective_config(
-        self, device_id: str, *, use_inventory: bool = True
+        self, bad_id: str, *, use_inventory: bool = True
     ) -> Optional[dict[str, Any]]:
         from .agent_config import compute_effective_config, provenance_from_effective
 
         with self.connection() as conn:
             device = conn.execute(
-                "SELECT * FROM devices WHERE device_id = ?", (device_id,)
+                "SELECT * FROM devices WHERE bad_id = ?", (bad_id,)
             ).fetchone()
         if not device:
             return None
-        override_row = self.get_device_config_override(device_id)
+        override_row = self.get_device_config_override(bad_id)
         override = override_row["settings"] if override_row else None
         tags = self._parse_tags(device["tags_json"])
         meta = self._parse_meta(device["meta_json"])
         inventory = (
-            self.latest_inventory_payload(device_id) if use_inventory else None
+            self.latest_inventory_payload(bad_id) if use_inventory else None
         )
         result = compute_effective_config(
             hostname=device["hostname"],
@@ -2002,29 +1921,29 @@ class Database:
             policies=self.list_agent_policies(),
             override=override,
         )
-        result["device_id"] = device_id
+        result["bad_id"] = bad_id
         result["override"] = override_row
         result.update(provenance_from_effective(result, meta=meta))
         return result
 
     # --- жизненный цикл устройства (revoke / archive / delete) ---
 
-    def _set_device_flag(self, device_id: str, column: str, value: bool) -> bool:
+    def _set_device_flag(self, bad_id: str, column: str, value: bool) -> bool:
         if column not in {"revoked", "archived"}:
             raise ValueError(f"unsupported device flag: {column}")
         with self.connection() as conn:
             cur = conn.execute(
-                f"UPDATE devices SET {column} = ? WHERE device_id = ?",
-                (1 if value else 0, device_id),
+                f"UPDATE devices SET {column} = ? WHERE bad_id = ?",
+                (1 if value else 0, bad_id),
             )
             return cur.rowcount > 0
 
-    def set_device_revoked(self, device_id: str, revoked: bool) -> bool:
-        return self._set_device_flag(device_id, "revoked", revoked)
+    def set_device_revoked(self, bad_id: str, revoked: bool) -> bool:
+        return self._set_device_flag(bad_id, "revoked", revoked)
 
     def rotate_device_api_key(
         self,
-        device_id: str,
+        bad_id: str,
         api_key_hash: str,
         *,
         api_key_lookup: Optional[str] = None,
@@ -2034,33 +1953,33 @@ class Database:
                 """
                 UPDATE devices
                 SET api_key_hash = ?, api_key_lookup = ?, revoked = 0
-                WHERE device_id = ?
+                WHERE bad_id = ?
                 """,
-                (api_key_hash, api_key_lookup, device_id),
+                (api_key_hash, api_key_lookup, bad_id),
             )
             return cur.rowcount > 0
 
-    def set_device_archived(self, device_id: str, archived: bool) -> bool:
-        return self._set_device_flag(device_id, "archived", archived)
+    def set_device_archived(self, bad_id: str, archived: bool) -> bool:
+        return self._set_device_flag(bad_id, "archived", archived)
 
-    def delete_device(self, device_id: str) -> bool:
+    def delete_device(self, bad_id: str) -> bool:
         """Жёстко удалить device и связанные строки (snapshots + cascades)."""
         with self.connection() as conn:
             exists = conn.execute(
-                "SELECT device_id FROM devices WHERE device_id = ?", (device_id,)
+                "SELECT bad_id FROM devices WHERE bad_id = ?", (bad_id,)
             ).fetchone()
             if not exists:
                 return False
             conn.execute(
-                "DELETE FROM inventory_snapshots WHERE device_id = ?", (device_id,)
+                "DELETE FROM inventory_snapshots WHERE bad_id = ?", (bad_id,)
             )
             conn.execute(
-                "DELETE FROM device_events WHERE device_id = ?", (device_id,)
+                "DELETE FROM device_events WHERE bad_id = ?", (bad_id,)
             )
             conn.execute(
-                "DELETE FROM device_config_overrides WHERE device_id = ?", (device_id,)
+                "DELETE FROM device_config_overrides WHERE bad_id = ?", (bad_id,)
             )
-            conn.execute("DELETE FROM devices WHERE device_id = ?", (device_id,))
+            conn.execute("DELETE FROM devices WHERE bad_id = ?", (bad_id,))
             return True
 
     # Placeholder serials (как CleanWmiString у агента) — не сигналы «та же машина».
@@ -2308,7 +2227,7 @@ class Database:
         return out
 
     def _identity_signals_enriched(
-        self, device_id: str, meta: dict[str, Any]
+        self, bad_id: str, meta: dict[str, Any]
     ) -> dict[str, Any]:
         """meta + при пробелах — последний inventory (для старых снимков без кэша)."""
         signals = self.extract_identity_signals(meta=meta)
@@ -2321,7 +2240,7 @@ class Database:
             need_inv = True
         if not need_inv:
             return signals
-        detail = self.get_device_detail(device_id)
+        detail = self.get_device_detail(bad_id)
         if not detail:
             return signals
         payload = (detail.get("latest_inventory") or {}).get("payload")
@@ -2359,12 +2278,12 @@ class Database:
             devices if devices is not None else self.list_devices(archived=None)
         )
         for d in device_rows:
-            device_id = d["device_id"]
+            bad_id = d["bad_id"]
             meta = d.get("meta") if isinstance(d.get("meta"), dict) else {}
             if meta_only:
                 signals = self.extract_identity_signals(meta=meta)
             else:
-                signals = self._identity_signals_enriched(device_id, meta)
+                signals = self._identity_signals_enriched(bad_id, meta)
             hostname = (d.get("hostname") or "").strip()
             host_key = hostname.casefold() if hostname else ""
             scalar_keys = {
@@ -2378,7 +2297,7 @@ class Database:
                 s.casefold() for s in (signals.get("disk_serials") or []) if s
             ]
             row = {
-                "device_id": device_id,
+                "bad_id": bad_id,
                 "hostname": d.get("hostname"),
                 "archived": d.get("archived"),
                 "signals": signals,
@@ -2388,16 +2307,16 @@ class Database:
             }
             rows.append(row)
             if host_key:
-                by_host.setdefault(host_key, []).append(device_id)
+                by_host.setdefault(host_key, []).append(bad_id)
             for key, value in scalar_keys.items():
                 if value:
-                    by_scalar[key].setdefault(value, []).append(device_id)
+                    by_scalar[key].setdefault(value, []).append(bad_id)
             for disk_key in disk_keys:
-                by_disk.setdefault(disk_key, []).append(device_id)
+                by_disk.setdefault(disk_key, []).append(bad_id)
 
         device_signals: dict[str, dict[str, Any]] = {}
         for row in rows:
-            did = row["device_id"]
+            did = row["bad_id"]
             flags: dict[str, bool] = {
                 "hostname": bool(
                     row["host_key"] and len(by_host.get(row["host_key"], [])) > 1
@@ -2433,7 +2352,7 @@ class Database:
             "device_signals": device_signals,
         }
 
-    def find_duplicate_devices(self, device_id: str) -> dict[str, list[dict[str, Any]]]:
+    def find_duplicate_devices(self, bad_id: str) -> dict[str, list[dict[str, Any]]]:
         """Другие устройства с совпавшим hostname / hardware id.
 
         Сигналы «та же железка», не PK. Автослияния нет.
@@ -2449,7 +2368,7 @@ class Database:
             "baseboard_serial": [],
             "disk_serial_number": [],
         }
-        detail = self.get_device_detail(device_id)
+        detail = self.get_device_detail(bad_id)
         if not detail:
             return empty
         payload = (detail.get("latest_inventory") or {}).get("payload")
@@ -2465,7 +2384,7 @@ class Database:
         buckets: dict[str, list[dict[str, Any]]] = {k: [] for k in empty}
 
         for other in self.list_devices(archived=None):
-            if other["device_id"] == device_id:
+            if other["bad_id"] == bad_id:
                 continue
             other_meta = other.get("meta") if isinstance(other.get("meta"), dict) else {}
             other_signals = self.extract_identity_signals(meta=other_meta)
@@ -2473,7 +2392,7 @@ class Database:
             merge_matched = self.merge_identity_matched(signals, other_signals)
 
             base = {
-                "device_id": other["device_id"],
+                "bad_id": other["bad_id"],
                 "hostname": other["hostname"],
                 "archived": other.get("archived"),
                 "merge_matched": list(merge_matched),
@@ -2584,13 +2503,13 @@ class Database:
         with self.connection() as conn:
             # Повторная проверка существования внутри транзакции (TOCTOU).
             s_row = conn.execute(
-                "SELECT device_id FROM devices WHERE device_id = ?",
+                "SELECT bad_id FROM devices WHERE bad_id = ?",
                 (survivor_id,),
             ).fetchone()
             d_row = conn.execute(
                 """
-                SELECT device_id, hostname, last_seen_at, archived
-                FROM devices WHERE device_id = ?
+                SELECT bad_id, hostname, last_seen_at, archived
+                FROM devices WHERE bad_id = ?
                 """,
                 (donor_id,),
             ).fetchone()
@@ -2602,16 +2521,16 @@ class Database:
             snap_cur = conn.execute(
                 """
                 UPDATE inventory_snapshots
-                SET device_id = ?
-                WHERE device_id = ?
+                SET bad_id = ?
+                WHERE bad_id = ?
                 """,
                 (survivor_id, donor_id),
             )
             ev_cur = conn.execute(
                 """
                 UPDATE device_events
-                SET device_id = ?
-                WHERE device_id = ?
+                SET bad_id = ?
+                WHERE bad_id = ?
                 """,
                 (survivor_id, donor_id),
             )
@@ -2620,7 +2539,7 @@ class Database:
                 """
                 UPDATE devices
                 SET archived = 1, revoked = 1, api_key_lookup = NULL
-                WHERE device_id = ?
+                WHERE bad_id = ?
                 """,
                 (donor_id,),
             )
@@ -2711,10 +2630,10 @@ class Database:
         with self.connection() as conn:
             rows = conn.execute(
                 f"""
-                SELECT e.id, e.device_id, e.type, e.summary, e.detail_json,
+                SELECT e.id, e.bad_id, e.type, e.summary, e.detail_json,
                        e.created_at, d.hostname
                 FROM device_events e
-                LEFT JOIN devices d ON d.device_id = e.device_id
+                LEFT JOIN devices d ON d.bad_id = e.bad_id
                 WHERE e.type IN ({placeholders})
                 ORDER BY e.created_at DESC, e.id DESC
                 LIMIT 16
@@ -2749,7 +2668,7 @@ class Database:
     ) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for d in self.list_devices(tag=tag, archived=archived, q=q):
-            detail = self.get_device_detail(d["device_id"]) or d
+            detail = self.get_device_detail(d["bad_id"]) or d
             inv = (detail.get("latest_inventory") or {}).get("payload") or {}
             hw = inv.get("hardware") if isinstance(inv, dict) else {}
             if not isinstance(hw, dict):
@@ -2760,7 +2679,7 @@ class Database:
             cpu = hw.get("cpu") if isinstance(hw.get("cpu"), dict) else {}
             rows.append(
                 {
-                    "device_id": d["device_id"],
+                    "bad_id": d["bad_id"],
                     "hostname": d.get("hostname") or "",
                     "tags": ",".join(d.get("tags") or []),
                     "agent_version": d.get("agent_version") or "",
@@ -2840,7 +2759,7 @@ class Database:
                 SELECT s.id FROM inventory_snapshots s
                 WHERE s.id = (
                   SELECT s2.id FROM inventory_snapshots s2
-                  WHERE s2.device_id = s.device_id
+                  WHERE s2.bad_id = s.bad_id
                   ORDER BY s2.received_at DESC, s2.id DESC
                   LIMIT 1
                 )
@@ -3022,10 +2941,10 @@ class Database:
                 params,
             )
 
-    def patch_device_meta(self, device_id: str, updates: dict[str, Any]) -> None:
+    def patch_device_meta(self, bad_id: str, updates: dict[str, Any]) -> None:
         with self.connection() as conn:
             try:
-                meta = self._lock_device_meta(conn, device_id)
+                meta = self._lock_device_meta(conn, bad_id)
             except KeyError:
                 return
             for key, value in updates.items():
@@ -3033,7 +2952,7 @@ class Database:
                     meta.pop(key, None)
                 else:
                     meta[key] = value
-            self._save_device_meta(conn, device_id, meta)
+            self._save_device_meta(conn, bad_id, meta)
 
     def _active_silence(
         self, stale_after_seconds: int
