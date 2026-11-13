@@ -2423,10 +2423,12 @@ def _approved_enrollment_rows(
         state = str(row.get("link_state") or "")
         fresh = not _stamp_older_than(row.get("link_at"), 360)
         downloading = state == "download" and fresh
+        complete = total > 0 and received >= total
         cubes: list[str] = []
         marked = False
         for index in range(count):
-            if received >= (index + 1) * _LINK_BLOCK:
+            last = index + 1 == count
+            if received >= (index + 1) * _LINK_BLOCK or (complete and last):
                 cubes.append("done")
             elif downloading and not marked:
                 cubes.append("download")

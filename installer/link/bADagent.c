@@ -1475,13 +1475,17 @@ static int apply_archive(const wchar_t *server, const char *api_key, const char 
         join_url(server, path, url, 1200);
     }
     if (!starts_https(url)) return 0;
-    write_link_status("скачивается");
-    if (!download_file(url, api_key, DOWNLOAD_PATH, server, &total)) return 0;
-    if (!sha256_file(DOWNLOAD_PATH, got, sizeof(got)) || !hex_eq(got, sha)) {
-        truncate_path(DOWNLOAD_PATH);
-        write_link_status("не сошлась контрольная сумма");
-        post_link_progress(server, api_key, 0, total, "error", "не сошлась контрольная сумма");
-        return 2;
+    if (sha256_file(DOWNLOAD_PATH, got, sizeof(got)) && hex_eq(got, sha)) {
+        total = path_len(DOWNLOAD_PATH);
+    } else {
+        write_link_status("скачивается");
+        if (!download_file(url, api_key, DOWNLOAD_PATH, server, &total)) return 0;
+        if (!sha256_file(DOWNLOAD_PATH, got, sizeof(got)) || !hex_eq(got, sha)) {
+            truncate_path(DOWNLOAD_PATH);
+            write_link_status("не сошлась контрольная сумма");
+            post_link_progress(server, api_key, 0, total, "error", "не сошлась контрольная сумма");
+            return 2;
+        }
     }
     if (!decrypt_arc(DOWNLOAD_PATH, password, zip)) {
         have = path_len(DOWNLOAD_PATH);
@@ -1504,7 +1508,6 @@ static int apply_archive(const wchar_t *server, const char *api_key, const char 
         post_link_progress(server, api_key, have, total, "error", "не распаковался архив");
         return 4;
     }
-    DeleteFileW(DOWNLOAD_PATH);
     return 1;
 }
 
@@ -1569,6 +1572,7 @@ static void work(void) {
             if (wait_ms(15000)) return;
             continue;
         }
+        DeleteFileW(DOWNLOAD_PATH);
         rename_programs_entry(arc_ver[0] ? arc_ver : arc_sha);
         spawn_restarter();
         return;
