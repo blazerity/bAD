@@ -2854,14 +2854,170 @@ button.copy-btn:focus-visible {
 .global-search-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.25);
-  backdrop-filter: blur(2px);
+  background: rgba(0, 0, 0, 1);
+  opacity: 0;
+  transition: opacity 180ms ease-out;
 }
 .global-search-dialog {
   position: relative;
-  width: min(36rem, 100%);
+  width: min(44rem, 100%);
+  height: min(78vh, 40rem);
+  max-height: min(78vh, 40rem);
   padding: 1rem 1.1rem 1.15rem;
   z-index: 1;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  opacity: 0;
+  transform: translateY(8px) scale(0.98);
+  transform-origin: top center;
+  transition: opacity 180ms ease-out, transform 180ms ease-out;
+}
+.global-search-dialog.is-open {
+  opacity: 1;
+  transform: none;
+}
+.global-search-short {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  opacity: 1;
+  transform: none;
+  transition: opacity 180ms ease-out, transform 180ms ease-out;
+  transform-origin: top center;
+}
+.global-search-short.is-hidden-panel {
+  opacity: 0;
+  transform: translateY(8px) scale(0.98);
+  pointer-events: none;
+  position: absolute;
+  width: calc(100% - 2.2rem);
+  visibility: hidden;
+}
+.global-search-expanded-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  min-height: 0;
+  flex: 1;
+  opacity: 0;
+  transform: translateY(8px) scale(0.98);
+  transform-origin: top center;
+  transition: opacity 180ms ease-out, transform 180ms ease-out;
+}
+.global-search-expanded-body.is-visible-panel {
+  opacity: 1;
+  transform: none;
+  position: static;
+  visibility: visible;
+  pointer-events: auto;
+}
+.global-search-expanded-body:not(.is-visible-panel) {
+  position: absolute;
+  width: calc(100% - 2.2rem);
+  visibility: hidden;
+  pointer-events: none;
+}
+.global-search-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+}
+.global-search-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.85rem;
+}
+.global-search-feed {
+  overflow: auto;
+  flex: 1;
+  min-height: 12rem;
+  max-height: min(52vh, 32rem);
+}
+.global-search-more {
+  margin-top: 0.65rem;
+  width: 100%;
+}
+.global-search-expanded-item .global-search-expanded-body-line {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.global-search-meta {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.panel-search-item mark,
+.global-search-feed mark {
+  animation: search-mark-in 140ms ease-out forwards;
+}
+@keyframes search-mark-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.devices-sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font: inherit;
+  color: inherit;
+  text-decoration: none;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.devices-sort-btn .icon {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+.devices-live-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+  font-size: 0.9rem;
+}
+tr.devices-live-in {
+  animation: devices-live-flash 200ms ease-out 1;
+}
+tr.devices-live-in td {
+  background: transparent;
+}
+@keyframes devices-live-flash {
+  from { background-color: var(--accent-soft); }
+  to { background-color: transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .global-search-backdrop,
+  .global-search-dialog,
+  .global-search-short,
+  .global-search-expanded-body {
+    transition: none;
+  }
+  .global-search-dialog.is-open {
+    opacity: 1;
+    transform: none;
+  }
+  .global-search-expanded-body.is-visible-panel {
+    opacity: 1;
+    transform: none;
+  }
+  .global-search-short:not(.is-hidden-panel) {
+    opacity: 1;
+    transform: none;
+  }
+  .panel-search-item mark,
+  .global-search-feed mark {
+    animation: none;
+    opacity: 1;
+  }
+  tr.devices-live-in {
+    animation: none;
+  }
 }
 .global-search-input { width: 100%; }
 .global-search-hint { margin: 0.5rem 0 0; font-size: 0.8rem; }

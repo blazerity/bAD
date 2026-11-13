@@ -5,13 +5,21 @@
 {% from "macros/chips.html" import filter_chip %}
 {% block title %}Устройства — bAD{% endblock %}
 {% block content %}
+{% set sort = sort|default('') %}
+{% set order = order|default('') %}
+{% macro devices_sort_link(col, label) %}
+{% set next_order = 'desc' if sort == col and order == 'asc' else 'asc' %}
+{% set base_href = '/devices' | pager_url(1, q=q, tag=tag_filter, wave=wave, archive=show_archive, os=os_filter, ram=ram_filter, disk=disk_filter, cpu=cpu_filter, cpu_vendor=cpu_vendor_filter, agent=agent_filter, fresh=fresh_filter, model=model_filter, chassis=chassis_filter, auth=auth) %}
+{% set joiner = '&' if '?' in base_href else '?' %}
+<a class="devices-sort-btn" href="{{ base_href }}{{ joiner }}sort={{ col }}&order={{ next_order }}" {% if sort == col %}aria-sort="{{ 'ascending' if order == 'asc' else 'descending' }}"{% else %}aria-sort="none"{% endif %}>{{ label }}{% if sort == col %} {{ icon('chevron-up' if order == 'asc' else 'chevron-down') }}{% endif %}</a>
+{% endmacro %}
 <section class="page devices-page">
   <header class="page-header">
     <h1 class="with-icon">{{ icon('devices') }}Устройства</h1>
-    <p class="page-lead muted">
+    <p class="page-lead muted" id="devices-page-lead">
       {% if show_archive %}Архив{% else %}Активные{% endif %}:
       {% if fleet_stats %}<span class="tnum">{{ fleet_stats.total_active }}</span> в парке · {% endif %}
-      показано {{ devices|length }} из {{ total }}
+      показано <span id="devices-shown-count" class="tnum">{{ devices|length }}</span> из <span id="devices-total-count" class="tnum">{{ total }}</span>
       {% if wave %}· фильтр: <span class="mono">{{ wave }}</span>{% endif %}
     </p>
     <p class="muted devices-catalog-line">
@@ -23,6 +31,10 @@
         <em>пока нет</em> — <a href="/settings/updates">загрузить</a>
       {% endif %}
     </p>
+    <label class="devices-live-toggle">
+      <input type="checkbox" data-devices-live-toggle>
+      Автообновление
+    </label>
   </header>
   {% if flash %}<p class="ok">{{ flash }}</p>{% endif %}
 
@@ -40,7 +52,7 @@
             data-live-skip data-devices-search>
         </div>
       </div>
-      <div id="devices-search-results" class="card-surface overview-search-hits devices-search-hits" hidden></div>
+      <div id="devices-search-results" class="card-surface overview-search-hits devices-search-hits" hidden aria-hidden="true"></div>
     </div>
   </div>
 
@@ -257,16 +269,16 @@
   <table class="devices devices-list devices-table-modern">
     <thead>
       <tr>
-        <th class="col-device-state">Состояние</th>
-        <th class="col-device-host">Устройство</th>
-        <th class="col-device-user">Пользователь</th>
-        <th class="col-device-model">Модель</th>
-        <th class="col-device-cpu">CPU</th>
-        <th class="col-device-ram">ОЗУ</th>
-        <th class="col-device-disk">Диск</th>
-        <th class="col-device-os">ОС</th>
-        <th class="col-device-ip">IP</th>
-        <th class="col-device-seen">Контакт</th>
+        <th class="col-device-state">{{ devices_sort_link('state', 'Состояние') }}</th>
+        <th class="col-device-host">{{ devices_sort_link('host', 'Устройство') }}</th>
+        <th class="col-device-user">{{ devices_sort_link('user', 'Пользователь') }}</th>
+        <th class="col-device-model">{{ devices_sort_link('model', 'Модель') }}</th>
+        <th class="col-device-cpu">{{ devices_sort_link('cpu', 'CPU') }}</th>
+        <th class="col-device-ram">{{ devices_sort_link('ram', 'ОЗУ') }}</th>
+        <th class="col-device-disk">{{ devices_sort_link('disk', 'Диск') }}</th>
+        <th class="col-device-os">{{ devices_sort_link('os', 'ОС') }}</th>
+        <th class="col-device-ip">{{ devices_sort_link('ip', 'IP') }}</th>
+        <th class="col-device-seen">{{ devices_sort_link('seen', 'Контакт') }}</th>
         <th class="col-chevron" aria-hidden="true"></th>
       </tr>
     </thead>
@@ -275,7 +287,7 @@
       {% set meta = d.meta if d.meta is mapping else {} %}
       {% set fresh = d.freshness or d.silence.status %}
       {% set os_line = d.os_display or meta.os_caption or meta.os or '—' %}
-      <tr class="table-row-link">
+      <tr class="table-row-link" data-bad-id="{{ d.bad_id }}">
         <td class="col-device-state">
           <span class="devices-state-inline">
             <span class="device-chassis-mini" aria-hidden="true">{{ icon(chassis_icon_name(d.chassis_type)) }}</span>
@@ -335,4 +347,5 @@
   </div>
 </section>
 <script src="/static/devices-search.js" defer></script>
+<script src="/static/devices-live.js" defer></script>
 {% endblock %}
