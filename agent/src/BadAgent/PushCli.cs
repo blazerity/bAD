@@ -243,7 +243,8 @@ public static class PushCli
                 return Fail();
             }
 
-            if (response?.Config?.Settings != null && ApplyRemoteConfig(config, response.Config))
+            if (response?.Config?.Settings != null
+                && ConfigStore.SaveRemoteConfigIfChanged(config, response.Config))
             {
                 outcome.Line("Конфиг", "применён", "ok");
             }
@@ -267,17 +268,6 @@ public static class PushCli
             outcome.ExitCode = 1;
             return outcome;
         }
-    }
-
-    private static bool ApplyRemoteConfig(AgentConfig config, RemoteAgentConfigResponse remote)
-    {
-        if (!ConfigStore.TakeRemoteConfig(config, remote))
-        {
-            return false;
-        }
-
-        ConfigStore.Save(config);
-        return true;
     }
 
     public static void PrintHelp()

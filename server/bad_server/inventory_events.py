@@ -238,8 +238,6 @@ def _volume_display_letter(vol: dict[str, Any], fallback_key: str = "") -> str:
 
 def _format_free_gib(free_bytes: int) -> str:
     gib = free_bytes / (1024**3)
-    if gib >= 100:
-        return f"{gib:.0f}"
     if gib >= 10:
         return f"{gib:.0f}"
     return f"{gib:.1f}"

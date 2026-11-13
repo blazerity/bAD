@@ -328,6 +328,7 @@ _CHASSIS_CAPTION = {
     "vm": "ВМ",
 }
 
+
 def _chassis_key(raw: object) -> str:
     key = str(raw or "").strip().casefold()
     return key if key in _CHASSIS_CAPTION else ""
@@ -533,8 +534,7 @@ def build_hardware_email(
     """Образец digest для тестовой отправки из настроек почты."""
     sample_groups = [
         {
-            "bad_id": bad_id,
-            "bad_id": "BAD-7A2B9C4D",
+            "bad_id": bad_id or "BAD-7A2B9C4D",
             "hostname": hostname or "WORKSTATION-01",
             "chassis_type": "desktop",
             "hardware_model": "Dell OptiPlex 7090 (пример)",
@@ -555,7 +555,6 @@ def build_hardware_email(
             ],
         },
         {
-            "bad_id": "sample-device-2",
             "bad_id": "BAD-3F8E5D6C",
             "hostname": "LAPTOP-02",
             "chassis_type": "laptop",

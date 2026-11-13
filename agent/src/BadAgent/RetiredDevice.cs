@@ -24,17 +24,6 @@ internal static class RetiredDevice
         File.WriteAllLines(Path, known);
     }
 
-    public static bool Blocks(string? badId)
-    {
-        if (string.IsNullOrWhiteSpace(badId))
-        {
-            return false;
-        }
-
-        var id = badId.Trim();
-        return Read().Any(item => string.Equals(item, id, StringComparison.OrdinalIgnoreCase));
-    }
-
     private static List<string> Read()
     {
         try

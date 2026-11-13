@@ -204,7 +204,7 @@ def ensure_bootstrap_secrets(db: Database, settings: Settings) -> tuple[str, str
     """Resolve session_secret + data_key from env/file first, DB only as legacy.
 
     New secrets are written outside the database when possible (SEC-005). A copy of
-    ``bad.db`` / daily backups must not be treated as safe if keys still live
+    the database / daily backups must not be treated as safe if keys still live
     only in ``site_secrets``.
     """
     env_session = (settings.session_secret or "").strip()

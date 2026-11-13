@@ -1,9 +1,18 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
+import json
 import secrets
 from typing import Optional
+
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+    Ed25519PrivateKey,
+    Ed25519PublicKey,
+)
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
@@ -51,11 +60,6 @@ def enrollment_code_hash(code: str) -> str:
 
 def new_device_signing_key() -> tuple[str, str, str]:
     """Ed25519 (private_b64, public_b64, sha256 fingerprint). Private key shown once."""
-    import base64
-
-    from cryptography.hazmat.primitives import serialization
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-
     private = Ed25519PrivateKey.generate()
     raw_private = private.private_bytes(
         encoding=serialization.Encoding.Raw,
@@ -75,8 +79,6 @@ def new_device_signing_key() -> tuple[str, str, str]:
 
 def inventory_signing_bytes(payload: dict) -> bytes:
     body = {key: value for key, value in payload.items() if key != "signature"}
-    import json
-
     return json.dumps(
         body, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     ).encode("utf-8")
@@ -85,11 +87,6 @@ def inventory_signing_bytes(payload: dict) -> bytes:
 def verify_inventory_signature(
     public_b64: str, payload: dict, signature_b64: str
 ) -> bool:
-    import base64
-
-    from cryptography.exceptions import InvalidSignature
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-
     try:
         public = Ed25519PublicKey.from_public_bytes(base64.b64decode(public_b64))
         public.verify(base64.b64decode(signature_b64), inventory_signing_bytes(payload))

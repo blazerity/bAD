@@ -393,6 +393,18 @@ public static class ConfigStore
         return changed;
     }
 
+    /// <summary><see cref="TakeRemoteConfig"/> и запись config.json при изменениях.</summary>
+    public static bool SaveRemoteConfigIfChanged(AgentConfig config, RemoteAgentConfigResponse remote)
+    {
+        if (!TakeRemoteConfig(config, remote))
+        {
+            return false;
+        }
+
+        Save(config);
+        return true;
+    }
+
     private static bool ApplyRemoteUpdateTarget(AgentConfig config, RemoteAgentSettings settings)
     {
         if (IsAgentLocalKey(config, "update_target"))

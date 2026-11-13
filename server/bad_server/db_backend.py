@@ -110,7 +110,7 @@ def _split_sql_statements(script: str) -> list[str]:
     return parts
 
 
-def connect_postgres(database_url: str) -> CompatConnection:
+def connect_postgres(database_url: str, *, autocommit: bool = False) -> CompatConnection:
     try:
         import psycopg
         from psycopg.rows import dict_row
@@ -118,7 +118,9 @@ def connect_postgres(database_url: str) -> CompatConnection:
         raise RuntimeError(
             "Postgres requires psycopg: pip install 'psycopg[binary]'"
         ) from exc
-    raw = psycopg.connect(database_url, row_factory=dict_row)
+    raw = psycopg.connect(
+        database_url, row_factory=dict_row, autocommit=autocommit
+    )
     return CompatConnection(raw)
 
 

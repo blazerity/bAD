@@ -270,7 +270,7 @@ public static class ConfigCli
         }
 
         var key = NormalizeKey(args[0]);
-        if (key is "api_key" or "enrollment_token" or "enrollment_code")
+        if (IsSecretKey(key))
         {
             CliColumns.Write("Ключ", "секрет CLI не печатает", "ошибка");
             return 2;
@@ -289,7 +289,7 @@ public static class ConfigCli
     {
         var outcome = new CliOutcome();
         key = NormalizeKey(key);
-        if (key is "api_key" or "enrollment_token" or "enrollment_code")
+        if (IsSecretKey(key))
         {
             outcome.Line("Ключ", "секрет CLI не печатает", "ошибка");
             outcome.ExitCode = 2;
@@ -399,7 +399,7 @@ public static class ConfigCli
             return 2;
         }
 
-        if (key is "api_key" or "enrollment_token" or "enrollment_code" || ForbiddenKeys.Contains(key))
+        if (IsCliSetForbidden(key))
         {
             // Не эхоить valueRaw — даже при попытке set секрета.
             CliColumns.Write(key, "запрещён для CLI, значение не принято", "ошибка");
@@ -427,7 +427,7 @@ public static class ConfigCli
             return outcome;
         }
 
-        if (key is "api_key" or "enrollment_token" or "enrollment_code" || ForbiddenKeys.Contains(key))
+        if (IsCliSetForbidden(key))
         {
             outcome.Line(key, "запрещён для CLI, значение не принято", "ошибка");
             outcome.ExitCode = 2;
@@ -480,7 +480,7 @@ public static class ConfigCli
         foreach (var pair in values)
         {
             var key = NormalizeKey(pair.Key);
-            if (key is "api_key" or "enrollment_token" or "enrollment_code" || ForbiddenKeys.Contains(key) || !IsEditable(key))
+            if (IsCliSetForbidden(key) || !IsEditable(key))
             {
                 outcome.Line(key, "запрещён для CLI, значение не принято", "ошибка");
                 outcome.ExitCode = 2;
@@ -642,50 +642,49 @@ public static class ConfigCli
 
     private static void RememberServerUrlWarning(string previous, string current, CliOutcome outcome)
     {
-        if (current.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+        foreach (var line in ServerUrlWarningLines(previous, current))
         {
-            outcome.Tail.Add(
-                "Предупреждение: http:// принят только из‑за BAD_ALLOW_HTTP=1 (lab). " +
-                "В бою укажите https:// — иначе агент без opt-in не подключится.");
-        }
-        else
-        {
-            outcome.Tail.Add(
-                "Важно: в бою оставляйте server_url на https:// " +
-                "(cleartext без BAD_ALLOW_HTTP=1 служба отклонит — ServerUrlRules).");
-        }
-
-        if (!string.Equals(previous, current, StringComparison.OrdinalIgnoreCase))
-        {
-            outcome.Tail.Add(
-                "Смена server_url может потребовать повторный enroll на новом сервере. " +
-                "При ответе Invalid API key служба забывает ключ и номер устройства.");
+            outcome.Tail.Add(line);
         }
     }
 
     private static void PrintServerUrlWarning(string previous, string current, TextWriter output)
     {
         output.WriteLine();
+        foreach (var line in ServerUrlWarningLines(previous, current))
+        {
+            output.WriteLine(line);
+        }
+    }
+
+    private static IEnumerable<string> ServerUrlWarningLines(string previous, string current)
+    {
         if (current.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
         {
-            output.WriteLine(
+            yield return
                 "Предупреждение: http:// принят только из‑за BAD_ALLOW_HTTP=1 (lab). " +
-                "В бою укажите https:// — иначе агент без opt-in не подключится.");
+                "В бою укажите https:// — иначе агент без opt-in не подключится.";
         }
         else
         {
-            output.WriteLine(
+            yield return
                 "Важно: в бою оставляйте server_url на https:// " +
-                "(cleartext без BAD_ALLOW_HTTP=1 служба отклонит — ServerUrlRules).");
+                "(cleartext без BAD_ALLOW_HTTP=1 служба отклонит — ServerUrlRules).";
         }
 
         if (!string.Equals(previous, current, StringComparison.OrdinalIgnoreCase))
         {
-            output.WriteLine(
+            yield return
                 "Смена server_url может потребовать повторный enroll на новом сервере. " +
-                "При ответе Invalid API key служба забывает ключ и номер устройства.");
+                "При ответе Invalid API key служба забывает ключ и номер устройства.";
         }
     }
+
+    private static bool IsSecretKey(string key) =>
+        key is "api_key" or "enrollment_token" or "enrollment_code";
+
+    private static bool IsCliSetForbidden(string key) =>
+        IsSecretKey(key) || ForbiddenKeys.Contains(key);
 
     private static bool IsManual(AgentConfig cfg, string key) =>
         key == "server_url"

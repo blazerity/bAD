@@ -17,7 +17,7 @@ public static class EnrollmentHints
         return (hostname, ip, serial);
     }
 
-    public static string? TryPrimaryIpv4()
+    private static string? TryPrimaryIpv4()
     {
         try
         {
@@ -73,7 +73,7 @@ public static class EnrollmentHints
         }
     }
 
-    public static string? TryHardwareSerial()
+    private static string? TryHardwareSerial()
     {
         if (!OperatingSystem.IsWindows())
         {

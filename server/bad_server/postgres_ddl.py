@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from .db_backend import CompatConnection, connect_postgres
+from .db_backend import CompatConnection, connect_postgres as _connect_postgres
 
 logger = logging.getLogger(__name__)
 
@@ -12,15 +12,7 @@ LOCK_TIMEOUT = "5s"
 
 
 def connect_autocommit(database_url: str) -> CompatConnection:
-    try:
-        import psycopg
-        from psycopg.rows import dict_row
-    except ImportError as exc:  # pragma: no cover
-        raise RuntimeError(
-            "Postgres requires psycopg: pip install 'psycopg[binary]'"
-        ) from exc
-    raw = psycopg.connect(database_url, row_factory=dict_row, autocommit=True)
-    return CompatConnection(raw)
+    return _connect_postgres(database_url, autocommit=True)
 
 
 def index_exists(conn: CompatConnection, index_name: str) -> bool:
@@ -60,7 +52,7 @@ def create_index_concurrently(
 
 
 def ensure_trgm_search_indexes(database_url: str) -> None:
-    with connect_postgres(database_url) as conn:
+    with _connect_postgres(database_url) as conn:
         try:
             set_lock_timeout(conn)
             conn.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")

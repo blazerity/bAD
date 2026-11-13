@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Демо-парк для скриншотов beta: enroll + inventory + heartbeat через /v1.
 
-Требует запущенный API (обычно с BAD_QA_UI=1 на стенде QA) и тот же
-BAD_ENROLLMENT_TOKEN, что в окружении сервера.
+Требует запущенный API (обычно BAD_QA_UI=1) и одноразовый enrollment code
+в --token (через POST /v1/enrollment-grants или тестовый код из окружения).
 
   cd server
   python scripts/seed-beta-demo.py --base http://127.0.0.1:8000

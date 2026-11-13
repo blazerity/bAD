@@ -545,12 +545,11 @@ def aggregate_incident_feed(
     ) -> dict[str, Any]:
         return {
             "id": ev.get("id"),
-            "bad_id": bad_id,
+            "bad_id": ev.get("bad_id") or bad_id,
             "type": event_type,
             "summary": ev.get("summary"),
             "created_at": ev.get("created_at"),
             "importance": ev.get("importance") or event_importance(event_type),
-            "bad_id": ev.get("bad_id"),
             "device_href": ev.get("device_href"),
             "count": 1,
             "_ts": created,
@@ -601,8 +600,7 @@ def aggregate_incident_feed(
         out.append(
             {
                 "id": g.get("id"),
-                "bad_id": did,
-                "bad_id": g.get("bad_id") or device.get("bad_id"),
+                "bad_id": g.get("bad_id") or device.get("bad_id") or did,
                 "hostname": hostname,
                 "user": user or None,
                 "summary": g.get("summary"),

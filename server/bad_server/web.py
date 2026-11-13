@@ -6,7 +6,6 @@ import io
 import json
 import re
 import time
-import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -52,7 +51,6 @@ from .device_health import (
     effective_recent_after_seconds,
     effective_stale_after_seconds,
     health_snippet,
-    normalize_tags,
     parse_iso,
     parse_utc,
     retention_threshold_seconds,
@@ -96,7 +94,6 @@ from .device_meta import (
 from .server_runtime import build_server_runtime
 from .panel_search import (
     device_match_label,
-    device_search_meta_line,
     event_match_label,
     highlight_match,
     matched_serial_subtitle,
@@ -2110,10 +2107,7 @@ def _devices_wave_context(
             if wanted_tag not in tags:
                 continue
         if query_cf:
-            hay = (
-                f"{d.get('bad_id') or ''} {d.get('hostname') or ''} "
-                f"{d.get('bad_id') or ''}"
-            ).casefold()
+            hay = f"{d.get('bad_id') or ''} {d.get('hostname') or ''}".casefold()
             if query_cf not in hay:
                 meta = d.get("meta") if isinstance(d.get("meta"), dict) else {}
                 if query_cf not in meta_search_haystack(meta):

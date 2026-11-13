@@ -148,10 +148,7 @@ def device_uninstall_confirm_value(detail: dict[str, Any]) -> str:
     host = (detail.get("hostname") or "").strip()
     if host:
         return host
-    bad = (detail.get("bad_id") or "").strip()
-    if bad:
-        return bad
-    return str(detail.get("bad_id") or "").strip()
+    return (detail.get("bad_id") or "").strip()
 
 
 def uninstall_confirm_matches(detail: dict[str, Any], typed: str) -> bool:
@@ -162,7 +159,6 @@ def uninstall_confirm_matches(detail: dict[str, Any], typed: str) -> bool:
         device_uninstall_confirm_value(detail),
         (detail.get("hostname") or "").strip(),
         (detail.get("bad_id") or "").strip(),
-        str(detail.get("bad_id") or "").strip(),
     ):
         if candidate and text == candidate:
             return True

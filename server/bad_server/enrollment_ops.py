@@ -81,8 +81,7 @@ def rotate_enrollment_token(
 ) -> dict:
     """Сгенерировать/задать enrollment token, инвалидировать старый hash.
 
-    Возвращает plaintext один раз (+ куда записали). Restart не нужен:
-    ``require_enrollment_token`` читает hash из БД.
+    Возвращает plaintext один раз (+ куда записали). Restart не нужен: hash в БД.
     После rotate ``rotation_due`` гаснет (счётчик — enrolls с новым ``rotated_at``).
     """
     token = (new_token or "").strip() or generate_token("bad_en_")

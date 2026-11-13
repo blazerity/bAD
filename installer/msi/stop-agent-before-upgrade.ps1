@@ -7,6 +7,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+. (Join-Path $PSScriptRoot "bad-paths.ps1")
+
 function Write-StopLog {
     param([string]$Message)
     $line = "{0:yyyy-MM-ddTHH:mm:ss.fffzzz} {1}" -f [DateTimeOffset]::Now, $Message
@@ -20,25 +22,6 @@ function Write-StopLog {
     } catch { }
 }
 
-function Get-InstallDir {
-    param([string]$FromArg)
-    if (-not [string]::IsNullOrWhiteSpace($FromArg)) {
-        return $FromArg.TrimEnd('\')
-    }
-    try {
-        $reg = "HKLM:\SOFTWARE\blazerity\bAD"
-        $v = (Get-ItemProperty -Path $reg -Name InstallDir -ErrorAction Stop).InstallDir
-        if (-not [string]::IsNullOrWhiteSpace($v)) {
-            return $v.TrimEnd('\')
-        }
-    } catch { }
-    $pf = ${env:ProgramFiles}
-    if ([string]::IsNullOrWhiteSpace($pf)) {
-        $pf = "C:\Program Files"
-    }
-    return (Join-Path (Join-Path $pf "blazerity") "bad agent")
-}
-
 function Test-ServiceExists([string]$Name) {
     try {
         $null = Get-Service -Name $Name -ErrorAction Stop
@@ -48,7 +31,7 @@ function Test-ServiceExists([string]$Name) {
     }
 }
 
-$root = Get-InstallDir -FromArg $InstallDir
+$root = Get-BadAgentInstallDir -FromArg $InstallDir
 $exe = Join-Path (Join-Path $root "bin") "BadAgent.exe"
 Write-StopLog "INFO stop-agent-before-upgrade InstallDir=$root"
 

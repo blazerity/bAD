@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterator, Optional
 
+from .bad_id import is_bad_id
 from .db_backend import (
     SCHEMA_SQL,
     CompatConnection,
@@ -21,7 +22,15 @@ PENDING_ENROLLMENT_TTL = timedelta(days=7)
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return _utc_iso(datetime.now(timezone.utc))
+
+
+def _utc_cutoff(age: timedelta) -> str:
+    return _utc_iso(datetime.now(timezone.utc) - age)
+
+
+def _utc_iso(moment: datetime) -> str:
+    return moment.replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _compact_json(value: object) -> str:
@@ -206,12 +215,11 @@ class Database:
         Уже лежащий BAD- не заменяется. Текст не вида BAD- и 8 hex номером не пишется.
         """
         now = utc_now()
-        kept_id = (bad_id or "").strip() or None
+        raw_kept = (bad_id or "").strip()
+        kept_id = raw_kept if raw_kept and is_bad_id(raw_kept) else None
         guid = machine_guid or ""
         uuid = smbios_uuid or ""
-        cutoff = (
-            datetime.now(timezone.utc) - PENDING_ENROLLMENT_TTL
-        ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        cutoff = _utc_cutoff(PENDING_ENROLLMENT_TTL)
         with self.connection() as conn:
             conn.execute(
                 """
@@ -2740,15 +2748,8 @@ class Database:
         self, *, events_days: int, inventory_days: int
     ) -> dict[str, int]:
         """Удалить events/snapshots старше N дней. Оставить новейший snapshot на устройство."""
-        from datetime import datetime, timedelta, timezone
-
-        now = datetime.now(timezone.utc)
-        events_cut = (
-            now - timedelta(days=max(1, int(events_days)))
-        ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-        inv_cut = (
-            now - timedelta(days=max(1, int(inventory_days)))
-        ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        events_cut = _utc_cutoff(timedelta(days=max(1, int(events_days))))
+        inv_cut = _utc_cutoff(timedelta(days=max(1, int(inventory_days))))
         with self.connection() as conn:
             ev = conn.execute(
                 "DELETE FROM device_events WHERE created_at < ?", (events_cut,)

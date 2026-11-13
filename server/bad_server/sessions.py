@@ -13,6 +13,22 @@ FLASH_MAX_AGE = 120
 FLASH_SALT = "bad-web-flash-v1"
 
 
+def _load_signed_payload(
+    secret: str,
+    token: Optional[str],
+    *,
+    salt: str,
+    max_age: int,
+) -> Any:
+    if not token or not secret:
+        return None
+    ser = URLSafeTimedSerializer(secret, salt=salt)
+    try:
+        return ser.loads(token, max_age=max_age)
+    except (BadSignature, SignatureExpired, Exception):
+        return None
+
+
 @dataclass
 class WebUser:
     username: str
@@ -51,13 +67,9 @@ def dump_session(secret: str, user: WebUser) -> str:
 
 
 def load_session(secret: str, token: Optional[str]) -> Optional[WebUser]:
-    if not token or not secret:
-        return None
-    ser = URLSafeTimedSerializer(secret, salt=SESSION_SALT)
-    try:
-        data = ser.loads(token, max_age=SESSION_MAX_AGE)
-    except (BadSignature, SignatureExpired, Exception):
-        return None
+    data = _load_signed_payload(
+        secret, token, salt=SESSION_SALT, max_age=SESSION_MAX_AGE
+    )
     if not isinstance(data, dict) or not data.get("u"):
         return None
     return WebUser.from_dict(data)
@@ -69,13 +81,9 @@ def dump_flash(secret: str, payload: dict[str, Any]) -> str:
 
 
 def load_flash(secret: str, token: Optional[str]) -> Optional[dict[str, Any]]:
-    if not token or not secret:
-        return None
-    ser = URLSafeTimedSerializer(secret, salt=FLASH_SALT)
-    try:
-        data = ser.loads(token, max_age=FLASH_MAX_AGE)
-    except (BadSignature, SignatureExpired, Exception):
-        return None
+    data = _load_signed_payload(
+        secret, token, salt=FLASH_SALT, max_age=FLASH_MAX_AGE
+    )
     if not isinstance(data, dict):
         return None
     return data

@@ -5,7 +5,6 @@ import hashlib
 import logging
 import os
 import tempfile
-import uuid
 from pathlib import Path
 from typing import Annotated, Any, Optional
 
@@ -66,8 +65,9 @@ from .schemas import (
     IntegrationRequestBody,
     InventoryRequest,
 )
+from .bad_id import is_bad_id
 from .http_bootstrap import ENROLL_CLEARTEXT_MSG, client_ip, enroll_cleartext_blocked
-from .crypto_util import decrypt_secret, encrypt_secret
+from .crypto_util import decrypt_secret
 from .security import (
     api_key_lookup,
     enrollment_code_hash,
@@ -169,8 +169,6 @@ def submit_enrollment_request(
     hostname = body.hostname.strip()
     ip = (body.ip or "").strip()
     serial = _display_serial(body.serial or "")
-    from .bad_id import is_bad_id
-
     raw_bad_id = (body.bad_id or "").strip()
     if raw_bad_id and not is_bad_id(raw_bad_id):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="bad_id")
@@ -800,7 +798,6 @@ def poll_integration_request(
     db: Database = Depends(get_db),
 ) -> dict[str, str]:
     from .integrations import IntegrationError, poll_request
-    from .security import extract_bearer
 
     secret = extract_bearer(authorization) or ""
     if not secret:

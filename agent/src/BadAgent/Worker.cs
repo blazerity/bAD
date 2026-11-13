@@ -553,12 +553,11 @@ public sealed class Worker : BackgroundService
 
     private void ApplyRemoteConfig(AgentConfig config, RemoteAgentConfigResponse remote)
     {
-        if (!ConfigStore.TakeRemoteConfig(config, remote))
+        if (!ConfigStore.SaveRemoteConfigIfChanged(config, remote))
         {
             return;
         }
 
-        ConfigStore.Save(config);
         _collector.ResetHeavySectionCache();
         _logger.LogInformation(
             "Applied remote agent config version {Version} (inventory={Inv}h heartbeat={Hb}m update={Upd}h enabled={Enabled} target={Target} hw={Hw} users={Users} sw={Sw})",

@@ -11,6 +11,8 @@ $ErrorActionPreference = "Stop"
 $LegacyMaxVersion = [version]"2.1.4.999"
 $MarkerName = ".bootstrap-scheduled"
 
+. (Join-Path $PSScriptRoot "bad-paths.ps1")
+
 function Write-BootstrapLog {
     param([string]$Message)
     $line = "{0:yyyy-MM-ddTHH:mm:ss.fffzzz} {1}" -f [DateTimeOffset]::Now, $Message
@@ -20,18 +22,6 @@ function Write-BootstrapLog {
         New-Item -ItemType Directory -Force -Path $logDir -ErrorAction SilentlyContinue | Out-Null
         Add-Content -Path (Join-Path $logDir "msi-install.log") -Value $line -Encoding UTF8 -ErrorAction SilentlyContinue
     } catch { }
-}
-
-function Get-InstallDir {
-    try {
-        $v = (Get-ItemProperty -Path "HKLM:\SOFTWARE\blazerity\bAD" -Name InstallDir -ErrorAction Stop).InstallDir
-        if (-not [string]::IsNullOrWhiteSpace($v)) {
-            return $v.TrimEnd('\')
-        }
-    } catch { }
-    $pf = ${env:ProgramFiles}
-    if ([string]::IsNullOrWhiteSpace($pf)) { $pf = "C:\Program Files" }
-    return (Join-Path (Join-Path $pf "blazerity") "bad agent")
 }
 
 function Get-InstalledAgentVersion {
@@ -52,7 +42,7 @@ if ([string]::IsNullOrWhiteSpace($OriginalDatabase) -or -not (Test-Path -Literal
     exit 121
 }
 
-$installDir = Get-InstallDir
+$installDir = Get-BadAgentInstallDir
 $installedVer = Get-InstalledAgentVersion -Root $installDir
 if ($null -ne $installedVer -and $installedVer -gt $LegacyMaxVersion) {
     Write-BootstrapLog "INFO bootstrap skipped (installed agent $installedVer, detached launcher era)"
