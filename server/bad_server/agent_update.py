@@ -131,15 +131,17 @@ def sync_from_github(
     )
     key = resolve_data_key(db, settings, data_key)
     password_enc = encrypt_secret(key, password) if key and password else ""
-    record = db.set_agent_update(
+    # Пустой каталог: первое зеркало становится latest. Иначе указатель не трогаем.
+    record = db.upsert_agent_msi_version(
         version=ver,
         msi_name=arc_name,
         sha256=digest,
         file_path=str(arc_path),
+        source="github",
         source_tag=assets.tag,
         release_url=assets.release_url,
-        source="github",
         archive_password_enc=password_enc,
+        set_as_latest=not db.get_agent_update(),
     )
     prune_old_msi_versions(db, settings, keep=MSI_VERSION_CAP)
     logger.info(
