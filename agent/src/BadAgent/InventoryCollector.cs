@@ -1,6 +1,7 @@
 using System.DirectoryServices;
 using System.Management;
 using System.Net.NetworkInformation;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using Microsoft.Win32;
 

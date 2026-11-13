@@ -12,6 +12,8 @@
     <ApplicationIcon>..\..\assets\bad.ico</ApplicationIcon>
     <!-- Self-contained: runtime внутри MSI, на ПК .NET ставить не нужно -->
     <SelfContained>true</SelfContained>
+    <!-- Не класть в publish спутники культур. en — запас, если пакет runtime снова принесёт ресурсы. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
 
   <ItemGroup>
