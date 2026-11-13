@@ -210,6 +210,25 @@ def disk_bucket_from_fixed_bytes(total_fixed_bytes: int) -> Optional[str]:
     return f"{pairs[-1][1]}+"
 
 
+def disk_bucket_bytes(label: object) -> int:
+    """Байты из подписи disk_bucket. ТБ = 1024 ГБ. Пустая и неразобранная подпись — 0."""
+    text = str(label or "").strip()
+    if not text:
+        return 0
+    match = re.search(r"(\d+(?:[.,]\d+)?)\s*(ТБ|ГБ)", text, flags=re.IGNORECASE)
+    if not match:
+        return 0
+    try:
+        number = float(match.group(1).replace(",", "."))
+    except ValueError:
+        return 0
+    if number < 0:
+        return 0
+    gib = 1024 ** 3
+    scale = gib * 1024 if match.group(2).casefold() == "тб" else gib
+    return int(number * scale)
+
+
 def disk_role(disk: dict[str, Any]) -> str:
     if disk.get("removable") is True:
         return "flash"

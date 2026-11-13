@@ -93,11 +93,13 @@ from .device_meta import (
 from .server_runtime import build_server_runtime
 from .panel_search import (
     device_match_label,
+    device_match_parts,
     event_match_label,
     highlight_match,
     matched_serial_subtitle,
 )
 from .fleet_buckets import (
+    disk_bucket_bytes,
     disk_role,
     format_cpu_short,
     format_ram_list_cell,
@@ -1508,72 +1510,150 @@ def overview_search_json(
 ):
     """Глобальный поиск Обзора: устройства + события (сессия)."""
     del user
+    del limit
     query = (q or "").strip()
     if len(query) < 2:
         return JSONResponse({"devices": [], "events": [], "users": []})
-    dev_cap = max(1, min(int(limit), 40))
-    evt_cap = max(1, min(20, dev_cap))
-    devices = db.search_devices_global(query, limit=dev_cap)
+    devices = db.search_devices_global(query, limit=8)
+    dev_out = [_short_search_device(d, query) for d in devices]
+    return JSONResponse({"devices": dev_out, "q": query})
+
+
+def _short_search_device(device: dict, query: str) -> dict[str, str]:
+    did = str(device.get("bad_id") or "")
+    host = str(device.get("hostname") or "")
+    shown = host or did
+    label, value = device_match_parts(device, query)
+    if host and query.casefold() in host.casefold():
+        title = highlight_match(host, query)
+    else:
+        title = highlight_match(shown, "")
+    return {
+        "href": f"/devices/{did}",
+        "hostname": shown,
+        "match_reason": label,
+        "title_html": title,
+        "match_label": label,
+        "match_html": highlight_match(value, query) if label and value else "",
+    }
+
+
+_EXPANDED_PAGE = 20
+_FILTER_KEYS = ("os", "ram", "disk", "cpu", "model", "chassis")
+
+
+@router.get("/overview/search/expanded.json")
+def overview_search_expanded_json(
+    q: str = Query(default="", max_length=128),
+    offset: int = Query(default=0, ge=0),
+    os: Optional[str] = None,
+    ram: Optional[str] = None,
+    disk: Optional[str] = None,
+    cpu: Optional[str] = None,
+    model: Optional[str] = None,
+    chassis: Optional[str] = None,
+    user: WebUser = Depends(require_web_user),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    del user
+    query = (q or "").strip()
+    if len(query) < 2:
+        return JSONResponse(
+            {
+                "devices": [],
+                "events": [],
+                "more_devices": False,
+                "more_events": False,
+            }
+        )
+    os_filter = (os or "").strip() or None
+    ram_filter = (ram or "").strip() or None
+    disk_filter = (disk or "").strip() or None
+    cpu_filter = (cpu or "").strip() or None
+    model_filter = (model or "").strip() or None
+    chassis_filter = (chassis or "").strip().casefold() or None
+    if chassis_filter and chassis_filter not in {"laptop", "desktop", "server", "vm", "other"}:
+        chassis_filter = None
+    hits = db.search_devices_global(query, limit=50)
+    narrowed = []
+    for device in hits:
+        meta = device.get("meta") if isinstance(device.get("meta"), dict) else {}
+        if meta_facet_matches(
+            meta,
+            device,
+            os_filter=os_filter,
+            ram_filter=ram_filter,
+            disk_filter=disk_filter,
+            cpu_filter=cpu_filter,
+            model_filter=model_filter,
+            chassis_filter=chassis_filter,
+        ):
+            narrowed.append(device)
+    start = max(0, int(offset))
+    page = narrowed[start : start + _EXPANDED_PAGE]
+    stale, recent = _freshness_limits(db, settings)
+    devices_out = []
+    for device in page:
+        enriched = _enrich_device_row(
+            device,
+            stale_after_seconds=stale,
+            recent_after_seconds=recent,
+        )
+        meta = enriched.get("meta") if isinstance(enriched.get("meta"), dict) else {}
+        row = _short_search_device(enriched, query)
+        ips = enriched.get("ip_addresses") or []
+        os_text = str(enriched.get("os_display") or "")
+        devices_out.append(
+            {
+                "href": row["href"],
+                "hostname": row["hostname"],
+                "title_html": row["title_html"],
+                "match_label": row["match_label"],
+                "match_html": row["match_html"],
+                "model": str(meta.get("hardware_model") or "").strip(),
+                "user": str(enriched.get("user_display_name") or "").strip(),
+                "os": "" if os_text.strip() in {"", "—"} else os_text,
+                "ip": str(ips[0]).strip() if ips else "",
+            }
+        )
     events = db.list_device_events(
         q=query,
         importance="all",
-        limit=evt_cap,
-        offset=0,
         include_detail=False,
+        limit=_EXPANDED_PAGE,
+        offset=start,
     )
-    payloads = db.latest_inventory_payloads(
-        [str(d.get("bad_id") or "") for d in devices],
-        cap=max(len(devices), 1),
-    )
-    dev_out = []
-    for d in devices:
-        did = d["bad_id"]
-        label = d.get("hostname") or did
-        hw = None
-        payload = payloads.get(str(did))
-        if isinstance(payload, dict):
-            raw_hw = payload.get("hardware")
-            hw = raw_hw if isinstance(raw_hw, dict) else None
-        reason = device_match_label(d, query, hardware=hw)
-        subtitle = matched_serial_subtitle(d, query, hardware=hw) or reason
-        dev_out.append(
+    events_out = []
+    for event in events:
+        eid = int(event["id"])
+        events_out.append(
             {
-                "kind": "device",
-                "bad_id": did,
-                "bad_id": d.get("bad_id"),
-                "hostname": label,
-                "href": f"/devices/{did}",
-                "chassis_type": _chassis_type_from_device(d),
-                "match_reason": reason,
-                "title_html": highlight_match(label, query),
-                "subtitle_html": highlight_match(subtitle, query),
-                "archived": bool(d.get("archived")),
-            }
-        )
-    users_out = _overview_search_users(query, db.list_devices(archived=False))
-    evt_out = []
-    for e in events:
-        eid = int(e["id"])
-        evt_out.append(
-            {
-                "kind": "event",
-                "id": eid,
                 "href": f"/events/{eid}",
-                "bad_id": e.get("bad_id"),
-                "hostname": e.get("hostname") or e.get("bad_id"),
-                "type": e.get("type"),
-                "summary": e.get("summary"),
-                "match_reason": event_match_label(e, query),
-                "title_html": highlight_match(e.get("summary") or "", query),
-                "subtitle_html": highlight_match(
-                    e.get("hostname") or e.get("bad_id") or "", query
-                ),
-                "created_at": e.get("created_at"),
+                "title_html": highlight_match(event.get("summary") or "", query),
+                "match_label": event_match_label(event, query),
+                "hostname": str(event.get("hostname") or ""),
+                "created_at": event.get("created_at") or "",
             }
         )
-    return JSONResponse(
-        {"devices": dev_out, "events": evt_out, "users": users_out, "q": query}
-    )
+    payload: dict[str, Any] = {
+        "devices": devices_out,
+        "events": events_out,
+        "more_devices": len(page) == _EXPANDED_PAGE,
+        "more_events": len(events) == _EXPANDED_PAGE,
+    }
+    if start == 0:
+        active, _archived, stats, ops = _fleet_snapshot(db, settings)
+        dashboard = build_dashboard_stats(
+            db,
+            stale_after_seconds=effective_stale_after_seconds(db, settings),
+            stats=stats,
+            active=active,
+            ops=ops,
+        )
+        catalog = _devices_catalog_filter_options(active, dashboard, stats)
+        payload["filters"] = {key: list(catalog.get(key) or []) for key in _FILTER_KEYS}
+    return JSONResponse(payload)
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
@@ -1882,6 +1962,8 @@ def _devices_query_params(
     fresh: Optional[str] = None,
     model_filter: Optional[str] = None,
     chassis_filter: Optional[str] = None,
+    sort: str = "",
+    order: str = "",
 ) -> str:
     params: dict[str, str] = {}
     if tag:
@@ -1910,6 +1992,10 @@ def _devices_query_params(
         params["model"] = model_filter
     if chassis_filter:
         params["chassis"] = chassis_filter
+    if sort:
+        params["sort"] = sort
+    if order:
+        params["order"] = order
     if page > 1:
         params["page"] = str(page)
     return urlencode(params)
@@ -2051,6 +2137,83 @@ def _auth_is_api(device: dict, snapshot_ids: set[str]) -> bool:
     return _contact_is_after_enroll(device)
 
 
+_DEVICE_SORTS = {"state", "host", "user", "model", "cpu", "ram", "disk", "os", "ip", "seen"}
+_STATE_RANK = {"online": 0, "recent": 1, "stale": 2, "unknown": 3}
+
+
+def _devices_sort_pair(sort: Optional[str], order: Optional[str]) -> tuple[str, str]:
+    key = (sort or "").strip()
+    direction = (order or "").strip()
+    if key not in _DEVICE_SORTS or direction not in {"asc", "desc"}:
+        return "", ""
+    return key, direction
+
+
+def _sort_text(value: object) -> Optional[str]:
+    text = str(value or "").strip()
+    if not text or text == "—":
+        return None
+    return text.casefold()
+
+
+def _ip_octets(value: object) -> Optional[tuple[int, int, int, int]]:
+    parts = str(value or "").strip().split(".")
+    if len(parts) != 4:
+        return None
+    try:
+        nums = tuple(int(part) for part in parts)
+    except ValueError:
+        return None
+    if any(num < 0 or num > 255 for num in nums):
+        return None
+    return nums  # type: ignore[return-value]
+
+
+def _device_sort_value(device: dict, sort: str) -> object:
+    meta = device.get("meta") if isinstance(device.get("meta"), dict) else {}
+    if sort == "state":
+        return _STATE_RANK.get(str(device.get("freshness") or "unknown"), 3)
+    if sort == "host":
+        return _sort_text(device.get("hostname"))
+    if sort == "user":
+        return _sort_text(device.get("user_display_name"))
+    if sort == "model":
+        return _sort_text(meta.get("hardware_model"))
+    if sort == "cpu":
+        return _sort_text(device.get("cpu_display"))
+    if sort == "os":
+        return _sort_text(device.get("os_display"))
+    if sort == "ram":
+        try:
+            return int(meta.get("ram_bytes"))
+        except (TypeError, ValueError):
+            return None
+    if sort == "disk":
+        size = disk_bucket_bytes(meta.get("disk_bucket"))
+        return size if size > 0 else None
+    if sort == "ip":
+        ips = device.get("ip_addresses") or []
+        return _ip_octets(ips[0] if ips else "")
+    if sort == "seen":
+        return parse_utc(device.get("last_seen_at"))
+    return None
+
+
+def _sort_device_rows(rows: list[dict], sort: str, order: str) -> list[dict]:
+    if sort not in _DEVICE_SORTS or order not in {"asc", "desc"}:
+        return rows
+    present: list[tuple[object, dict]] = []
+    blank: list[dict] = []
+    for row in rows:
+        value = _device_sort_value(row, sort)
+        if value is None:
+            blank.append(row)
+        else:
+            present.append((value, row))
+    present.sort(key=lambda item: item[0], reverse=order == "desc")
+    return [row for _value, row in present] + blank
+
+
 def _devices_wave_context(
     db: Database,
     settings: Settings,
@@ -2072,6 +2235,8 @@ def _devices_wave_context(
     auth: Optional[str] = None,
     snapshot_ids: Optional[set[str]] = None,
     hide_ids: Optional[set[str]] = None,
+    sort: str = "",
+    order: str = "",
 ) -> tuple[list[dict], int, int, int]:
     # Индекс дублей всегда по всему парку (meta), иначе поиск/тег ломают бейджи.
     fleet = db.list_devices(archived=None)
@@ -2168,6 +2333,7 @@ def _devices_wave_context(
             ):
                 narrowed.append(d)
         filtered = narrowed
+    filtered = _sort_device_rows(filtered, sort, order)
     total = len(filtered)
     page_size = DEVICES_PAGE_SIZE
     pages = max(1, (total + page_size - 1) // page_size) if total else 1
@@ -2194,6 +2360,8 @@ def devices_page(
     model: Optional[str] = None,
     chassis: Optional[str] = None,
     auth: Optional[str] = None,
+    sort: Optional[str] = None,
+    order: Optional[str] = None,
     page: int = 1,
     flash: Optional[str] = None,
     user: WebUser = Depends(require_web_user),
@@ -2219,6 +2387,7 @@ def devices_page(
     if auth_filter != "api":
         auth_filter = ""
     page_i = max(1, int(page or 1))
+    sort_key, order_key = _devices_sort_pair(sort, order)
     snapshot_ids = _inventory_bad_ids(db)
     hidden = {str(item) for item in db.approved_enrollment_bad_ids() if item}
     devices, total, pages, page_i = _devices_wave_context(
@@ -2241,6 +2410,8 @@ def devices_page(
         auth=auth_filter,
         snapshot_ids=snapshot_ids,
         hide_ids=hidden,
+        sort=sort_key,
+        order=order_key,
     )
 
     agent_update = db.get_agent_update()
@@ -2259,6 +2430,8 @@ def devices_page(
         fresh=fresh_filter,
         model_filter=model_filter,
         chassis_filter=chassis_filter,
+        sort=sort_key,
+        order=order_key,
     )
     filter_chips = _devices_filter_chips(
         tag_filter=tag_filter,
@@ -2330,6 +2503,8 @@ def devices_page(
             "fresh_filter": fresh_filter or "",
             "model_filter": model_filter or "",
             "chassis_filter": chassis_filter or "",
+            "sort": sort_key,
+            "order": order_key,
             "all_tags": db.list_all_tags(),
             "stale_after_seconds": effective_stale_after_seconds(db, settings),
             "page": page_i,
@@ -2361,6 +2536,158 @@ def devices_page(
             "catalog_filter_options": catalog_filter_options,
             "chassis_labels": _CHASSIS_LABELS_RU,
         },
+    )
+
+
+def _plural_ru(n: int, one: str, few: str, many: str) -> str:
+    mod10 = n % 10
+    mod100 = n % 100
+    if mod10 == 1 and mod100 != 11:
+        return one
+    if 2 <= mod10 <= 4 and (mod100 < 10 or mod100 >= 20):
+        return few
+    return many
+
+
+def _contact_caption(last_seen_at: object) -> str:
+    """Та же относительная подпись, что local-time.js пишет в колонку «Контакт»."""
+    seen = parse_utc(str(last_seen_at) if last_seen_at else None)
+    if seen is None:
+        return ""
+    diff = (datetime.now(timezone.utc) - seen).total_seconds()
+    if diff < 0:
+        diff = 0
+    sec = int(diff)
+    if sec < 60:
+        return "только что"
+    minutes = sec // 60
+    if minutes < 60:
+        return f"{minutes} {_plural_ru(minutes, 'минуту', 'минуты', 'минут')} назад"
+    hours = minutes // 60
+    if hours < 24:
+        return f"{hours} {_plural_ru(hours, 'час', 'часа', 'часов')} назад"
+    days = hours // 24
+    if days == 1:
+        return "день назад"
+    if days < 7:
+        return f"{days} {_plural_ru(days, 'день', 'дня', 'дней')} назад"
+    if days < 14:
+        return "неделю назад"
+    if days < 30:
+        weeks = days // 7
+        if weeks < 2:
+            return "неделю назад"
+        return f"{weeks} {_plural_ru(weeks, 'неделю', 'недели', 'недель')} назад"
+    if days < 60:
+        return "месяц назад"
+    if days < 365:
+        months = days // 30
+        if months < 2:
+            return "месяц назад"
+        return f"{months} {_plural_ru(months, 'месяц', 'месяца', 'месяцев')} назад"
+    years = days // 365
+    if years < 2:
+        return "год назад"
+    return f"{years} {_plural_ru(years, 'год', 'года', 'лет')} назад"
+
+
+def _live_text(value: object) -> str:
+    text = str(value or "").strip()
+    if text == "—":
+        return ""
+    return text
+
+
+def _live_device_row(device: dict) -> dict[str, str]:
+    meta = device.get("meta") if isinstance(device.get("meta"), dict) else {}
+    did = str(device.get("bad_id") or "")
+    ips = device.get("ip_addresses") or []
+    return {
+        "bad_id": did,
+        "href": str(device.get("device_href") or f"/devices/{did}"),
+        "hostname": str(device.get("hostname") or ""),
+        "state": str(device.get("freshness") or ""),
+        "user": _live_text(device.get("user_display_name")),
+        "model": _live_text(meta.get("hardware_model")),
+        "cpu": _live_text(device.get("cpu_display")),
+        "ram": _live_text(device.get("ram_display")),
+        "disk": _live_text(device.get("disk_display")),
+        "os": _live_text(device.get("os_display")),
+        "ip": _live_text(ips[0] if ips else ""),
+        "seen": _contact_caption(device.get("last_seen_at")),
+        "seen_at": str(device.get("last_seen_at") or ""),
+    }
+
+
+@router.get("/devices/live.json")
+def devices_live_json(
+    tag: Optional[str] = None,
+    q: Optional[str] = None,
+    archive: Optional[str] = None,
+    wave: Optional[str] = None,
+    os: Optional[str] = None,
+    ram: Optional[str] = None,
+    disk: Optional[str] = None,
+    cpu: Optional[str] = None,
+    cpu_vendor: Optional[str] = None,
+    agent: Optional[str] = None,
+    fresh: Optional[str] = None,
+    model: Optional[str] = None,
+    chassis: Optional[str] = None,
+    auth: Optional[str] = None,
+    sort: Optional[str] = None,
+    order: Optional[str] = None,
+    page: int = 1,
+    user: WebUser = Depends(require_web_user),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    del user
+    tag_filter = (tag or "").strip() or None
+    query = (q or "").strip() or None
+    show_archive = (archive or "").strip() in {"1", "true", "yes"}
+    wave_filter = normalize_wave_filter(wave)
+    os_filter = (os or "").strip() or None
+    ram_filter = (ram or "").strip() or None
+    disk_filter = (disk or "").strip() or None
+    cpu_filter = (cpu or "").strip() or None
+    cpu_vendor_filter = (cpu_vendor or "").strip() or None
+    agent_filter = (agent or "").strip() or None
+    fresh_filter = (fresh or "").strip() or None
+    model_filter = (model or "").strip() or None
+    chassis_filter = (chassis or "").strip().casefold() or None
+    if chassis_filter and chassis_filter not in {"laptop", "desktop", "server", "vm", "other"}:
+        chassis_filter = None
+    auth_filter = (auth or "").strip()
+    if auth_filter != "api":
+        auth_filter = ""
+    page_i = max(1, int(page or 1))
+    sort_key, order_key = _devices_sort_pair(sort, order)
+    devices, total, _pages, _page_i = _devices_wave_context(
+        db,
+        settings,
+        tag_filter=tag_filter,
+        query=query,
+        show_archive=show_archive,
+        wave=wave_filter,
+        page_i=page_i,
+        os_filter=os_filter,
+        ram_filter=ram_filter,
+        disk_filter=disk_filter,
+        cpu_filter=cpu_filter,
+        cpu_vendor_filter=cpu_vendor_filter,
+        agent_filter=agent_filter,
+        fresh=fresh_filter,
+        model_filter=model_filter,
+        chassis_filter=chassis_filter,
+        auth=auth_filter,
+        snapshot_ids=_inventory_bad_ids(db),
+        hide_ids={str(item) for item in db.approved_enrollment_bad_ids() if item},
+        sort=sort_key,
+        order=order_key,
+    )
+    return JSONResponse(
+        {"total": total, "devices": [_live_device_row(device) for device in devices]}
     )
 
 

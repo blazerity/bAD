@@ -8,7 +8,6 @@ from typing import Any, Optional
 
 from .device_meta import (
     collect_hardware_serials,
-    meta_search_haystack,
     normalize_logged_on_list,
     normalize_search_serial,
 )
@@ -31,52 +30,106 @@ def device_search_meta_line(device: dict[str, Any]) -> str:
 
 
 _MATCH_FIELDS: tuple[tuple[str, str], ...] = (
-    ("имя", "hostname"),
-    ("идентификатор", "bad_id"),
-    ("серийный номер", "serial_number"),
+    ("Имя", "hostname"),
+    ("Идентификатор", "bad_id"),
+    ("Серийный номер", "serial_number"),
     ("UUID", "smbios_uuid"),
-    ("BIOS", "bios_serial"),
-    ("IdentifyingNumber", "identifying_number"),
-    ("serial платы", "baseboard_serial"),
-    ("процессор", "cpu_name"),
-    ("модель", "hardware_model"),
-    ("производитель", "hardware_manufacturer"),
-    ("пользователь", "logged_on"),
+    ("Серийный номер", "bios_serial"),
+    ("Серийный номер", "identifying_number"),
+    ("Плата", "baseboard_serial"),
+    ("Процессор", "cpu_name"),
+    ("Модель", "hardware_model"),
+    ("Производитель", "hardware_manufacturer"),
+    ("Пользователь", "logged_on"),
     ("IPv4", "ipv4_addresses"),
     ("MAC", "mac_addresses"),
-    ("тег", "tags"),
+    ("Тег", "tags"),
 )
 
 _SERIAL_LIST_FIELDS: tuple[tuple[str, str], ...] = (
-    ("serial диска", "disk_serials"),
-    ("serial монитора", "monitor_serials"),
-    ("serial ОЗУ", "ram_serials"),
-    ("серийный номер", "search_serials"),
+    ("Диск", "disk_serials"),
+    ("Монитор", "monitor_serials"),
+    ("Память", "ram_serials"),
+    ("Серийный номер", "search_serials"),
 )
 
 
-def _serial_match_in_lists(meta: dict[str, Any], q: str) -> Optional[str]:
-    for label, key in _SERIAL_LIST_FIELDS:
-        for val in meta.get(key) or []:
-            if q in str(val).casefold():
-                return label
+def _first_folded_hit(values: object, q: str) -> Optional[str]:
+    for val in values or []:
+        text = str(val)
+        if text and q in text.casefold():
+            return text
     return None
 
 
-def _serial_match_in_hardware(hardware: Optional[dict[str, Any]], q: str) -> Optional[str]:
+def _serial_match_in_lists(meta: dict[str, Any], q: str) -> Optional[tuple[str, str]]:
+    for label, key in _SERIAL_LIST_FIELDS:
+        hit = _first_folded_hit(meta.get(key), q)
+        if hit:
+            return label, hit
+    return None
+
+
+def _serial_match_in_hardware(
+    hardware: Optional[dict[str, Any]], q: str
+) -> Optional[tuple[str, str]]:
     if not isinstance(hardware, dict):
         return None
     serials = collect_hardware_serials(hardware)
     for label, key in (
-        ("серийный номер", "chassis"),
-        ("serial диска", "disk_serials"),
-        ("serial монитора", "monitor_serials"),
-        ("serial ОЗУ", "ram_serials"),
+        ("Серийный номер", "chassis"),
+        ("Диск", "disk_serials"),
+        ("Монитор", "monitor_serials"),
+        ("Память", "ram_serials"),
     ):
-        for val in serials.get(key) or []:
-            if q in str(val).casefold():
-                return label
+        hit = _first_folded_hit(serials.get(key), q)
+        if hit:
+            return label, hit
     return None
+
+
+def device_match_parts(
+    device: dict[str, Any],
+    query: str,
+    *,
+    hardware: Optional[dict[str, Any]] = None,
+) -> tuple[str, str]:
+    """Подпись параметра и совпавшее значение. Нет совпадения — две пустые строки."""
+    q = (query or "").strip().casefold()
+    if not q:
+        return "", ""
+    host = str(device.get("hostname") or "")
+    did = str(device.get("bad_id") or "")
+    if host and q in host.casefold():
+        return "Имя", host
+    if did and q in did.casefold():
+        return "Идентификатор", did
+    meta = device.get("meta") if isinstance(device.get("meta"), dict) else {}
+    for label, key in _MATCH_FIELDS[2:]:
+        if key == "logged_on":
+            hit = _first_folded_hit(normalize_logged_on_list(meta.get("logged_on")), q)
+            if hit:
+                return label, hit
+            continue
+        if key in {"ipv4_addresses", "mac_addresses"}:
+            hit = _first_folded_hit(meta.get(key), q)
+            if hit:
+                return label, hit
+            continue
+        raw = str(meta.get(key) or "")
+        if raw and q in raw.casefold():
+            return label, raw
+    serial_hit = _serial_match_in_lists(meta, q)
+    if serial_hit:
+        return serial_hit
+    hw_hit = _serial_match_in_hardware(hardware, q)
+    if hw_hit:
+        return hw_hit
+    for tag in device.get("tags") or []:
+        text = str(tag)
+        if text and q in text.casefold():
+            return "Тег", text
+    return "", ""
 
 
 def device_match_label(
@@ -85,48 +138,7 @@ def device_match_label(
     *,
     hardware: Optional[dict[str, Any]] = None,
 ) -> str:
-    q = (query or "").strip().casefold()
-    if not q:
-        return ""
-    host = (device.get("hostname") or "").casefold()
-    did = str(device.get("bad_id") or "").casefold()
-    if q in host:
-        return "имя"
-    if q in did:
-        return "идентификатор"
-    meta = device.get("meta") if isinstance(device.get("meta"), dict) else {}
-    for label, key in _MATCH_FIELDS[2:]:
-        if key == "logged_on":
-            for user in normalize_logged_on_list(meta.get("logged_on")):
-                if q in user.casefold():
-                    return label
-            continue
-        if key in {"ipv4_addresses", "mac_addresses"}:
-            for val in meta.get(key) or []:
-                if q in str(val).casefold():
-                    return label
-            continue
-        val = str(meta.get(key) or "").casefold()
-        if val and q in val:
-            return label
-    serial_hit = _serial_match_in_lists(meta, q)
-    if serial_hit:
-        return serial_hit
-    hw_hit = _serial_match_in_hardware(hardware, q)
-    if hw_hit:
-        return hw_hit
-    tags = device.get("tags") or []
-    for t in tags:
-        if q in str(t).casefold():
-            return "тег"
-    if q in meta_search_haystack(meta):
-        return "совпадение"
-    # сырой query в любом серийнике из hardware (на случай частичного ILIKE по payload)
-    if isinstance(hardware, dict):
-        blob = str(hardware).casefold()
-        if q in blob and "serial" in blob:
-            return "серийный номер"
-    return "совпадение"
+    return device_match_parts(device, query, hardware=hardware)[0]
 
 
 def highlight_match(text: str, query: str) -> str:
@@ -181,18 +193,18 @@ def matched_serial_subtitle(
     meta = device.get("meta") if isinstance(device.get("meta"), dict) else {}
     candidates: list[tuple[str, str]] = []
     for label, key in (
-        ("ПК", "serial_number"),
-        ("BIOS", "bios_serial"),
-        ("плата", "baseboard_serial"),
+        ("Серийный номер", "serial_number"),
+        ("Серийный номер", "bios_serial"),
+        ("Плата", "baseboard_serial"),
         ("UUID", "smbios_uuid"),
     ):
         val = normalize_search_serial(meta.get(key))
         if val and q in val.casefold():
             candidates.append((label, val))
     for label, key in (
-        ("диск", "disk_serials"),
-        ("монитор", "monitor_serials"),
-        ("ОЗУ", "ram_serials"),
+        ("Диск", "disk_serials"),
+        ("Монитор", "monitor_serials"),
+        ("Память", "ram_serials"),
     ):
         for raw in meta.get(key) or []:
             val = normalize_search_serial(raw)
@@ -201,10 +213,10 @@ def matched_serial_subtitle(
     if not candidates and isinstance(hardware, dict):
         serials = collect_hardware_serials(hardware)
         for label, key in (
-            ("ПК", "chassis"),
-            ("диск", "disk_serials"),
-            ("монитор", "monitor_serials"),
-            ("ОЗУ", "ram_serials"),
+            ("Серийный номер", "chassis"),
+            ("Диск", "disk_serials"),
+            ("Монитор", "monitor_serials"),
+            ("Память", "ram_serials"),
         ):
             for val in serials.get(key) or []:
                 if q in str(val).casefold():
