@@ -1,17 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Мастер Link: одно поле SERVERURL, без ProgressDlg и без готовых WixUI.
+  Мастер Link: одно поле SERVERURL, без видимой полосы прогресса.
   Подключение: <UIRef Id="LinkUi" /> в Product.wxs, сборка с LinkUi.wxs.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Fragment>
     <UI Id="LinkUi">
       <TextStyle Id="LinkUi_Font_Normal" FaceName="Tahoma" Size="8" />
-      <TextStyle Id="LinkUi_Font_Bigger" FaceName="Tahoma" Size="12" Bold="yes" />
       <Property Id="DefaultUIFont" Value="LinkUi_Font_Normal" />
-
-      <DialogRef Id="ErrorDlg" />
-      <DialogRef Id="CancelDlg" />
 
       <Dialog Id="ServerUrlDlg"
               Width="370"
@@ -23,13 +19,27 @@
         <Control Id="Install" Type="PushButton" X="236" Y="130" Width="56" Height="17" Default="yes" Text="Установить">
           <Publish Event="EndDialog" Value="Return" Condition="1" />
         </Control>
-        <Control Id="Cancel" Type="PushButton" X="304" Y="130" Width="56" Height="17" Cancel="yes" Text="Отмена">
-          <Publish Event="SpawnDialog" Value="CancelDlg" Condition="1" />
+      </Dialog>
+
+      <Dialog Id="ProgressDlg"
+              Hidden="yes"
+              Modeless="yes"
+              Width="0"
+              Height="0">
+        <Control Id="ProgressBar"
+                 Type="ProgressBar"
+                 X="0"
+                 Y="0"
+                 Width="0"
+                 Height="0"
+                 ProgressBlocks="yes">
+          <Subscribe Event="SetProgress" Attribute="Progress" />
         </Control>
       </Dialog>
 
       <InstallUISequence>
-        <Show Dialog="ServerUrlDlg" Before="ExecuteAction" Condition="NOT Installed" />
+        <Show Dialog="ServerUrlDlg" Before="ProgressDlg" Condition="NOT Installed" />
+        <Show Dialog="ProgressDlg" Before="ExecuteAction" Condition="NOT Installed" />
       </InstallUISequence>
     </UI>
   </Fragment>
