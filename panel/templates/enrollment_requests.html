@@ -1,32 +1,84 @@
 {% extends "base.html" %}
 {% from "macros/icons.html" import icon %}
-{% block title %}Заявки на подключение — bAD{% endblock %}
+{% block page_head_extra %}
+<meta http-equiv="refresh" content="5">
+{% endblock %}
+{% block title %}Заявки — bAD{% endblock %}
 {% block content %}
 <section class="page devices-page">
   <header class="page-header">
-    <h1 class="with-icon">{{ icon('devices') }}Заявки на подключение</h1>
-    <p class="page-lead muted"><a href="/devices">К устройствам</a></p>
+    <h1 class="with-icon">{{ icon('mail') }}Заявки</h1>
   </header>
   {% if flash %}<p class="ok">{{ flash }}</p>{% endif %}
+
+  <h2>Заявки</h2>
   <div class="card-surface filter-card devices-enroll-card">
     <div class="table-scroll devices-enroll-requests-scroll">
       <table class="devices devices-enroll-requests">
         <thead>
-          <tr><th>Имя</th><th>IP</th><th>Серийник</th><th>Статус</th><th></th></tr>
+          <tr>
+            <th>Имя</th>
+            <th>IP</th>
+            <th>Серийник</th>
+            <th>Статус</th>
+            <th></th>
+          </tr>
         </thead>
         <tbody>
-          {% for row in rows %}
+          {% for row in pending_rows %}
           <tr>
             <td>{{ row.hostname }}</td>
             <td class="mono">{{ row.ip or "—" }}</td>
             <td class="mono">{{ row.serial or "—" }}</td>
-            <td>Ожидает разрешения</td>
+            <td>{{ row.status_text }}</td>
             <td>
               <form method="post" action="/devices/enrollment-requests/{{ row.id }}/allow">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <button type="submit" class="btn secondary btn-compact">Разрешить</button>
               </form>
             </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="5" class="muted">Нет заявок</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h2>Одобренные</h2>
+  <div class="card-surface filter-card devices-enroll-card">
+    <div class="table-scroll devices-enroll-requests-scroll">
+      <table class="devices devices-enroll-requests">
+        <thead>
+          <tr>
+            <th>Имя</th>
+            <th>IP</th>
+            <th>Кубики</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in approved_rows %}
+          <tr>
+            <td>{{ row.hostname }}</td>
+            <td class="mono">{{ row.ip or "—" }}</td>
+            <td>
+              <span class="link-cubes" aria-hidden="true">
+                {% for cube in row.cubes %}
+                <span class="link-cube link-cube-{{ cube }}"></span>
+                {% endfor %}
+              </span>
+            </td>
+            <td{% if row.status_kind == 'error' %} class="link-error"{% endif %}>
+              {% if row.status_text %}{{ row.status_text }}{% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="4" class="muted">Нет одобренных заявок</td>
           </tr>
           {% endfor %}
         </tbody>

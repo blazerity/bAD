@@ -108,13 +108,13 @@
     <div>
       <h2>Загрузить установщик вручную</h2>
       <p class="muted">
-        Файл <span class="mono">bad-agent-X.Y.Z.arc</span> и при желании манифест.
+        Файл <span class="mono">bad-agent-X.Y.Z.zip</span> и при желании манифест.
         Контрольную сумму можно не указывать — посчитаем сами.
       </p>
       <form method="post" action="/settings/updates/upload" enctype="multipart/form-data" class="settings-form updates-upload-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <label for="msi">Файл архива (.arc)</label>
-        {{ file_input_ru('msi', 'msi', '.arc,application/octet-stream', required=true) }}
+        <label for="msi">Каталог агента (.zip)</label>
+        {{ file_input_ru('msi', 'msi', '.zip,application/zip', required=true) }}
 
         <label for="manifest">Описание версии (необязательно)</label>
         {{ file_input_ru('manifest', 'manifest', '.json,application/json') }}

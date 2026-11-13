@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}bAD{% endblock %}</title>
+  {% block page_head_extra %}{% endblock %}
   <link rel="icon" href="/static/favicon.ico" sizes="any">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -44,7 +45,10 @@
       <nav class="nav hcp-rail-nav">
         <a href="/" {% if path in ['/', '/overview'] %}aria-current="page"{% endif %}>{{ icon('overview') }}<span>Обзор</span></a>
         <a href="/dashboard" {% if path == '/dashboard' %}aria-current="page"{% endif %}>{{ icon('dashboard') }}<span>Дашборд</span></a>
-        <a href="/devices" {% if path.startswith('/devices') %}aria-current="page"{% endif %}>{{ icon('devices') }}<span>Устройства</span></a>
+        <a href="/devices" {% if path.startswith('/devices') and not path.startswith('/devices/enrollment-requests') %}aria-current="page"{% endif %}>{{ icon('devices') }}<span>Устройства</span></a>
+        {% if user.is_admin %}
+        <a href="/devices/enrollment-requests" {% if path.startswith('/devices/enrollment-requests') %}aria-current="page"{% endif %}>{{ icon('mail') }}<span>Заявки</span></a>
+        {% endif %}
         <a href="/events" {% if path == '/events' %}aria-current="page"{% endif %}>{{ icon('events') }}<span>События</span></a>
         {% if user.is_admin %}
         <a href="/settings" {% if path.startswith('/settings') or path.startswith('/account') %}aria-current="page"{% endif %}>{{ icon('settings') }}<span>Параметры</span></a>
