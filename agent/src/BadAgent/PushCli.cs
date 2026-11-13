@@ -249,10 +249,6 @@ public static class PushCli
                 outcome.Line("Конфиг", "применён", "ok");
             }
 
-            MinidumpHeartbeatUpload.RunAsync(client, config.ApiKey!, response?.Actions?.UploadMinidump, null, token)
-                .GetAwaiter()
-                .GetResult();
-
             outcome.Tail.Add("Готово");
             return outcome;
         }

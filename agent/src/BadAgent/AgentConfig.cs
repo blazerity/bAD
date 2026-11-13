@@ -154,10 +154,6 @@ public sealed class HeartbeatActions
 
     [JsonPropertyName("uninstall")]
     public bool Uninstall { get; set; }
-
-    /// <summary>Имя или путь minidump под %SystemRoot%\Minidump — один файл за heartbeat.</summary>
-    [JsonPropertyName("upload_minidump")]
-    public string? UploadMinidump { get; set; }
 }
 
 public sealed class HeartbeatServerResponse

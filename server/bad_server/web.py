@@ -41,7 +41,6 @@ from .config import Settings, get_settings
 from .crypto_util import decrypt_secret, encrypt_secret
 from .csrf import cookie_secure_for_request, ensure_csrf, get_csrf_token, set_csrf_cookie
 from .device_refresh import set_device_refresh_request
-from .minidump_read import REQUEST_META, dump_name_ok
 from .db import Database
 from .device_health import (
     DEVICE_RECENT_SITE_SECRET_KEY,
@@ -3143,39 +3142,6 @@ def device_request_refresh(
         return RedirectResponse(url="/devices", status_code=303)
     return RedirectResponse(
         url=f"/devices/{bad_id}?refresh_sent=1",
-        status_code=303,
-    )
-
-
-def _inventory_minidump_names(db: Database, bad_id: str) -> set[str]:
-    detail = db.get_device_detail(bad_id) or {}
-    latest = detail.get("latest_inventory") if isinstance(detail, dict) else None
-    payload = latest.get("payload") if isinstance(latest, dict) else None
-    md = payload.get("minidumps") if isinstance(payload, dict) else None
-    files = md.get("files") if isinstance(md, dict) else None
-    names: set[str] = set()
-    for item in files or []:
-        if isinstance(item, dict) and isinstance(item.get("name"), str):
-            names.add(item["name"])
-    return names
-
-
-@router.post("/devices/{bad_id}/minidump-request")
-def device_minidump_request(
-    bad_id: str,
-    name: str = Form(""),
-    user: WebUser = Depends(require_web_admin),
-    db: Database = Depends(get_db),
-):
-    canonical = (bad_id if db.get_device_auth_row(bad_id) else None)
-    if not canonical:
-        return RedirectResponse(url="/devices", status_code=303)
-    wanted = (name or "").strip()
-    known = _inventory_minidump_names(db, canonical)
-    if dump_name_ok(wanted) and wanted in known:
-        db.patch_device_meta(canonical, {REQUEST_META: wanted})
-    return RedirectResponse(
-        url=f"/devices/{canonical}?view=minidumps",
         status_code=303,
     )
 

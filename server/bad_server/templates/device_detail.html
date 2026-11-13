@@ -597,24 +597,10 @@
           {% if f.bugcheck_parameters %}
           <div><dt>Параметры</dt><dd class="mono">{{ f.bugcheck_parameters|join(" ") }}</dd></div>
           {% endif %}
-          {% set reads = meta.minidump_reads if meta.minidump_reads is mapping else {} %}
-          {% set read = reads.get(f.name) if f.name else none %}
-          {% if read and read.text %}
-          <div><dt>Причина</dt><dd>{{ read.text }}</dd></div>
-          {% elif f.bugcheck_message %}
+          {% if f.bugcheck_message %}
           <div><dt>Причина</dt><dd>{{ f.bugcheck_message }}</dd></div>
           {% endif %}
         </dl>
-        {% if not report_mode and user.is_admin and f.name and f.name|lower != 'memory.dmp' %}
-        <form method="post" action="/devices/{{ device.bad_id }}/minidump-request">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <input type="hidden" name="name" value="{{ f.name }}">
-          <button type="submit" class="subtle">Разобрать</button>
-        </form>
-        {% if meta.minidump_request == f.name %}
-        <p class="muted">Разбор запрошен</p>
-        {% endif %}
-        {% endif %}
         {% endfor %}
         {% elif not minidumps_info.count %}
         <p class="muted">Файлов минидампов нет.</p>

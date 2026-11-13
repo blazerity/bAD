@@ -245,8 +245,7 @@ public sealed class BadApiClient : IDisposable
             if (actions is not null
                 && (actions.Inventory
                     || actions.UpdateCheck
-                    || actions.Uninstall
-                    || !string.IsNullOrWhiteSpace(actions.UploadMinidump)))
+                    || actions.Uninstall))
             {
                 return new HeartbeatServerResponse { Config = null, Actions = actions };
             }
@@ -278,44 +277,7 @@ public sealed class BadApiClient : IDisposable
             a.Uninstall = true;
         }
 
-        if (actionsEl.TryGetProperty("upload_minidump", out var um)
-            && um.ValueKind == JsonValueKind.String)
-        {
-            var s = um.GetString();
-            if (!string.IsNullOrWhiteSpace(s))
-            {
-                a.UploadMinidump = s.Trim();
-            }
-        }
-
         return a;
-    }
-
-    /// <summary>Один minidump по запросу heartbeat: multipart, тот же Bearer.</summary>
-    public async Task<bool> TryPostMinidumpAsync(string apiKey, string localFilePath, CancellationToken ct)
-    {
-        await using var fs = File.OpenRead(localFilePath);
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/agent/minidump");
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-        var mp = new MultipartFormDataContent();
-        var streamContent = new StreamContent(fs);
-        streamContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-        mp.Add(streamContent, "file", Path.GetFileName(localFilePath));
-        req.Content = mp;
-
-        using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
-        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            return false;
-        }
-
-        if (!resp.IsSuccessStatusCode)
-        {
-            _ = await resp.Content.ReadAsStringAsync(ct);
-            return false;
-        }
-
-        return true;
     }
 
     public async Task SendInventoryAsync(

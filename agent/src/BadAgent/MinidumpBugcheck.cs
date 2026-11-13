@@ -50,67 +50,6 @@ public static class MinidumpBugcheck
         }
     }
 
-    /// <summary>
-    /// Годный MDMP (подпись, 1–256 потоков, каталог внутри файла) или малый дамп ядра PAGE+DU64/DUMP.
-    /// Поток Exception в первых 64 КиБ не требуется.
-    /// </summary>
-    public static bool HeaderAllowsUpload(string path)
-    {
-        try
-        {
-            using var fs = new FileStream(
-                path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            var len = fs.Length;
-            if (len < 8)
-            {
-                return false;
-            }
-
-            var buf = new byte[32];
-            var n = fs.Read(buf, 0, (int)Math.Min(buf.Length, len));
-            if (n < 8)
-            {
-                return false;
-            }
-
-            var sig = BitConverter.ToUInt32(buf, 0);
-            if (sig == PageSignature)
-            {
-                var mark = BitConverter.ToUInt32(buf, 4);
-                if (mark == Du64Signature)
-                {
-                    return len >= Kernel64HeaderBytes;
-                }
-
-                if (mark == DumpSignature)
-                {
-                    return len >= Kernel32HeaderBytes;
-                }
-
-                return false;
-            }
-
-            if (sig != MdmpSignature || n < 16)
-            {
-                return false;
-            }
-
-            var streams = BitConverter.ToUInt32(buf, 8);
-            var directoryRva = BitConverter.ToUInt32(buf, 12);
-            if (streams < 1 || streams > 256)
-            {
-                return false;
-            }
-
-            var dirEnd = (ulong)directoryRva + (ulong)streams * 12UL;
-            return dirEnd <= (ulong)len;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
     public static Result TryParseHeader(ReadOnlySpan<byte> data)
     {
         var kernel = TryParseKernelHeader(data);

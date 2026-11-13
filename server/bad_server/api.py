@@ -3,8 +3,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import logging
-import os
-import tempfile
 from pathlib import Path
 from typing import Annotated, Any, Optional
 
@@ -80,15 +78,6 @@ from .security import (
     verify_secret,
 )
 from .device_meta import inventory_meta_cache
-from .minidump_read import (
-    MAX_BYTES,
-    READS_META,
-    REQUEST_META,
-    dump_name_ok,
-    read_header,
-    read_kernel_header,
-    unlink_dump,
-)
 from .inventory_events import (
     INVENTORY_TOP_KEYS,
     inventory_budget_error,
@@ -383,9 +372,6 @@ def heartbeat(
         actions.update(heartbeat_actions_for_refresh(meta))
     if send_uninstall:
         actions["uninstall"] = True
-    requested = meta.get(REQUEST_META)
-    if isinstance(requested, str) and dump_name_ok(requested):
-        actions["upload_minidump"] = requested
     if not config_matches:
         resp["config"] = {
             "version": effective["version"],
@@ -405,75 +391,6 @@ def heartbeat(
     if ack_patch:
         db.patch_device_meta(target_id, ack_patch)
     return resp
-
-
-def _copy_minidump(upload: UploadFile, path: str) -> None:
-    size = 0
-    with open(path, "wb") as out:
-        while True:
-            chunk = upload.file.read(64 * 1024)
-            if not chunk:
-                break
-            size += len(chunk)
-            if size > MAX_BYTES:
-                raise HTTPException(
-                    status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-                    detail="minidump larger than 8MB",
-                )
-            out.write(chunk)
-    if size == 0:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="empty minidump")
-
-
-@router.post("/agent/minidump")
-def agent_minidump(
-    file: UploadFile = File(...),
-    device=Depends(require_api_key),
-    db: Database = Depends(get_db),
-) -> dict[str, str]:
-    """Один запрошенный минидамп. MEMORY.DMP и тела больше 8 МБ не принимаются."""
-    name = Path(file.filename or "").name
-    meta = db.get_device_meta(device["bad_id"]) or {}
-    pending = meta.get(REQUEST_META)
-    if not isinstance(pending, str) or not dump_name_ok(pending):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="minidump was not requested",
-        )
-    if not dump_name_ok(name) or name.casefold() != pending.casefold():
-        detail = (
-            "full memory dump is not accepted"
-            if name.casefold() == "memory.dmp"
-            else "minidump was not requested"
-        )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST
-            if name.casefold() == "memory.dmp"
-            else status.HTTP_409_CONFLICT,
-            detail=detail,
-        )
-    fd, path = tempfile.mkstemp(prefix="bad-minidump-", suffix=".dmp")
-    os.close(fd)
-    parsed = None
-    try:
-        _copy_minidump(file, path)
-        try:
-            parsed = read_kernel_header(path)
-            if parsed is None:
-                parsed = read_header(path)
-        except Exception:
-            logger.exception("minidump header parse failed")
-            parsed = None
-    finally:
-        unlink_dump(path)
-    reads = dict(meta.get(READS_META) or {})
-    if parsed:
-        reads[pending] = parsed
-    db.patch_device_meta(
-        device["bad_id"],
-        {REQUEST_META: None, READS_META: reads},
-    )
-    return {"status": "ok"}
 
 
 @router.post("/agent/signing-key")
