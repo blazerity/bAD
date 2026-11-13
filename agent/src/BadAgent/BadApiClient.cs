@@ -467,7 +467,7 @@ public sealed class BadApiClient : IDisposable
     }
 
     /// <summary>
-    /// Скачать MSI обновления. URL — только relative или same-origin к <see cref="_baseUrl"/> (SEC-009).
+    /// Скачать архив обновления. URL — только relative или same-origin к <see cref="_baseUrl"/> (SEC-009).
     /// </summary>
     public async Task DownloadUpdateMsiAsync(string apiKey, string relativeOrAbsoluteUrl, string destPath, CancellationToken ct)
     {
