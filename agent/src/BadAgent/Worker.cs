@@ -149,6 +149,7 @@ public sealed class Worker : BackgroundService
                 if (DateTime.UtcNow >= nextInventory)
                 {
                     await RunInventoryAsync(client, config, stoppingToken);
+                    config = ConfigStore.LoadOrCreate();
                     nextInventory = DateTime.UtcNow + inventoryEvery;
                 }
 

@@ -426,6 +426,8 @@ public sealed class BadApiClient : IDisposable
         using var resp = await _http.SendAsync(req, ct);
         if (resp.IsSuccessStatusCode)
         {
+            var accepted = await resp.Content.ReadAsStringAsync(ct);
+            TrySaveIssuedDevice(accepted);
             return null;
         }
 
@@ -434,6 +436,46 @@ public sealed class BadApiClient : IDisposable
     }
 
     private readonly record struct InventoryPostFailure(System.Net.HttpStatusCode Status, string Body);
+
+    /// <summary>
+    /// 200 с новым device_id и api_key — вторая карточка. Ключ в журнал не пишется.
+    /// </summary>
+    private static void TrySaveIssuedDevice(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("device_id", out var idEl)
+                || idEl.ValueKind != JsonValueKind.String
+                || !root.TryGetProperty("api_key", out var keyEl)
+                || keyEl.ValueKind != JsonValueKind.String)
+            {
+                return;
+            }
+
+            var deviceId = idEl.GetString();
+            var apiKey = keyEl.GetString();
+            if (string.IsNullOrWhiteSpace(deviceId) || string.IsNullOrWhiteSpace(apiKey))
+            {
+                return;
+            }
+
+            var config = ConfigStore.LoadOrCreate();
+            config.DeviceId = deviceId;
+            config.ApiKey = apiKey;
+            ConfigStore.Save(config);
+        }
+        catch (JsonException)
+        {
+            // Успешный приём без этих полей остаётся обычным.
+        }
+    }
 
     /// <summary>HTML отчёт с сервера (панель): тот же snapshot, что inventory.</summary>
     public async Task<string?> TryPostReportHtmlAsync(string apiKey, InventorySnapshot snapshot, CancellationToken ct)

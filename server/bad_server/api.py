@@ -5,6 +5,7 @@ import hashlib
 import logging
 import os
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Annotated, Any, Optional
 
@@ -66,7 +67,7 @@ from .schemas import (
     InventoryRequest,
 )
 from .http_bootstrap import ENROLL_CLEARTEXT_MSG, client_ip, enroll_cleartext_blocked
-from .crypto_util import decrypt_secret
+from .crypto_util import decrypt_secret, encrypt_secret
 from .security import (
     api_key_lookup,
     enrollment_code_hash,
@@ -597,6 +598,58 @@ def _accepted_inventory(
     return payload
 
 
+def _snapshot_smbios_uuid(payload: Optional[dict[str, Any]]) -> Optional[str]:
+    hardware = (
+        payload.get("hardware")
+        if isinstance(payload, dict) and isinstance(payload.get("hardware"), dict)
+        else None
+    )
+    raw = hardware.get("smbios_uuid") if hardware else None
+    return Database.normalize_smbios_uuid(raw)
+
+
+def _clone_split_secret_name(device_id: str) -> str:
+    return f"clone_split_key:{device_id}"
+
+
+def _issue_clone_device(
+    db: Database,
+    request: Request,
+    device: dict[str, Any],
+    *,
+    hostname: Optional[str],
+    agent_version: Optional[str],
+    smbios_uuid: str,
+) -> dict[str, Optional[str]]:
+    """Вторая карточка или уже созданная для этой пары старый id + чужой UUID."""
+    data_key = getattr(request.app.state, "data_key", "") or ""
+    existing = db.find_clone_split_device(str(device["device_id"]), smbios_uuid)
+    if existing:
+        stored = db.get_site_secret(_clone_split_secret_name(existing)) or ""
+        api_key = decrypt_secret(data_key, stored) if stored else None
+        return {"device_id": existing, "api_key": api_key}
+
+    child_id = str(uuid.uuid4())
+    while child_id in {str(device["device_id"]), smbios_uuid}:
+        child_id = str(uuid.uuid4())
+    api_key = generate_token("bad_ak_")
+    lookup = api_key_lookup(data_key, api_key) if data_key else None
+    db.insert_clone_device(
+        device_id=child_id,
+        hostname=hostname,
+        api_key_hash=hash_secret(api_key),
+        api_key_lookup=lookup,
+        agent_version=agent_version,
+        signing_pubkey=(device.get("signing_pubkey") or None),
+        signing_key_fingerprint=(device.get("signing_key_fingerprint") or None),
+        split_from=str(device["device_id"]),
+    )
+    db.set_site_secret(
+        _clone_split_secret_name(child_id), encrypt_secret(data_key, api_key)
+    )
+    return {"device_id": child_id, "api_key": api_key}
+
+
 @router.post("/inventory")
 def inventory(
     body: InventoryRequest,
@@ -632,8 +685,24 @@ def inventory(
     }
     # Кэш сигналов дубля (не PK): serial/uuid/bios/board/disk — без auto-merge
     meta.update(db.identity_signals_for_meta(identity))
+    new_uuid = _snapshot_smbios_uuid(payload)
+    previous = db.latest_snapshot_payload(str(device["device_id"]))
+    old_uuid = _snapshot_smbios_uuid(previous)
+    split: Optional[dict[str, Optional[str]]] = None
+    target_id = str(device["device_id"])
+    if new_uuid and old_uuid and new_uuid != old_uuid:
+        split = _issue_clone_device(
+            db,
+            request,
+            device,
+            hostname=hostname if isinstance(hostname, str) else None,
+            agent_version=body.agent_version,
+            smbios_uuid=new_uuid,
+        )
+        if split.get("device_id"):
+            target_id = str(split["device_id"])
     stored = db.store_inventory(
-        device_id=body.device_id,
+        device_id=target_id,
         schema_version=body.schema_version,
         payload=payload,
         hostname=hostname,
@@ -641,7 +710,17 @@ def inventory(
         meta=meta,
         retention=settings.snapshot_retention,
     )
-    return {"status": "ok", "snapshot_id": stored["snapshot_id"]}
+    if split is None:
+        own_meta = db.get_device_meta(target_id) or {}
+        if own_meta.get("split_from"):
+            db.delete_site_secret(_clone_split_secret_name(target_id))
+    response: dict[str, Any] = {"status": "ok", "snapshot_id": stored["snapshot_id"]}
+    issued_id = (split or {}).get("device_id")
+    issued_key = (split or {}).get("api_key")
+    if issued_id and issued_key:
+        response["device_id"] = issued_id
+        response["api_key"] = issued_key
+    return response
 
 
 @router.post("/agent/report.html", response_class=HTMLResponse)

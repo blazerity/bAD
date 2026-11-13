@@ -79,6 +79,7 @@ public static class OfflineQueue
             .ToList();
 
         var sent = 0;
+        string? issuedDeviceId = null;
         foreach (var file in files)
         {
             ct.ThrowIfCancellationRequested();
@@ -111,12 +112,29 @@ public static class OfflineQueue
                 {
                     var snap = JsonSerializer.Deserialize<InventorySnapshot>(item.Body)
                                ?? throw new InvalidOperationException("bad inventory payload");
+                    if (!string.IsNullOrWhiteSpace(issuedDeviceId))
+                    {
+                        snap.DeviceId = issuedDeviceId;
+                    }
+
                     await client.SendInventoryAsync(apiKey, snap, ct, logger);
+                    if (ConfigStore.TryLoadForRead(out var fresh, out _)
+                        && !string.IsNullOrWhiteSpace(fresh.ApiKey)
+                        && !string.IsNullOrWhiteSpace(fresh.DeviceId))
+                    {
+                        apiKey = fresh.ApiKey;
+                        issuedDeviceId = fresh.DeviceId;
+                    }
                 }
                 else if (string.Equals(item.Kind, "heartbeat", StringComparison.OrdinalIgnoreCase))
                 {
                     var hb = JsonSerializer.Deserialize<HeartbeatQueuePayload>(item.Body)
                              ?? throw new InvalidOperationException("bad heartbeat payload");
+                    if (!string.IsNullOrWhiteSpace(issuedDeviceId))
+                    {
+                        hb.DeviceId = issuedDeviceId;
+                    }
+
                     await client.SendHeartbeatAsync(apiKey, hb, ct);
                 }
                 else

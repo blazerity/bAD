@@ -755,6 +755,87 @@ class Database:
             )
             return {"snapshot_id": snapshot_id, "events": events}
 
+    def latest_snapshot_payload(self, device_id: str) -> Optional[dict[str, Any]]:
+        with self.connection() as conn:
+            row = self._latest_snapshot_row(conn, device_id)
+        if not row:
+            return None
+        return self._snapshot_payload(row["payload_json"])
+
+    def insert_clone_device(
+        self,
+        device_id: str,
+        hostname: Optional[str],
+        api_key_hash: str,
+        api_key_lookup: Optional[str],
+        agent_version: Optional[str],
+        signing_pubkey: Optional[str],
+        signing_key_fingerprint: Optional[str],
+        split_from: str,
+    ) -> None:
+        """Вторая карточка клона: свой id и ключ, тот же ключ подписи, без снимков."""
+        from .bad_id import bad_id_for_device, ensure_bad_id_key
+
+        bad_id = bad_id_for_device(device_id, ensure_bad_id_key(self))
+        now = utc_now()
+        meta_json = _compact_json({"split_from": split_from})
+        with self.connection() as conn:
+            dup = conn.execute(
+                "SELECT device_id FROM devices WHERE bad_id = ?",
+                (bad_id,),
+            ).fetchone()
+            if dup:
+                raise ValueError("bad_id_collision")
+            conn.execute(
+                """
+                INSERT INTO devices(
+                  device_id, bad_id, hostname, api_key_hash, api_key_lookup,
+                  enrolled_at, last_seen_at, agent_version, meta_json,
+                  revoked, archived, signing_pubkey, signing_key_fingerprint
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
+                """,
+                (
+                    device_id,
+                    bad_id,
+                    hostname,
+                    api_key_hash,
+                    api_key_lookup,
+                    now,
+                    now,
+                    agent_version,
+                    meta_json,
+                    signing_pubkey,
+                    signing_key_fingerprint,
+                ),
+            )
+
+    def find_clone_split_device(self, split_from: str, smbios_uuid: str) -> Optional[str]:
+        """Строка, уже отделённая от split_from с тем же UUID снимка."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT device_id, meta_json FROM devices
+                WHERE meta_json LIKE ?
+                """,
+                ('%"split_from"%',),
+            ).fetchall()
+        for row in rows:
+            meta = self._parse_meta(row["meta_json"])
+            if meta.get("split_from") != split_from:
+                continue
+            payload = self.latest_snapshot_payload(str(row["device_id"]))
+            hardware = (
+                payload.get("hardware")
+                if isinstance(payload, dict) and isinstance(payload.get("hardware"), dict)
+                else None
+            )
+            found = self.normalize_smbios_uuid(
+                hardware.get("smbios_uuid") if hardware else None
+            )
+            if found == smbios_uuid:
+                return str(row["device_id"])
+        return None
+
     def list_devices(
         self,
         tag: Optional[str] = None,
