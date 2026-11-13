@@ -97,6 +97,24 @@ class Database:
             )
             conn.execute(
                 """
+                ALTER TABLE enrollment_requests
+                ADD COLUMN IF NOT EXISTS archive_password_enc TEXT
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE agent_msi_versions
+                ADD COLUMN IF NOT EXISTS archive_password_enc TEXT NOT NULL DEFAULT ''
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE agent_update
+                ADD COLUMN IF NOT EXISTS archive_password_enc TEXT NOT NULL DEFAULT ''
+                """
+            )
+            conn.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_device_events_unmailed
                 ON device_events(mailed_at) WHERE mailed_at IS NULL
                 """
@@ -290,16 +308,18 @@ class Database:
         bad_id: str,
         api_key_enc: str,
         signing_key_enc: str,
+        archive_password_enc: str = "",
     ) -> bool:
         with self.connection() as conn:
             updated = conn.execute(
                 """
                 UPDATE enrollment_requests
                 SET status = 'approved', bad_id = ?,
-                    api_key_enc = ?, signing_key_enc = ?
+                    api_key_enc = ?, signing_key_enc = ?,
+                    archive_password_enc = ?
                 WHERE id = ? AND status = 'pending'
                 """,
-                (bad_id, api_key_enc, signing_key_enc, request_id),
+                (bad_id, api_key_enc, signing_key_enc, archive_password_enc or "", request_id),
             )
         return updated.rowcount == 1
 
@@ -308,7 +328,7 @@ class Database:
         with self.connection() as conn:
             row = conn.execute(
                 """
-                SELECT bad_id, status, api_key_enc, signing_key_enc
+                SELECT bad_id, status, api_key_enc, signing_key_enc, archive_password_enc
                 FROM enrollment_requests WHERE id = ?
                 FOR UPDATE
                 """,
@@ -321,7 +341,8 @@ class Database:
             conn.execute(
                 """
                 UPDATE enrollment_requests
-                SET api_key_enc = NULL, signing_key_enc = NULL, claimed_at = ?
+                SET api_key_enc = NULL, signing_key_enc = NULL,
+                    archive_password_enc = NULL, claimed_at = ?
                 WHERE id = ?
                 """,
                 (utc_now(), request_id),
@@ -331,6 +352,7 @@ class Database:
             "bad_id": row["bad_id"],
             "api_key_enc": row["api_key_enc"],
             "signing_key_enc": row["signing_key_enc"],
+            "archive_password_enc": row["archive_password_enc"],
         }
 
     def get_device_auth_row(self, bad_id: str) -> Optional[dict[str, Any]]:
@@ -1463,6 +1485,9 @@ class Database:
             else row["synced_at"]
             if "synced_at" in row.keys()
             else None,
+            "archive_password_enc": row["archive_password_enc"]
+            if "archive_password_enc" in row.keys()
+            else "",
             "synced_at": row["synced_at"]
             if "synced_at" in row.keys()
             else row["mirrored_at"]
@@ -1475,7 +1500,7 @@ class Database:
         with self.connection() as conn:
             row = conn.execute(
                 "SELECT version, msi_name, sha256, file_path, source_tag, "
-                "release_url, synced_at FROM agent_update WHERE id = 1"
+                "release_url, synced_at, archive_password_enc FROM agent_update WHERE id = 1"
             ).fetchone()
         if row:
             data = self._msi_row(row)
@@ -1491,7 +1516,7 @@ class Database:
         with self.connection() as conn:
             row = conn.execute(
                 "SELECT version, msi_name, sha256, file_path, source, "
-                "source_tag, release_url, mirrored_at "
+                "source_tag, release_url, mirrored_at, archive_password_enc "
                 "FROM agent_msi_versions WHERE version = ?",
                 (ver,),
             ).fetchone()
@@ -1504,7 +1529,7 @@ class Database:
         with self.connection() as conn:
             rows = conn.execute(
                 "SELECT version, msi_name, sha256, file_path, source, "
-                "source_tag, release_url, mirrored_at "
+                "source_tag, release_url, mirrored_at, archive_password_enc "
                 "FROM agent_msi_versions"
             ).fetchall()
         items = [self._msi_row(r) for r in rows]
@@ -1530,6 +1555,7 @@ class Database:
         release_url: Optional[str] = None,
         set_as_latest: bool = True,
         force_latest: bool = False,
+        archive_password_enc: str = "",
     ) -> dict[str, Any]:
         """Добавить/обновить версию в каталоге; опционально обновить указатель latest.
 
@@ -1545,8 +1571,8 @@ class Database:
                 """
                 INSERT INTO agent_msi_versions(
                   version, msi_name, sha256, file_path, source,
-                  source_tag, release_url, mirrored_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                  source_tag, release_url, mirrored_at, archive_password_enc
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(version) DO UPDATE SET
                   msi_name = excluded.msi_name,
                   sha256 = excluded.sha256,
@@ -1554,7 +1580,8 @@ class Database:
                   source = excluded.source,
                   source_tag = excluded.source_tag,
                   release_url = excluded.release_url,
-                  mirrored_at = excluded.mirrored_at
+                  mirrored_at = excluded.mirrored_at,
+                  archive_password_enc = excluded.archive_password_enc
                 """,
                 (
                     version,
@@ -1565,6 +1592,7 @@ class Database:
                     source_tag,
                     release_url,
                     now,
+                    archive_password_enc or "",
                 ),
             )
             if set_as_latest:
@@ -1586,8 +1614,8 @@ class Database:
                         """
                         INSERT INTO agent_update(
                           id, version, msi_name, sha256, file_path,
-                          source_tag, release_url, synced_at
-                        ) VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+                          source_tag, release_url, synced_at, archive_password_enc
+                        ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(id) DO UPDATE SET
                           version = excluded.version,
                           msi_name = excluded.msi_name,
@@ -1595,7 +1623,8 @@ class Database:
                           file_path = excluded.file_path,
                           source_tag = excluded.source_tag,
                           release_url = excluded.release_url,
-                          synced_at = excluded.synced_at
+                          synced_at = excluded.synced_at,
+                          archive_password_enc = excluded.archive_password_enc
                         """,
                         (
                             version,
@@ -1605,6 +1634,7 @@ class Database:
                             source_tag,
                             release_url,
                             now,
+                            archive_password_enc or "",
                         ),
                     )
                     conn.execute(
@@ -1637,6 +1667,7 @@ class Database:
         source_tag: Optional[str] = None,
         release_url: Optional[str] = None,
         source: str = "github",
+        archive_password_enc: str = "",
     ) -> dict[str, Any]:
         """Совместимость: upsert в каталог + указатель latest."""
         return self.upsert_agent_msi_version(
@@ -1648,6 +1679,7 @@ class Database:
             source_tag=source_tag,
             release_url=release_url,
             set_as_latest=True,
+            archive_password_enc=archive_password_enc,
         )
 
     def delete_agent_msi_version(self, version: str) -> bool:
@@ -1679,6 +1711,7 @@ class Database:
                 source_tag=top.get("source_tag"),
                 release_url=top.get("release_url"),
                 set_as_latest=True,
+                archive_password_enc=top.get("archive_password_enc") or "",
             )
         return True
 

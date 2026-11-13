@@ -193,12 +193,24 @@ def submit_enrollment_request(
     signing_key = decrypt_secret(data_key, taken["signing_key_enc"] or "")
     if not api_key or not signing_key:
         return {"status": "approved"}
-    return {
+    body = {
         "status": "approved",
         "bad_id": taken["bad_id"],
         "api_key": api_key,
         "signing_key": signing_key,
     }
+    mirrored = db.get_agent_update()
+    archive_password = decrypt_secret(data_key, taken.get("archive_password_enc") or "")
+    if (
+        mirrored
+        and archive_password
+        and mirrored.get("sha256")
+        and mirrored.get("version")
+    ):
+        body["archive_password"] = archive_password
+        body["archive_sha256"] = mirrored["sha256"]
+        body["archive_version"] = mirrored["version"]
+    return body
 
 
 @router.post("/enroll", response_model=EnrollResponse)
@@ -865,15 +877,17 @@ def put_device_tags(
 
 @router.get("/agent/update/check")
 def agent_update_check(
+    request: Request,
     current: str = Query(default="", max_length=64),
     device=Depends(require_api_key),
     db: Database = Depends(get_db),
 ) -> dict[str, Any]:
-    """Агенты спрашивают, есть ли целевой MSI (effective update_target)."""
+    """Агенты спрашивают целевой архив (effective update_target)."""
     return check_update(
         db,
         current=current or "0.0.0",
         device=dict(device) if device is not None else None,
+        data_key=getattr(request.app.state, "data_key", "") or "",
     )
 
 
@@ -881,10 +895,19 @@ def agent_update_check(
 def agent_update_msi(
     version: str = Query(default="", max_length=64),
     _device=Depends(require_api_key),
+) -> FileResponse:
+    """MSI больше не отдаётся."""
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+
+@router.get("/agent/update/archive")
+def agent_update_archive(
+    version: str = Query(default="", max_length=64),
+    _device=Depends(require_api_key),
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> FileResponse:
-    """Скачать байты зеркалированного MSI (auth: API key агента)."""
+    """Скачать байты архива (auth: API key агента)."""
     from .github_release import safe_msi_filename
     from .agent_update import resolve_target_msi
 
@@ -902,8 +925,13 @@ def agent_update_msi(
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Mirrored MSI name is unsafe",
+            detail="Mirrored archive name is unsafe",
         ) from exc
+    if not safe_name.lower().endswith(".arc"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Not found",
+        )
     path = Path(mirrored["file_path"]).resolve()
     updates_root = settings.agent_updates_dir.resolve()
     try:
@@ -911,12 +939,12 @@ def agent_update_msi(
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Mirrored MSI path escapes updates dir",
+            detail="Mirrored archive path escapes updates dir",
         ) from exc
     if not path.is_file():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Mirrored MSI file missing on disk",
+            detail="Mirrored archive file missing on disk",
         )
     return FileResponse(
         path,
@@ -943,12 +971,17 @@ def admin_agent_update_status(
 
 @router.post("/admin/agent-update/sync")
 def admin_agent_update_sync(
+    request: Request,
     _admin: str = Depends(require_admin_token),
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     try:
-        record = sync_from_github(db, settings)
+        record = sync_from_github(
+            db,
+            settings,
+            data_key=getattr(request.app.state, "data_key", "") or "",
+        )
     except Exception as exc:  # noqa: BLE001 — показать ошибки sync админу
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -959,6 +992,7 @@ def admin_agent_update_sync(
 
 @router.post("/admin/agent-update/upload")
 async def admin_agent_update_upload(
+    request: Request,
     _admin: str = Depends(require_admin_token),
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
@@ -985,6 +1019,7 @@ async def admin_agent_update_upload(
             manifest_json=manifest_text,
             set_as_latest=str(set_latest).strip().lower()
             in {"1", "true", "yes", "on"},
+            data_key=getattr(request.app.state, "data_key", "") or "",
         )
     except ValueError as exc:
         raise HTTPException(

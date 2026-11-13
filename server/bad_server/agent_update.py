@@ -13,7 +13,9 @@ from .agent_config import (
     compute_effective_config,
     sanitize_update_target,
 )
+from .agent_arc import MAGIC, encrypt_zip, new_password
 from .config import Settings
+from .crypto_util import encrypt_secret, decrypt_secret
 from .db import Database
 from .github_release import (
     fetch_latest_release_assets,
@@ -29,7 +31,7 @@ _SEMVER_RE = re.compile(
     re.IGNORECASE,
 )
 _VERSION_FROM_MSI_RE = re.compile(
-    r"^bad-agent-(?P<ver>\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)\.msi$",
+    r"^bad-agent-(?P<ver>\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)\.(?:arc|msi)$",
     re.IGNORECASE,
 )
 
@@ -59,7 +61,27 @@ def version_from_msi_name(msi_name: str) -> Optional[str]:
     return m.group("ver") if m else None
 
 
-def sync_from_github(db: Database, settings: Settings) -> dict[str, Any]:
+def resolve_data_key(db: Database, settings: Settings, explicit: str = "") -> str:
+    key = (explicit or "").strip()
+    if key:
+        return key
+    env = (getattr(settings, "data_key", "") or "").strip()
+    if env:
+        return env
+    path = getattr(settings, "data_key_file", None)
+    if path is not None and path.is_file():
+        try:
+            text = path.read_text(encoding="utf-8").strip()
+        except OSError:
+            text = ""
+        if text:
+            return text
+    return (db.get_site_secret("data_key") or "").strip()
+
+
+def sync_from_github(
+    db: Database, settings: Settings, data_key: str = ""
+) -> dict[str, Any]:
     """Скачать assets последнего Release, сохранить MSI в каталог updates, записать в БД."""
     if not settings.github_repo:
         raise RuntimeError("BAD_GITHUB_REPO is not configured")
@@ -80,6 +102,9 @@ def sync_from_github(db: Database, settings: Settings) -> dict[str, Any]:
         ver_dir,
         token=settings.github_token or "",
     )
+    key = resolve_data_key(db, settings, data_key)
+    password = assets.archive_password or ""
+    password_enc = encrypt_secret(key, password) if key and password else ""
     record = db.set_agent_update(
         version=assets.version,
         msi_name=assets.msi_name,
@@ -88,6 +113,7 @@ def sync_from_github(db: Database, settings: Settings) -> dict[str, Any]:
         source_tag=assets.tag,
         release_url=assets.release_url,
         source="github",
+        archive_password_enc=password_enc,
     )
     prune_old_msi_versions(db, settings, keep=MSI_VERSION_CAP)
     logger.info(
@@ -112,6 +138,7 @@ def ingest_uploaded_msi(
     sha256: str = "",
     manifest_json: Optional[str] = None,
     set_as_latest: bool = True,
+    data_key: str = "",
 ) -> dict[str, Any]:
     """Ручная заливка MSI (+ optional agent-release.json) для air-gap.
 
@@ -130,20 +157,38 @@ def ingest_uploaded_msi(
             raise ValueError("Manifest must be a JSON object")
         manifest = parsed
 
+    name = (filename or "").strip()
+    if name and not name.lower().endswith(".arc"):
+        raise ValueError("catalog file must be bad-agent-X.Y.Z.arc")
     ver = (
         sanitize_update_target(version)
         or sanitize_update_target(manifest.get("version"))
-        or version_from_msi_name((filename or "").strip())
+        or version_from_msi_name(name)
         or version_from_msi_name(str(manifest.get("msi_name") or ""))
     )
     if not ver or ver == UPDATE_TARGET_LATEST:
-        raise ValueError("version required (form, manifest, or bad-agent-X.Y.Z.msi name)")
+        raise ValueError("version required (form, manifest, or bad-agent-X.Y.Z.arc name)")
 
-    msi_name = safe_msi_filename(f"bad-agent-{ver}.msi")
-    digest = sha256_hex(raw)
+    core = parse_semver(ver)
+    if core is None:
+        raise ValueError("version required (form, manifest, or bad-agent-X.Y.Z.arc name)")
+    ver = f"{core[0]}.{core[1]}.{core[2]}"
+    uploaded_digest = sha256_hex(raw)
     expected = (sha256 or str(manifest.get("sha256") or "")).strip().lower()
-    if expected and expected != digest:
-        raise ValueError(f"sha256 mismatch: expected {expected}, got {digest}")
+    if expected and expected != uploaded_digest:
+        raise ValueError(f"sha256 mismatch: expected {expected}, got {uploaded_digest}")
+
+    password = str(manifest.get("archive_password") or "")
+    if raw.startswith(MAGIC):
+        if not password:
+            raise ValueError("archive password required")
+        payload = raw
+    else:
+        if not password:
+            password = new_password()
+        payload = encrypt_zip(raw, password)
+    msi_name = safe_msi_filename(f"bad-agent-{ver}.arc")
+    digest = sha256_hex(payload)
 
     ver_dir = (settings.agent_updates_dir / ver).resolve()
     try:
@@ -159,7 +204,7 @@ def ingest_uploaded_msi(
         raise ValueError("MSI path escapes updates dir") from exc
 
     tmp = (ver_dir / f".{msi_name}.tmp").resolve()
-    tmp.write_bytes(raw)
+    tmp.write_bytes(payload)
     tmp.replace(target)
     try:
         target.chmod(0o640)
@@ -182,6 +227,8 @@ def ingest_uploaded_msi(
         encoding="utf-8",
     )
 
+    key = resolve_data_key(db, settings, data_key)
+    password_enc = encrypt_secret(key, password) if key and password else ""
     record = db.upsert_agent_msi_version(
         version=ver,
         msi_name=msi_name,
@@ -191,6 +238,7 @@ def ingest_uploaded_msi(
         source_tag="upload",
         release_url=None,
         set_as_latest=set_as_latest,
+        archive_password_enc=password_enc,
     )
     prune_old_msi_versions(db, settings, keep=MSI_VERSION_CAP)
     return record
@@ -211,6 +259,7 @@ def set_latest_msi_version(db: Database, version: str) -> dict[str, Any]:
         release_url=row.get("release_url"),
         set_as_latest=True,
         force_latest=True,
+        archive_password_enc=row.get("archive_password_enc") or "",
     )
 
 
@@ -360,7 +409,8 @@ def check_update(
     *,
     device: Optional[dict[str, Any]] = None,
     target_version: Optional[str] = None,
-    download_path: str = "/v1/agent/update/msi",
+    download_path: str = "/v1/agent/update/archive",
+    data_key: str = "",
 ) -> dict[str, Any]:
     """Проверка обновления с учётом target (latest или pin).
 
@@ -392,19 +442,25 @@ def check_update(
     elif available and is_newer(target_ver, current or "0.0.0"):
         reason = "upgrade"
     url = f"{download_path}?version={target_ver}" if available else None
-    return {
+    body: dict[str, Any] = {
         "update_available": available,
         "version": target_ver,
         "target_version": target_ver,
         "sha256": mirrored["sha256"],
         "url": url,
         "current": current,
-        "msi_name": mirrored["msi_name"],
         "synced_at": mirrored.get("synced_at") or mirrored.get("mirrored_at"),
         "target": target_version,
         "source": mirrored.get("source"),
         "reason": reason,
     }
+    if device is not None:
+        enc = mirrored.get("archive_password_enc") or ""
+        password = decrypt_secret(data_key, enc) if data_key and enc else None
+        body["archive_sha256"] = mirrored["sha256"]
+        if password:
+            body["archive_password"] = password
+    return body
 
 
 def ops_update_signals(

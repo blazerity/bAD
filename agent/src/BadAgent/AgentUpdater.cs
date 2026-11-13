@@ -1,17 +1,21 @@
+using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.Versioning;
+using System.ServiceProcess;
 using System.Text.Json;
+using Microsoft.Win32;
 
 namespace BadAgent;
 
 /// <summary>
-/// Проверяет на сервере bAD целевой MSI (upgrade / downgrade / pin / latest),
-/// сверяет sha256, запускает silent msiexec и выходит для MajorUpgrade.
+/// Проверяет на сервере bAD целевой архив (upgrade / downgrade / pin / latest),
+/// сверяет archive_sha256, расшифровывает и заменяет файлы в bin.
 /// Gate (0.10): server update_available + target≠current + sha256 — не только IsNewer.
 /// Download — только same-origin (SEC-009).
 /// </summary>
 public sealed class AgentUpdater
 {
-    /// <summary>Не долбить msiexec той же целевой версией чаще этого интервала.</summary>
+    /// <summary>Не повторять ту же целевую версию чаще этого интервала.</summary>
     public static readonly TimeSpan PendingCooldown = TimeSpan.FromHours(2);
 
     private readonly ILogger _logger;
@@ -134,7 +138,7 @@ public sealed class AgentUpdater
         if (IsPendingBlocked(config, plan.TargetVersion!))
         {
             _logger.LogInformation(
-                "Pending msiexec for {Target} still within cooldown; not looping",
+                "Pending update for {Target} still within cooldown; not looping",
                 plan.TargetVersion);
             return false;
         }
@@ -142,7 +146,7 @@ public sealed class AgentUpdater
         if (!OperatingSystem.IsWindows())
         {
             _logger.LogWarning(
-                "Version change {Action} to {Version} available but msiexec is Windows-only; skipping",
+                "Version change {Action} to {Version} available but file replace is Windows-only; skipping",
                 plan.Action,
                 plan.TargetVersion);
             return false;
@@ -154,12 +158,19 @@ public sealed class AgentUpdater
         string msiPath;
         try
         {
-            msiPath = UpdatePathUtil.ResolveSafeMsiPath(tempDir, plan.MsiName ?? check.MsiName, plan.TargetVersion);
+            msiPath = UpdatePathUtil.ResolveSafeMsiPath(tempDir, null, plan.TargetVersion);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Refusing unsafe msi_name from update check");
-            WindowsEventLog.WriteError("bAD: отказ — небезопасное имя MSI в ответе update/check", ex);
+            _logger.LogError(ex, "Refusing unsafe archive name from update check");
+            WindowsEventLog.WriteError("bAD: отказ — небезопасное имя архива в ответе update/check", ex);
+            return false;
+        }
+
+        var expectedSha = string.IsNullOrWhiteSpace(check.ArchiveSha256) ? plan.Sha256 : check.ArchiveSha256;
+        if (string.IsNullOrWhiteSpace(check.ArchivePassword) || string.IsNullOrWhiteSpace(expectedSha))
+        {
+            _logger.LogError("Update archive is missing sha256 or password for {Version}", plan.TargetVersion);
             return false;
         }
 
@@ -172,40 +183,22 @@ public sealed class AgentUpdater
                 plan.TargetVersion);
             await client.DownloadUpdateMsiAsync(config.ApiKey!, plan.Url!, msiPath, ct);
 
-            if (!VersionUtil.VerifySha256File(msiPath, plan.Sha256!))
+            if (!VersionUtil.VerifySha256File(msiPath, expectedSha))
             {
                 _logger.LogError(
-                    "Update MSI sha256 mismatch for {Version}; refusing to install",
+                    "Update archive sha256 mismatch for {Version}; refusing to install",
                     plan.TargetVersion);
                 WindowsEventLog.WriteError(
-                    $"bAD: sha256 MSI {plan.TargetVersion} не совпал — установка отменена.");
+                    $"bAD: sha256 архива {plan.TargetVersion} не совпал — установка отменена.");
                 return false;
             }
 
+            var stage = Path.Combine(tempDir, "stage");
+            AgentArchive.DecryptToDirectory(msiPath, check.ArchivePassword, stage);
+            ReplaceBin(stage);
+            SetProgramsVersion(CoreVersion(plan.TargetVersion!));
             MarkPending(config, plan.TargetVersion!);
-
-            var kind = plan.Action == UpdateAction.Downgrade ? "downgrade" : "upgrade";
-            var logPath = Path.Combine(ConfigStore.LogsDir, $"msiexec-{kind}-{plan.TargetVersion}.log");
-            // Отложенный detached старт: иначе из-под bad.cmd Restart Manager шлёт CTRL+C
-            // → «Завершить выполнение пакетного файла» и msiexec обрывается.
-            var msiexecArgs = $"/i \"{msiPath}\" /qn /norestart /l*v \"{logPath}\"";
-
-            _logger.LogInformation(
-                "Scheduling silent msiexec {Action} {From} → {To}; agent will exit for file replace (log {Log})",
-                plan.Action,
-                _agentVersion,
-                plan.TargetVersion,
-                logPath);
-            WindowsEventLog.WriteInfo(
-                $"bAD: msiexec {kind} {_agentVersion} → {plan.TargetVersion}");
-
-            if (!MsiexecLauncher.StartDelayedDetached(msiexecArgs, _logger))
-            {
-                _logger.LogError("Failed to schedule msiexec");
-                ClearPending(config);
-                return false;
-            }
-
+            RestartServiceHidden();
             return true;
         }
         catch (AgentApiException ex) when (ex.IsAuthFailure)
@@ -240,7 +233,7 @@ public sealed class AgentUpdater
     public static UpdatePlan ResolvePlan(string localVersion, string localUpdateTarget, UpdateCheckResponse check)
     {
         var serverTarget = FirstSemVer(check.TargetVersion, check.Version);
-        var sha = check.Sha256;
+        var sha = string.IsNullOrWhiteSpace(check.ArchiveSha256) ? check.Sha256 : check.ArchiveSha256;
         var url = check.Url;
         var msiName = check.MsiName;
 
@@ -259,7 +252,7 @@ public sealed class AgentUpdater
 
             if (string.IsNullOrWhiteSpace(url))
             {
-                url = $"/v1/agent/update/msi?version={Uri.EscapeDataString(serverTarget)}";
+                url = $"/v1/agent/update/archive?version={Uri.EscapeDataString(serverTarget)}";
             }
 
             if (VersionUtil.IsNewer(serverTarget, localVersion))
@@ -297,7 +290,7 @@ public sealed class AgentUpdater
                 return UpdatePlan.None("latest_missing_sha");
             }
 
-            url = string.IsNullOrWhiteSpace(url) ? "/v1/agent/update/msi" : url;
+            url = string.IsNullOrWhiteSpace(url) ? "/v1/agent/update/archive" : url;
             return new UpdatePlan(UpdateAction.Upgrade, mirrored, sha, url, msiName, "latest_upgrade");
         }
 
@@ -322,7 +315,7 @@ public sealed class AgentUpdater
         }
 
         url = string.IsNullOrWhiteSpace(url)
-            ? $"/v1/agent/update/msi?version={Uri.EscapeDataString(desired)}"
+            ? $"/v1/agent/update/archive?version={Uri.EscapeDataString(desired)}"
             : url;
 
         if (VersionUtil.IsNewer(desired, localVersion))
@@ -404,6 +397,191 @@ public sealed class AgentUpdater
         config.PendingUpdateStartedAt = null;
         ConfigStore.Save(config);
     }
+
+    private const string BinDir = @"C:\Program Files\blazerity\bADagent\bin";
+    private const string LinkExe = @"C:\Program Files\blazerity\bADagent\bADagent.exe";
+
+    private static string CoreVersion(string version)
+    {
+        var cut = version.IndexOfAny(['-', '+']);
+        if (cut >= 0)
+        {
+            version = version[..cut];
+        }
+
+        var parts = version.Split('.');
+        if (parts.Length >= 3
+            && int.TryParse(parts[0], out var major)
+            && int.TryParse(parts[1], out var minor)
+            && int.TryParse(parts[2], out var patch))
+        {
+            return $"{major}.{minor}.{patch}";
+        }
+
+        return version;
+    }
+
+    private static void ReplaceBin(string stage)
+    {
+        Directory.CreateDirectory(BinDir);
+        var exe = Path.Combine(BinDir, "BadAgent.exe");
+        var old = Path.Combine(BinDir, "BadAgent.exe.old");
+        if (File.Exists(exe))
+        {
+            try
+            {
+                if (File.Exists(old))
+                {
+                    File.Delete(old);
+                }
+            }
+            catch
+            {
+                // занятый предыдущий файл не мешает переименованию текущего
+            }
+
+            File.Move(exe, old, overwrite: true);
+        }
+
+        var root = Path.GetFullPath(BinDir);
+        if (!root.EndsWith(Path.DirectorySeparatorChar))
+        {
+            root += Path.DirectorySeparatorChar;
+        }
+
+        foreach (var file in Directory.EnumerateFiles(stage, "*", SearchOption.AllDirectories))
+        {
+            var rel = Path.GetRelativePath(stage, file);
+            if (rel.Contains("..", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (string.Equals(Path.GetFileName(file), "bADagent.exe", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var dest = Path.GetFullPath(Path.Combine(BinDir, rel));
+            if (!dest.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var parent = Path.GetDirectoryName(dest);
+            if (!string.IsNullOrEmpty(parent))
+            {
+                Directory.CreateDirectory(parent);
+            }
+
+            File.Copy(file, dest, overwrite: true);
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void SetProgramsVersion(string displayVersion)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var product = FindProductCode();
+        if (product is null)
+        {
+            return;
+        }
+
+        using var key = Registry.LocalMachine.OpenSubKey(
+            $@"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{product}",
+            writable: true);
+        key?.SetValue("DisplayName", "bADagent");
+        key?.SetValue("DisplayVersion", displayVersion);
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static string? FindProductCode()
+    {
+        using var upgrade = Registry.LocalMachine.OpenSubKey(
+            @"SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UpgradeCodes\{BADA0001-BADA-4B01-8BAD-00BADA000001}");
+        if (upgrade is null)
+        {
+            return null;
+        }
+
+        foreach (var compressed in upgrade.GetValueNames())
+        {
+            var code = DecompressProductCode(compressed);
+            if (code is not null)
+            {
+                return code;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? DecompressProductCode(string compressed)
+    {
+        if (string.IsNullOrEmpty(compressed) || compressed.Length != 25)
+        {
+            return null;
+        }
+
+        Span<char> buffer = stackalloc char[38];
+        buffer[0] = '{';
+        buffer[9] = '-';
+        buffer[14] = '-';
+        buffer[19] = '-';
+        buffer[24] = '-';
+        buffer[37] = '}';
+        for (var i = 0; i < 20; i++)
+        {
+            var offset = i switch
+            {
+                < 8 => i + 1,
+                < 12 => i + 2,
+                < 16 => i + 3,
+                _ => i + 4
+            };
+            buffer[offset] = compressed[19 - i];
+        }
+
+        for (var i = 20; i < 25; i++)
+        {
+            buffer[i + 9] = compressed[i];
+        }
+
+        var guidString = new string(buffer);
+        return Guid.TryParse(guidString.Trim('{', '}'), out _) ? guidString : null;
+    }
+
+    private void RestartServiceHidden()
+    {
+        if (File.Exists(LinkExe))
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = LinkExe,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden,
+            });
+            return;
+        }
+
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var sc = new ServiceController(ServiceCli.ServiceName);
+        sc.Refresh();
+        if (sc.Status is not ServiceControllerStatus.Stopped and not ServiceControllerStatus.StopPending)
+        {
+            sc.Stop();
+        }
+    }
 }
 
 public enum UpdateAction
@@ -435,6 +613,8 @@ public sealed class UpdateCheckResponse
     public string? Sha256 { get; init; }
     public string? Url { get; init; }
     public string? MsiName { get; init; }
+    public string? ArchiveSha256 { get; init; }
+    public string? ArchivePassword { get; init; }
     public string? Action { get; init; }
     public string? Desired { get; init; }
     public string? Reason { get; init; }
@@ -453,6 +633,8 @@ public sealed class UpdateCheckResponse
             Sha256 = GetString(root, "sha256"),
             Url = GetString(root, "url"),
             MsiName = GetString(root, "msi_name"),
+            ArchiveSha256 = GetString(root, "archive_sha256"),
+            ArchivePassword = GetString(root, "archive_password"),
             Action = GetString(root, "action"),
             Desired = GetString(root, "desired") ?? GetString(root, "update_target"),
             Reason = GetString(root, "reason")

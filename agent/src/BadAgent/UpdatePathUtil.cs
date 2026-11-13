@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace BadAgent;
@@ -8,7 +9,7 @@ namespace BadAgent;
 public static class UpdatePathUtil
 {
     private static readonly Regex SafeMsiName = new(
-        @"^[A-Za-z0-9][A-Za-z0-9._-]{0,180}\.msi$",
+        @"^bad-agent-\d+\.\d+\.\d+\.arc$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     /// <summary>
@@ -21,9 +22,12 @@ public static class UpdatePathUtil
             throw new ArgumentException("tempDir is required", nameof(tempDir));
         }
 
-        var candidate = string.IsNullOrWhiteSpace(msiName)
-            ? $"bad-agent-{(string.IsNullOrWhiteSpace(versionFallback) ? "update" : versionFallback.Trim())}.msi"
-            : msiName.Trim();
+        var candidate = ArcFileName(versionFallback);
+        if (!string.IsNullOrWhiteSpace(msiName)
+            && msiName.Trim().EndsWith(".arc", StringComparison.OrdinalIgnoreCase))
+        {
+            candidate = msiName.Trim();
+        }
 
         // Отсечь абсолютные/UNC и directory pieces — только basename.
         candidate = Path.GetFileName(candidate.Replace('/', Path.DirectorySeparatorChar));
@@ -38,10 +42,10 @@ public static class UpdatePathUtil
                 fb = "update";
             }
 
-            candidate = $"bad-agent-{fb}.msi";
+            candidate = ArcFileName(fb);
             if (!SafeMsiName.IsMatch(candidate))
             {
-                candidate = "bad-agent-update.msi";
+                candidate = "bad-agent-0.0.0.arc";
             }
         }
 
@@ -62,6 +66,27 @@ public static class UpdatePathUtil
         }
 
         return combined;
+    }
+
+    private static string ArcFileName(string? versionFallback)
+    {
+        var raw = string.IsNullOrWhiteSpace(versionFallback) ? "" : versionFallback.Trim();
+        var cut = raw.IndexOfAny(['-', '+']);
+        if (cut >= 0)
+        {
+            raw = raw[..cut];
+        }
+
+        var parts = raw.Split('.');
+        if (parts.Length >= 3
+            && int.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out var major)
+            && int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out var minor)
+            && int.TryParse(parts[2], NumberStyles.None, CultureInfo.InvariantCulture, out var patch))
+        {
+            return $"bad-agent-{major}.{minor}.{patch}.arc";
+        }
+
+        return "bad-agent-0.0.0.arc";
     }
 
     /// <summary>

@@ -6,7 +6,7 @@
 #   1) inputs.version (strip agent-v / v)
 #   2) git tag agent-vX.Y.Z or transitional vX.Y.Z
 #   3) agent/VERSION (Agent Lead) else BadAgent.csproj Version
-# ProductVersion / -p:Version / bad-agent-<semver>.msi = that agent semver only.
+# MSI ProductVersion is always 1.0.0. The archive is bad-agent-<major.minor.patch>.arc.
 #
 # Required permissions: contents: write (create/update Release + upload assets).
 # Secrets: GITHUB_TOKEN is sufficient for a public repo.
@@ -27,8 +27,8 @@
 # Bootstrap notes (WiX v5 via .NET tool):
 #   - Runs on windows-latest
 #   - `dotnet tool install --global wix --version 5.0.2`
-#   - `wix extension add --global WixToolset.Util.wixext/5.0.2` (WixQuietExec; avoid WIX0144)
-#   - Harvests published agent files via Product.wxs <Files Include=...>
+#   - `wix extension add --global WixToolset.Util.wixext/5.0.2`
+#   - MSI contains installer/link/bADagent.exe. The publish directory is packed as .arc.
 
 name: release-msi
 
@@ -114,33 +114,33 @@ jobs:
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "product_version=$productVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "tag=$releaseTag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          "msi_name=bad-agent-$version.msi" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "msi_name=bad-agent-$productVersion.msi" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "arc_name=bad-agent-$productVersion.arc" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           Write-Host "Resolved agent version=$version release_tag=$releaseTag"
+
+      - name: Build link service
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw "Visual C++ tools not found" }
+          $bat = Join-Path $vs "VC\Auxiliary\Build\vcvars64.bat"
+          cmd /c "`"$bat`" && cl /nologo /O2 /W3 /DUNICODE /D_UNICODE /Fe:installer\link\bADagent.exe installer\link\bADagent.c /link /SUBSYSTEM:WINDOWS"
+          if ($LASTEXITCODE -ne 0) { throw "cl failed: $LASTEXITCODE" }
 
       - name: Publish agent (win-x64 self-contained)
         run: |
-          $root = "installer/msi/publish"
-          $bin = "$root/bin"
-          $scripts = "$root/scripts"
-          New-Item -ItemType Directory -Force -Path $bin, $scripts | Out-Null
+          $out = "installer/msi/publish"
+          if (Test-Path $out) { Remove-Item -Recurse -Force $out }
           dotnet publish agent/src/BadAgent/BadAgent.csproj `
             -c Release `
             -r win-x64 `
             --self-contained true `
-            -p:Version=${{ steps.ver.outputs.version }} `
-            -o $bin
-          powershell -NoProfile -ExecutionPolicy Bypass -File installer/msi/organize-publish.ps1 -BinDir $bin
-          Copy-Item installer/msi/write-config.ps1 $scripts -Force
-          Copy-Item installer/msi/cleanup-uninstall.ps1 $scripts -Force
-          Copy-Item installer/msi/bad-paths.ps1 $scripts -Force
-          Copy-Item installer/msi/migrate-legacy-install.ps1 $scripts -Force
-          Copy-Item installer/msi/stop-agent-before-upgrade.ps1 $scripts -Force
-          Copy-Item installer/msi/cleanup-orphan-bin-dirs.ps1 $scripts -Force
-          Copy-Item installer/msi/bootstrap-schedule-upgrade.ps1 $scripts -Force
-          Copy-Item installer/msi/bootstrap-cleanup.ps1 $scripts -Force
-          Copy-Item installer/msi/bad.cmd $root -Force
-          Copy-Item installer/msi/uninstall.cmd $bin -Force
-          powershell -NoProfile -ExecutionPolicy Bypass -File installer/msi/generate-bootstrap-inline.ps1
+            -p:Version=${{ steps.ver.outputs.product_version }} `
+            -o $out
+          python -m pip install cryptography
+          $env:PYTHONPATH = "server"
+          python -m bad_server.agent_arc pack $out "installer/msi/${{ steps.ver.outputs.arc_name }}"
+          if ($LASTEXITCODE -ne 0) { throw "arc pack failed: $LASTEXITCODE" }
 
       - name: Install WiX toolset (dotnet tool)
         run: |
@@ -157,11 +157,10 @@ jobs:
         working-directory: installer/msi
         run: |
           $msi = "${{ steps.ver.outputs.msi_name }}"
-          wix build Product.wxs `
+          wix build Product.wxs LinkUi.wxs `
             -ext WixToolset.Util.wixext `
             -arch x64 `
-            -d AgentPublishDir=publish `
-            -d ProductVersion=${{ steps.ver.outputs.product_version }} `
+            -d ProductVersion=1.0.0 `
             -o $msi
           if (-not (Test-Path $msi)) { throw "MSI not produced: $msi" }
 
@@ -198,15 +197,18 @@ jobs:
       - name: Write agent-release.json + SHA256
         working-directory: installer/msi
         run: |
-          $msi = "${{ steps.ver.outputs.msi_name }}"
-          $hash = (Get-FileHash -Algorithm SHA256 -Path $msi).Hash.ToLowerInvariant()
+          $arc = "${{ steps.ver.outputs.arc_name }}"
+          $hash = (Get-FileHash -Algorithm SHA256 -Path $arc).Hash.ToLowerInvariant()
+          $pwFile = "$arc.password"
+          $pw = (Get-Content -Raw -Path $pwFile).Trim()
+          Remove-Item -Force $pwFile
           $manifest = [ordered]@{
-            version  = "${{ steps.ver.outputs.version }}"
-            msi_name = $msi
-            sha256   = $hash
+            version           = "${{ steps.ver.outputs.product_version }}"
+            msi_name          = $arc
+            sha256            = $hash
+            archive_password  = $pw
           }
           $manifest | ConvertTo-Json -Compress | Set-Content -Path agent-release.json -Encoding utf8
-          Get-Content agent-release.json
           Write-Host "sha256=$hash"
 
       - name: Upload workflow artifacts
@@ -215,6 +217,7 @@ jobs:
           name: bad-agent-msi-${{ steps.ver.outputs.version }}
           path: |
             installer/msi/${{ steps.ver.outputs.msi_name }}
+            installer/msi/${{ steps.ver.outputs.arc_name }}
             installer/msi/agent-release.json
 
       - name: Create or update GitHub Release
@@ -225,12 +228,14 @@ jobs:
           $tag = "${{ steps.ver.outputs.tag }}"
           $version = "${{ steps.ver.outputs.version }}"
           $msi = "installer/msi/${{ steps.ver.outputs.msi_name }}"
+          $arc = "installer/msi/${{ steps.ver.outputs.arc_name }}"
           $json = "installer/msi/agent-release.json"
           $title = "bAD agent $version"
           $notes = @"
           ## bAD agent $version
 
           - MSI: ``${{ steps.ver.outputs.msi_name }}``
+          - Archive: ``${{ steps.ver.outputs.arc_name }}``
           - Manifest: ``agent-release.json`` (version, msi_name, sha256)
 
           Install (elevated):
@@ -241,7 +246,7 @@ jobs:
           The on-prem server mirrors these assets; agents download updates from the server, not from GitHub.
           "@
           if (gh release view $tag 2>$null) {
-            gh release upload $tag $msi $json --clobber
+            gh release upload $tag $msi $arc $json --clobber
           } else {
-            gh release create $tag $msi $json --title $title --notes $notes
+            gh release create $tag $msi $arc $json --title $title --notes $notes
           }
