@@ -37,9 +37,16 @@ internal static class ServiceChannel
                 server = CreateServer();
                 server.WaitForConnectionAsync(stoppingToken).GetAwaiter().GetResult();
                 var request = ReadFrame(server);
-                var reply = AdminOnlyOp(request) && !PipeClientIsAdministrator(server)
-                    ? AdminRequiredReply()
-                    : ServiceCommands.Dispatch(request);
+                string reply;
+                if (AdminOnlyOp(request) && !PipeClientIsAdministrator(server))
+                {
+                    reply = AdminRequiredReply();
+                }
+                else
+                {
+                    reply = ServiceCommands.Dispatch(request);
+                }
+
                 WriteFrame(server, reply);
                 if (ReplyStops(reply))
                 {
@@ -67,7 +74,7 @@ internal static class ServiceChannel
         try
         {
             using var pipe = new NamedPipeClientStream(
-                ".", PipeName, PipeDirection.InOut, PipeOptions.None);
+                ".", PipeName, PipeDirection.InOut, PipeOptions.None, TokenImpersonationLevel.Impersonation);
             pipe.Connect(connectMilliseconds);
             pipe.ReadTimeout = 15 * 60 * 1000;
             WriteFrame(pipe, JsonSerializer.Serialize(request, Json));
@@ -168,12 +175,14 @@ internal static class ServiceChannel
             return true;
         }
 
-        using (server.ImpersonateClient())
+        var isAdministrator = false;
+        server.RunAsClient(() =>
         {
             using var identity = WindowsIdentity.GetCurrent();
             var principal = new WindowsPrincipal(identity);
-            return principal.IsInRole(WindowsBuiltInRole.Administrator);
-        }
+            isAdministrator = principal.IsInRole(WindowsBuiltInRole.Administrator);
+        });
+        return isAdministrator;
     }
 
     private static string AdminRequiredReply() =>
