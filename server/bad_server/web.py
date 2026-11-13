@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
-from . import __version__
+from . import __version__, panel_root
 from .agent_config import (
     ALLOWED_SETTING_KEYS,
     CONDITION_FIELDS,
@@ -165,9 +165,9 @@ from .smtp_mail import (
     send_email,
 )
 
-TEMPLATES_DIR = Path(__file__).parent / "templates"
+TEMPLATES_DIR = panel_root() / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
-_PANEL_CSS_PATH = Path(__file__).parent / "static" / "style.css"
+_PANEL_CSS_PATH = panel_root() / "static" / "style.css"
 _panel_css_cache: Optional[str] = None
 templates.env.globals["app_version"] = __version__
 

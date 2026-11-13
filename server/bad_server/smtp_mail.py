@@ -59,7 +59,7 @@ _POLARITY_LABEL_RU: dict[Polarity, str] = {
     "changed": "Изменилось",
 }
 
-# Внутренности SVG (viewBox 0 0 20 20), как в templates/macros/icons.html
+# Внутренности SVG (viewBox 0 0 20 20), как в panel/templates/macros/icons.html
 _ICON_PATHS: dict[str, str] = {
     "host": (
         '<rect x="2.5" y="3.5" width="15" height="10" rx="1.75"/>'

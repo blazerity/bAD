@@ -116,9 +116,10 @@ else
   rm -f /etc/bad/tls/fullchain.pem /etc/bad/tls/privkey.pem
 fi
 
-mkdir -p /opt/bad/server
-rm -rf /opt/bad/server/*
+mkdir -p /opt/bad/server /opt/bad/panel
+rm -rf /opt/bad/server/* /opt/bad/panel/*
 cp -a "${REPO_ROOT}/server/." /opt/bad/server/
+cp -a "${REPO_ROOT}/panel/." /opt/bad/panel/
 rm -rf /opt/bad/server/.venv /opt/bad/server/data /opt/bad/server/.pytest_cache
 find /opt/bad/server -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
 

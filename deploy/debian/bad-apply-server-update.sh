@@ -181,6 +181,10 @@ PY
     rm -rf "${dest}/tree/server"
     cp -a "${OPT_BAD}/server" "${dest}/tree/server"
   fi
+  if [[ -d "${OPT_BAD}/panel" ]]; then
+    rm -rf "${dest}/tree/panel"
+    cp -a "${OPT_BAD}/panel" "${dest}/tree/panel"
+  fi
   if [[ -d "${OPT_BAD}/deploy" ]]; then
     rm -rf "${dest}/tree/deploy"
     cp -a "${OPT_BAD}/deploy" "${dest}/tree/deploy"
@@ -246,8 +250,10 @@ download_and_fill_slot() {
     fail "повреждённый tarball" "apply"
   fi
   [[ -d "${tmp}/extract/server" ]] || { rm -rf "${tmp}"; fail "в архиве нет server/" "apply"; }
-  rm -rf "${dest}/tree/server" "${dest}/tree/deploy" "${dest}/tree/VERSION" "${dest}/tree/agent"
+  [[ -d "${tmp}/extract/panel" ]] || { rm -rf "${tmp}"; fail "в архиве нет panel/" "apply"; }
+  rm -rf "${dest}/tree/server" "${dest}/tree/panel" "${dest}/tree/deploy" "${dest}/tree/VERSION" "${dest}/tree/agent"
   cp -a "${tmp}/extract/server" "${dest}/tree/server"
+  cp -a "${tmp}/extract/panel" "${dest}/tree/panel"
   if [[ -d "${tmp}/extract/deploy" ]]; then
     cp -a "${tmp}/extract/deploy" "${dest}/tree/deploy"
   fi
@@ -273,18 +279,27 @@ promote_slot() {
   local slot_id="$1" source_label="$2"
   local dest="${SLOTS}/${slot_id}"
   [[ -d "${dest}/tree/server" ]] || fail "слот ${slot_id}: нет tree/server" "${source_label}"
+  [[ -d "${dest}/tree/panel" ]] || fail "слот ${slot_id}: нет tree/panel" "${source_label}"
   mkdir -p "${OPT_BAD}"
   # Atomic-ish replace of server tree
   local new_server="${OPT_BAD}/.server.next"
   local bak_server="${OPT_BAD}/.server.bak"
-  rm -rf "${new_server}"
+  local new_panel="${OPT_BAD}/.panel.next"
+  local bak_panel="${OPT_BAD}/.panel.bak"
+  rm -rf "${new_server}" "${new_panel}"
   cp -a "${dest}/tree/server" "${new_server}"
+  cp -a "${dest}/tree/panel" "${new_panel}"
   if [[ -d "${OPT_BAD}/server" ]]; then
     rm -rf "${bak_server}"
     mv "${OPT_BAD}/server" "${bak_server}"
   fi
+  if [[ -d "${OPT_BAD}/panel" ]]; then
+    rm -rf "${bak_panel}"
+    mv "${OPT_BAD}/panel" "${bak_panel}"
+  fi
   mv "${new_server}" "${OPT_BAD}/server"
-  rm -rf "${bak_server}"
+  mv "${new_panel}" "${OPT_BAD}/panel"
+  rm -rf "${bak_server}" "${bak_panel}"
 
   if [[ -d "${dest}/tree/deploy" ]]; then
     mkdir -p "${OPT_BAD}/deploy"
@@ -311,7 +326,7 @@ promote_slot() {
     chmod 644 "${OPT_BAD}/agent/VERSION" 2>/dev/null || true
   fi
 
-  chown -R bad:bad "${OPT_BAD}/server" 2>/dev/null || true
+  chown -R bad:bad "${OPT_BAD}/server" "${OPT_BAD}/panel" 2>/dev/null || true
   if [[ -d "${OPT_BAD}/.venv" ]]; then
     # Reinstall editable package into existing venv
     if ! "${OPT_BAD}/.venv/bin/pip" install -e "${OPT_BAD}/server" >/tmp/bad-server-update-pip.log 2>&1; then

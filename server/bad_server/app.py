@@ -5,12 +5,11 @@ import logging
 import random
 import time
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from . import __version__
+from . import __version__, panel_root
 from .agent_update import sync_from_github
 from .api import router as api_router
 from .auth import ensure_bootstrap_secrets, seed_default_admin
@@ -289,8 +288,7 @@ def create_app() -> FastAPI:
         docs_url=None,
         redoc_url=None,
     )
-    static_dir = Path(__file__).parent / "static"
-    static_dir.mkdir(exist_ok=True)
+    static_dir = panel_root() / "static"
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
     app.include_router(api_router)
     app.include_router(web_router)

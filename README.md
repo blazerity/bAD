@@ -68,7 +68,8 @@ BAD_DOMAIN=panel.example.com sudo -E bash install.sh
 
 | Часть | Каталог |
 | --- | --- |
-| Сервер и панель | `server/` |
+| Сервер | `server/` |
+| Панель | `panel/` |
 | Агент | `agent/` |
 | Установщик MSI | `installer/msi/` |
 | Установка сервера | `deploy/debian/` |
