@@ -1,4 +1,4 @@
-"""Три случая приёма: старый агент, одноразовый код, толстый снимок."""
+"""Приём снимка: одноразовый код и толстый снимок."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def _snap_count(client: TestClient, bad_id: str) -> int:
     db = client.app.state.db
     with db.connection() as conn:
         row = conn.execute(
-            "SELECT COUNT(*) AS n FROM inventory_snapshots WHERE bad_id = ?",
+            "SELECT COUNT(*) AS n FROM inventory_snapshots WHERE bad_id = %s",
             (bad_id,),
         ).fetchone()
     return int(row["n"])
@@ -40,35 +40,6 @@ def _snap_count(client: TestClient, bad_id: str) -> int:
 
 def _bad_id(prefix: str) -> str:
     return "BAD-" + uuid.uuid5(uuid.NAMESPACE_URL, f"{prefix}-{uuid.uuid4()}").hex[:8].upper()
-
-
-def test_old_agent_shared_token_without_signature() -> None:
-    bad_id = _bad_id("legacy-agent")
-    with TestClient(create_app()) as client:
-        enrolled = client.post(
-            "/v1/enroll",
-            headers={"Authorization": "Bearer test-enrollment-token-change-me-please"},
-            json={"bad_id": bad_id, "hostname": "LEGACY"},
-        )
-        assert enrolled.status_code == 200, enrolled.text
-        api_key = enrolled.json()["api_key"]
-        beat = client.post(
-            "/v1/heartbeat",
-            headers={"Authorization": f"Bearer {api_key}"},
-            json={"bad_id": bad_id},
-        )
-        assert beat.status_code == 200, beat.text
-        inv = client.post(
-            "/v1/inventory",
-            headers={"Authorization": f"Bearer {api_key}"},
-            json={
-                "schema_version": 2,
-                "bad_id": bad_id,
-                "software": {"programs": [{"name": "notepad"}]},
-            },
-        )
-        assert inv.status_code == 200, inv.text
-        assert _snap_count(client, bad_id) == 1
 
 
 def test_one_time_code_burns() -> None:
@@ -111,7 +82,7 @@ def test_unsigned_snapshot_and_signing_key_once() -> None:
                 """
                 UPDATE devices
                 SET signing_pubkey = NULL, signing_key_fingerprint = NULL
-                WHERE bad_id = ?
+                WHERE bad_id = %s
                 """,
                 (bad_id,),
             )
@@ -167,7 +138,7 @@ def test_inventory_signature_uses_agent_canon() -> None:
         assert fingerprint == fingerprint.lower()
         with client.app.state.db.connection() as conn:
             row = conn.execute(
-                "SELECT signing_key_fingerprint FROM devices WHERE bad_id = ?",
+                "SELECT signing_key_fingerprint FROM devices WHERE bad_id = %s",
                 (bad_id,),
             ).fetchone()
         assert row["signing_key_fingerprint"] == fingerprint
@@ -224,7 +195,7 @@ def test_enrollment_request_waits_for_admin() -> None:
         db = client.app.state.db
         with db.connection() as conn:
             row = conn.execute(
-                "SELECT id FROM enrollment_requests WHERE serial = ?",
+                "SELECT id FROM enrollment_requests WHERE serial = %s",
                 (body["serial"],),
             ).fetchone()
         bad_id = "req-" + generate_token("")[:12]
@@ -277,7 +248,7 @@ def test_stranger_same_serial_gets_no_key() -> None:
         db = client.app.state.db
         with db.connection() as conn:
             owner_row = conn.execute(
-                "SELECT hostname FROM enrollment_requests WHERE id = ?",
+                "SELECT hostname FROM enrollment_requests WHERE id = %s",
                 (owner["fingerprint"],),
             ).fetchone()
         assert owner_row["hostname"] == "OWNER-PC"
@@ -305,7 +276,7 @@ def test_stranger_same_serial_gets_no_key() -> None:
         assert "signing_key" not in stolen.json()
         with db.connection() as conn:
             card = conn.execute(
-                "SELECT hostname FROM devices WHERE bad_id = ?",
+                "SELECT hostname FROM devices WHERE bad_id = %s",
                 (bad_id,),
             ).fetchone()
         assert card["hostname"] == "OWNER-PC"
@@ -326,7 +297,7 @@ def test_pending_queue_expires_and_caps() -> None:
                 """
                 INSERT INTO enrollment_requests(
                   id, hostname, ip, serial, created_at, status
-                ) VALUES (?, 'OLD', '', '', '2000-01-01T00:00:00Z', 'pending')
+                ) VALUES (%s, 'OLD', '', '', '2000-01-01T00:00:00Z', 'pending')
                 """,
                 ("a" * 64,),
             )
@@ -335,7 +306,7 @@ def test_pending_queue_expires_and_caps() -> None:
                     """
                     INSERT INTO enrollment_requests(
                       id, hostname, ip, serial, created_at, status
-                    ) VALUES (?, 'Q', '', '', ?, 'pending')
+                    ) VALUES (%s, 'Q', '', '', %s, 'pending')
                     """,
                     (f"{i:064x}", now),
                 )
@@ -351,11 +322,11 @@ def test_pending_queue_expires_and_caps() -> None:
         assert opened.json()["status"] == "pending"
         with db.connection() as conn:
             gone = conn.execute(
-                "SELECT id FROM enrollment_requests WHERE id = ?",
+                "SELECT id FROM enrollment_requests WHERE id = %s",
                 ("a" * 64,),
             ).fetchone()
             stored = conn.execute(
-                "SELECT serial FROM enrollment_requests WHERE id = ?",
+                "SELECT serial FROM enrollment_requests WHERE id = %s",
                 (fresh,),
             ).fetchone()
             pending = conn.execute(
@@ -376,7 +347,7 @@ def test_pending_queue_expires_and_caps() -> None:
         assert blocked.json() == {"status": "busy"}
         with db.connection() as conn:
             extra = conn.execute(
-                "SELECT id FROM enrollment_requests WHERE id = ?",
+                "SELECT id FROM enrollment_requests WHERE id = %s",
                 (_fingerprint("overflow"),),
             ).fetchone()
         assert extra is None
@@ -514,117 +485,3 @@ def test_agent_report_html_is_enrolled_card_without_admin() -> None:
         assert ">Версия<" in body
         assert ">Version<" not in body
         assert _snap_count(client, bad_id) == 0
-
-
-def _device_row(client: TestClient, bad_id: str) -> dict:
-    with client.app.state.db.connection() as conn:
-        row = conn.execute(
-            """
-            SELECT api_key_hash, signing_pubkey, signing_key_fingerprint,
-                   shared_exchange_at, revoked
-            FROM devices WHERE bad_id = ?
-            """,
-            (bad_id,),
-        ).fetchone()
-    assert row is not None
-    return dict(row)
-
-
-def test_shared_token_exchanges_existing_device_once() -> None:
-    """Уже известное устройство один раз получает новый ключ общим токеном."""
-    token = "test-enrollment-token-change-me-please"
-    bad_id = _bad_id("exchange")
-    with TestClient(create_app()) as client:
-        first = client.post(
-            "/v1/enroll",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"bad_id": bad_id, "hostname": "EXCHANGE"},
-        )
-        assert first.status_code == 200, first.text
-        first_key = first.json()["api_key"]
-        assert first.json().get("signing_key")
-        before = _device_row(client, bad_id)
-        assert not before["shared_exchange_at"]
-
-        proved = client.post(
-            "/v1/enroll",
-            headers={"Authorization": f"Bearer {token}"},
-            json={
-                "bad_id": bad_id,
-                "hostname": "EXCHANGE",
-                "current_api_key": first_key,
-            },
-        )
-        assert proved.status_code == 200, proved.text
-        proved_key = proved.json()["api_key"]
-        assert proved_key != first_key
-        assert not proved.json().get("signing_key")
-        after_proof = _device_row(client, bad_id)
-        assert after_proof["api_key_hash"] != before["api_key_hash"]
-        assert after_proof["signing_pubkey"] == before["signing_pubkey"]
-        assert after_proof["signing_key_fingerprint"] == before["signing_key_fingerprint"]
-        assert not after_proof["shared_exchange_at"]
-
-        exchanged = client.post(
-            "/v1/enroll",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"bad_id": bad_id, "hostname": "EXCHANGE"},
-        )
-        assert exchanged.status_code == 200, exchanged.text
-        new_key = exchanged.json()["api_key"]
-        assert new_key not in {first_key, proved_key}
-        assert not exchanged.json().get("signing_key")
-        after = _device_row(client, bad_id)
-        assert after["shared_exchange_at"]
-        assert after["api_key_hash"] != after_proof["api_key_hash"]
-        assert after["signing_pubkey"] == before["signing_pubkey"]
-        assert after["signing_key_fingerprint"] == before["signing_key_fingerprint"]
-
-        repeat = client.post(
-            "/v1/enroll",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"bad_id": bad_id, "hostname": "EXCHANGE"},
-        )
-        assert repeat.status_code == 409, repeat.text
-        assert _device_row(client, bad_id)["api_key_hash"] == after["api_key_hash"]
-
-        old_beat = client.post(
-            "/v1/heartbeat",
-            headers={"Authorization": f"Bearer {proved_key}"},
-            json={"bad_id": bad_id},
-        )
-        assert old_beat.status_code == 401, old_beat.text
-        new_beat = client.post(
-            "/v1/heartbeat",
-            headers={"Authorization": f"Bearer {new_key}"},
-            json={"bad_id": bad_id},
-        )
-        assert new_beat.status_code == 200, new_beat.text
-
-        stranger = client.post(
-            "/v1/enroll",
-            headers={"Authorization": "Bearer not-the-shared-token"},
-            json={"bad_id": bad_id},
-        )
-        assert stranger.status_code == 401, stranger.text
-
-        revoked_id = _bad_id("exchange-revoked")
-        enrolled = client.post(
-            "/v1/enroll",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"bad_id": revoked_id},
-        )
-        assert enrolled.status_code == 200, enrolled.text
-        revoked = client.post(
-            f"/v1/devices/{revoked_id}/revoke",
-            headers={"Authorization": "Bearer test-admin-token-change-me-please-32b"},
-        )
-        assert revoked.status_code == 200, revoked.text
-        revoked_hash = _device_row(client, revoked_id)["api_key_hash"]
-        denied = client.post(
-            "/v1/enroll",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"bad_id": revoked_id},
-        )
-        assert denied.status_code == 403, denied.text
-        assert _device_row(client, revoked_id)["api_key_hash"] == revoked_hash

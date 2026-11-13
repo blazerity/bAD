@@ -115,7 +115,7 @@ jobs:
           "product_version=$productVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "tag=$releaseTag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "msi_name=bad-agent-$productVersion.msi" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          "zip_name=bad-agent-$productVersion.zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "arc_name=bad-agent-$productVersion.arc" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           Write-Host "Resolved agent version=$version release_tag=$releaseTag"
 
       - name: Build link service
@@ -137,10 +137,11 @@ jobs:
             --self-contained true `
             -p:Version=${{ steps.ver.outputs.product_version }} `
             -o $out
-          $zip = Join-Path (Get-Location) "installer/msi/${{ steps.ver.outputs.zip_name }}"
-          if (Test-Path $zip) { Remove-Item -Force $zip }
-          Add-Type -AssemblyName System.IO.Compression.FileSystem
-          [System.IO.Compression.ZipFile]::CreateFromDirectory((Resolve-Path $out).Path, $zip)
+          python -m pip install --disable-pip-version-check "cryptography>=43"
+          $env:PYTHONPATH = Join-Path (Get-Location) "server"
+          $env:BAD_ARC_OUT = Join-Path (Get-Location) "installer/msi/${{ steps.ver.outputs.arc_name }}"
+          if (Test-Path $env:BAD_ARC_OUT) { Remove-Item -Force $env:BAD_ARC_OUT }
+          python -c "import os; from pathlib import Path; from bad_server.agent_arc import zip_directory; Path(os.environ['BAD_ARC_OUT']).write_bytes(zip_directory(Path('installer/msi/publish')))"
 
       - name: Install WiX toolset (dotnet tool)
         run: |
@@ -197,11 +198,11 @@ jobs:
       - name: Write agent-release.json + SHA256
         working-directory: installer/msi
         run: |
-          $zip = "${{ steps.ver.outputs.zip_name }}"
-          $hash = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash.ToLowerInvariant()
+          $arc = "${{ steps.ver.outputs.arc_name }}"
+          $hash = (Get-FileHash -Algorithm SHA256 -Path $arc).Hash.ToLowerInvariant()
           $manifest = [ordered]@{
             version  = "${{ steps.ver.outputs.product_version }}"
-            msi_name = $zip
+            msi_name = $arc
             sha256   = $hash
           }
           $manifest | ConvertTo-Json -Compress | Set-Content -Path agent-release.json -Encoding utf8
@@ -213,7 +214,7 @@ jobs:
           name: bad-agent-msi-${{ steps.ver.outputs.version }}
           path: |
             installer/msi/${{ steps.ver.outputs.msi_name }}
-            installer/msi/${{ steps.ver.outputs.zip_name }}
+            installer/msi/${{ steps.ver.outputs.arc_name }}
             installer/msi/agent-release.json
 
       - name: Create or update GitHub Release
@@ -224,14 +225,14 @@ jobs:
           $tag = "${{ steps.ver.outputs.tag }}"
           $version = "${{ steps.ver.outputs.version }}"
           $msi = "installer/msi/${{ steps.ver.outputs.msi_name }}"
-          $zip = "installer/msi/${{ steps.ver.outputs.zip_name }}"
+          $arc = "installer/msi/${{ steps.ver.outputs.arc_name }}"
           $json = "installer/msi/agent-release.json"
           $title = "bAD agent $version"
           $notes = @"
           ## bAD agent $version
 
           - MSI: ``${{ steps.ver.outputs.msi_name }}``
-          - Zip: ``${{ steps.ver.outputs.zip_name }}``
+          - Archive: ``${{ steps.ver.outputs.arc_name }}``
           - Manifest: ``agent-release.json`` (version, msi_name, sha256)
 
           Install (elevated):
@@ -242,7 +243,7 @@ jobs:
           The on-prem server mirrors these assets; agents download updates from the server, not from GitHub.
           "@
           if (gh release view $tag 2>$null) {
-            gh release upload $tag $msi $zip $json --clobber
+            gh release upload $tag $msi $arc $json --clobber
           } else {
-            gh release create $tag $msi $zip $json --title $title --notes $notes
+            gh release create $tag $msi $arc $json --title $title --notes $notes
           }

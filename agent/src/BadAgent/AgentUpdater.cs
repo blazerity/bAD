@@ -486,7 +486,7 @@ public sealed class AgentUpdater
             return;
         }
 
-        var product = FindProductCode();
+        var product = AgentUninstaller.TryFindProductCodeByUpgradeCode();
         if (product is null)
         {
             return;
@@ -497,63 +497,6 @@ public sealed class AgentUpdater
             writable: true);
         key?.SetValue("DisplayName", "bADagent");
         key?.SetValue("DisplayVersion", displayVersion);
-    }
-
-    [SupportedOSPlatform("windows")]
-    private static string? FindProductCode()
-    {
-        using var upgrade = Registry.LocalMachine.OpenSubKey(
-            @"SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UpgradeCodes\{BADA0001-BADA-4B01-8BAD-00BADA000001}");
-        if (upgrade is null)
-        {
-            return null;
-        }
-
-        foreach (var compressed in upgrade.GetValueNames())
-        {
-            var code = DecompressProductCode(compressed);
-            if (code is not null)
-            {
-                return code;
-            }
-        }
-
-        return null;
-    }
-
-    private static string? DecompressProductCode(string compressed)
-    {
-        if (string.IsNullOrEmpty(compressed) || compressed.Length != 25)
-        {
-            return null;
-        }
-
-        Span<char> buffer = stackalloc char[38];
-        buffer[0] = '{';
-        buffer[9] = '-';
-        buffer[14] = '-';
-        buffer[19] = '-';
-        buffer[24] = '-';
-        buffer[37] = '}';
-        for (var i = 0; i < 20; i++)
-        {
-            var offset = i switch
-            {
-                < 8 => i + 1,
-                < 12 => i + 2,
-                < 16 => i + 3,
-                _ => i + 4
-            };
-            buffer[offset] = compressed[19 - i];
-        }
-
-        for (var i = 20; i < 25; i++)
-        {
-            buffer[i + 9] = compressed[i];
-        }
-
-        var guidString = new string(buffer);
-        return Guid.TryParse(guidString.Trim('{', '}'), out _) ? guidString : null;
     }
 
     private void RestartServiceHidden()

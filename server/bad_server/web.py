@@ -82,7 +82,6 @@ from .agent_update import (
 )
 from .backup import backup_keys_status, backup_status, run_daily_backup
 from .http_bootstrap import HTTP_SENSITIVE_MSG, client_ip, sensitive_over_http_blocked
-from .qa_ui import panel_tls_mode, patch_security_for_qa
 from .device_meta import (
     format_logged_on_display,
     inventory_meta_cache,
@@ -938,10 +937,9 @@ def _html(
     ctx = dict(context)
     ctx["csrf_token"] = token
     settings = get_settings()
-    ctx["qa_ui"] = settings.qa_ui
     # Global HTTP bootstrap chrome (banner + gated settings actions).
     actual_tls = ctx.get("tls_mode") or tls_panel_mode()
-    ctx["tls_mode"] = panel_tls_mode(settings, actual_tls)
+    ctx["tls_mode"] = actual_tls
     if "tls_domain" not in ctx:
         ctx["tls_domain"] = read_domain_from_env()
     if "https_url" not in ctx:
@@ -1332,7 +1330,7 @@ def _overview_page_context(
 ) -> dict[str, Any]:
     """SSR context Обзора — Command Center (оперативный пульт)."""
     active, _archived, stats, ops = _fleet_snapshot(db, settings)
-    security = patch_security_for_qa(security_status(db, settings), settings)
+    security = security_status(db, settings)
     ops = merge_security_into_ops(ops, security)
     wave = build_wave_counts(
         active, ops=ops, stale_n=int(stats.get("stale") or 0)
@@ -1345,9 +1343,7 @@ def _overview_page_context(
     }
     ops["wave_chips"] = wave["chips"]
     ops["agent_local_count"] = wave["agent_local"]
-    tls_mode = panel_tls_mode(
-        settings, str(ops.get("tls_mode") or tls_panel_mode() or "http")
-    )
+    tls_mode = str(ops.get("tls_mode") or tls_panel_mode() or "http")
     bootstrap = build_bootstrap_checklist(
         user=user,
         db=db,
@@ -1414,7 +1410,6 @@ def _overview_page_context(
         stats=stats,
         tls_mode=tls_mode,
         security=security,
-        qa_ui=settings.qa_ui,
     )
     server_current = server_read_current(releases_dir(settings))
     events_total = db.count_device_events(importance="all")
@@ -1667,7 +1662,7 @@ def dashboard_page(
 ):
     """Отдельная вкладка Дашборд: конфигурация парка (не /v1)."""
     active, _archived, stats, ops = _fleet_snapshot(db, settings)
-    security = patch_security_for_qa(security_status(db, settings), settings)
+    security = security_status(db, settings)
     ops = merge_security_into_ops(ops, security)
     dashboard = build_dashboard_stats(
         db,
@@ -1825,52 +1820,6 @@ def _enrich_device_row(
         ip_list = []
     device["ip_addresses"] = ip_list
     return device
-
-
-def _overview_search_users(query: str, fleet: list[dict]) -> list[dict]:
-    qcf = (query or "").strip().casefold()
-    if len(qcf) < 2:
-        return []
-    groups: dict[str, dict[str, Any]] = {}
-    for d in fleet:
-        meta = d.get("meta") if isinstance(d.get("meta"), dict) else {}
-        did = str(d.get("bad_id") or "")
-        href = f"/devices/{did}"
-        host = d.get("hostname") or did
-        entries: list[tuple[str, str]] = []
-        logged = normalize_logged_on_list(meta.get("logged_on"))
-        if logged:
-            for name in logged:
-                entries.append((name, "online"))
-        else:
-            last = meta.get("last_logged_on")
-            if last:
-                entries.append((str(last), str(meta.get("user_presence") or "last")))
-        for name, presence in entries:
-            if qcf not in name.casefold():
-                continue
-            key = name.casefold()
-            grp = groups.get(key)
-            if not grp:
-                grp = {
-                    "kind": "user",
-                    "name": name,
-                    "presence": presence,
-                    "devices": [],
-                }
-                groups[key] = grp
-            grp["devices"].append(
-                {
-                    "hostname": host,
-                    "bad_id": d.get("bad_id"),
-                    "href": href,
-                    "presence": presence,
-                }
-            )
-            if presence == "online":
-                grp["presence"] = "online"
-    ranked = sorted(groups.values(), key=lambda g: str(g.get("name") or "").casefold())
-    return ranked[:15]
 
 
 def _facet_catalog_label_ok(label: str) -> bool:
@@ -3024,7 +2973,7 @@ def setup_progress_json(
 ):
     """U5: явный прогресс мастера (шаг 1/2/3) для UI без своих эвристик."""
     _active, _archived, stats, ops = _fleet_snapshot(db, settings)
-    security = patch_security_for_qa(security_status(db, settings), settings)
+    security = security_status(db, settings)
     ops = merge_security_into_ops(ops, security)
     progress = build_bootstrap_progress(
         user=user,

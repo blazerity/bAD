@@ -156,7 +156,7 @@ class Database:
                 """
             )
             boot = conn.execute(
-                "SELECT value FROM site_secrets WHERE key = ?",
+                "SELECT value FROM site_secrets WHERE key = %s",
                 ("mail_digest_schema_v1",),
             ).fetchone()
             if not boot:
@@ -168,7 +168,7 @@ class Database:
                     """
                 )
                 conn.execute(
-                    "INSERT INTO site_secrets(key, value) VALUES(?, ?) "
+                    "INSERT INTO site_secrets(key, value) VALUES(%s, %s) "
                     "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                     ("mail_digest_schema_v1", "1"),
                 )
@@ -214,28 +214,28 @@ class Database:
     def get_site_secret(self, key: str) -> Optional[str]:
         with self.connection() as conn:
             row = conn.execute(
-                "SELECT value FROM site_secrets WHERE key = ?", (key,)
+                "SELECT value FROM site_secrets WHERE key = %s", (key,)
             ).fetchone()
             return row["value"] if row else None
 
     def set_site_secret(self, key: str, value: str) -> None:
         with self.connection() as conn:
             conn.execute(
-                "INSERT INTO site_secrets(key, value) VALUES(?, ?) "
+                "INSERT INTO site_secrets(key, value) VALUES(%s, %s) "
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 (key, value),
             )
 
     def delete_site_secret(self, key: str) -> None:
         with self.connection() as conn:
-            conn.execute("DELETE FROM site_secrets WHERE key = ?", (key,))
+            conn.execute("DELETE FROM site_secrets WHERE key = %s", (key,))
 
     def enrollment_grant_usable(self, code_hash: str, bad_id: str) -> bool:
         with self.connection() as conn:
             row = conn.execute(
                 """
                 SELECT bad_id, used_at FROM enrollment_grants
-                WHERE code_hash = ?
+                WHERE code_hash = %s
                 """,
                 (code_hash,),
             ).fetchone()
@@ -249,7 +249,7 @@ class Database:
             conn.execute(
                 """
                 INSERT INTO enrollment_grants(code_hash, bad_id, created_at)
-                VALUES (?, ?, ?)
+                VALUES (%s, %s, %s)
                 """,
                 (code_hash, bad_id, utc_now()),
             )
@@ -278,12 +278,12 @@ class Database:
             conn.execute(
                 """
                 DELETE FROM enrollment_requests
-                WHERE status = 'pending' AND created_at < ?
+                WHERE status = 'pending' AND created_at < %s
                 """,
                 (cutoff,),
             )
             row = conn.execute(
-                "SELECT status FROM enrollment_requests WHERE id = ?",
+                "SELECT status FROM enrollment_requests WHERE id = %s",
                 (request_id,),
             ).fetchone()
             if row:
@@ -292,12 +292,12 @@ class Database:
                     conn.execute(
                         """
                         UPDATE enrollment_requests
-                        SET hostname = ?, ip = ?, serial = ?,
-                            bad_id = COALESCE(?, bad_id),
-                            machine_guid = ?,
-                            smbios_uuid = ?,
-                            seen_at = ?
-                        WHERE id = ? AND status = 'pending'
+                        SET hostname = %s, ip = %s, serial = %s,
+                            bad_id = COALESCE(%s, bad_id),
+                            machine_guid = %s,
+                            smbios_uuid = %s,
+                            seen_at = %s
+                        WHERE id = %s AND status = 'pending'
                         """,
                         (hostname, ip, serial, kept_id, guid, uuid, now, request_id),
                     )
@@ -313,7 +313,7 @@ class Database:
                 INSERT INTO enrollment_requests(
                   id, hostname, ip, serial, created_at, status, bad_id,
                   machine_guid, smbios_uuid, seen_at
-                ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s, 'pending', %s, %s, %s, %s)
                 """,
                 (request_id, hostname, ip, serial, now, kept_id, guid, uuid, now),
             )
@@ -356,9 +356,9 @@ class Database:
             conn.execute(
                 """
                 UPDATE enrollment_requests
-                SET archive_received = ?, archive_total = ?,
-                    link_state = ?, link_error = ?, link_at = ?
-                WHERE bad_id = ? AND status = 'approved'
+                SET archive_received = %s, archive_total = %s,
+                    link_state = %s, link_error = %s, link_at = %s
+                WHERE bad_id = %s AND status = 'approved'
                 """,
                 (int(received), int(total), state or "", error or "", utc_now(), bad_id),
             )
@@ -369,7 +369,7 @@ class Database:
                 """
                 UPDATE enrollment_requests
                 SET status = 'installed'
-                WHERE bad_id = ? AND status = 'approved'
+                WHERE bad_id = %s AND status = 'approved'
                 """,
                 (bad_id,),
             )
@@ -387,7 +387,7 @@ class Database:
     def get_enrollment_request(self, request_id: str) -> Optional[dict[str, Any]]:
         with self.connection() as conn:
             row = conn.execute(
-                "SELECT * FROM enrollment_requests WHERE id = ?",
+                "SELECT * FROM enrollment_requests WHERE id = %s",
                 (request_id,),
             ).fetchone()
         return dict(row) if row else None
@@ -404,10 +404,10 @@ class Database:
             updated = conn.execute(
                 """
                 UPDATE enrollment_requests
-                SET status = 'approved', bad_id = ?,
-                    api_key_enc = ?, signing_key_enc = ?,
-                    archive_password_enc = ?
-                WHERE id = ? AND status = 'pending'
+                SET status = 'approved', bad_id = %s,
+                    api_key_enc = %s, signing_key_enc = %s,
+                    archive_password_enc = %s
+                WHERE id = %s AND status = 'pending'
                 """,
                 (bad_id, api_key_enc, signing_key_enc, archive_password_enc or "", request_id),
             )
@@ -419,7 +419,7 @@ class Database:
             row = conn.execute(
                 """
                 SELECT bad_id, status, api_key_enc, signing_key_enc, archive_password_enc
-                FROM enrollment_requests WHERE id = ?
+                FROM enrollment_requests WHERE id = %s
                 FOR UPDATE
                 """,
                 (request_id,),
@@ -432,8 +432,8 @@ class Database:
                 """
                 UPDATE enrollment_requests
                 SET api_key_enc = NULL, signing_key_enc = NULL,
-                    archive_password_enc = NULL, claimed_at = ?
-                WHERE id = ?
+                    archive_password_enc = NULL, claimed_at = %s
+                WHERE id = %s
                 """,
                 (utc_now(), request_id),
             )
@@ -449,7 +449,7 @@ class Database:
         with self.connection() as conn:
             row = conn.execute(
                 "SELECT bad_id, api_key_hash, revoked, shared_exchange_at "
-                "FROM devices WHERE bad_id = ?",
+                "FROM devices WHERE bad_id = %s",
                 (bad_id,),
             ).fetchone()
         return dict(row) if row else None
@@ -462,8 +462,8 @@ class Database:
             updated = conn.execute(
                 """
                 UPDATE devices
-                SET signing_pubkey = ?, signing_key_fingerprint = ?
-                WHERE bad_id = ?
+                SET signing_pubkey = %s, signing_key_fingerprint = %s
+                WHERE bad_id = %s
                 """,
                 (pubkey, fingerprint, bad_id),
             )
@@ -493,10 +493,10 @@ class Database:
                 spent = conn.execute(
                     """
                 UPDATE enrollment_grants
-                SET used_at = ?,
-                    bad_id = CASE WHEN bad_id = '' THEN ? ELSE bad_id END
-                WHERE code_hash = ? AND used_at IS NULL
-                  AND (bad_id = ? OR bad_id = '')
+                SET used_at = %s,
+                    bad_id = CASE WHEN bad_id = '' THEN %s ELSE bad_id END
+                WHERE code_hash = %s AND used_at IS NULL
+                  AND (bad_id = %s OR bad_id = '')
                 """,
                 (now, bad_id, grant_code_hash, bad_id),
             )
@@ -504,7 +504,7 @@ class Database:
                     raise ValueError("grant_invalid")
             existing = conn.execute(
                 """
-                SELECT bad_id, revoked FROM devices WHERE bad_id = ?
+                SELECT bad_id, revoked FROM devices WHERE bad_id = %s
                 FOR UPDATE
                 """,
                 (bad_id,),
@@ -518,14 +518,14 @@ class Database:
                     conn.execute(
                         """
                         UPDATE devices
-                        SET hostname = COALESCE(?, hostname),
-                            api_key_hash = ?,
-                            api_key_lookup = ?,
-                            last_seen_at = ?,
-                            agent_version = COALESCE(?, agent_version),
-                            signing_pubkey = ?,
-                            signing_key_fingerprint = ?
-                        WHERE bad_id = ?
+                        SET hostname = COALESCE(%s, hostname),
+                            api_key_hash = %s,
+                            api_key_lookup = %s,
+                            last_seen_at = %s,
+                            agent_version = COALESCE(%s, agent_version),
+                            signing_pubkey = %s,
+                            signing_key_fingerprint = %s
+                        WHERE bad_id = %s
                         """,
                         (
                             hostname,
@@ -542,12 +542,12 @@ class Database:
                     conn.execute(
                         """
                         UPDATE devices
-                        SET hostname = COALESCE(?, hostname),
-                            api_key_hash = ?,
-                            api_key_lookup = ?,
-                            last_seen_at = ?,
-                            agent_version = COALESCE(?, agent_version)
-                        WHERE bad_id = ?
+                        SET hostname = COALESCE(%s, hostname),
+                            api_key_hash = %s,
+                            api_key_lookup = %s,
+                            last_seen_at = %s,
+                            agent_version = COALESCE(%s, agent_version)
+                        WHERE bad_id = %s
                         """,
                         (
                             hostname,
@@ -565,7 +565,7 @@ class Database:
                   bad_id, hostname, api_key_hash, api_key_lookup,
                   enrolled_at, last_seen_at, agent_version, meta_json,
                   revoked, archived, signing_pubkey, signing_key_fingerprint
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0, 0, %s, %s)
                 """,
                 (
                     bad_id,
@@ -597,7 +597,7 @@ class Database:
             row = None
             if lookup_hash:
                 row = conn.execute(
-                    "SELECT * FROM devices WHERE api_key_lookup = ?",
+                    "SELECT * FROM devices WHERE api_key_lookup = %s",
                     (lookup_hash,),
                 ).fetchone()
             if row is not None:
@@ -616,7 +616,7 @@ class Database:
                 if verify_fn(candidate["api_key_hash"], api_key):
                     if lookup_hash:
                         conn.execute(
-                            "UPDATE devices SET api_key_lookup = ? WHERE bad_id = ?",
+                            "UPDATE devices SET api_key_lookup = %s WHERE bad_id = %s",
                             (lookup_hash, candidate["bad_id"]),
                         )
                     return candidate
@@ -646,7 +646,7 @@ class Database:
 
     def _lock_device_meta(self, conn: CompatConnection, bad_id: str) -> dict[str, Any]:
         row = conn.execute(
-            "SELECT meta_json FROM devices WHERE bad_id = ? FOR UPDATE",
+            "SELECT meta_json FROM devices WHERE bad_id = %s FOR UPDATE",
             (bad_id,),
         ).fetchone()
         if not row:
@@ -657,7 +657,7 @@ class Database:
         self, conn: CompatConnection, bad_id: str, meta: dict[str, Any]
     ) -> None:
         conn.execute(
-            "UPDATE devices SET meta_json = ? WHERE bad_id = ?",
+            "UPDATE devices SET meta_json = %s WHERE bad_id = %s",
             (
                 _compact_json(meta),
                 bad_id,
@@ -667,7 +667,7 @@ class Database:
     def get_device_meta(self, bad_id: str) -> Optional[dict[str, Any]]:
         with self.connection() as conn:
             row = conn.execute(
-                "SELECT meta_json FROM devices WHERE bad_id = ?",
+                "SELECT meta_json FROM devices WHERE bad_id = %s",
                 (bad_id,),
             ).fetchone()
         if not row:
@@ -689,15 +689,15 @@ class Database:
             clauses.append("COALESCE(archived, 0) = 0")
         wanted = (tag or "").strip()
         if wanted:
-            clauses.append("tags_json ILIKE ?")
+            clauses.append("tags_json ILIKE %s")
             params.append(f"%{wanted}%")
         query = (q or "").strip()
         if query:
             like = f"%{query}%"
             clauses.append(
-                "(hostname ILIKE ? OR bad_id ILIKE ? "
-                "OR COALESCE(meta_json, '') ILIKE ? "
-                "OR COALESCE(tags_json, '') ILIKE ?)"
+                "(hostname ILIKE %s OR bad_id ILIKE %s "
+                "OR COALESCE(meta_json, '') ILIKE %s "
+                "OR COALESCE(tags_json, '') ILIKE %s)"
             )
             params.extend([like, like, like, like])
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
@@ -758,9 +758,9 @@ class Database:
             conn.execute(
                 """
                 UPDATE devices
-                SET last_seen_at = ?,
-                    agent_version = COALESCE(?, agent_version)
-                WHERE bad_id = ?
+                SET last_seen_at = %s,
+                    agent_version = COALESCE(%s, agent_version)
+                WHERE bad_id = %s
                 """,
                 (now, agent_version, bad_id),
             )
@@ -803,11 +803,11 @@ class Database:
             conn.execute(
                 """
                 UPDATE devices
-                SET hostname = COALESCE(?, hostname),
-                    last_seen_at = ?,
-                    agent_version = COALESCE(?, agent_version),
-                    meta_json = ?
-                WHERE bad_id = ?
+                SET hostname = COALESCE(%s, hostname),
+                    last_seen_at = %s,
+                    agent_version = COALESCE(%s, agent_version),
+                    meta_json = %s
+                WHERE bad_id = %s
                 """,
                 (hostname, now, agent_version, meta_json, bad_id),
             )
@@ -815,7 +815,7 @@ class Database:
                 """
                 INSERT INTO inventory_snapshots(
                   bad_id, received_at, schema_version, payload_json
-                ) VALUES (?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s)
                 RETURNING id
                 """,
                 (bad_id, now, schema_version, payload_json),
@@ -839,12 +839,12 @@ class Database:
             conn.execute(
                 """
                 DELETE FROM inventory_snapshots
-                WHERE bad_id = ?
+                WHERE bad_id = %s
                   AND id NOT IN (
                     SELECT id FROM inventory_snapshots
-                    WHERE bad_id = ?
+                    WHERE bad_id = %s
                     ORDER BY received_at DESC, id DESC
-                    LIMIT ?
+                    LIMIT %s
                   )
                 """,
                 (bad_id, bad_id, retention),
@@ -881,10 +881,10 @@ class Database:
         wanted_cf = (tag or "").strip().casefold()
         paginate_sql = not wanted_cf
         if paginate_sql and limit is not None:
-            sql += " LIMIT ? OFFSET ?"
+            sql += " LIMIT %s OFFSET %s"
             params.extend([max(1, int(limit)), max(0, int(offset))])
         elif paginate_sql and offset:
-            sql += " OFFSET ?"
+            sql += " OFFSET %s"
             params.append(max(0, int(offset)))
         with self.connection() as conn:
             rows = conn.execute(sql, params).fetchall()
@@ -932,12 +932,12 @@ class Database:
             SELECT bad_id, hostname, enrolled_at, last_seen_at,
                    agent_version, meta_json, tags_json, revoked, archived
             FROM devices
-            WHERE hostname ILIKE ?
-               OR bad_id ILIKE ?
-               OR COALESCE(meta_json, '') ILIKE ?
-               OR COALESCE(tags_json, '') ILIKE ?
+            WHERE hostname ILIKE %s
+               OR bad_id ILIKE %s
+               OR COALESCE(meta_json, '') ILIKE %s
+               OR COALESCE(tags_json, '') ILIKE %s
             ORDER BY COALESCE(last_seen_at, enrolled_at) DESC NULLS LAST
-            LIMIT ?
+            LIMIT %s
         """
         with self.connection() as conn:
             rows = conn.execute(
@@ -951,7 +951,7 @@ class Database:
                    e.created_at, d.hostname
             FROM device_events e
             LEFT JOIN devices d ON d.bad_id = e.bad_id
-            WHERE e.id = ?
+            WHERE e.id = %s
         """
         with self.connection() as conn:
             row = conn.execute(sql, (int(event_id),)).fetchone()
@@ -976,7 +976,7 @@ class Database:
         payload = _compact_json(clean)
         with self.connection() as conn:
             cur = conn.execute(
-                "UPDATE devices SET tags_json = ? WHERE bad_id = ?",
+                "UPDATE devices SET tags_json = %s WHERE bad_id = %s",
                 (payload, bad_id),
             )
             if cur.rowcount == 0:
@@ -998,41 +998,41 @@ class Database:
         clauses: list[str] = []
         params: list[Any] = []
         if bad_id:
-            clauses.append("e.bad_id = ?")
+            clauses.append("e.bad_id = %s")
             params.append(bad_id)
         imp = (importance or "").strip().casefold()
         if imp and imp != "all":
             types = sorted(types_at_least(imp))
             if types:
-                placeholders = ",".join("?" for _ in types)
+                placeholders = ",".join("%s" for _ in types)
                 clauses.append(f"e.type IN ({placeholders})")
                 params.extend(types)
         elif imp != "all":
             # default UI: medium+
             types = sorted(types_at_least("medium"))
             if types:
-                placeholders = ",".join("?" for _ in types)
+                placeholders = ",".join("%s" for _ in types)
                 clauses.append(f"e.type IN ({placeholders})")
                 params.extend(types)
         query = (q or "").strip()
         if query:
             like = f"%{query}%"
             clauses.append(
-                "(e.summary ILIKE ? OR e.type ILIKE ? OR d.hostname ILIKE ? "
-                "OR e.bad_id ILIKE ?)"
+                "(e.summary ILIKE %s OR e.type ILIKE %s OR d.hostname ILIKE %s "
+                "OR e.bad_id ILIKE %s)"
             )
             params.extend([like, like, like, like])
         et = (event_type or "").strip()
         if et:
-            clauses.append("e.type = ?")
+            clauses.append("e.type = %s")
             params.append(et)
         d_from = (date_from or "").strip()
         if d_from:
-            clauses.append("e.created_at >= ?")
+            clauses.append("e.created_at >= %s")
             params.append(f"{d_from}T00:00:00Z")
         d_to = (date_to or "").strip()
         if d_to:
-            clauses.append("e.created_at <= ?")
+            clauses.append("e.created_at <= %s")
             params.append(f"{d_to}T23:59:59Z")
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         return where, params
@@ -1068,7 +1068,7 @@ class Database:
             date_to=date_to,
         )
         sql += where
-        sql += " ORDER BY e.created_at DESC, e.id DESC LIMIT ? OFFSET ?"
+        sql += " ORDER BY e.created_at DESC, e.id DESC LIMIT %s OFFSET %s"
         params.extend([limit, offset])
         with self.connection() as conn:
             rows = conn.execute(sql, params).fetchall()
@@ -1083,7 +1083,7 @@ class Database:
             LEFT JOIN devices d ON d.bad_id = e.bad_id
             WHERE e.mailed_at IS NULL
             ORDER BY e.created_at ASC, e.id ASC
-            LIMIT ?
+            LIMIT %s
         """
         with self.connection() as conn:
             rows = conn.execute(sql, (limit,)).fetchall()
@@ -1120,7 +1120,7 @@ class Database:
             """
             INSERT INTO device_events(
               bad_id, type, summary, detail_json, created_at
-            ) VALUES (?, ?, ?, ?, ?)
+            ) VALUES (%s, %s, %s, %s, %s)
             """,
             (bad_id, event_type, summary, detail_json, created_at),
         )
@@ -1129,7 +1129,7 @@ class Database:
         return conn.execute(
             """
             SELECT payload_json FROM inventory_snapshots
-            WHERE bad_id = ?
+            WHERE bad_id = %s
             ORDER BY received_at DESC, id DESC
             LIMIT 1
             """,
@@ -1179,10 +1179,10 @@ class Database:
         if not event_ids:
             return
         ids = [int(i) for i in event_ids]
-        placeholders = ", ".join("?" for _ in ids)
+        placeholders = ", ".join("%s" for _ in ids)
         with self.connection() as conn:
             conn.execute(
-                f"UPDATE device_events SET mailed_at = ? WHERE id IN ({placeholders})",
+                f"UPDATE device_events SET mailed_at = %s WHERE id IN ({placeholders})",
                 [mailed_at, *ids],
             )
 
@@ -1201,7 +1201,7 @@ class Database:
                 """
                 SELECT LEFT(created_at::text, 10) AS day, type, COUNT(*)::bigint AS count
                 FROM device_events
-                WHERE created_at >= ?
+                WHERE created_at >= %s
                 GROUP BY LEFT(created_at::text, 10), type
                 ORDER BY day ASC
                 """,
@@ -1284,11 +1284,11 @@ class Database:
             parts: list[str] = []
             params: list[Any] = []
             if types:
-                ph = ",".join("?" for _ in types)
+                ph = ",".join("%s" for _ in types)
                 parts.append(f"e.type IN ({ph})")
                 params.extend(types)
             if known:
-                ph = ",".join("?" for _ in known)
+                ph = ",".join("%s" for _ in known)
                 parts.append(f"e.type NOT IN ({ph})")
                 params.extend(known)
             if not parts:
@@ -1297,7 +1297,7 @@ class Database:
         else:
             if not types:
                 return 0
-            ph = ",".join("?" for _ in types)
+            ph = ",".join("%s" for _ in types)
             where = f"e.type IN ({ph})"
             params = list(types)
         sql = f"SELECT COUNT(*) AS c FROM device_events e WHERE {where}"
@@ -1308,7 +1308,7 @@ class Database:
     def get_device_detail(self, bad_id: str) -> Optional[dict[str, Any]]:
         with self.connection() as conn:
             device = conn.execute(
-                "SELECT * FROM devices WHERE bad_id = ?", (bad_id,)
+                "SELECT * FROM devices WHERE bad_id = %s", (bad_id,)
             ).fetchone()
             if not device:
                 return None
@@ -1316,7 +1316,7 @@ class Database:
                 """
                 SELECT id, received_at, schema_version, payload_json
                 FROM inventory_snapshots
-                WHERE bad_id = ?
+                WHERE bad_id = %s
                 ORDER BY received_at DESC, id DESC
                 LIMIT 1
                 """,
@@ -1403,7 +1403,7 @@ class Database:
                 """
                 INSERT INTO local_users(
                   username, password_hash, role, must_change_password, created_at
-                ) VALUES (?, ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
@@ -1420,7 +1420,7 @@ class Database:
     def get_local_user(self, username: str) -> Optional[dict[str, Any]]:
         with self.connection() as conn:
             row = conn.execute(
-                "SELECT * FROM local_users WHERE username = ? COLLATE NOCASE",
+                "SELECT * FROM local_users WHERE LOWER(username) = LOWER(%s)",
                 (username,),
             ).fetchone()
         return dict(row) if row else None
@@ -1433,8 +1433,8 @@ class Database:
                 conn.execute(
                     """
                     UPDATE local_users
-                    SET password_hash = ?, must_change_password = 0
-                    WHERE username = ? COLLATE NOCASE
+                    SET password_hash = %s, must_change_password = 0
+                    WHERE LOWER(username) = LOWER(%s)
                     """,
                     (password_hash, username),
                 )
@@ -1442,8 +1442,8 @@ class Database:
                 conn.execute(
                     """
                     UPDATE local_users
-                    SET password_hash = ?
-                    WHERE username = ? COLLATE NOCASE
+                    SET password_hash = %s
+                    WHERE LOWER(username) = LOWER(%s)
                     """,
                     (password_hash, username),
                 )
@@ -1452,8 +1452,8 @@ class Database:
         with self.connection() as conn:
             conn.execute(
                 """
-                UPDATE local_users SET last_login_at = ?
-                WHERE username = ? COLLATE NOCASE
+                UPDATE local_users SET last_login_at = %s
+                WHERE LOWER(username) = LOWER(%s)
                 """,
                 (utc_now(), username),
             )
@@ -1505,12 +1505,12 @@ class Database:
     ) -> None:
         now = utc_now()
         sets = [
-            "enabled = ?",
-            "host = ?",
-            "port = ?",
-            "use_ssl = ?",
-            "start_tls = ?",
-            "bind_dn = ?",
+            "enabled = %s",
+            "host = %s",
+            "port = %s",
+            "use_ssl = %s",
+            "start_tls = %s",
+            "bind_dn = %s",
         ]
         params: list[Any] = [
             1 if enabled else 0,
@@ -1521,17 +1521,17 @@ class Database:
             bind_dn,
         ]
         if bind_password_enc is not None:
-            sets.append("bind_password_enc = ?")
+            sets.append("bind_password_enc = %s")
             params.append(bind_password_enc)
         sets.extend(
             [
-                "user_search_base = ?",
-                "user_filter_template = ?",
-                "display_name_attr = ?",
-                "default_role = ?",
-                "allowed_group = ?",
-                "tls_insecure = ?",
-                "updated_at = ?",
+                "user_search_base = %s",
+                "user_filter_template = %s",
+                "display_name_attr = %s",
+                "default_role = %s",
+                "allowed_group = %s",
+                "tls_insecure = %s",
+                "updated_at = %s",
             ]
         )
         params.extend(
@@ -1600,7 +1600,7 @@ class Database:
             row = conn.execute(
                 "SELECT version, msi_name, sha256, file_path, source, "
                 "source_tag, release_url, mirrored_at, archive_password_enc "
-                "FROM agent_msi_versions WHERE version = ?",
+                "FROM agent_msi_versions WHERE version = %s",
                 (ver,),
             ).fetchone()
         return self._msi_row(row) if row else None
@@ -1655,7 +1655,7 @@ class Database:
                 INSERT INTO agent_msi_versions(
                   version, msi_name, sha256, file_path, source,
                   source_tag, release_url, mirrored_at, archive_password_enc
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT(version) DO UPDATE SET
                   msi_name = excluded.msi_name,
                   sha256 = excluded.sha256,
@@ -1698,7 +1698,7 @@ class Database:
                         INSERT INTO agent_update(
                           id, version, msi_name, sha256, file_path,
                           source_tag, release_url, synced_at, archive_password_enc
-                        ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (1, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT(id) DO UPDATE SET
                           version = excluded.version,
                           msi_name = excluded.msi_name,
@@ -1722,7 +1722,7 @@ class Database:
                     )
                     conn.execute(
                         """
-                        INSERT INTO site_secrets(key, value) VALUES (?, ?)
+                        INSERT INTO site_secrets(key, value) VALUES (%s, %s)
                         ON CONFLICT(key) DO UPDATE SET value = excluded.value
                         """,
                         ("agent_msi_latest_version", version),
@@ -1772,7 +1772,7 @@ class Database:
             return False
         with self.connection() as conn:
             cur = conn.execute(
-                "DELETE FROM agent_msi_versions WHERE version = ?", (ver,)
+                "DELETE FROM agent_msi_versions WHERE version = %s", (ver,)
             )
             if cur.rowcount <= 0:
                 return False
@@ -1834,7 +1834,7 @@ class Database:
     def get_agent_policy(self, policy_id: int) -> Optional[dict[str, Any]]:
         with self.connection() as conn:
             row = conn.execute(
-                "SELECT * FROM agent_policies WHERE id = ?", (policy_id,)
+                "SELECT * FROM agent_policies WHERE id = %s", (policy_id,)
             ).fetchone()
         return self._row_to_policy(row) if row else None
 
@@ -1854,7 +1854,7 @@ class Database:
                 INSERT INTO agent_policies(
                   name, enabled, priority, conditions_json, settings_json,
                   created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
@@ -1888,9 +1888,9 @@ class Database:
             cur = conn.execute(
                 """
                 UPDATE agent_policies SET
-                  name = ?, enabled = ?, priority = ?,
-                  conditions_json = ?, settings_json = ?, updated_at = ?
-                WHERE id = ?
+                  name = %s, enabled = %s, priority = %s,
+                  conditions_json = %s, settings_json = %s, updated_at = %s
+                WHERE id = %s
                 """,
                 (
                     name,
@@ -1909,7 +1909,7 @@ class Database:
     def delete_agent_policy(self, policy_id: int) -> bool:
         with self.connection() as conn:
             cur = conn.execute(
-                "DELETE FROM agent_policies WHERE id = ?", (policy_id,)
+                "DELETE FROM agent_policies WHERE id = %s", (policy_id,)
             )
             return cur.rowcount > 0
 
@@ -1934,7 +1934,7 @@ class Database:
             row = conn.execute(
                 """
                 SELECT bad_id, settings_json, updated_at
-                FROM device_config_overrides WHERE bad_id = ?
+                FROM device_config_overrides WHERE bad_id = %s
                 """,
                 (bad_id,),
             ).fetchone()
@@ -1957,14 +1957,14 @@ class Database:
         payload = _compact_json(settings)
         with self.connection() as conn:
             exists = conn.execute(
-                "SELECT bad_id FROM devices WHERE bad_id = ?", (bad_id,)
+                "SELECT bad_id FROM devices WHERE bad_id = %s", (bad_id,)
             ).fetchone()
             if not exists:
                 raise KeyError(bad_id)
             conn.execute(
                 """
                 INSERT INTO device_config_overrides(bad_id, settings_json, updated_at)
-                VALUES (?, ?, ?)
+                VALUES (%s, %s, %s)
                 ON CONFLICT(bad_id) DO UPDATE SET
                   settings_json = excluded.settings_json,
                   updated_at = excluded.updated_at
@@ -1978,7 +1978,7 @@ class Database:
     def delete_device_config_override(self, bad_id: str) -> bool:
         with self.connection() as conn:
             cur = conn.execute(
-                "DELETE FROM device_config_overrides WHERE bad_id = ?",
+                "DELETE FROM device_config_overrides WHERE bad_id = %s",
                 (bad_id,),
             )
             return cur.rowcount > 0
@@ -1998,7 +1998,7 @@ class Database:
         if not ids:
             return {}
         out: dict[str, dict[str, Any]] = {}
-        placeholders = ",".join("?" for _ in ids)
+        placeholders = ",".join("%s" for _ in ids)
         with self.connection() as conn:
             # Postgres: DISTINCT ON; CompatConnection прокидывает как есть.
             rows = conn.execute(
@@ -2026,7 +2026,7 @@ class Database:
 
         with self.connection() as conn:
             device = conn.execute(
-                "SELECT * FROM devices WHERE bad_id = ?", (bad_id,)
+                "SELECT * FROM devices WHERE bad_id = %s", (bad_id,)
             ).fetchone()
         if not device:
             return None
@@ -2057,7 +2057,7 @@ class Database:
             raise ValueError(f"unsupported device flag: {column}")
         with self.connection() as conn:
             cur = conn.execute(
-                f"UPDATE devices SET {column} = ? WHERE bad_id = ?",
+                f"UPDATE devices SET {column} = %s WHERE bad_id = %s",
                 (1 if value else 0, bad_id),
             )
             return cur.rowcount > 0
@@ -2076,8 +2076,8 @@ class Database:
             cur = conn.execute(
                 """
                 UPDATE devices
-                SET api_key_hash = ?, api_key_lookup = ?, revoked = 0
-                WHERE bad_id = ?
+                SET api_key_hash = %s, api_key_lookup = %s, revoked = 0
+                WHERE bad_id = %s
                 """,
                 (api_key_hash, api_key_lookup, bad_id),
             )
@@ -2090,20 +2090,20 @@ class Database:
         """Жёстко удалить device и связанные строки (snapshots + cascades)."""
         with self.connection() as conn:
             exists = conn.execute(
-                "SELECT bad_id FROM devices WHERE bad_id = ?", (bad_id,)
+                "SELECT bad_id FROM devices WHERE bad_id = %s", (bad_id,)
             ).fetchone()
             if not exists:
                 return False
             conn.execute(
-                "DELETE FROM inventory_snapshots WHERE bad_id = ?", (bad_id,)
+                "DELETE FROM inventory_snapshots WHERE bad_id = %s", (bad_id,)
             )
             conn.execute(
-                "DELETE FROM device_events WHERE bad_id = ?", (bad_id,)
+                "DELETE FROM device_events WHERE bad_id = %s", (bad_id,)
             )
             conn.execute(
-                "DELETE FROM device_config_overrides WHERE bad_id = ?", (bad_id,)
+                "DELETE FROM device_config_overrides WHERE bad_id = %s", (bad_id,)
             )
-            conn.execute("DELETE FROM devices WHERE bad_id = ?", (bad_id,))
+            conn.execute("DELETE FROM devices WHERE bad_id = %s", (bad_id,))
             return True
 
     # Placeholder serials (как CleanWmiString у агента) — не сигналы «та же машина».
@@ -2627,13 +2627,13 @@ class Database:
         with self.connection() as conn:
             # Повторная проверка существования внутри транзакции (TOCTOU).
             s_row = conn.execute(
-                "SELECT bad_id FROM devices WHERE bad_id = ?",
+                "SELECT bad_id FROM devices WHERE bad_id = %s",
                 (survivor_id,),
             ).fetchone()
             d_row = conn.execute(
                 """
                 SELECT bad_id, hostname, last_seen_at, archived
-                FROM devices WHERE bad_id = ?
+                FROM devices WHERE bad_id = %s
                 """,
                 (donor_id,),
             ).fetchone()
@@ -2645,16 +2645,16 @@ class Database:
             snap_cur = conn.execute(
                 """
                 UPDATE inventory_snapshots
-                SET bad_id = ?
-                WHERE bad_id = ?
+                SET bad_id = %s
+                WHERE bad_id = %s
                 """,
                 (survivor_id, donor_id),
             )
             ev_cur = conn.execute(
                 """
                 UPDATE device_events
-                SET bad_id = ?
-                WHERE bad_id = ?
+                SET bad_id = %s
+                WHERE bad_id = %s
                 """,
                 (survivor_id, donor_id),
             )
@@ -2663,7 +2663,7 @@ class Database:
                 """
                 UPDATE devices
                 SET archived = 1, revoked = 1, api_key_lookup = NULL
-                WHERE bad_id = ?
+                WHERE bad_id = %s
                 """,
                 (donor_id,),
             )
@@ -2697,7 +2697,7 @@ class Database:
                     SELECT COUNT(*) AS c FROM devices
                     WHERE COALESCE(archived, 0) = 0
                       AND enrolled_at IS NOT NULL
-                      AND enrolled_at > ?
+                      AND enrolled_at > %s
                     """,
                     (since_iso,),
                 ).fetchone()
@@ -2750,7 +2750,7 @@ class Database:
         from .smtp_mail import HARDWARE_ALERT_TYPES
 
         hw_types = sorted(HARDWARE_ALERT_TYPES)
-        placeholders = ",".join("?" for _ in hw_types)
+        placeholders = ",".join("%s" for _ in hw_types)
         with self.connection() as conn:
             rows = conn.execute(
                 f"""
@@ -2854,7 +2854,7 @@ class Database:
             conn.execute(
                 """
                 UPDATE retention_settings SET
-                  events_days = ?, inventory_days = ?, updated_at = ?
+                  events_days = %s, inventory_days = %s, updated_at = %s
                 WHERE id = 1
                 """,
                 (int(events_days), int(inventory_days), now),
@@ -2868,7 +2868,7 @@ class Database:
         inv_cut = _utc_cutoff(timedelta(days=max(1, int(inventory_days))))
         with self.connection() as conn:
             ev = conn.execute(
-                "DELETE FROM device_events WHERE created_at < ?", (events_cut,)
+                "DELETE FROM device_events WHERE created_at < %s", (events_cut,)
             )
             # Оставить последний snapshot на каждое устройство, даже если он старый.
             keep_rows = conn.execute(
@@ -2886,7 +2886,7 @@ class Database:
             old_rows = conn.execute(
                 """
                 SELECT id FROM inventory_snapshots
-                WHERE received_at < ?
+                WHERE received_at < %s
                 """,
                 (inv_cut,),
             ).fetchall()
@@ -2894,7 +2894,7 @@ class Database:
                 int(r["id"]) for r in old_rows if int(r["id"]) not in keep_ids
             ]
             for sid in delete_ids:
-                conn.execute("DELETE FROM inventory_snapshots WHERE id = ?", (sid,))
+                conn.execute("DELETE FROM inventory_snapshots WHERE id = %s", (sid,))
             return {
                 "events_deleted": int(ev.rowcount or 0),
                 "snapshots_deleted": len(delete_ids),
@@ -3016,12 +3016,12 @@ class Database:
             wd_list = self._normalize_digest_weekdays(wd_json)
             wd_json = json.dumps(wd_list, separators=(",", ":"))
         sets = [
-            "enabled = ?",
-            "host = ?",
-            "port = ?",
-            "use_ssl = ?",
-            "use_starttls = ?",
-            "username = ?",
+            "enabled = %s",
+            "host = %s",
+            "port = %s",
+            "use_ssl = %s",
+            "use_starttls = %s",
+            "username = %s",
         ]
         params: list[Any] = [
             1 if enabled else 0,
@@ -3032,25 +3032,25 @@ class Database:
             username,
         ]
         if password_enc is not None:
-            sets.append("password_enc = ?")
+            sets.append("password_enc = %s")
             params.append(password_enc)
-        sets.extend(["from_addr = ?", "to_addrs = ?"])
+        sets.extend(["from_addr = %s", "to_addrs = %s"])
         params.extend([from_addr, to_addrs])
         if notify_json is not None:
-            sets.append("notify_json = ?")
+            sets.append("notify_json = %s")
             params.append(notify_json)
         sets.extend(
             [
-                "digest_interval_hours = ?",
-                "digest_lookback_hours = ?",
-                "digest_window_start_hour = ?",
-                "digest_window_end_hour = ?",
-                "updated_at = ?",
+                "digest_interval_hours = %s",
+                "digest_lookback_hours = %s",
+                "digest_window_start_hour = %s",
+                "digest_window_end_hour = %s",
+                "updated_at = %s",
             ]
         )
         params.extend([digest_h, lookback_h, start_h, end_h, now])
         if wd_json is not None:
-            sets.insert(-1, "digest_weekdays = ?")
+            sets.insert(-1, "digest_weekdays = %s")
             params.insert(-1, wd_json)
         with self.connection() as conn:
             conn.execute(

@@ -189,13 +189,11 @@ BAD_DATABASE_URL="${BAD_DATABASE_URL}" /opt/bad/.venv/bin/python -c \
   'from bad_server.db import open_database; open_database(database_url=__import__("os").environ["BAD_DATABASE_URL"]); print("  schema: ok")'
 
 if [[ ! -f "${SITE_ENV}" ]]; then
-  ENROLLMENT_TOKEN="bad_en_$(openssl rand -base64 48 | tr -d '/+=' | head -c 48)"
   ADMIN_TOKEN="bad_ad_$(openssl rand -base64 48 | tr -d '/+=' | head -c 48)"
   umask 077
   cat > "${SITE_ENV}" <<EOF
 BAD_DATABASE_URL=${BAD_DATABASE_URL}
 BAD_DOMAIN=${BAD_DOMAIN}
-BAD_ENROLLMENT_TOKEN=${ENROLLMENT_TOKEN}
 BAD_ADMIN_TOKEN=${ADMIN_TOKEN}
 BAD_DATA_KEY_FILE=/etc/bad/data_key
 BAD_SESSION_SECRET_FILE=/etc/bad/session_secret
@@ -213,7 +211,6 @@ EOF
 else
   # shellcheck disable=SC1090
   set -a; source "${SITE_ENV}"; set +a
-  ENROLLMENT_TOKEN="${BAD_ENROLLMENT_TOKEN:-}"
   ADMIN_TOKEN="${BAD_ADMIN_TOKEN:-}"
   PRINT_TOKENS=0
   if ! grep -q '^BAD_DATA_KEY_FILE=' "${SITE_ENV}" 2>/dev/null; then
@@ -306,7 +303,6 @@ echo " DB:               ${DB_SUMMARY}"
 echo " Secrets:          /etc/bad/data_key + /etc/bad/session_secret (not in DB dumps)"
 echo " Logs:             journalctl -u bad-api -f"
 if [[ "${PRINT_TOKENS}" -eq 1 ]]; then
-  echo " Enrollment token: ${ENROLLMENT_TOKEN}"
   echo " Admin API token:  ${ADMIN_TOKEN}  (Bearer for /v1/devices*; not for web login)"
   echo
   echo " Save these tokens now — they are in /etc/bad/site.env (mode 640, root:bad)."

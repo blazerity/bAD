@@ -76,7 +76,7 @@ def _user() -> WebUser:
 
 def _html(ctx: dict) -> str:
     return templates.get_template("device_detail.html").render(
-        {**ctx, "csrf_token": "t", "qa_ui": False, "request": None}
+        {**ctx, "csrf_token": "t", "request": None}
     )
 
 

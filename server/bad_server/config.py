@@ -23,7 +23,6 @@ class Settings(BaseSettings):
     database_url: str = ""
     # Каталог для lab fallback-файлов секретов (не БД).
     data_dir: Path = Path(os.environ.get("BAD_DATA_DIR", "./data"))
-    enrollment_token: str = ""
     admin_token: str = ""
     # Master secrets — prefer env/file outside DB (SEC-005).
     session_secret: str = ""
@@ -38,8 +37,6 @@ class Settings(BaseSettings):
     # Cookie Secure: True/False force; None = auto (X-Forwarded-Proto / HTTPS).
     # Prefer BAD_COOKIE_SECURE=auto so Secure flips with nginx without API restart.
     cookie_secure: Optional[bool] = None
-    # Lab: панель для скриншотов/QA без HTTP-bootstrap (баннер, гейты, sensitive over HTTP).
-    qa_ui: bool = _env_bool("BAD_QA_UI", False)
     # Lab opt-out: site-bundle + LDAP/SMTP password save while mode=http.
     allow_sensitive_over_http: bool = False
     # Lab opt-out: /v1/enroll on cleartext when managed TLS is already active.
@@ -48,8 +45,6 @@ class Settings(BaseSettings):
     require_inventory_signature: bool = _env_bool(
         "BAD_REQUIRE_INVENTORY_SIGNATURE", False
     )
-    # После волны MSI: reminder ротации, если enrolls since rotate ≥ N (default 5).
-    enrollment_rotate_after_enrolls: int = 5
     enroll_rate_limit_per_minute: int = 30
     login_rate_limit_per_minute: int = 10
     login_username_rate_limit_per_minute: int = 5

@@ -67,16 +67,6 @@ def build_bootstrap_progress(
 
     1 — пароль сменён; 2 — HTTPS; 3 — есть устройство или каталог установщиков не пуст.
     """
-    if settings and getattr(settings, "qa_ui", False):
-        return {
-            "total": 3,
-            "done": 3,
-            "current": 4,
-            "complete": True,
-            "label": "готово",
-            "steps": [],
-            "tls_mode": "https",
-        }
     security = security or {}
     https = security.get("https_first") or {}
     tls_mode = str(
@@ -139,9 +129,7 @@ def enrich_overview_ops_signals(db: Any, ops: dict[str, Any]) -> dict[str, Any]:
     ldap_insecure = bool(ldap.get("enabled") and ldap.get("tls_insecure"))
     out["ldap_tls_insecure"] = ldap_insecure
     out["signal_ldap_tls_insecure"] = ldap_insecure
-    legacy = bool(
-        out.get("legacy_keys_in_db") or out.get("legacy_keys_in_sqlite")
-    )
+    legacy = bool(out.get("legacy_keys_in_db"))
     out["signal_legacy_keys_in_db"] = legacy
     out["signal_mirror_empty"] = bool(out.get("mirror_empty"))
     return out
@@ -157,22 +145,6 @@ def build_bootstrap_checklist(
     security: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Компактный прогресс первого запуска. Скрывается после HTTPS + смена пароля."""
-    if getattr(settings, "qa_ui", False):
-        progress = build_bootstrap_progress(
-            user=user,
-            ops=ops,
-            active_devices=active_devices,
-            security=security,
-            settings=settings,
-        )
-        return {
-            "visible": False,
-            "steps": [],
-            "done": 0,
-            "total": 0,
-            "tls_mode": "https",
-            "progress": progress,
-        }
     security = security or {}
     https = security.get("https_first") or {}
     tls_mode = str(
@@ -182,9 +154,7 @@ def build_bootstrap_checklist(
     https_done = tls_mode == "https"
     mirror_done = not bool(ops.get("mirror_empty"))
     fleet_done = active_devices > 0
-    secrets_ok = not bool(
-        ops.get("legacy_keys_in_db") or ops.get("legacy_keys_in_sqlite")
-    )
+    secrets_ok = not bool(ops.get("legacy_keys_in_db"))
 
     steps = [
         {
@@ -244,12 +214,11 @@ def build_attention_queue(
     stats: dict[str, Any],
     tls_mode: str,
     security: Optional[dict[str, Any]] = None,
-    qa_ui: bool = False,
 ) -> list[dict[str, Any]]:
     """Одна приоритизированная лента «требует действия» для Обзора.
 
-    Хуки Server A: ``ops.enrollment_rotation_due``, ``ops.legacy_keys_in_db``,
-    ``security.https_first`` / ``security.secrets`` / ``security.enrollment_rotation``.
+    Хуки Server A: ``ops.legacy_keys_in_db``,
+    ``security.https_first`` / ``security.secrets``.
     """
     items: list[dict[str, Any]] = []
     security = security or (ops.get("security") or {})
@@ -257,13 +226,10 @@ def build_attention_queue(
     https = security.get("https_first") or {}
     mode = str(tls_mode or ops.get("tls_mode") or https.get("tls_mode") or "http").lower()
     legacy_keys = bool(
-        ops.get("legacy_keys_in_db")
-        or ops.get("legacy_keys_in_sqlite")
-        or secrets.get("legacy_keys_in_db")
-        or secrets.get("legacy_keys_in_sqlite")
+        ops.get("legacy_keys_in_db") or secrets.get("legacy_keys_in_db")
     )
 
-    if user.must_change_password and not qa_ui:
+    if user.must_change_password:
         items.append(
             {
                 "id": "password",
@@ -274,7 +240,7 @@ def build_attention_queue(
                 "cta": "Сменить пароль",
             }
         )
-    if mode == "http" and not qa_ui:
+    if mode == "http":
         items.append(
             {
                 "id": "tls",

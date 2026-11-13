@@ -18,7 +18,6 @@ os.environ.setdefault("BAD_AGENT_UPDATE_SYNC_INTERVAL_SECONDS", "-1")
 os.environ.setdefault("BAD_REQUIRE_INVENTORY_SIGNATURE", "0")
 os.environ.setdefault("BAD_DATA_DIR", "/tmp/bad-ingest-test-data")
 os.environ.setdefault("BAD_BACKUP_DIR", "/tmp/bad-ingest-test-backups")
-os.environ.setdefault("BAD_QA_UI", "1")
 
 from fastapi.testclient import TestClient
 
@@ -54,7 +53,7 @@ def _login(client: TestClient) -> None:
     db = client.app.state.db
     with db.connection() as conn:
         conn.execute(
-            "UPDATE local_users SET must_change_password = 0 WHERE username = ?",
+            "UPDATE local_users SET must_change_password = 0 WHERE username = %s",
             ("admin",),
         )
     page = client.get("/login")
@@ -103,7 +102,7 @@ def _claim(client: TestClient, fingerprint: str) -> dict:
 def _snaps(client: TestClient, bad_id: str) -> int:
     with client.app.state.db.connection() as conn:
         row = conn.execute(
-            "SELECT COUNT(*) AS n FROM inventory_snapshots WHERE bad_id = ?",
+            "SELECT COUNT(*) AS n FROM inventory_snapshots WHERE bad_id = %s",
             (bad_id,),
         ).fetchone()
     return int(row["n"])

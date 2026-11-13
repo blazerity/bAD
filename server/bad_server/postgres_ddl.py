@@ -17,7 +17,7 @@ def connect_autocommit(database_url: str) -> CompatConnection:
 
 def index_exists(conn: CompatConnection, index_name: str) -> bool:
     row = conn.execute(
-        "SELECT 1 FROM pg_indexes WHERE indexname = ?",
+        "SELECT 1 FROM pg_indexes WHERE indexname = %s",
         (index_name,),
     ).fetchone()
     return bool(row)

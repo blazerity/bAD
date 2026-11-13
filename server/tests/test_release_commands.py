@@ -18,7 +18,6 @@ os.environ.setdefault("BAD_AGENT_UPDATE_SYNC_INTERVAL_SECONDS", "-1")
 os.environ.setdefault("BAD_REQUIRE_INVENTORY_SIGNATURE", "0")
 os.environ.setdefault("BAD_DATA_DIR", "/tmp/bad-ingest-test-data")
 os.environ.setdefault("BAD_BACKUP_DIR", "/tmp/bad-ingest-test-backups")
-os.environ.setdefault("BAD_QA_UI", "1")
 
 from fastapi.testclient import TestClient
 
@@ -49,7 +48,7 @@ def _login(client: TestClient, username: str = "admin", password: str = "admin")
     db = client.app.state.db
     with db.connection() as conn:
         conn.execute(
-            "UPDATE local_users SET must_change_password = 0 WHERE username = ?",
+            "UPDATE local_users SET must_change_password = 0 WHERE username = %s",
             (username,),
         )
     page = client.get("/login")
@@ -85,7 +84,7 @@ def test_pending_repeat_updates_one_row() -> None:
         assert "api_key" not in second
         with client.app.state.db.connection() as conn:
             rows = conn.execute(
-                "SELECT hostname, status FROM enrollment_requests WHERE id = ?",
+                "SELECT hostname, status FROM enrollment_requests WHERE id = %s",
                 (fingerprint.lower(),),
             ).fetchall()
         assert len(rows) == 1

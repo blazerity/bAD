@@ -81,7 +81,7 @@ def create_request(db: Database, data_key: str, name: str) -> dict[str, str]:
             """
             INSERT INTO integrations(
               id, name, status, poll_lookup, poll_hash, token_enc, created_at, use_count
-            ) VALUES (?, ?, 'pending', ?, ?, '', ?, 0)
+            ) VALUES (%s, %s, 'pending', %s, %s, '', %s, 0)
             """,
             (
                 integration_id,
@@ -117,7 +117,7 @@ def poll_request(
             """
             UPDATE integrations
             SET status = 'active', token_enc = ''
-            WHERE id = ? AND status = 'approved'
+            WHERE id = %s AND status = 'approved'
             """,
             (row["id"],),
         )
@@ -138,11 +138,11 @@ def approve(db: Database, data_key: str, integration_id: str) -> None:
             """
             UPDATE integrations
             SET status = 'approved',
-                approved_at = ?,
-                token_lookup = ?,
-                token_hash = ?,
-                token_enc = ?
-            WHERE id = ? AND status = 'pending'
+                approved_at = %s,
+                token_lookup = %s,
+                token_hash = %s,
+                token_enc = %s
+            WHERE id = %s AND status = 'pending'
             """,
             (
                 now,
@@ -168,7 +168,7 @@ def revoke(db: Database, integration_id: str) -> None:
             """
             UPDATE integrations
             SET status = 'revoked', token_lookup = NULL, token_hash = NULL, token_enc = ''
-            WHERE id = ? AND status IN ('approved', 'active')
+            WHERE id = %s AND status IN ('approved', 'active')
             """,
             (integration_id,),
         )
@@ -182,8 +182,8 @@ def record_use(db: Database, integration_id: str) -> None:
         conn.execute(
             """
             UPDATE integrations
-            SET use_count = use_count + 1, last_used_at = ?
-            WHERE id = ? AND status = 'active'
+            SET use_count = use_count + 1, last_used_at = %s
+            WHERE id = %s AND status = 'active'
             """,
             (utc_now(), integration_id),
         )
@@ -202,7 +202,7 @@ def integration_from_token(
             """
             SELECT id, status, token_hash
             FROM integrations
-            WHERE token_lookup = ? AND status = 'active'
+            WHERE token_lookup = %s AND status = 'active'
             """,
             (lookup,),
         ).fetchone()
@@ -244,7 +244,7 @@ def _new_id(conn: Any) -> str:
     for _ in range(5):
         integration_id = "int_" + secrets.token_hex(8)
         row = conn.execute(
-            "SELECT 1 FROM integrations WHERE id = ?",
+            "SELECT 1 FROM integrations WHERE id = %s",
             (integration_id,),
         ).fetchone()
         if not row:
@@ -263,7 +263,7 @@ def _row_by_poll(
     lookup = api_key_lookup(data_key, poll_secret)
     with db.connection() as conn:
         row = conn.execute(
-            "SELECT * FROM integrations WHERE id = ? AND poll_lookup = ?",
+            "SELECT * FROM integrations WHERE id = %s AND poll_lookup = %s",
             (integration_id, lookup),
         ).fetchone()
     if not row or not verify_secret(row["poll_hash"] or "", poll_secret):
@@ -282,8 +282,8 @@ def _set_status(
         cur = conn.execute(
             """
             UPDATE integrations
-            SET status = ?
-            WHERE id = ? AND status = ?
+            SET status = %s
+            WHERE id = %s AND status = %s
             """,
             (to_status, integration_id, from_status),
         )

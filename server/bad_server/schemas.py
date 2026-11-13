@@ -156,8 +156,3 @@ class IntegrationRequestBody(BaseModel):
 class IntegrationLookupBody(BaseModel):
     bad_id: str = Field(min_length=12, max_length=12, pattern=r"^BAD-[0-9A-F]{8}$")
 
-
-class EnrollmentRotateBody(BaseModel):
-    """Optional custom enrollment token (JSON body only — not query)."""
-
-    token: Optional[str] = Field(default=None, max_length=256)
