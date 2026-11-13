@@ -1,3 +1,4 @@
+using System.Security.AccessControl;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -277,10 +278,29 @@ public static class ConfigStore
         return ApplyEnvironment(new AgentConfig());
     }
 
+    private const string ProgramDataDirSddl = "D:PAI(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)";
+
     private static void EnsureServiceDataDirs()
     {
-        Directory.CreateDirectory(ProgramDataDir);
+        EnsureProgramDataDirectory();
         Directory.CreateDirectory(LogsDir);
+    }
+
+    private static void EnsureProgramDataDirectory()
+    {
+        if (Directory.Exists(ProgramDataDir))
+        {
+            return;
+        }
+
+        Directory.CreateDirectory(ProgramDataDir);
+        if (OperatingSystem.IsWindows()
+            && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("BAD_CONFIG_DIR")))
+        {
+            var security = new DirectorySecurity();
+            security.SetSecurityDescriptorSddlForm(ProgramDataDirSddl);
+            new DirectoryInfo(ProgramDataDir).SetAccessControl(security);
+        }
     }
 
     private static AgentConfig ReadConfigJsonFromFile()
@@ -319,7 +339,7 @@ public static class ConfigStore
 
     public static void Save(AgentConfig config)
     {
-        Directory.CreateDirectory(ProgramDataDir);
+        EnsureProgramDataDirectory();
         config.AgentLocalKeys = NormalizeAgentLocalKeys(config.AgentLocalKeys);
         var tmp = ConfigPath + ".tmp";
         var json = JsonSerializer.Serialize(config, JsonOptions);
