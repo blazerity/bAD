@@ -601,6 +601,8 @@ def _device_inventory_nav(
     collector_errors: Optional[list],
     security_info: Optional[dict] = None,
     device_meta: Optional[dict] = None,
+    device_baseboard_serial: Optional[str] = None,
+    keep_empty: bool = False,
 ) -> list[dict]:
     """Пункты Speccy-навигации + краткие строки для Обзора.
 
@@ -628,7 +630,7 @@ def _device_inventory_nav(
         # serial — в разделе Накопители, не в Обзоре
         return " · ".join(str(x) for x in bits if x and x != "—")
 
-    if host_info:
+    if host_info is not None:
         os_line = _format_os(host_info.get("os"))
         # boot / pending reboot / timezone — одна строка вместе с ОС
         status = ""
@@ -644,8 +646,11 @@ def _device_inventory_nav(
             "Операционная система",
             [" · ".join(x for x in (os_line, status) if x)],
         )
+    elif keep_empty:
+        add("os", "host", "Операционная система", [])
 
-    if hw and hw.get("cpu"):
+    cpu_present = isinstance(hw, dict) and "cpu" in hw and hw.get("cpu") is not None
+    if cpu_present:
         cpu = hw["cpu"] if isinstance(hw["cpu"], dict) else {}
         name = str(cpu.get("name") or "").strip() or "CPU"
         cores = cpu.get("cores")
@@ -655,16 +660,23 @@ def _device_inventory_nav(
             lg = logical if logical is not None else "-"
             name = f"{name} · {c}/{lg}"
         add("cpu", "cpu", "Процессор", [name])
+    elif keep_empty:
+        add("cpu", "cpu", "Процессор", [])
 
-    if hw and (
-        hw.get("manufacturer")
-        or hw.get("model")
-        or hw.get("serial_number")
-        or hw.get("bios_version")
-        or hw.get("bios_manufacturer")
-        or hw.get("bios_release_date")
-        or hw.get("baseboard_serial")
-    ):
+    board_serial = str(device_baseboard_serial or "").strip()
+    mb_ready = bool(
+        hw
+        and (
+            hw.get("manufacturer")
+            or hw.get("model")
+            or hw.get("serial_number")
+            or hw.get("bios_version")
+            or hw.get("bios_manufacturer")
+            or hw.get("bios_release_date")
+            or hw.get("baseboard_serial")
+        )
+    )
+    if mb_ready:
         # serial платы — в разделе, не в Обзоре
         model_line = " · ".join(
             str(x) for x in (hw.get("manufacturer"), hw.get("model")) if x
@@ -675,6 +687,10 @@ def _device_inventory_nav(
             "Материнская плата",
             [model_line or str(hw.get("serial_number") or "плата")],
         )
+    elif board_serial:
+        add("mb", "model", "Материнская плата", [board_serial])
+    elif keep_empty:
+        add("mb", "model", "Материнская плата", [])
 
     if hw and (
         hw.get("ram_bytes") is not None
@@ -699,6 +715,8 @@ def _device_inventory_nav(
             if len(modules) == 1:
                 line1 = f"{line1} · 1 планка" if line1 != "ОЗУ" else "1 планка"
             add("memory", "ram", "Память", [line1])
+    elif keep_empty:
+        add("memory", "ram", "Память", [])
 
     if hw and hw.get("gpus"):
         gpus = hw["gpus"]
@@ -711,14 +729,12 @@ def _device_inventory_nav(
         if len(gpus) > 2:
             lines = [lines[0], f"+{len(gpus) - 1} ещё"]
         add("gpu", "gpu", "Видео", lines or ["GPU"])
+    elif keep_empty:
+        add("gpu", "gpu", "Видео", [])
 
-    chassis_only_storage = bool(
-        hw
-        and hw.get("chassis_type")
-        and not hw.get("disks")
-        and not hw.get("volumes")
-    )
-    if hw and chassis_only_storage:
+    has_storage = bool(hw and (hw.get("disks") or hw.get("volumes")))
+    chassis_only = bool(hw and hw.get("chassis_type") and not has_storage)
+    if chassis_only:
         chassis = _format_chassis(hw.get("chassis_type"))
         add(
             "chassis",
@@ -726,8 +742,10 @@ def _device_inventory_nav(
             "Корпус",
             [chassis] if chassis else ["—"],
         )
+    elif keep_empty and not has_storage:
+        add("chassis", "desktop", "Корпус", [])
 
-    if hw and (hw.get("disks") or hw.get("volumes")):
+    if has_storage:
         disks = [d for d in (hw.get("disks") or []) if isinstance(d, dict)]
         volumes = hw.get("volumes") or []
         if len(disks) >= 2:
@@ -746,6 +764,8 @@ def _device_inventory_nav(
                 "Накопители",
                 [f"{len(volumes)} том(ов)"],
             )
+    elif keep_empty:
+        add("storage", "disk", "Накопители", [])
 
     if hw and hw.get("monitors"):
         mons = [m for m in hw["monitors"] if isinstance(m, dict)]
@@ -758,8 +778,11 @@ def _device_inventory_nav(
         if len(mons) > 2:
             lines = [lines[0], f"+{len(mons) - 1} ещё"]
         add("monitors", "monitor", "Мониторы", lines)
+    elif keep_empty:
+        add("monitors", "monitor", "Мониторы", [])
 
-    if hw and hw.get("battery"):
+    battery_present = isinstance(hw, dict) and "battery" in hw and hw.get("battery") is not None
+    if battery_present:
         bat = hw["battery"] if isinstance(hw["battery"], dict) else {}
         charge = bat.get("charge_percent")
         if charge is not None:
@@ -769,6 +792,8 @@ def _device_inventory_nav(
         else:
             line = str(bat.get("status") or "батарея")
         add("battery", "battery", "Батарея", [line])
+    elif keep_empty:
+        add("battery", "battery", "Батарея", [])
 
     if network_info and network_info.get("nics"):
         nics = [n for n in network_info["nics"] if isinstance(n, dict)]
@@ -781,6 +806,8 @@ def _device_inventory_nav(
         if len(nics) > 2:
             lines = [lines[0], f"+{len(nics) - 1} ещё"]
         add("network", "network", "Сеть", lines)
+    elif keep_empty:
+        add("network", "network", "Сеть", [])
 
     meta = device_meta if isinstance(device_meta, dict) else {}
     presence = str(meta.get("user_presence") or "")
@@ -801,14 +828,19 @@ def _device_inventory_nav(
         else:
             line1 = f"{len(programs)} программ"
         add("software", "software", "ПО", [line1])
+    elif keep_empty:
+        add("software", "software", "ПО", [])
 
     sec = security_info if isinstance(security_info, dict) else None
-    if sec and (
+    sec_ready = bool(
+        sec and (
         sec.get("tpm_present") is not None
         or sec.get("secure_boot") is not None
         or sec.get("antivirus")
         or sec.get("tpm_spec_version")
-    ):
+    )
+    )
+    if sec_ready:
         # одна строка в Обзоре; детали TPM/SB/AV — в разделе Безопасность
         av_names: list[str] = []
         for item in sec.get("antivirus") or []:
@@ -833,6 +865,8 @@ def _device_inventory_nav(
         else:
             line = "security"
         add("security", "tls", "Безопасность", [line])
+    elif keep_empty:
+        add("security", "tls", "Безопасность", [])
 
     if minidumps_info is not None:
         # bugcheck — в Событиях; в Обзоре максимум одна строка при BSOD
@@ -854,6 +888,8 @@ def _device_inventory_nav(
                 add("minidumps", "events", "Минидампы BSOD", ["Memory.dmp есть"])
             else:
                 add("minidumps", "events", "Минидампы BSOD", ["нет дампов"])
+    elif keep_empty:
+        add("minidumps", "events", "Минидампы BSOD", [])
 
     if collector_errors:
         add("errors", "events", "Ошибки сбора", [f"{len(collector_errors)} ошибок"])
@@ -2716,6 +2752,7 @@ def _device_config_context(
     error: Optional[str] = None,
     active_view: Optional[str] = None,
     inventory_payload: Optional[dict] = None,
+    keep_empty_sections: bool = True,
 ) -> Optional[dict]:
     detail = db.get_device_detail(device_id)
     if not detail:
@@ -2802,6 +2839,8 @@ def _device_config_context(
         collector_errors=collector_errors,
         security_info=security_info,
         device_meta=device_meta,
+        device_baseboard_serial=detail.get("baseboard_serial"),
+        keep_empty=keep_empty_sections,
     )
     inventory_ids = {item["id"] for item in inventory_nav}
     view = (active_view or "").strip()
@@ -2840,6 +2879,7 @@ def _device_config_context(
         "security_info": security_info,
         "collector_errors": collector_errors,
         "inventory_nav": inventory_nav,
+        "keep_empty_sections": keep_empty_sections,
         "active_view": view or "overview",
         "user": user,
         "message": message,
@@ -2903,6 +2943,7 @@ def render_device_report(
         user=WebUser(username="agent", role="operator", source="local"),
         settings=settings,
         inventory_payload=inventory_payload,
+        keep_empty_sections=False,
     )
     if ctx is None:
         raise LookupError(device_id)

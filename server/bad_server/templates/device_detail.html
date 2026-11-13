@@ -1,6 +1,14 @@
 {% extends "agent_report_shell.html" if report_mode else "base.html" %}
 {% from "macros/icons.html" import icon, chassis_icon_name, freshness_label, config_source_mark %}
 {% from "macros/ui.html" import copyable, local_time, device_link with context %}
+{% macro missing_section(panel_id, icon_name, title) %}
+{% if keep_empty_sections %}
+<div class="device-panel {% if view == panel_id %}is-active{% endif %}" data-device-panel="{{ panel_id }}">
+  <h2 class="with-icon">{{ icon(icon_name) }}{{ title }}</h2>
+  <p class="muted">данных не получено</p>
+</div>
+{% endif %}
+{% endmacro %}
 {% block title %}{{ device.hostname or device.device_id }} — bAD{% endblock %}
 {% block content %}
 {% set hw = hardware_summary %}
@@ -202,9 +210,10 @@
           Инвентаризация {{ local_time(device.latest_inventory.received_at) }}
           · формат {{ device.latest_inventory.schema_version }}
         </p>
-        {% if inventory_nav %}
+        {% set ns = namespace(overview=false) %}
         <ul class="overview-list">
-          {% for item in inventory_nav %}
+          {% for item in inventory_nav if item.lines %}
+          {% set ns.overview = true %}
           <li>
             {% if report_mode %}<div class="overview-row">{% else %}<a href="?view={{ item.id }}" class="overview-row" data-device-nav="{{ item.id }}">{% endif %}
               <span class="overview-icon">{{ icon(item.icon) }}</span>
@@ -218,7 +227,7 @@
           </li>
           {% endfor %}
         </ul>
-        {% else %}
+        {% if not ns.overview %}
         <p class="muted">В снимке нет секций для обзора.</p>
         {% endif %}
         {% else %}
@@ -227,7 +236,7 @@
       </div>
 
       {# —— Speccy-панели —— #}
-      {% if host_info %}
+      {% if host_info is mapping %}
       <div class="device-panel {% if view == 'os' %}is-active{% endif %}" data-device-panel="os">
         <h2 class="with-icon">{{ icon('host') }}Операционная система</h2>
         <dl class="speccy-kv">
@@ -281,9 +290,11 @@
           {% endif %}
         </dl>
       </div>
+      {% else %}
+      {{ missing_section('os', 'host', 'Операционная система') }}
       {% endif %}
 
-      {% if hw and hw.cpu %}
+      {% if hw is mapping and hw.cpu is defined and hw.cpu is not none %}
       <div class="device-panel {% if view == 'cpu' %}is-active{% endif %}" data-device-panel="cpu">
         <h2 class="with-icon">{{ icon('cpu') }}Процессор</h2>
         <dl class="speccy-kv">
@@ -296,9 +307,11 @@
           {% endif %}
         </dl>
       </div>
+      {% else %}
+      {{ missing_section('cpu', 'cpu', 'Процессор') }}
       {% endif %}
 
-      {% if hw and (hw.manufacturer or hw.model or hw.serial_number or hw.bios_version or hw.bios_manufacturer or hw.bios_release_date or hw.baseboard_serial or device.baseboard_serial) %}
+      {% if (hw is mapping and (hw.manufacturer or hw.model or hw.serial_number or hw.bios_version or hw.bios_manufacturer or hw.bios_release_date or hw.baseboard_serial)) or device.baseboard_serial %}
       <div class="device-panel {% if view == 'mb' %}is-active{% endif %}" data-device-panel="mb">
         <h2 class="with-icon">{{ icon('model') }}Материнская плата</h2>
         <dl class="speccy-kv">
@@ -315,6 +328,8 @@
           {% if hw.bios_release_date %}<div><dt>Дата BIOS</dt><dd>{{ hw.bios_release_date }}</dd></div>{% endif %}
         </dl>
       </div>
+      {% else %}
+      {{ missing_section('mb', 'model', 'Материнская плата') }}
       {% endif %}
 
       {% if hw and (hw.ram_bytes is defined and hw.ram_bytes is not none or hw.ram_memory_type or hw.ram_modules) %}
@@ -343,6 +358,8 @@
         {% endfor %}
         {% endif %}
       </div>
+      {% else %}
+      {{ missing_section('memory', 'ram', 'Память') }}
       {% endif %}
 
       {% if hw and hw.gpus %}
@@ -360,15 +377,19 @@
         </dl>
         {% endfor %}
       </div>
+      {% else %}
+      {{ missing_section('gpu', 'gpu', 'Видео') }}
       {% endif %}
 
-      {% if hw and hw.chassis_type %}
+      {% if hw is mapping and hw.chassis_type and not (hw.disks or hw.volumes) %}
       <div class="device-panel {% if view == 'chassis' %}is-active{% endif %}" data-device-panel="chassis">
         <h2 class="with-icon">{{ icon('desktop') }}Корпус</h2>
         <dl class="speccy-kv">
           <div><dt>Тип корпуса</dt><dd>{{ hw.chassis_type|format_chassis }}</dd></div>
         </dl>
       </div>
+      {% elif not (hw is mapping and (hw.disks or hw.volumes)) %}
+      {{ missing_section('chassis', 'desktop', 'Корпус') }}
       {% endif %}
 
       {% if hw and (hw.disks or hw.volumes) %}
@@ -399,6 +420,8 @@
         {% endfor %}
         {% endif %}
       </div>
+      {% else %}
+      {{ missing_section('storage', 'disk', 'Накопители') }}
       {% endif %}
 
       {% if hw and hw.monitors %}
@@ -414,9 +437,11 @@
         </dl>
         {% endfor %}
       </div>
+      {% else %}
+      {{ missing_section('monitors', 'monitor', 'Мониторы') }}
       {% endif %}
 
-      {% if hw and hw.battery %}
+      {% if hw is mapping and hw.battery is defined and hw.battery is not none %}
       <div class="device-panel {% if view == 'battery' %}is-active{% endif %}" data-device-panel="battery">
         <h2 class="with-icon">{{ icon('battery') }}Батарея</h2>
         <dl class="speccy-kv">
@@ -428,6 +453,8 @@
           {% endif %}
         </dl>
       </div>
+      {% else %}
+      {{ missing_section('battery', 'battery', 'Батарея') }}
       {% endif %}
 
       {% if network_info and network_info.nics %}
@@ -443,6 +470,8 @@
         </dl>
         {% endfor %}
       </div>
+      {% else %}
+      {{ missing_section('network', 'network', 'Сеть') }}
       {% endif %}
 
       <div class="device-panel {% if view == 'users' %}is-active{% endif %}" data-device-panel="users">
@@ -461,10 +490,10 @@
         </dl>
       </div>
 
-      {% if software_info %}
+      {% if software_info is not none %}
       <div class="device-panel {% if view == 'software' %}is-active{% endif %}" data-device-panel="software">
         <h2 class="with-icon">{{ icon('software') }}ПО</h2>
-        {% if software_info.programs is none %}
+        {% if software_info.programs is none or software_info.programs is undefined %}
         <p class="muted">недоступно на этой платформе</p>
         {% elif software_info.programs|length == 0 %}
         <p class="muted">пусто</p>
@@ -489,9 +518,11 @@
         {% endif %}
         {% endif %}
       </div>
+      {% else %}
+      {{ missing_section('software', 'software', 'ПО') }}
       {% endif %}
 
-      {% if security_info %}
+      {% if security_info is mapping %}
       <div class="device-panel {% if view == 'security' %}is-active{% endif %}" data-device-panel="security">
         <h2 class="with-icon">{{ icon('tls') }}Безопасность</h2>
         <dl class="speccy-kv">
@@ -532,9 +563,11 @@
         <p class="muted">Секция security пуста (soft-fail или ещё не собрана).</p>
         {% endif %}
       </div>
+      {% else %}
+      {{ missing_section('security', 'tls', 'Безопасность') }}
       {% endif %}
 
-      {% if minidumps_info %}
+      {% if minidumps_info is not none %}
       <div class="device-panel {% if view == 'minidumps' %}is-active{% endif %}" data-device-panel="minidumps">
         <h2 class="with-icon">{{ icon('events') }}Минидампы BSOD</h2>
         <dl class="speccy-kv">
@@ -587,6 +620,8 @@
         <p class="muted">Файлов минидампов нет.</p>
         {% endif %}
       </div>
+      {% else %}
+      {{ missing_section('minidumps', 'events', 'Минидампы BSOD') }}
       {% endif %}
 
       {% if collector_errors %}
