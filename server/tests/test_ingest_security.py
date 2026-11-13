@@ -42,6 +42,21 @@ def _bad_id(prefix: str) -> str:
     return "BAD-" + uuid.uuid5(uuid.NAMESPACE_URL, f"{prefix}-{uuid.uuid4()}").hex[:8].upper()
 
 
+def _enroll(client: TestClient, bad_id: str, **fields: str):
+    """Одноразовый код, как в test_one_time_code_burns."""
+    grant = client.post(
+        "/v1/enrollment-grants",
+        headers={"Authorization": "Bearer test-admin-token-change-me-please-32b"},
+        json={"bad_id": bad_id},
+    )
+    assert grant.status_code == 200, grant.text
+    return client.post(
+        "/v1/enroll",
+        headers={"Authorization": f"Bearer {grant.json()['code']}"},
+        json={"bad_id": bad_id, **fields},
+    )
+
+
 def test_one_time_code_burns() -> None:
     bad_id = _bad_id("granted-pc")
     with TestClient(create_app()) as client:
@@ -69,11 +84,7 @@ def test_one_time_code_burns() -> None:
 def test_unsigned_snapshot_and_signing_key_once() -> None:
     bad_id = _bad_id("old-sign")
     with TestClient(create_app()) as client:
-        enrolled = client.post(
-            "/v1/enroll",
-            headers={"Authorization": "Bearer test-enrollment-token-change-me-please"},
-            json={"bad_id": bad_id, "hostname": "OLD"},
-        )
+        enrolled = _enroll(client, bad_id, hostname="OLD")
         assert enrolled.status_code == 200, enrolled.text
         api_key = enrolled.json()["api_key"]
         db = client.app.state.db
@@ -120,11 +131,7 @@ def test_inventory_signature_uses_agent_canon() -> None:
 
     bad_id = _bad_id("signed")
     with TestClient(create_app()) as client:
-        enrolled = client.post(
-            "/v1/enroll",
-            headers={"Authorization": "Bearer test-enrollment-token-change-me-please"},
-            json={"bad_id": bad_id, "hostname": "SIGNED"},
-        )
+        enrolled = _enroll(client, bad_id, hostname="SIGNED")
         assert enrolled.status_code == 200, enrolled.text
         secret = enrolled.json()["signing_key"]
         raw_private = base64.b64decode(secret)
@@ -378,11 +385,7 @@ def test_unbound_install_code_once() -> None:
 def test_panel_flags_override_defaults() -> None:
     bad_id = _bad_id("flagged")
     with TestClient(create_app()) as client:
-        enrolled = client.post(
-            "/v1/enroll",
-            headers={"Authorization": "Bearer test-enrollment-token-change-me-please"},
-            json={"bad_id": bad_id},
-        )
+        enrolled = _enroll(client, bad_id)
         assert enrolled.status_code == 200, enrolled.text
         api_key = enrolled.json()["api_key"]
         db = client.app.state.db
@@ -406,7 +409,7 @@ def test_panel_flags_override_defaults() -> None:
         try:
             blocked = client.post(
                 "/v1/enroll",
-                headers={"Authorization": "Bearer test-enrollment-token-change-me-please"},
+                headers={"Authorization": "Bearer bad_ot_not-issued"},
                 json={"bad_id": _bad_id("shared-off")},
             )
             assert blocked.status_code == 401, blocked.text
@@ -417,11 +420,7 @@ def test_panel_flags_override_defaults() -> None:
 def test_fat_inventory_does_not_write() -> None:
     bad_id = _bad_id("fat-pc")
     with TestClient(create_app()) as client:
-        enrolled = client.post(
-            "/v1/enroll",
-            headers={"Authorization": "Bearer test-enrollment-token-change-me-please"},
-            json={"bad_id": bad_id},
-        )
+        enrolled = _enroll(client, bad_id)
         assert enrolled.status_code == 200, enrolled.text
         api_key = enrolled.json()["api_key"]
         programs = [{"name": f"pkg-{i}"} for i in range(601)]
@@ -441,11 +440,7 @@ def test_fat_inventory_does_not_write() -> None:
 def test_agent_report_html_is_enrolled_card_without_admin() -> None:
     bad_id = _bad_id("report-pc")
     with TestClient(create_app()) as client:
-        enrolled = client.post(
-            "/v1/enroll",
-            headers={"Authorization": "Bearer test-enrollment-token-change-me-please"},
-            json={"bad_id": bad_id, "hostname": "STORED-NAME"},
-        )
+        enrolled = _enroll(client, bad_id, hostname="STORED-NAME")
         assert enrolled.status_code == 200, enrolled.text
         api_key = enrolled.json()["api_key"]
         bare = client.post(
