@@ -13,6 +13,97 @@ SLOTS="${RELEASES_DIR}/slots"
 STAGING="${RELEASES_DIR}/staging"
 MAX_PAST="${BAD_SERVER_UPDATE_MAX_PAST:-3}"
 API_BASE_DEFAULT="https://api.github.com"
+BAD_PYTHON="${BAD_PYTHON:-python3}"
+
+init_bad_python() {
+  local here server_repo parts=() joined
+  if [[ -x "${OPT_BAD}/.venv/bin/python" ]]; then
+    BAD_PYTHON="${OPT_BAD}/.venv/bin/python"
+  fi
+  if [[ -d "${OPT_BAD}/server/bad_server" ]]; then
+    parts+=("${OPT_BAD}/server")
+  fi
+  here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  server_repo="$(cd "${here}/../../server" 2>/dev/null && pwd || true)"
+  if [[ -n "${server_repo}" && -d "${server_repo}/bad_server" ]]; then
+    parts+=("${server_repo}")
+  fi
+  if [[ ${#parts[@]} -eq 0 ]]; then
+    return 0
+  fi
+  joined="$(IFS=:; printf '%s' "${parts[*]}")"
+  if [[ -n "${PYTHONPATH:-}" ]]; then
+    export PYTHONPATH="${joined}:${PYTHONPATH}"
+  else
+    export PYTHONPATH="${joined}"
+  fi
+}
+
+sanitize_field() {
+  local kind="$1" value="$2"
+  "${BAD_PYTHON}" - "${kind}" "${value}" <<'PY'
+import sys
+kind, value = sys.argv[1], sys.argv[2]
+try:
+    from bad_server.server_update import sanitize_branch, sanitize_sha, sanitize_slot_id
+except Exception as exc:
+    sys.stderr.write("import bad_server.server_update failed: %s\n" % exc)
+    raise SystemExit(1)
+fn = {"branch": sanitize_branch, "sha": sanitize_sha, "slot": sanitize_slot_id}.get(kind)
+if fn is None:
+    sys.stderr.write("unknown field\n")
+    raise SystemExit(1)
+try:
+    sys.stdout.write(fn(value))
+except Exception as exc:
+    sys.stderr.write("%s\n" % exc)
+    raise SystemExit(1)
+PY
+}
+
+read_meta_fields() {
+  "${BAD_PYTHON}" - "$1" <<'PY'
+import json, sys
+path = sys.argv[1]
+try:
+    from bad_server.server_update import sanitize_branch, sanitize_sha, sanitize_slot_id
+except Exception as exc:
+    sys.stderr.write("import bad_server.server_update failed: %s\n" % exc)
+    raise SystemExit(1)
+
+def clean(raw, fn):
+    if raw is None:
+        return ""
+    raw = str(raw)
+    if raw == "":
+        return ""
+    return fn(raw)
+
+try:
+    data = json.load(open(path, encoding="utf-8"))
+except Exception as exc:
+    sys.stderr.write("corrupt meta: %s\n" % exc)
+    raise SystemExit(1)
+if not isinstance(data, dict):
+    sys.stderr.write("corrupt meta\n")
+    raise SystemExit(1)
+try:
+    branch = clean(data.get("branch"), sanitize_branch)
+    sha = clean(data.get("sha"), sanitize_sha)
+    slot = clean(data.get("slot_id"), sanitize_slot_id)
+except Exception as exc:
+    sys.stderr.write("%s\n" % exc)
+    raise SystemExit(1)
+version = data.get("version")
+if version is None:
+    version = ""
+version = str(version)
+if "\n" in version or "\r" in version or "\0" in version:
+    sys.stderr.write("некорректная version\n")
+    raise SystemExit(1)
+sys.stdout.write(branch + "\n" + sha + "\n" + slot + "\n" + version + "\n")
+PY
+}
 
 write_status() {
   local ok="$1" msg="$2" action="$3"
@@ -84,31 +175,71 @@ github_token() {
 
 set_token_in_site_env() {
   local tok_file="${STAGING}/github_token.staging"
+  local tok_persist="${BAD_GITHUB_TOKEN_FILE_PATH:-/etc/bad/github_token}"
+  local errfile err
   [[ -f "${tok_file}" ]] || fail "нет staging github_token" "set_token"
-  local tok
-  tok="$(tr -d '\r\n' < "${tok_file}")"
-  [[ -n "${tok}" ]] || fail "пустой github token" "set_token"
-  mkdir -p "$(dirname "${SITE_ENV}")"
-  if [[ -f "${SITE_ENV}" ]]; then
-    if grep -q '^BAD_GITHUB_TOKEN=' "${SITE_ENV}"; then
-      sed -i "s|^BAD_GITHUB_TOKEN=.*|BAD_GITHUB_TOKEN=${tok}|" "${SITE_ENV}"
-    else
-      printf '\nBAD_GITHUB_TOKEN=%s\n' "${tok}" >> "${SITE_ENV}"
-    fi
-  else
-    printf 'BAD_GITHUB_TOKEN=%s\n' "${tok}" > "${SITE_ENV}"
+  errfile="$(mktemp)"
+  if ! "${BAD_PYTHON}" - "${tok_file}" "${SITE_ENV}" "${tok_persist}" 2>"${errfile}" <<'PY'
+import os, sys
+tok_file, site_env, tok_persist = sys.argv[1:4]
+raw = open(tok_file, "rb").read()
+if b"\0" in raw:
+    sys.stderr.write("токен содержит NUL\n")
+    raise SystemExit(1)
+try:
+    text = raw.decode("utf-8")
+except UnicodeDecodeError:
+    sys.stderr.write("токен не utf-8\n")
+    raise SystemExit(1)
+if text.endswith("\n"):
+    text = text[:-1]
+if text.endswith("\r"):
+    text = text[:-1]
+if (not text) or ("\n" in text) or ("\r" in text) or ("\0" in text):
+    sys.stderr.write("токен пуст или содержит перевод строки\n")
+    raise SystemExit(1)
+
+def write_mode(path, data, mode):
+    tmp = path + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+    try:
+        os.write(fd, data.encode("utf-8"))
+    finally:
+        os.close(fd)
+    os.replace(tmp, path)
+
+os.makedirs(os.path.dirname(site_env) or ".", exist_ok=True)
+lines = []
+if os.path.isfile(site_env):
+    lines = open(site_env, encoding="utf-8").read().splitlines()
+out = []
+replaced = False
+for line in lines:
+    if line.startswith("BAD_GITHUB_TOKEN="):
+        out.append("BAD_GITHUB_TOKEN=" + text)
+        replaced = True
+    else:
+        out.append(line)
+if not replaced:
+    out.append("BAD_GITHUB_TOKEN=" + text)
+file_line = "BAD_GITHUB_TOKEN_FILE=" + tok_persist
+if not any(line.startswith("BAD_GITHUB_TOKEN_FILE=") for line in out):
+    out.append(file_line)
+write_mode(site_env, "\n".join(out) + "\n", 0o640)
+os.makedirs(os.path.dirname(tok_persist) or ".", exist_ok=True)
+write_mode(tok_persist, text + "\n", 0o440)
+PY
+  then
+    err="$(head -n 1 "${errfile}" || true)"
+    rm -f "${errfile}"
+    fail "${err:-токен отклонён}" "set_token"
   fi
+  rm -f "${errfile}"
   chown root:bad "${SITE_ENV}" 2>/dev/null || true
   chmod 640 "${SITE_ENV}" || true
   # Файл 440 — процесс bad читает без restart (Settings.github_token_file).
-  local tok_persist="${BAD_GITHUB_TOKEN_FILE_PATH:-/etc/bad/github_token}"
-  mkdir -p "$(dirname "${tok_persist}")"
-  printf '%s\n' "${tok}" > "${tok_persist}"
   chown root:bad "${tok_persist}" 2>/dev/null || true
   chmod 440 "${tok_persist}" || true
-  if ! grep -q '^BAD_GITHUB_TOKEN_FILE=' "${SITE_ENV}" 2>/dev/null; then
-    printf '\nBAD_GITHUB_TOKEN_FILE=%s\n' "${tok_persist}" >> "${SITE_ENV}"
-  fi
   rm -f "${tok_file}"
   write_status true "BAD_GITHUB_TOKEN записан в site.env + файл токена (plaintext в UI не отдаётся)" "set_token"
   echo "bad-apply-server-update: set_token ok"
@@ -117,17 +248,43 @@ set_token_in_site_env() {
 
 read_request() {
   [[ -f "${REQUEST}" ]] || fail "нет apply.request" "unknown"
-  python3 - "${REQUEST}" <<'PY'
+  "${BAD_PYTHON}" - "${REQUEST}" <<'PY'
 import json, sys
 path = sys.argv[1]
-data = json.loads(open(path, encoding="utf-8").read())
+try:
+    from bad_server.server_update import sanitize_branch, sanitize_sha, sanitize_slot_id
+except Exception as exc:
+    sys.stderr.write("import bad_server.server_update failed: %s\n" % exc)
+    raise SystemExit(1)
+
+def clean(raw, fn):
+    if raw is None:
+        return ""
+    raw = str(raw)
+    if raw == "":
+        return ""
+    return fn(raw)
+
+try:
+    data = json.loads(open(path, encoding="utf-8").read())
+except Exception as exc:
+    sys.stderr.write("corrupt request: %s\n" % exc)
+    raise SystemExit(1)
 if not isinstance(data, dict):
-    raise SystemExit("corrupt request")
-for k in ("action", "branch", "sha", "slot_id", "requested_at"):
-    v = data.get(k)
-    if v is None:
-        v = ""
-    print(f"{k}={v}")
+    sys.stderr.write("corrupt request\n")
+    raise SystemExit(1)
+action = str(data.get("action") or "")
+if action not in ("apply", "rollback", "set_token"):
+    sys.stderr.write("неизвестное action\n")
+    raise SystemExit(1)
+try:
+    branch = clean(data.get("branch"), sanitize_branch)
+    sha = clean(data.get("sha"), sanitize_sha)
+    slot = clean(data.get("slot_id"), sanitize_slot_id)
+except Exception as exc:
+    sys.stderr.write("%s\n" % exc)
+    raise SystemExit(1)
+sys.stdout.write(action + "\n" + branch + "\n" + sha + "\n" + slot + "\n")
 PY
 }
 
@@ -152,25 +309,32 @@ PY
 archive_current_slot() {
   # Сохранить текущий /opt/bad/server в слот, если есть current.json с sha.
   [[ -f "${CURRENT}" ]] || return 0
-  local branch sha slot_id version
-  eval "$(python3 - "${CURRENT}" <<'PY'
-import json, sys
-d = json.load(open(sys.argv[1], encoding="utf-8"))
-sha = str(d.get("sha") or "")
-branch = str(d.get("branch") or "unknown")
-slot_id = str(d.get("slot_id") or "")
-version = str(d.get("version") or "")
-print(f"branch={branch!r}")
-print(f"sha={sha!r}")
-print(f"slot_id={slot_id!r}")
-print(f"version={version!r}")
-PY
-)"
+  local branch sha slot_id version meta errfile err bsafe
+  errfile="$(mktemp)"
+  if ! meta="$(read_meta_fields "${CURRENT}" 2>"${errfile}")"; then
+    err="$(head -n 1 "${errfile}" || true)"
+    rm -f "${errfile}"
+    fail "${err:-current.json отклонён}" "${ACTION:-unknown}"
+  fi
+  rm -f "${errfile}"
+  branch="$(printf '%s\n' "${meta}" | sed -n '1p')"
+  sha="$(printf '%s\n' "${meta}" | sed -n '2p')"
+  slot_id="$(printf '%s\n' "${meta}" | sed -n '3p')"
+  version="$(printf '%s\n' "${meta}" | sed -n '4p')"
   [[ -n "${sha}" ]] || return 0
+  if [[ -z "${branch}" ]]; then
+    branch="unknown"
+  fi
   if [[ -z "${slot_id}" ]]; then
-    local bsafe
     bsafe="$(printf '%s' "${branch}" | tr '/' '_')"
     slot_id="${bsafe}_${sha:0:12}"
+    errfile="$(mktemp)"
+    if ! slot_id="$(sanitize_field slot "${slot_id}" 2>"${errfile}")"; then
+      err="$(head -n 1 "${errfile}" || true)"
+      rm -f "${errfile}"
+      fail "${err:-некорректный slot_id}" "${ACTION:-unknown}"
+    fi
+    rm -f "${errfile}"
   fi
   local dest="${SLOTS}/${slot_id}"
   if [[ -d "${dest}/tree/server" ]]; then
@@ -224,15 +388,32 @@ download_tarball() {
 }
 
 download_and_fill_slot() {
-  local branch="$1" sha="$2"
-  local repo api token slot_id dest tarball tmp
+  local branch sha repo api token slot_id dest tarball tmp bsafe errfile err list_rc
+  errfile="$(mktemp)"
+  if ! branch="$(sanitize_field branch "$1" 2>"${errfile}")"; then
+    err="$(head -n 1 "${errfile}" || true)"
+    rm -f "${errfile}"
+    fail "${err:-некорректная ветка}" "apply"
+  fi
+  if ! sha="$(sanitize_field sha "$2" 2>"${errfile}")"; then
+    err="$(head -n 1 "${errfile}" || true)"
+    rm -f "${errfile}"
+    fail "${err:-некорректный SHA}" "apply"
+  fi
+  rm -f "${errfile}"
   repo="$(read_site_env_var BAD_GITHUB_REPO "${BAD_GITHUB_REPO:-blazerity/bAD}")"
   api="$(read_site_env_var BAD_GITHUB_API_BASE "${BAD_GITHUB_API_BASE:-$API_BASE_DEFAULT}")"
   token="$(github_token)"
   [[ -n "${sha}" ]] || fail "SHA пуст для apply" "apply"
-  local bsafe
   bsafe="$(printf '%s' "${branch}" | tr '/' '_')"
   slot_id="${bsafe}_${sha:0:12}"
+  errfile="$(mktemp)"
+  if ! slot_id="$(sanitize_field slot "${slot_id}" 2>"${errfile}")"; then
+    err="$(head -n 1 "${errfile}" || true)"
+    rm -f "${errfile}"
+    fail "${err:-некорректный slot_id}" "apply"
+  fi
+  rm -f "${errfile}"
   dest="${SLOTS}/${slot_id}"
   mkdir -p "${dest}/tree"
   tmp="$(mktemp -d)"
@@ -245,8 +426,30 @@ download_and_fill_slot() {
     fail "не удалось скачать tarball ${repo}@${sha:0:12}" "apply"
   fi
   mkdir -p "${tmp}/extract"
+  set +e
+  "${BAD_PYTHON}" - "${tarball}" <<'PY'
+import subprocess, sys
+tarball = sys.argv[1]
+proc = subprocess.run(["tar", "-tzf", tarball], capture_output=True, text=True)
+if proc.returncode != 0:
+    sys.stderr.write(proc.stderr or "tar -tzf failed\n")
+    raise SystemExit(1)
+for name in proc.stdout.splitlines():
+    if name.startswith("/") or ".." in name or "\\" in name:
+        sys.stderr.write("unsafe archive name\n")
+        raise SystemExit(2)
+PY
+  list_rc=$?
+  set -e
+  if [[ "${list_rc}" -ne 0 ]]; then
+    rm -rf "${tmp}/extract" "${tmp}"
+    if [[ "${list_rc}" -eq 2 ]]; then
+      fail "небезопасное имя в архиве" "apply"
+    fi
+    fail "повреждённый tarball" "apply"
+  fi
   if ! tar -xzf "${tarball}" -C "${tmp}/extract" --strip-components=1; then
-    rm -rf "${tmp}"
+    rm -rf "${tmp}/extract" "${tmp}"
     fail "повреждённый tarball" "apply"
   fi
   [[ -d "${tmp}/extract/server" ]] || { rm -rf "${tmp}"; fail "в архиве нет server/" "apply"; }
@@ -276,7 +479,15 @@ download_and_fill_slot() {
 }
 
 promote_slot() {
-  local slot_id="$1" source_label="$2"
+  local slot_id source_label errfile err meta branch sha version
+  source_label="$2"
+  errfile="$(mktemp)"
+  if ! slot_id="$(sanitize_field slot "$1" 2>"${errfile}")"; then
+    err="$(head -n 1 "${errfile}" || true)"
+    rm -f "${errfile}"
+    fail "${err:-некорректный slot_id}" "${source_label}"
+  fi
+  rm -f "${errfile}"
   local dest="${SLOTS}/${slot_id}"
   [[ -d "${dest}/tree/server" ]] || fail "слот ${slot_id}: нет tree/server" "${source_label}"
   [[ -d "${dest}/tree/panel" ]] || fail "слот ${slot_id}: нет tree/panel" "${source_label}"
@@ -334,15 +545,16 @@ promote_slot() {
     fi
   fi
 
-  local branch sha version
-  eval "$(python3 - "${dest}/meta.json" <<'PY'
-import json, sys
-d = json.load(open(sys.argv[1], encoding="utf-8"))
-print(f"branch={str(d.get('branch') or '')!r}")
-print(f"sha={str(d.get('sha') or '')!r}")
-print(f"version={str(d.get('version') or '')!r}")
-PY
-)"
+  errfile="$(mktemp)"
+  if ! meta="$(read_meta_fields "${dest}/meta.json" 2>"${errfile}")"; then
+    err="$(head -n 1 "${errfile}" || true)"
+    rm -f "${errfile}"
+    fail "${err:-meta.json отклонён}" "${source_label}"
+  fi
+  rm -f "${errfile}"
+  branch="$(printf '%s\n' "${meta}" | sed -n '1p')"
+  sha="$(printf '%s\n' "${meta}" | sed -n '2p')"
+  version="$(printf '%s\n' "${meta}" | sed -n '4p')"
   write_slot_meta "${CURRENT}" "${slot_id}" "${branch}" "${sha}" "${version}" "${source_label}"
   chmod 640 "${CURRENT}" || true
   chown root:bad "${CURRENT}" 2>/dev/null || true
@@ -396,18 +608,24 @@ restart_api() {
 
 # ---- main ----
 ensure_dirs
+init_bad_python
 
 if [[ ! -f "${REQUEST}" ]]; then
   echo "bad-apply-server-update: no request, exit"
   exit 0
 fi
 
-# Parse request into env-like lines
-eval "$(read_request | sed 's/^/REQ_/')"
-ACTION="${REQ_action:-}"
-BRANCH="${REQ_branch:-}"
-SHA="${REQ_sha:-}"
-SLOT_ID="${REQ_slot_id:-}"
+errfile="$(mktemp)"
+if ! req="$(read_request 2>"${errfile}")"; then
+  err="$(head -n 1 "${errfile}" || true)"
+  rm -f "${errfile}"
+  fail "${err:-заявка отклонена}" "unknown"
+fi
+rm -f "${errfile}"
+ACTION="$(printf '%s\n' "${req}" | sed -n '1p')"
+BRANCH="$(printf '%s\n' "${req}" | sed -n '2p')"
+SHA="$(printf '%s\n' "${req}" | sed -n '3p')"
+SLOT_ID="$(printf '%s\n' "${req}" | sed -n '4p')"
 
 case "${ACTION}" in
   set_token)
@@ -415,6 +633,13 @@ case "${ACTION}" in
     ;;
   apply)
     [[ -n "${BRANCH}" ]] || BRANCH="main"
+    errfile="$(mktemp)"
+    if ! BRANCH="$(sanitize_field branch "${BRANCH}" 2>"${errfile}")"; then
+      err="$(head -n 1 "${errfile}" || true)"
+      rm -f "${errfile}"
+      fail "${err:-некорректная ветка}" "apply"
+    fi
+    rm -f "${errfile}"
     if [[ -z "${SHA}" ]]; then
       repo="$(read_site_env_var BAD_GITHUB_REPO "${BAD_GITHUB_REPO:-blazerity/bAD}")"
       api="$(read_site_env_var BAD_GITHUB_API_BASE "${BAD_GITHUB_API_BASE:-$API_BASE_DEFAULT}")"
@@ -428,6 +653,13 @@ case "${ACTION}" in
         | python3 -c 'import json,sys; print(json.load(sys.stdin).get("sha") or "")')"
       [[ -n "${SHA}" ]] || fail "не удалось получить HEAD ветки ${BRANCH}" "apply"
     fi
+    errfile="$(mktemp)"
+    if ! SHA="$(sanitize_field sha "${SHA}" 2>"${errfile}")"; then
+      err="$(head -n 1 "${errfile}" || true)"
+      rm -f "${errfile}"
+      fail "${err:-некорректный SHA}" "apply"
+    fi
+    rm -f "${errfile}"
     archive_current_slot
     SLOT_ID="$(download_and_fill_slot "${BRANCH}" "${SHA}")"
     promote_slot "${SLOT_ID}" "apply"
@@ -437,6 +669,13 @@ case "${ACTION}" in
     ;;
   rollback)
     [[ -n "${SLOT_ID}" ]] || fail "slot_id обязателен для rollback" "rollback"
+    errfile="$(mktemp)"
+    if ! SLOT_ID="$(sanitize_field slot "${SLOT_ID}" 2>"${errfile}")"; then
+      err="$(head -n 1 "${errfile}" || true)"
+      rm -f "${errfile}"
+      fail "${err:-некорректный slot_id}" "rollback"
+    fi
+    rm -f "${errfile}"
     [[ -d "${SLOTS}/${SLOT_ID}" ]] || fail "слот не найден: ${SLOT_ID}" "rollback"
     archive_current_slot
     promote_slot "${SLOT_ID}" "rollback"
