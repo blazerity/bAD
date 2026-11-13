@@ -17,10 +17,9 @@ public static class UninstallCli
             return 0;
         }
 
-        var elevated = WindowsElevation.RequireElevatedOrExit("снятия агента bAD");
-        if (elevated != 0)
+        if (!WindowsElevation.IsElevated())
         {
-            return elevated;
+            return WindowsElevation.OfferRunAsAdmin();
         }
 
         if (!OperatingSystem.IsWindows())

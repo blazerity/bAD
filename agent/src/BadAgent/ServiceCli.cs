@@ -20,6 +20,11 @@ public static class ServiceCli
         }
 
         var cmd = args[0].Trim().ToLowerInvariant();
+        if (cmd is "start" or "stop" or "restart" && !WindowsElevation.IsElevated())
+        {
+            return WindowsElevation.OfferRunAsAdmin();
+        }
+
         try
         {
             return cmd switch
@@ -39,7 +44,7 @@ public static class ServiceCli
         }
         catch (System.ComponentModel.Win32Exception ex)
         {
-            CliColumns.Write("Служба", $"{ex.Message} (run elevated / as Administrator)", "ошибка");
+            CliColumns.Write("Служба", ex.Message, "ошибка");
             return 1;
         }
         catch (PlatformNotSupportedException ex)

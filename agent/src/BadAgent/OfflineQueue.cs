@@ -56,6 +56,100 @@ public static class OfflineQueue
         PruneUnlocked();
     }
 
+    /// <summary>Удаляет битые файлы очереди. Вызывает только <see cref="DoctorCli.Execute"/>.</summary>
+    public static int DeleteBrokenItems()
+    {
+        var removed = 0;
+        if (!Directory.Exists(QueueDir))
+        {
+            return 0;
+        }
+
+        foreach (var path in Directory.GetFiles(QueueDir, "*.json"))
+        {
+            if (string.Equals(Path.GetFileName(path), "meta.json", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (!ShouldDeleteQueueFile(path))
+            {
+                continue;
+            }
+
+            try
+            {
+                File.Delete(path);
+                removed++;
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+
+        if (File.Exists(MetaPath))
+        {
+            try
+            {
+                _ = JsonSerializer.Deserialize<QueueMeta>(File.ReadAllText(MetaPath), JsonOptions);
+            }
+            catch (JsonException)
+            {
+                try
+                {
+                    File.Delete(MetaPath);
+                    removed++;
+                }
+                catch (IOException)
+                {
+                }
+                catch (UnauthorizedAccessException)
+                {
+                }
+            }
+        }
+
+        return removed;
+    }
+
+    private static bool ShouldDeleteQueueFile(string path)
+    {
+        try
+        {
+            var item = JsonSerializer.Deserialize<QueueItem>(File.ReadAllText(path), JsonOptions);
+            if (item is null || IsEmptyQueueItem(item))
+            {
+                return true;
+            }
+
+            if (string.IsNullOrWhiteSpace(item.Body))
+            {
+                return true;
+            }
+
+            var kind = item.Kind.Trim().ToLowerInvariant();
+            return kind is not ("inventory" or "heartbeat");
+        }
+        catch (JsonException)
+        {
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsEmptyQueueItem(QueueItem item) =>
+        string.IsNullOrWhiteSpace(item.Id)
+        && string.IsNullOrWhiteSpace(item.Kind)
+        && string.IsNullOrWhiteSpace(item.Body)
+        && string.IsNullOrWhiteSpace(item.CreatedAtUtc)
+        && item.Attempts == 0;
+
     /// <summary>
     /// Пытается отправить накопившееся. При auth failure — стоп (caller чистит ключ).
     /// При сетевых ошибках — backoff в meta.
