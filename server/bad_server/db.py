@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import secrets
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterator, Optional
@@ -149,6 +150,36 @@ class Database(DbIngestMixin, DbDevicesMixin, DbEventsMixin, DbIdentityMixin, Db
             )
             conn.execute(
                 """
+                ALTER TABLE enrollment_requests
+                ADD COLUMN IF NOT EXISTS proof_sha256 TEXT
+                """
+            )
+            legacy = conn.execute(
+                """
+                SELECT id FROM enrollment_requests
+                WHERE (proof_sha256 IS NULL OR proof_sha256 = '')
+                  AND id ~ '^[0-9a-fA-F]{64}$'
+                """
+            ).fetchall()
+            for old in legacy:
+                old_id = str(old["id"])
+                conn.execute(
+                    """
+                    UPDATE enrollment_requests
+                    SET proof_sha256 = %s, id = %s
+                    WHERE id = %s
+                      AND (proof_sha256 IS NULL OR proof_sha256 = '')
+                    """,
+                    (old_id.lower(), "enr_" + secrets.token_hex(16), old_id),
+                )
+            conn.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_enrollment_requests_proof
+                ON enrollment_requests(proof_sha256)
+                """
+            )
+            conn.execute(
+                """
                 ALTER TABLE agent_msi_versions
                 ADD COLUMN IF NOT EXISTS archive_password_enc TEXT NOT NULL DEFAULT ''
                 """
@@ -272,16 +303,16 @@ class Database(DbIngestMixin, DbDevicesMixin, DbEventsMixin, DbIdentityMixin, Db
             )
 
 
-    def take_enrollment_secrets(self, request_id: str) -> Optional[dict[str, Any]]:
+    def take_enrollment_secrets(self, proof_sha256: str) -> Optional[dict[str, Any]]:
         """Один раз отдать сохранённые секреты одобренной заявки."""
         with self.connection() as conn:
             row = conn.execute(
                 """
                 SELECT bad_id, status, api_key_enc, signing_key_enc, archive_password_enc
-                FROM enrollment_requests WHERE id = %s
+                FROM enrollment_requests WHERE proof_sha256 = %s
                 FOR UPDATE
                 """,
-                (request_id,),
+                (proof_sha256,),
             ).fetchone()
             if not row:
                 return None
@@ -292,9 +323,9 @@ class Database(DbIngestMixin, DbDevicesMixin, DbEventsMixin, DbIdentityMixin, Db
                 UPDATE enrollment_requests
                 SET api_key_enc = NULL, signing_key_enc = NULL,
                     archive_password_enc = NULL, claimed_at = %s
-                WHERE id = %s
+                WHERE proof_sha256 = %s
                 """,
-                (utc_now(), request_id),
+                (utc_now(), proof_sha256),
             )
         return {
             "status": "approved",
@@ -318,7 +349,24 @@ class Database(DbIngestMixin, DbDevicesMixin, DbEventsMixin, DbIdentityMixin, Db
     def claim_device_signing_key(
         self, bad_id: str, pubkey: str, fingerprint: str
     ) -> bool:
-        """Записать новую пару. Повтор с тем же ключом устройства заменяет открытый ключ."""
+        """Записать первую пару. Уже лежащий открытый ключ не меняется."""
+        with self.connection() as conn:
+            updated = conn.execute(
+                """
+                UPDATE devices
+                SET signing_pubkey = %s, signing_key_fingerprint = %s
+                WHERE bad_id = %s
+                  AND (signing_pubkey IS NULL OR signing_pubkey = '')
+                """,
+                (pubkey, fingerprint, bad_id),
+            )
+        return updated.rowcount == 1
+
+
+    def replace_device_signing_key(
+        self, bad_id: str, pubkey: str, fingerprint: str
+    ) -> bool:
+        """Заменить открытый ключ карточки. Вызывает только кнопка панели."""
         with self.connection() as conn:
             updated = conn.execute(
                 """
@@ -443,6 +491,76 @@ class Database(DbIngestMixin, DbDevicesMixin, DbEventsMixin, DbIdentityMixin, Db
                 ),
             )
             return True
+
+
+    def insert_device_and_approve_request(
+        self,
+        bad_id: str,
+        hostname: Optional[str],
+        api_key_hash: str,
+        api_key_lookup: Optional[str],
+        signing_pubkey: str,
+        signing_key_fingerprint: str,
+        request_id: str,
+        api_key_enc: str,
+        signing_key_enc: str,
+        archive_password_enc: str,
+    ) -> bool:
+        """Новая карточка и шифротекст заявки одним commit. False — строка уже есть."""
+        now = utc_now()
+        with self.connection() as conn:
+            existing = conn.execute(
+                """
+                SELECT bad_id FROM devices WHERE bad_id = %s
+                FOR UPDATE
+                """,
+                (bad_id,),
+            ).fetchone()
+            if existing:
+                return False
+            inserted = conn.execute(
+                """
+                INSERT INTO devices(
+                  bad_id, hostname, api_key_hash, api_key_lookup,
+                  enrolled_at, last_seen_at, agent_version, meta_json,
+                  revoked, archived, signing_pubkey, signing_key_fingerprint
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0, 0, %s, %s)
+                ON CONFLICT (bad_id) DO NOTHING
+                """,
+                (
+                    bad_id,
+                    hostname,
+                    api_key_hash,
+                    api_key_lookup,
+                    now,
+                    now,
+                    None,
+                    None,
+                    signing_pubkey,
+                    signing_key_fingerprint,
+                ),
+            )
+            if inserted.rowcount != 1:
+                return False
+            updated = conn.execute(
+                """
+                UPDATE enrollment_requests
+                SET status = 'approved', bad_id = %s,
+                    api_key_enc = %s, signing_key_enc = %s,
+                    archive_password_enc = %s
+                WHERE id = %s AND status = 'pending'
+                """,
+                (
+                    bad_id,
+                    api_key_enc,
+                    signing_key_enc,
+                    archive_password_enc or "",
+                    request_id,
+                ),
+            )
+            if updated.rowcount != 1:
+                raise ValueError("request_not_pending")
+        return True
 
 
     def find_device_by_api_key(

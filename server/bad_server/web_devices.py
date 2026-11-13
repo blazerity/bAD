@@ -1549,54 +1549,62 @@ def devices_allow_enrollment_request(
         random_bad_id,
     )
 
-    presented = str(row.get("bad_id") or "")
-    if is_bad_id(presented):
-        bad_id = presented.strip()
-    else:
-        guid = normalize_machine_guid(str(row.get("machine_guid") or ""))
-        uuid_value = db.normalize_smbios_uuid(row.get("smbios_uuid")) or ""
-        if guid and uuid_value:
-            bad_id = bad_id_from_board(guid, uuid_value, ensure_bad_id_key(db))
+    presented = str(row.get("bad_id") or "").strip()
+    guid = normalize_machine_guid(str(row.get("machine_guid") or ""))
+    uuid_value = db.normalize_smbios_uuid(row.get("smbios_uuid")) or ""
+    if guid and uuid_value:
+        board_id = bad_id_from_board(guid, uuid_value, ensure_bad_id_key(db))
+        if is_bad_id(presented) and presented == board_id:
+            bad_id = presented
         else:
-            bad_id = ""
-            for _ in range(5):
-                candidate = random_bad_id()
-                if not db.get_device_auth_row(candidate):
-                    bad_id = candidate
-                    break
-            if not bad_id:
-                return _see_other(request, page, message="Не удалось выпустить ключ.")
+            bad_id = board_id
+    else:
+        bad_id = ""
+        for _ in range(5):
+            candidate = random_bad_id()
+            if not db.get_device_auth_row(candidate):
+                bad_id = candidate
+                break
+        if not bad_id:
+            return _see_other(request, page, message="Не удалось выпустить ключ.")
     existing = db.get_device_auth_row(bad_id)
     if existing and existing.get("revoked"):
         return _see_other(
             request, page, message="Карточка отозвана. Кнопка её не возвращает."
         )
+    if existing:
+        return _see_other(
+            request, page, message="Карточка уже есть. Ключ не менялся."
+        )
     api_key = generate_token("bad_ak_")
     private, public, fingerprint = new_device_signing_key()
     data_key = getattr(request.app.state, "data_key", "") or ""
     lookup = api_key_lookup(data_key, api_key) if data_key else None
+    latest_archive = db.get_agent_update() or {}
     try:
-        db.upsert_device_on_enroll(
-            bad_id=bad_id,
-            hostname=row.get("hostname"),
-            api_key_hash=hash_secret(api_key),
-            agent_version=None,
-            api_key_lookup=lookup,
-            allow_existing=existing is not None,
-            signing_pubkey=public,
-            signing_key_fingerprint=fingerprint,
+        created = db.insert_device_and_approve_request(
+            bad_id,
+            row.get("hostname"),
+            hash_secret(api_key),
+            lookup,
+            public,
+            fingerprint,
+            request_id,
+            encrypt_secret(data_key, api_key),
+            encrypt_secret(data_key, private),
+            str(latest_archive.get("archive_password_enc") or ""),
         )
     except ValueError:
-        return _see_other(request, page, message="Не удалось выпустить ключ.")
-    latest_archive = db.get_agent_update() or {}
-    if not db.mark_enrollment_request_approved(
-        request_id,
-        bad_id,
-        encrypt_secret(data_key, api_key),
-        encrypt_secret(data_key, private),
-        str(latest_archive.get("archive_password_enc") or ""),
-    ):
         return _see_other(request, page, message="Заявка уже не ждёт разрешения.")
+    if not created:
+        again = db.get_device_auth_row(bad_id)
+        if again and again.get("revoked"):
+            return _see_other(
+                request, page, message="Карточка отозвана. Кнопка её не возвращает."
+            )
+        return _see_other(
+            request, page, message="Карточка уже есть. Ключ не менялся."
+        )
     return _see_other(
         request,
         page,
@@ -1919,6 +1927,7 @@ def _device_config_context(
         "duplicates": duplicates,
         "duplicate_groups": dup_groups,
         "new_api_key": None,
+        "new_signing_key": None,
         "msi_versions": db.list_agent_msi_versions(),
     }
 
@@ -2185,10 +2194,41 @@ def device_rotate_key(
 
 
 
+@router.post("/devices/{bad_id}/signing-key")
+def device_issue_signing_key(
+    bad_id: str,
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    canonical = (bad_id if db.get_device_auth_row(bad_id) else None)
+    if not canonical:
+        return _missing_device(request, bad_id, user)
+    bad_id = canonical
+    if not db.get_device_detail(bad_id):
+        return _missing_device(request, bad_id, user)
+    private, public, fingerprint = new_device_signing_key()
+    if not db.replace_device_signing_key(bad_id, public, fingerprint):
+        return _missing_device(request, bad_id, user)
+    ctx = _device_config_context(
+        db,
+        bad_id,
+        user=user,
+        settings=settings,
+        message="Выпущен новый ключ подписи. Сохраните его — повторно показать нельзя.",
+        active_view="admin",
+    )
+    assert ctx is not None
+    ctx["new_signing_key"] = private
+    return _html(request, "device_detail.html", ctx)
+
+
+
 @router.post("/devices/{bad_id}/archive")
 def device_archive(
     bad_id: str,
-    user: WebUser = Depends(require_web_user),
+    user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
 ):
     return _archive_device(db, bad_id, True)
@@ -2198,7 +2238,7 @@ def device_archive(
 @router.post("/devices/{bad_id}/restore")
 def device_restore(
     bad_id: str,
-    user: WebUser = Depends(require_web_user),
+    user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
 ):
     return _archive_device(db, bad_id, False)
@@ -2339,7 +2379,7 @@ def device_merge(
 def device_tags_save(
     bad_id: str,
     request: Request,
-    user: WebUser = Depends(require_web_user),
+    user: WebUser = Depends(require_web_admin),
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
     tags: str = Form(""),

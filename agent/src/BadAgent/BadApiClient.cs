@@ -77,7 +77,7 @@ public sealed class BadApiClient : IDisposable
         string hostname,
         string ip,
         string serial,
-        string fingerprint,
+        byte[] proof,
         string? badId,
         string? machineGuid,
         string? smbiosUuid,
@@ -89,7 +89,7 @@ public sealed class BadApiClient : IDisposable
             ["hostname"] = hostname,
             ["ip"] = ip ?? "",
             ["serial"] = serial ?? "",
-            ["fingerprint"] = fingerprint,
+            ["proof"] = Convert.ToBase64String(proof),
         };
         if (!string.IsNullOrWhiteSpace(badId))
         {

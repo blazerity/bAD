@@ -35,8 +35,8 @@ internal static class InvalidKeyReset
         config.BadId = null;
         ConfigStore.Save(config);
 
-        var fingerprint = EnrollmentProof.ReadExistingFingerprintHex();
-        if (string.IsNullOrWhiteSpace(fingerprint) || string.IsNullOrWhiteSpace(config.ServerUrl))
+        var proof = EnrollmentProof.ReadExistingProof();
+        if (proof is null || proof.Length != 32 || string.IsNullOrWhiteSpace(config.ServerUrl))
         {
             return;
         }
@@ -48,7 +48,7 @@ internal static class InvalidKeyReset
                 hostname,
                 ip,
                 serial,
-                fingerprint,
+                proof,
                 null,
                 DeviceIdentity.ReadMachineGuid(),
                 EnrollmentHints.ReadSmbiosUuid(),

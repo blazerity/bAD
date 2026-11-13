@@ -42,8 +42,8 @@ class EnrollmentRequestBody(BaseModel):
     hostname: str = Field(min_length=1, max_length=255)
     ip: Optional[str] = Field(default="", max_length=64)
     serial: Optional[str] = Field(default="", max_length=128)
-    # SHA256 локального секрета агента (64 hex). Серийник сюда не входит.
-    fingerprint: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-fA-F]{64}$")
+    # base64 ровно 32 байт файла enrollment_proof. Hex SHA256 сюда не принимается.
+    proof: str = Field(min_length=1, max_length=88)
     # Уже выданный номер. Пусто — номер появится в «Разрешить».
     bad_id: Optional[str] = Field(default=None, max_length=128)
     machine_guid: Optional[str] = Field(default=None, max_length=128)

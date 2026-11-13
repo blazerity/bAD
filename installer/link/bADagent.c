@@ -6,6 +6,7 @@
 #include <winhttp.h>
 #include <wincrypt.h>
 #include <bcrypt.h>
+#include <sddl.h>
 #include <iphlpapi.h>
 #include <wbemidl.h>
 #include <objbase.h>
@@ -87,7 +88,31 @@ static int file_exists(const wchar_t *path) {
     return a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY);
 }
 
+static int is_dir(const wchar_t *path) {
+    DWORD a = GetFileAttributesW(path);
+    return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY);
+}
+
 static void ensure_dir(const wchar_t *path) {
+    SECURITY_ATTRIBUTES sa;
+    PSECURITY_DESCRIPTOR sd = NULL;
+    if (wcscmp(path, DATA_DIR) == 0) {
+        if (is_dir(path)) {
+            return;
+        }
+        if (ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                L"D:PAI(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)",
+                SDDL_REVISION_1,
+                &sd,
+                NULL)) {
+            ZeroMemory(&sa, sizeof(sa));
+            sa.nLength = sizeof(sa);
+            sa.lpSecurityDescriptor = sd;
+            CreateDirectoryW(path, &sa);
+            LocalFree(sd);
+            return;
+        }
+    }
     CreateDirectoryW(path, NULL);
 }
 
@@ -416,11 +441,32 @@ static int sha256_file(const wchar_t *path, char *hex, size_t hex_cch) {
     return ok;
 }
 
-static int fingerprint_hex(char *hex, size_t hex_cch) {
+static int b64_32(const BYTE raw[32], char *out, size_t out_cch) {
+    static const char tab[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    size_t i;
+    size_t o = 0;
+    if (out_cch < 45) {
+        return 0;
+    }
+    for (i = 0; i < 30; i += 3) {
+        out[o++] = tab[raw[i] >> 2];
+        out[o++] = tab[((raw[i] & 3) << 4) | (raw[i + 1] >> 4)];
+        out[o++] = tab[((raw[i + 1] & 15) << 2) | (raw[i + 2] >> 6)];
+        out[o++] = tab[raw[i + 2] & 63];
+    }
+    out[o++] = tab[raw[30] >> 2];
+    out[o++] = tab[((raw[30] & 3) << 4) | (raw[31] >> 4)];
+    out[o++] = tab[(raw[31] & 15) << 2];
+    out[o++] = '=';
+    out[o] = 0;
+    return 1;
+}
+
+static int fingerprint_hex(char *out, size_t out_cch) {
     HANDLE h;
     BYTE rnd[32];
+    BYTE raw[32];
     DWORD read = 0;
-    BYTE *buf = NULL;
     DWORD size;
     int ok = 0;
     ensure_dir(DATA_DIR);
@@ -441,19 +487,13 @@ static int fingerprint_hex(char *hex, size_t hex_cch) {
     h = CreateFileW(PROOF_PATH, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if (h == INVALID_HANDLE_VALUE) return 0;
     size = GetFileSize(h, NULL);
-    if (size == 0 || size > 1024 * 1024) {
+    if (size != 32) {
         CloseHandle(h);
         return 0;
     }
-    buf = (BYTE *)malloc(size);
-    if (!buf) {
-        CloseHandle(h);
-        return 0;
+    if (ReadFile(h, raw, 32, &read, NULL) && read == 32) {
+        ok = b64_32(raw, out, out_cch);
     }
-    if (ReadFile(h, buf, size, &read, NULL) && read == size) {
-        ok = sha256_bytes(buf, size, hex, hex_cch);
-    }
-    free(buf);
     CloseHandle(h);
     return ok;
 }
@@ -1386,11 +1426,11 @@ static int post_enrollment(const wchar_t *server, char *api_key, char *bad_id, c
         json_escape(guid, eg, sizeof(eg));
         json_escape(uuid, eu, sizeof(eu));
         _snprintf_s(body, sizeof(body), _TRUNCATE,
-            "{\"hostname\":\"%s\",\"ip\":\"%s\",\"serial\":\"%s\",\"fingerprint\":\"%s\",\"machine_guid\":\"%s\",\"smbios_uuid\":\"%s\"}",
+            "{\"hostname\":\"%s\",\"ip\":\"%s\",\"serial\":\"%s\",\"proof\":\"%s\",\"machine_guid\":\"%s\",\"smbios_uuid\":\"%s\"}",
             eh, ei, es, efp, eg, eu);
     } else {
         _snprintf_s(body, sizeof(body), _TRUNCATE,
-            "{\"hostname\":\"%s\",\"ip\":\"%s\",\"serial\":\"%s\",\"fingerprint\":\"%s\"}",
+            "{\"hostname\":\"%s\",\"ip\":\"%s\",\"serial\":\"%s\",\"proof\":\"%s\"}",
             eh, ei, es, efp);
     }
     join_url(server, "/v1/enrollment-requests", url, 1200);

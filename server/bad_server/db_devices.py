@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -20,7 +21,7 @@ class DbDevicesMixin:
 
     def save_enrollment_request(
         self,
-        request_id: str,
+        proof_sha256: str,
         hostname: str,
         ip: str,
         serial: str,
@@ -28,9 +29,10 @@ class DbDevicesMixin:
         machine_guid: str = "",
         smbios_uuid: str = "",
     ) -> Optional[str]:
-        """Создать или обновить заявку по отпечатку. None — pending уже на потолке.
+        """Создать или обновить заявку по proof_sha256. None — pending уже на потолке.
 
         Уже лежащий BAD- не заменяется. Текст не вида BAD- и 8 hex номером не пишется.
+        id новой строки — только enr_ и 32 hex.
         """
         now = utc_now()
         raw_kept = (bad_id or "").strip()
@@ -47,8 +49,8 @@ class DbDevicesMixin:
                 (cutoff,),
             )
             row = conn.execute(
-                "SELECT status FROM enrollment_requests WHERE id = %s",
-                (request_id,),
+                "SELECT status FROM enrollment_requests WHERE proof_sha256 = %s",
+                (proof_sha256,),
             ).fetchone()
             if row:
                 status_name = str(row["status"])
@@ -61,9 +63,9 @@ class DbDevicesMixin:
                             machine_guid = %s,
                             smbios_uuid = %s,
                             seen_at = %s
-                        WHERE id = %s AND status = 'pending'
+                        WHERE proof_sha256 = %s AND status = 'pending'
                         """,
-                        (hostname, ip, serial, kept_id, guid, uuid, now, request_id),
+                        (hostname, ip, serial, kept_id, guid, uuid, now, proof_sha256),
                     )
                     return status_name
                 return status_name
@@ -76,10 +78,21 @@ class DbDevicesMixin:
                 """
                 INSERT INTO enrollment_requests(
                   id, hostname, ip, serial, created_at, status, bad_id,
-                  machine_guid, smbios_uuid, seen_at
-                ) VALUES (%s, %s, %s, %s, %s, 'pending', %s, %s, %s, %s)
+                  machine_guid, smbios_uuid, seen_at, proof_sha256
+                ) VALUES (%s, %s, %s, %s, %s, 'pending', %s, %s, %s, %s, %s)
                 """,
-                (request_id, hostname, ip, serial, now, kept_id, guid, uuid, now),
+                (
+                    "enr_" + secrets.token_hex(16),
+                    hostname,
+                    ip,
+                    serial,
+                    now,
+                    kept_id,
+                    guid,
+                    uuid,
+                    now,
+                    proof_sha256,
+                ),
             )
         return "pending"
 
@@ -159,6 +172,17 @@ class DbDevicesMixin:
             row = conn.execute(
                 "SELECT * FROM enrollment_requests WHERE id = %s",
                 (request_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+
+    def get_enrollment_request_by_proof(
+        self, proof_sha256: str
+    ) -> Optional[dict[str, Any]]:
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM enrollment_requests WHERE proof_sha256 = %s",
+                (proof_sha256,),
             ).fetchone()
         return dict(row) if row else None
 
