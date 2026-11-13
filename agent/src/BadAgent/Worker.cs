@@ -246,8 +246,8 @@ public sealed class Worker : BackgroundService
     private async Task PollEnrollmentRequestAsync(BadApiClient client, AgentConfig config, CancellationToken ct)
     {
         var (hostname, ip, serial) = EnrollmentHints.ForRequest();
-        var fingerprint = EnrollmentProof.TryFingerprintHex();
-        if (string.IsNullOrWhiteSpace(fingerprint))
+        var proof = EnrollmentProof.TryProof();
+        if (proof is null || proof.Length != 32)
         {
             _logger.LogError("Файл enrollment_proof не прочитан, заявка не отправлена");
             _authBackoffUntil = DateTime.UtcNow.AddMinutes(15);
@@ -258,7 +258,7 @@ public sealed class Worker : BackgroundService
             hostname,
             ip,
             serial,
-            fingerprint,
+            proof,
             string.IsNullOrWhiteSpace(config.BadId) ? null : config.BadId,
             DeviceIdentity.ReadMachineGuid(),
             EnrollmentHints.ReadSmbiosUuid(),

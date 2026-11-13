@@ -132,6 +132,17 @@ _SERIAL_PLACEHOLDERS = {
 }
 
 
+def _enrollment_proof_bytes(text: str) -> bytes:
+    """32 байта файла. Другая длина и не-base64 — 400. В журнал не пишется."""
+    try:
+        raw = base64.b64decode((text or "").strip(), validate=True)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="proof")
+    if len(raw) != 32:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="proof")
+    return raw
+
+
 def _display_serial(serial: str) -> str:
     """Серийник только для панели. Заглушка BIOS не идентифицирует заявку."""
     text = serial.strip()
@@ -153,9 +164,9 @@ def submit_enrollment_request(
     db: Database = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
-    """Заявка без токена. Секрет забирает только опрос с тем же отпечатком."""
+    """Заявка без токена. Секрет забирает только опрос с тем же файлом proof."""
     _enforce_enroll_rate(request)
-    request_id = body.fingerprint.strip().lower()
+    proof_sha256 = hashlib.sha256(_enrollment_proof_bytes(body.proof)).hexdigest()
     hostname = body.hostname.strip()
     ip = (body.ip or "").strip()
     serial = _display_serial(body.serial or "")
@@ -166,7 +177,7 @@ def submit_enrollment_request(
     guid = body.machine_guid or ""
     uuid = body.smbios_uuid or ""
     status_name = db.save_enrollment_request(
-        request_id,
+        proof_sha256,
         hostname,
         ip,
         serial,
@@ -178,7 +189,7 @@ def submit_enrollment_request(
         return {"status": "busy"}
     if status_name != "approved":
         return {"status": "pending"}
-    row = db.get_enrollment_request(request_id)
+    row = db.get_enrollment_request_by_proof(proof_sha256)
     if not row or not row.get("api_key_enc"):
         return {"status": "approved"}
     if enroll_cleartext_blocked(request, settings):
@@ -186,7 +197,7 @@ def submit_enrollment_request(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=ENROLL_CLEARTEXT_MSG,
         )
-    taken = db.take_enrollment_secrets(request_id)
+    taken = db.take_enrollment_secrets(proof_sha256)
     if not taken or not taken.get("api_key_enc"):
         return {"status": "approved"}
     data_key = getattr(request.app.state, "data_key", "") or ""
@@ -407,7 +418,10 @@ def issue_agent_signing_key(
     device=Depends(require_api_key),
     db: Database = Depends(get_db),
 ) -> dict[str, Optional[str]]:
-    """Ключ устройства из Authorization получает новую пару. Старый секрет не хранится."""
+    """Первая пара, пока открытый ключ пуст. Повтор этот путь не выпускает."""
+    pubkey_now = str(device.get("signing_pubkey") or "").strip()
+    if pubkey_now:
+        return {"signing_key": None}
     old_fp = str(device.get("signing_key_fingerprint") or "").strip()
     private, public, fingerprint = new_device_signing_key()
     issued = db.claim_device_signing_key(device["bad_id"], public, fingerprint)
@@ -502,15 +516,28 @@ def _accepted_inventory(
     if isinstance(signature, str):
         signature = signature.strip() or None
     pubkey = (device.get("signing_pubkey") or "").strip()
-    if signature:
-        if not pubkey or not verify_inventory_signature(pubkey, signed, signature):
-            _log_inventory_signature(
-                device, signed, signature, pubkey, 401, "Invalid inventory signature"
+    if pubkey:
+        if signature and verify_inventory_signature(pubkey, signed, signature):
+            pass
+        else:
+            detail = (
+                "Invalid inventory signature"
+                if signature
+                else "Inventory signature required"
             )
+            _log_inventory_signature(device, signed, signature, pubkey, 401, detail)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid inventory signature",
+                detail=detail,
             )
+    elif signature:
+        _log_inventory_signature(
+            device, signed, signature, pubkey, 401, "Invalid inventory signature"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid inventory signature",
+        )
     elif db.get_bool_setting(
         "require_inventory_signature", settings.require_inventory_signature
     ):
