@@ -15,7 +15,6 @@ from .db import (
     logger,
     utc_now,
 )
-
 class DbIngestMixin:
 
     def update_heartbeat(
@@ -40,10 +39,16 @@ class DbIngestMixin:
             meta = None
             if touch_meta:
                 meta = self._lock_device_meta(conn, bad_id)
-                if last_inventory_at:
+                stale_inventory_ack = bool(
+                    last_inventory_at
+                    and self._last_inventory_ack_superseded(
+                        meta.get("last_inventory_at"), last_inventory_at
+                    )
+                )
+                if last_inventory_at and not stale_inventory_ack:
                     meta["last_inventory_at"] = last_inventory_at
                 meta.update(health)
-                if config_local_provided:
+                if config_local_provided and not stale_inventory_ack:
                     from .agent_config import sanitize_config_local
 
                     cleaned = sanitize_config_local(config_local)
@@ -85,6 +90,13 @@ class DbIngestMixin:
             previous = (
                 self._snapshot_payload(prev_row["payload_json"]) if prev_row else None
             )
+            if previous and prev_row and self._inventory_payload_superseded(
+                previous, payload
+            ):
+                return {
+                    "snapshot_id": int(prev_row["id"]),
+                    "events": [],
+                }
 
             merged_meta = self._lock_device_meta(conn, bad_id)
             merged_meta.update(meta or {})
@@ -162,13 +174,54 @@ class DbIngestMixin:
     def _latest_snapshot_row(self, conn: CompatConnection, bad_id: str) -> Any:
         return conn.execute(
             """
-            SELECT payload_json FROM inventory_snapshots
+            SELECT id, payload_json FROM inventory_snapshots
             WHERE bad_id = %s
             ORDER BY received_at DESC, id DESC
             LIMIT 1
             """,
             (bad_id,),
         ).fetchone()
+
+    @staticmethod
+    def _last_inventory_ack_superseded(
+        recorded: Any, incoming: Optional[str]
+    ) -> bool:
+        """True if stored last_inventory_at is strictly newer than the heartbeat ack."""
+        if not incoming:
+            return False
+        from .device_health import parse_utc
+
+        recorded_at = (
+            parse_utc(str(recorded)) if recorded not in (None, "") else None
+        )
+        incoming_at = parse_utc(incoming)
+        if recorded_at is None or incoming_at is None:
+            return False
+        return recorded_at > incoming_at
+
+    @staticmethod
+    def _inventory_payload_superseded(
+        latest: dict[str, Any], incoming: dict[str, Any]
+    ) -> bool:
+        """True if incoming must not replace latest by collected_at."""
+        from .device_health import parse_utc
+
+        latest_raw = latest.get("collected_at")
+        latest_at = (
+            parse_utc(str(latest_raw)) if latest_raw not in (None, "") else None
+        )
+        if latest_at is None:
+            return False
+
+        incoming_raw = incoming.get("collected_at")
+        incoming_at = (
+            parse_utc(str(incoming_raw))
+            if incoming_raw not in (None, "")
+            else None
+        )
+        if incoming_at is None:
+            return True
+        return incoming_at < latest_at
 
 
     @staticmethod
