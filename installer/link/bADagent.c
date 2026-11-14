@@ -1551,6 +1551,29 @@ static int apply_archive(const wchar_t *server, const char *api_key, const char 
     return 1;
 }
 
+static void load_saved_keys(char *api_key, size_t api_cch, char *bad_id, size_t id_cch, char *signing, size_t sign_cch) {
+    char *text = NULL;
+    size_t n;
+    api_key[0] = bad_id[0] = signing[0] = 0;
+    if (read_text(CONFIG_PATH, &text)) {
+        json_string(text, "api_key", api_key, api_cch);
+        json_string(text, "bad_id", bad_id, id_cch);
+        free(text);
+        text = NULL;
+    }
+    if (!read_text(SIGNING_PATH, &text)) {
+        return;
+    }
+    n = strlen(text);
+    while (n > 0 && (text[n - 1] == '\n' || text[n - 1] == '\r' || text[n - 1] == ' ')) {
+        text[--n] = 0;
+    }
+    if (n > 0 && n < sign_cch) {
+        memcpy(signing, text, n + 1);
+    }
+    free(text);
+}
+
 static void work(void) {
     wchar_t server[1024];
     char api_key[512], bad_id[64], signing[256];
@@ -1560,6 +1583,10 @@ static void work(void) {
     int applied;
     api_key[0] = bad_id[0] = signing[0] = 0;
     arc_pw[0] = arc_sha[0] = arc_ver[0] = url_path[0] = 0;
+    load_saved_keys(api_key, sizeof(api_key), bad_id, sizeof(bad_id), signing, sizeof(signing));
+    if (api_key[0] && bad_id[0]) {
+        have_keys = 1;
+    }
     for (;;) {
         if (stopped()) return;
         ensure_server_url(server, 1024);
