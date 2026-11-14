@@ -1427,10 +1427,22 @@ def _stamp_older_than(stamp: object, seconds: int) -> bool:
 
 
 
-def _pending_enrollment_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _pending_enrollment_rows(
+    db: Database, rows: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    from .bad_id import bad_id_from_board, ensure_bad_id_key, normalize_machine_guid
+
+    board_key = ensure_bad_id_key(db)
     out: list[dict[str, Any]] = []
     for row in rows:
         stale = _stamp_older_than(row.get("seen_at"), 360)
+        guid = normalize_machine_guid(str(row.get("machine_guid") or ""))
+        uuid_value = db.normalize_smbios_uuid(row.get("smbios_uuid")) or ""
+        same_board = False
+        if guid and uuid_value:
+            board_id = bad_id_from_board(guid, uuid_value, board_key)
+            existing = db.get_device_auth_row(board_id)
+            same_board = bool(existing) and not existing.get("revoked")
         out.append(
             {
                 "id": row.get("id"),
@@ -1438,6 +1450,7 @@ def _pending_enrollment_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
                 "ip": row.get("ip"),
                 "serial": row.get("serial"),
                 "status_text": "нет связи" if stale else "Ожидает разрешения",
+                "same_board": same_board,
             }
         )
     return out
@@ -1520,10 +1533,13 @@ def enrollment_requests_page(
         "enrollment_requests.html",
         {
             "user": user,
-            "pending_rows": _pending_enrollment_rows(db.list_pending_enrollment_requests()),
+            "pending_rows": _pending_enrollment_rows(
+                db, db.list_pending_enrollment_requests()
+            ),
             "approved_rows": _approved_enrollment_rows(
                 db, db.list_approved_enrollment_requests()
             ),
+            "installed_rows": db.list_recent_installed_enrollment_requests(),
             "flash": message[:200] if message else "",
         },
     )
@@ -1609,6 +1625,65 @@ def devices_allow_enrollment_request(
         request,
         page,
         message="Разрешено. Агент заберёт ключ при следующем подключении.",
+    )
+
+
+
+@router.post("/devices/enrollment-requests/{request_id}/reissue")
+def devices_reissue_enrollment_request(
+    request_id: str,
+    request: Request,
+    _user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+):
+    page = "/devices/enrollment-requests"
+    row = db.get_enrollment_request(request_id)
+    if not row or row["status"] != "pending":
+        return _see_other(request, page, message="Заявка уже не ждёт разрешения.")
+    from .bad_id import bad_id_from_board, ensure_bad_id_key, normalize_machine_guid
+
+    guid = normalize_machine_guid(str(row.get("machine_guid") or ""))
+    uuid_value = db.normalize_smbios_uuid(row.get("smbios_uuid")) or ""
+    if not guid or not uuid_value:
+        return _see_other(request, page, message="Заявка уже не ждёт разрешения.")
+    bad_id = bad_id_from_board(guid, uuid_value, ensure_bad_id_key(db))
+    existing = db.get_device_auth_row(bad_id)
+    if not existing or existing.get("revoked"):
+        if existing and existing.get("revoked"):
+            return _see_other(
+                request, page, message="Карточка отозвана. Кнопка её не возвращает."
+            )
+        return _see_other(request, page, message="Заявка уже не ждёт разрешения.")
+    api_key = generate_token("bad_ak_")
+    private, public, fingerprint = new_device_signing_key()
+    data_key = getattr(request.app.state, "data_key", "") or ""
+    lookup = api_key_lookup(data_key, api_key) if data_key else None
+    latest_archive = db.get_agent_update() or {}
+    try:
+        created = db.reissue_existing_device_for_request(
+            bad_id,
+            hash_secret(api_key),
+            lookup,
+            public,
+            fingerprint,
+            request_id,
+            encrypt_secret(data_key, api_key),
+            encrypt_secret(data_key, private),
+            str(latest_archive.get("archive_password_enc") or ""),
+        )
+    except ValueError:
+        return _see_other(request, page, message="Заявка уже не ждёт разрешения.")
+    if not created:
+        return _see_other(
+            request, page, message="Карточка отозвана. Кнопка её не возвращает."
+        )
+    return _see_other(
+        request,
+        page,
+        message=(
+            "Выпущен новый ключ. Старый ключ этой карточки больше не подходит. "
+            "Агент заберёт его при следующем опросе."
+        ),
     )
 
 
