@@ -36,6 +36,12 @@
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <button type="submit" class="btn secondary btn-compact">Разрешить</button>
               </form>
+              {% if row.same_board %}
+              <form method="post" action="/devices/enrollment-requests/{{ row.id }}/reissue" onsubmit="return confirm('Выпустить новый ключ для уже существующей карточки? Старый ключ перестанет работать.');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="btn secondary btn-compact">Выпустить новый ключ</button>
+              </form>
+              {% endif %}
             </td>
           </tr>
           {% else %}
@@ -85,5 +91,13 @@
       </table>
     </div>
   </div>
+
+  {% if installed_rows %}
+  <ul class="enrollment-installed-day muted">
+    {% for row in installed_rows %}
+    <li>{{ row.hostname }} — <a href="/devices/{{ row.bad_id }}">Установлено</a></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
 </section>
 {% endblock %}
