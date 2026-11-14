@@ -147,8 +147,12 @@ CREATE TABLE IF NOT EXISTS enrollment_requests (
   archive_total INTEGER,
   archive_received INTEGER,
   link_state TEXT,
-  link_error TEXT
+  link_error TEXT,
+  proof_sha256 TEXT
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_enrollment_requests_proof
+  ON enrollment_requests(proof_sha256);
 
 CREATE INDEX IF NOT EXISTS idx_devices_api_key_lookup
   ON devices(api_key_lookup);
@@ -302,6 +306,6 @@ CREATE INDEX IF NOT EXISTS idx_device_events_created
 CREATE INDEX IF NOT EXISTS idx_device_events_device_created
   ON device_events(bad_id, created_at DESC, id DESC);
 
--- idx_device_events_unmailed создаётся в Database._init_schema
--- ПОСЛЕ ALTER ADD mailed_at (иначе апгрейд со старой схемы падает на старте).
+CREATE INDEX IF NOT EXISTS idx_device_events_unmailed
+  ON device_events(mailed_at) WHERE mailed_at IS NULL;
 """

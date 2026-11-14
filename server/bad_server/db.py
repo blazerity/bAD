@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import secrets
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterator, Optional
@@ -64,155 +63,6 @@ class Database(DbIngestMixin, DbDevicesMixin, DbEventsMixin, DbIdentityMixin, Db
     def _init_schema(self) -> None:
         with self._connect() as conn:
             conn.executescript(SCHEMA_SQL)
-            conn.execute(
-                "ALTER TABLE device_events ADD COLUMN IF NOT EXISTS mailed_at TEXT"
-            )
-            conn.execute(
-                "ALTER TABLE devices ADD COLUMN IF NOT EXISTS signing_pubkey TEXT"
-            )
-            conn.execute(
-                "ALTER TABLE devices ADD COLUMN IF NOT EXISTS signing_key_fingerprint TEXT"
-            )
-            conn.execute(
-                "ALTER TABLE devices ADD COLUMN IF NOT EXISTS shared_exchange_at TEXT"
-            )
-            conn.execute(
-                """
-                ALTER TABLE smtp_settings
-                ADD COLUMN IF NOT EXISTS digest_interval_hours INTEGER NOT NULL DEFAULT 3
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE smtp_settings
-                ADD COLUMN IF NOT EXISTS digest_lookback_hours INTEGER NOT NULL DEFAULT 3
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE smtp_settings
-                ADD COLUMN IF NOT EXISTS digest_window_start_hour INTEGER NOT NULL DEFAULT 9
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE smtp_settings
-                ADD COLUMN IF NOT EXISTS digest_window_end_hour INTEGER NOT NULL DEFAULT 19
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE smtp_settings
-                ADD COLUMN IF NOT EXISTS digest_weekdays TEXT NOT NULL DEFAULT '[0,1,2,3,4,5]'
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE enrollment_requests
-                ADD COLUMN IF NOT EXISTS archive_password_enc TEXT
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE enrollment_requests
-                ADD COLUMN IF NOT EXISTS seen_at TEXT
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE enrollment_requests
-                ADD COLUMN IF NOT EXISTS link_at TEXT
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE enrollment_requests
-                ADD COLUMN IF NOT EXISTS archive_total INTEGER
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE enrollment_requests
-                ADD COLUMN IF NOT EXISTS archive_received INTEGER
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE enrollment_requests
-                ADD COLUMN IF NOT EXISTS link_state TEXT
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE enrollment_requests
-                ADD COLUMN IF NOT EXISTS link_error TEXT
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE enrollment_requests
-                ADD COLUMN IF NOT EXISTS proof_sha256 TEXT
-                """
-            )
-            legacy = conn.execute(
-                """
-                SELECT id FROM enrollment_requests
-                WHERE (proof_sha256 IS NULL OR proof_sha256 = '')
-                  AND id ~ '^[0-9a-fA-F]{64}$'
-                """
-            ).fetchall()
-            for old in legacy:
-                old_id = str(old["id"])
-                conn.execute(
-                    """
-                    UPDATE enrollment_requests
-                    SET proof_sha256 = %s, id = %s
-                    WHERE id = %s
-                      AND (proof_sha256 IS NULL OR proof_sha256 = '')
-                    """,
-                    (old_id.lower(), "enr_" + secrets.token_hex(16), old_id),
-                )
-            conn.execute(
-                """
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_enrollment_requests_proof
-                ON enrollment_requests(proof_sha256)
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE agent_msi_versions
-                ADD COLUMN IF NOT EXISTS archive_password_enc TEXT NOT NULL DEFAULT ''
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE agent_update
-                ADD COLUMN IF NOT EXISTS archive_password_enc TEXT NOT NULL DEFAULT ''
-                """
-            )
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_device_events_unmailed
-                ON device_events(mailed_at) WHERE mailed_at IS NULL
-                """
-            )
-            boot = conn.execute(
-                "SELECT value FROM site_secrets WHERE key = %s",
-                ("mail_digest_schema_v1",),
-            ).fetchone()
-            if not boot:
-                conn.execute(
-                    """
-                    UPDATE device_events
-                    SET mailed_at = created_at
-                    WHERE mailed_at IS NULL
-                    """
-                )
-                conn.execute(
-                    "INSERT INTO site_secrets(key, value) VALUES(%s, %s) "
-                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                    ("mail_digest_schema_v1", "1"),
-                )
             for table in ("ldap_settings", "retention_settings", "smtp_settings"):
                 conn.execute(
                     f"INSERT INTO {table}(id) VALUES (1) ON CONFLICT DO NOTHING"
@@ -659,37 +509,16 @@ class Database(DbIngestMixin, DbDevicesMixin, DbEventsMixin, DbIdentityMixin, Db
         *,
         lookup_hash: Optional[str] = None,
     ) -> Optional[Any]:
-        """O(1) lookup by HMAC index, then one Argon2 verify (SEC-006).
-
-        Legacy rows without api_key_lookup are scanned once and backfilled.
-        """
+        """O(1) lookup by HMAC index, then one Argon2 verify (SEC-006)."""
+        if not lookup_hash:
+            return None
         with self.connection() as conn:
-            row = None
-            if lookup_hash:
-                row = conn.execute(
-                    "SELECT * FROM devices WHERE api_key_lookup = %s",
-                    (lookup_hash,),
-                ).fetchone()
-            if row is not None:
-                if verify_fn(row["api_key_hash"], api_key):
-                    return row
-                return None
-
-            # Migration: only devices missing lookup index (bounded set).
-            legacy = conn.execute(
-                """
-                SELECT * FROM devices
-                WHERE api_key_lookup IS NULL OR api_key_lookup = ''
-                """
-            ).fetchall()
-            for candidate in legacy:
-                if verify_fn(candidate["api_key_hash"], api_key):
-                    if lookup_hash:
-                        conn.execute(
-                            "UPDATE devices SET api_key_lookup = %s WHERE bad_id = %s",
-                            (lookup_hash, candidate["bad_id"]),
-                        )
-                    return candidate
+            row = conn.execute(
+                "SELECT * FROM devices WHERE api_key_lookup = %s",
+                (lookup_hash,),
+            ).fetchone()
+            if row is not None and verify_fn(row["api_key_hash"], api_key):
+                return row
         return None
 
 
