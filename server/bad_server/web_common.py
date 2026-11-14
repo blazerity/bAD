@@ -409,6 +409,11 @@ def _fleet_snapshot(
         return cached["data"]
     stale_sec = effective_stale_after_seconds(db, settings)
     active, archived = db.list_fleet_active_archived()
+    hidden = {str(item) for item in db.approved_enrollment_bad_ids() if item}
+    if hidden:
+        active = [
+            d for d in active if str(d.get("bad_id") or "") not in hidden
+        ]
     stats = db.overview_stats(
         stale_after_seconds=stale_sec,
         active=active,
