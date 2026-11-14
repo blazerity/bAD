@@ -227,9 +227,17 @@
   {% if not devices %}
   {% if park_empty %}
   <div class="empty-park-cta" role="status">
-    <p><strong>Парк пуст.</strong> Установите агент на первый компьютер — установщики в
-      <a href="/settings/updates">Параметры → Обновления агента</a>.</p>
-    <p class="muted">После установки устройство появится в списке в течение нескольких минут.</p>
+    <p><strong>Парк пуст.</strong>
+      {% if user.is_admin %}
+      Установите агент на первый компьютер — установщики в
+      <a href="/settings/updates">Параметры → Обновления агента</a>.
+      {% else %}
+      Установите агент на первый компьютер. Устройство появится в списке после «Разрешить» по заявке и после того, как полный клиент отметится на сервере.
+      {% endif %}
+    </p>
+    {% if user.is_admin %}
+    <p class="muted">Карточка в списке появится после «Разрешить» по заявке и после того, как полный клиент отметится на сервере.</p>
+    {% endif %}
   </div>
   {% else %}
   <p class="muted table-empty">Нет устройств{% if q %} по запросу <span class="mono">{{ q }}</span>{% endif %}{% if tag_filter %} с тегом <span class="mono">{{ tag_filter }}</span>{% endif %}{% if wave %} по фильтру <span class="mono">{{ wave }}</span>{% endif %}.</p>

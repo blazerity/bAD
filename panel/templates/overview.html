@@ -18,7 +18,11 @@
       {% endif %}
       <span class="muted mono">{{ (server_current.version if server_current else None) or app_version }}</span>
       <span class="muted tnum">{{ stats.online }}/{{ stats.total_active }}</span>
+      {% if user.is_admin %}
       <a class="muted overview-server-more" href="/settings/updates">MSI {{ ops.latest_version or "—" }}</a>
+      {% else %}
+      <span class="muted overview-server-more">MSI {{ ops.latest_version or "—" }}</span>
+      {% endif %}
     </div>
   </header>
 
@@ -33,8 +37,10 @@
           <span class="install-wizard__n">{{ step.n }}</span>
           {% if step.done %}
           <span>{{ step.label }}</span>
-          {% else %}
+          {% elif user.is_admin or not step.href.startswith('/settings') %}
           <a href="{{ step.href }}">{{ step.label }}</a>
+          {% else %}
+          <span>{{ step.label }}</span>
           {% endif %}
         </li>
         {% endfor %}
@@ -52,8 +58,10 @@
           <span class="bootstrap-mark" aria-hidden="true">{% if step.done %}✓{% else %}○{% endif %}</span>
           {% if step.done %}
           <span>{{ step.label }}</span>
-          {% else %}
+          {% elif user.is_admin or not step.href.startswith('/settings') %}
           <a href="{{ step.href }}">{{ step.label }}</a>
+          {% else %}
+          <span>{{ step.label }}</span>
           {% endif %}
         </li>
         {% endfor %}
