@@ -186,14 +186,6 @@ public static class AgentSigningKey
         QuietFiles.TryDelete(SkipFetchPath);
 
         var result = await client.RequestSigningKeyAsync(apiKey, ct);
-        if (result.RouteMissing)
-        {
-            logger?.LogInformation(
-                "Server has no signing-key endpoint; inventory will be sent unsigned (legacy server)");
-            LogKeyReplace(logger, deviceId, oldFingerprint, issued: false, newFp: "");
-            return;
-        }
-
         if (!string.IsNullOrWhiteSpace(result.SigningKeyBase64))
         {
             SavePrivateKeyBase64(result.SigningKeyBase64);

@@ -229,8 +229,7 @@ def _types_from_legacy_flags(flags: dict[str, bool]) -> dict[str, bool]:
 def parse_notify_flags(raw: Any) -> dict[str, bool]:
     """Разворот notify_json в словарь тип → слать.
 
-    Пустой и битый JSON — дефолт старых галок.
-    Старые ключи без ключей типов — те же пачки, новые типы выключены.
+    Пустой и битый JSON — дефолт из DEFAULT_NOTIFY.
     Хотя бы один ключ типа — новый формат: нет ключа значит выключен.
     """
     data: Any = raw
@@ -244,19 +243,12 @@ def parse_notify_flags(raw: Any) -> dict[str, bool]:
                 data = None
     if not isinstance(data, dict) or not data:
         return _types_from_legacy_flags(dict(DEFAULT_NOTIFY))
-    legacy_keys = frozenset(DEFAULT_NOTIFY)
     has_event_key = any(key in _EVENT_IMPORTANCE for key in data)
     if has_event_key:
         return {
             event_type: bool(data.get(event_type))
             for event_type in _EVENT_IMPORTANCE
         }
-    if any(key in legacy_keys for key in data):
-        flags = dict(DEFAULT_NOTIFY)
-        for key in legacy_keys:
-            if key in data:
-                flags[key] = bool(data[key])
-        return _types_from_legacy_flags(flags)
     return _types_from_legacy_flags(dict(DEFAULT_NOTIFY))
 
 

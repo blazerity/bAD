@@ -265,12 +265,8 @@ public sealed class Worker : BackgroundService
             ct);
         if (result.RouteMissing)
         {
-            _enrollmentRequestPending = false;
-            _logger.LogError(
-                "Server has no /v1/enrollment-requests; set enrollment_code or upgrade server");
-            WindowsEventLog.WriteError(
-                "bAD: сервер без enrollment-requests — нужен одноразовый код или обновление сервера.");
-            _authBackoffUntil = DateTime.UtcNow.AddHours(1);
+            _logger.LogWarning("Enrollment request submit failed: route not available");
+            _authBackoffUntil = DateTime.UtcNow.AddMinutes(15);
             return;
         }
 
