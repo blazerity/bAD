@@ -88,6 +88,120 @@ static int file_exists(const wchar_t *path) {
     return a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY);
 }
 
+static void trim_trailing_slash(wchar_t *path) {
+    size_t n;
+    if (!path) return;
+    n = wcslen(path);
+    while (n > 0 && (path[n - 1] == L'\\' || path[n - 1] == L'/')) {
+        path[--n] = 0;
+    }
+}
+
+static int paths_equal(const wchar_t *left, const wchar_t *right) {
+    wchar_t a[MAX_PATH];
+    wchar_t b[MAX_PATH];
+    if (!left || !right) return 0;
+    if (!GetFullPathNameW(left, MAX_PATH, a, NULL)) return 0;
+    if (!GetFullPathNameW(right, MAX_PATH, b, NULL)) return 0;
+    trim_trailing_slash(a);
+    trim_trailing_slash(b);
+    return _wcsicmp(a, b) == 0;
+}
+
+static int join_child(wchar_t *out, size_t cch, const wchar_t *dir, const wchar_t *name) {
+    size_t n;
+    if (!dir || !name || !out || cch < 4) return 0;
+    n = wcslen(dir);
+    if (n + wcslen(name) + 2 >= cch) return 0;
+    if (n && (dir[n - 1] == L'\\' || dir[n - 1] == L'/')) {
+        _snwprintf_s(out, cch, _TRUNCATE, L"%s%s", dir, name);
+    } else {
+        _snwprintf_s(out, cch, _TRUNCATE, L"%s\\%s", dir, name);
+    }
+    return out[0] != 0;
+}
+
+static void delete_tree(const wchar_t *path) {
+    wchar_t pattern[MAX_PATH];
+    wchar_t child[MAX_PATH];
+    WIN32_FIND_DATAW found;
+    HANDLE search;
+    DWORD attr;
+    if (!path || !path[0]) return;
+    attr = GetFileAttributesW(path);
+    if (attr == INVALID_FILE_ATTRIBUTES) return;
+    if (attr & FILE_ATTRIBUTE_REPARSE_POINT) {
+        if (attr & FILE_ATTRIBUTE_DIRECTORY) RemoveDirectoryW(path);
+        else DeleteFileW(path);
+        return;
+    }
+    if (!(attr & FILE_ATTRIBUTE_DIRECTORY)) {
+        SetFileAttributesW(path, FILE_ATTRIBUTE_NORMAL);
+        DeleteFileW(path);
+        return;
+    }
+    if (!join_child(pattern, MAX_PATH, path, L"*")) return;
+    search = FindFirstFileW(pattern, &found);
+    if (search != INVALID_HANDLE_VALUE) {
+        do {
+            if (wcscmp(found.cFileName, L".") == 0 || wcscmp(found.cFileName, L"..") == 0) continue;
+            if (!join_child(child, MAX_PATH, path, found.cFileName)) continue;
+            delete_tree(child);
+        } while (FindNextFileW(search, &found));
+        FindClose(search);
+    }
+    RemoveDirectoryW(path);
+}
+
+static void sweep_temp_names(const wchar_t *dir) {
+    wchar_t path[MAX_PATH];
+    if (!dir || !dir[0]) return;
+    if (join_child(path, MAX_PATH, dir, L"blazerity-bad")) delete_tree(path);
+    if (join_child(path, MAX_PATH, dir, L"bad-agent-update")) delete_tree(path);
+    if (join_child(path, MAX_PATH, dir, L"bad-agent-download.zip")) DeleteFileW(path);
+    if (join_child(path, MAX_PATH, dir, L"bad-msi-cleanup.log")) DeleteFileW(path);
+}
+
+static void sweep_old_tails(void) {
+    wchar_t temp[MAX_PATH];
+    wchar_t tmp[MAX_PATH];
+    delete_tree(L"C:\\ProgramData\\blazerity\\bAD");
+    delete_tree(L"C:\\Program Files\\blazerity\\bAD");
+    delete_tree(L"C:\\Program Files\\blazerity\\bad agent");
+    temp[0] = 0;
+    GetTempPathW(MAX_PATH, temp);
+    sweep_temp_names(temp);
+    if (!paths_equal(temp, L"C:\\Windows\\Temp")) {
+        sweep_temp_names(L"C:\\Windows\\Temp");
+    }
+    _snwprintf_s(tmp, MAX_PATH, _TRUNCATE, L"%s.tmp", CONFIG_PATH);
+    DeleteFileW(tmp);
+    _snwprintf_s(tmp, MAX_PATH, _TRUNCATE, L"%s.tmp", STATUS_PATH);
+    DeleteFileW(tmp);
+    _snwprintf_s(tmp, MAX_PATH, _TRUNCATE, L"%s.tmp", SIGNING_PATH);
+    DeleteFileW(tmp);
+}
+
+static int arg_is_cleanup(const wchar_t *cmd) {
+    const wchar_t *p;
+    if (!cmd) return 0;
+    for (p = cmd; *p; ) {
+        while (*p == L' ' || *p == L'\t') p++;
+        if (!*p) break;
+        if (*p == L'"') {
+            p++;
+            if (_wcsnicmp(p, L"cleanup-data", 12) == 0 && (p[12] == L'"' || p[12] == 0)) return 1;
+            while (*p && *p != L'"') p++;
+            if (*p == L'"') p++;
+        } else {
+            if (_wcsnicmp(p, L"cleanup-data", 12) == 0
+                && (p[12] == 0 || p[12] == L' ' || p[12] == L'\t')) return 1;
+            while (*p && *p != L' ' && *p != L'\t') p++;
+        }
+    }
+    return 0;
+}
+
 static int is_dir(const wchar_t *path) {
     DWORD a = GetFileAttributesW(path);
     return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY);
@@ -1467,15 +1581,6 @@ static int poll_archive(const wchar_t *server, const char *api_key, char *url_pa
     return url_path[0] && sha[0] && password[0];
 }
 
-static void truncate_path(const wchar_t *path) {
-    HANDLE h;
-    h = CreateFileW(path, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (h == INVALID_HANDLE_VALUE) return;
-    SetFilePointer(h, 0, NULL, FILE_BEGIN);
-    SetEndOfFile(h);
-    CloseHandle(h);
-}
-
 static unsigned long long path_len(const wchar_t *path) {
     HANDLE h;
     unsigned long long n;
@@ -1496,6 +1601,7 @@ static int apply_archive(const wchar_t *server, const char *api_key, const char 
     unsigned long long have;
     GetTempPathW(MAX_PATH, tmpdir);
     _snwprintf_s(zip, MAX_PATH, _TRUNCATE, L"%sbad-agent-download.zip", tmpdir);
+    DeleteFileW(zip);
     if (url_path && url_path[0]) {
         if (strncmp(url_path, "https://", 8) == 0) {
             wchar_t *w = utf8_to_wide(url_path);
@@ -1514,14 +1620,21 @@ static int apply_archive(const wchar_t *server, const char *api_key, const char 
         _snprintf_s(path, sizeof(path), _TRUNCATE, "/v1/agent/update/archive?version=%s", version);
         join_url(server, path, url, 1200);
     }
-    if (!starts_https(url)) return 0;
+    if (!starts_https(url)) {
+        DeleteFileW(zip);
+        return 0;
+    }
     if (sha256_file(DOWNLOAD_PATH, got, sizeof(got)) && hex_eq(got, sha)) {
         total = path_len(DOWNLOAD_PATH);
     } else {
         write_link_status("скачивается");
-        if (!download_file(url, api_key, DOWNLOAD_PATH, server, &total)) return 0;
+        if (!download_file(url, api_key, DOWNLOAD_PATH, server, &total)) {
+            DeleteFileW(zip);
+            return 0;
+        }
         if (!sha256_file(DOWNLOAD_PATH, got, sizeof(got)) || !hex_eq(got, sha)) {
-            truncate_path(DOWNLOAD_PATH);
+            DeleteFileW(DOWNLOAD_PATH);
+            DeleteFileW(zip);
             write_link_status("не сошлась контрольная сумма");
             post_link_progress(server, api_key, 0, total, "error", "не сошлась контрольная сумма");
             return 2;
@@ -1581,6 +1694,7 @@ static void work(void) {
     int have_keys = 0;
     int enroll;
     int applied;
+    sweep_old_tails();
     api_key[0] = bad_id[0] = signing[0] = 0;
     arc_pw[0] = arc_sha[0] = arc_ver[0] = url_path[0] = 0;
     load_saved_keys(api_key, sizeof(api_key), bad_id, sizeof(bad_id), signing, sizeof(signing));
@@ -1662,8 +1776,12 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, LPWSTR cmd, int show) {
     SERVICE_TABLE_ENTRYW table[2];
     (void)inst;
     (void)prev;
-    (void)cmd;
     (void)show;
+    if (arg_is_cleanup(cmd)) {
+        sweep_old_tails();
+        delete_tree(DATA_DIR);
+        return 0;
+    }
     table[0].lpServiceName = L"bADagent";
     table[0].lpServiceProc = ServiceMain;
     table[1].lpServiceName = NULL;
