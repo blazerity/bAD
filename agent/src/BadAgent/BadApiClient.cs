@@ -194,18 +194,24 @@ public sealed class BadApiClient : IDisposable
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/heartbeat");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
         // config_local — контракт API Lead (keys = agent_local; optional settings / server_url).
-        req.Content = JsonContent.Create(new
+        var heartbeat = new Dictionary<string, object?>
         {
-            bad_id = payload.BadId,
-            agent_version = _agentVersion,
-            last_inventory_at = payload.LastInventoryAt,
-            config_version = payload.ConfigVersion,
-            last_inventory_ok = payload.LastInventoryOk,
-            last_inventory_error = payload.LastInventoryError,
-            agent_uptime_seconds = payload.AgentUptimeSeconds,
-            system_drive_free_bytes = payload.SystemDriveFreeBytes,
-            config_local = payload.ConfigLocal
-        }, options: JsonOptions);
+            ["bad_id"] = payload.BadId,
+            ["agent_version"] = _agentVersion,
+            ["last_inventory_at"] = payload.LastInventoryAt,
+            ["config_version"] = payload.ConfigVersion,
+            ["last_inventory_ok"] = payload.LastInventoryOk,
+            ["last_inventory_error"] = payload.LastInventoryError,
+            ["agent_uptime_seconds"] = payload.AgentUptimeSeconds,
+            ["system_drive_free_bytes"] = payload.SystemDriveFreeBytes,
+            ["config_local"] = payload.ConfigLocal,
+        };
+        if (payload.UninstallStarted)
+        {
+            heartbeat["uninstall_started"] = true;
+        }
+
+        req.Content = JsonContent.Create(heartbeat, options: JsonOptions);
 
         using var resp = await _http.SendAsync(req, ct);
         var body = await resp.Content.ReadAsStringAsync(ct);
@@ -302,9 +308,15 @@ public sealed class BadApiClient : IDisposable
         }
 
         var oldFingerprint = AgentSigningKey.CurrentFileFingerprint();
-        AgentSigningKey.ClearLocal();
-        await AgentSigningKey.EnsureFromServerAsync(
+        var replaced = await AgentSigningKey.TryReplaceFromServerAsync(
             this, apiKey, logger, ct, snapshot.BadId, oldFingerprint);
+        if (!replaced)
+        {
+            throw new AgentApiException(
+                failure.Value.Status,
+                $"Inventory failed: {(int)failure.Value.Status} {failure.Value.Body}");
+        }
+
         AgentSigningKey.TrySignInventory(snapshot, out _);
         var again = await PostInventoryAsync(apiKey, snapshot, ct);
         LogInventoryAttempt(logger, 2, snapshot, again);

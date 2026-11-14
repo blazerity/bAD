@@ -91,7 +91,7 @@ public static class PushCli
             }
             else
             {
-                var flush = OfflineQueue.FlushAsync(client, config.ApiKey!, token).GetAwaiter().GetResult();
+                var flush = OfflineQueue.FlushAsync(client, config.ApiKey!, config.BadId ?? "", token).GetAwaiter().GetResult();
                 if (flush.BoardChanged)
                 {
                     InvalidKeyReset.Forget(config, client, token);

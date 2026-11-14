@@ -225,6 +225,59 @@ public static class AgentSigningKey
         LogKeyReplace(logger, deviceId, oldFingerprint, issued: false, newFp: "");
     }
 
+    /// <summary>
+    /// Запрос нового ключа при отказе подписи. Файл стирается только когда новый ключ уже в памяти.
+    /// </summary>
+    public static async Task<bool> TryReplaceFromServerAsync(
+        BadApiClient client,
+        string apiKey,
+        ILogger? logger,
+        CancellationToken ct,
+        string deviceId = "",
+        string oldFingerprint = "")
+    {
+        SigningKeyFetchResult result;
+        try
+        {
+            result = await client.RequestSigningKeyAsync(apiKey, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger?.LogInformation(ex, "Signing key request failed; local key kept");
+            return false;
+        }
+
+        if (result.RouteMissing || string.IsNullOrWhiteSpace(result.SigningKeyBase64))
+        {
+            LogKeyReplace(logger, deviceId, oldFingerprint, issued: false, newFp: "");
+            return false;
+        }
+
+        var fp = "";
+        try
+        {
+            fp = ComputeFingerprintFromPrivateKeyBase64(result.SigningKeyBase64);
+        }
+        catch (InvalidOperationException)
+        {
+            fp = "";
+        }
+        catch (FormatException)
+        {
+            fp = "";
+        }
+
+        ClearLocal();
+        SavePrivateKeyBase64(result.SigningKeyBase64);
+        if (fp.Length > 0)
+        {
+            logger?.LogInformation("Inventory signing key stored (fingerprint sha256={Fingerprint})", fp);
+        }
+
+        LogKeyReplace(logger, deviceId, oldFingerprint, issued: true, newFp: fp);
+        return true;
+    }
+
     private static void LogKeyReplace(
         ILogger? logger, string deviceId, string oldFp, bool issued, string newFp)
     {

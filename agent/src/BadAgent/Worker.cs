@@ -350,7 +350,7 @@ public sealed class Worker : BackgroundService
         }
 
         _logger.LogInformation("Flushing offline queue ({Count} pending)", pending);
-        var result = await OfflineQueue.FlushAsync(client, config.ApiKey!, ct, _logger);
+        var result = await OfflineQueue.FlushAsync(client, config.ApiKey!, config.BadId ?? "", ct, _logger);
         if (result.AuthFailed)
         {
             HandleAuthFailure(config, "queue", result.AuthException);
@@ -403,6 +403,7 @@ public sealed class Worker : BackgroundService
         try
         {
             await client.SendInventoryAsync(config.ApiKey!, snap, ct, _logger);
+            OfflineQueue.Drop("inventory");
             _lastInventoryAt = DateTime.UtcNow;
             _lastInventoryOk = true;
             _lastInventoryError = null;
@@ -472,6 +473,7 @@ public sealed class Worker : BackgroundService
         try
         {
             var response = await client.SendHeartbeatAsync(config.ApiKey!, payload, ct);
+            OfflineQueue.Drop("heartbeat");
             _logger.LogDebug("Heartbeat sent");
             if (response?.Config?.Settings != null)
             {
@@ -485,6 +487,16 @@ public sealed class Worker : BackgroundService
                 if (AgentUninstaller.TryStartSilentUninstall(_logger))
                 {
                     _logger.LogInformation("Выход после запуска msiexec uninstall");
+                    payload.UninstallStarted = true;
+                    try
+                    {
+                        await client.SendHeartbeatAsync(config.ApiKey!, payload, ct);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        _logger.LogWarning(ex, "Не удалось сообщить, что удаление запущено");
+                    }
+
                     _lifetime.StopApplication();
                     return;
                 }

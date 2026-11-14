@@ -157,6 +157,7 @@ public static class OfflineQueue
     public static async Task<OfflineFlushResult> FlushAsync(
         BadApiClient client,
         string apiKey,
+        string currentBadId,
         CancellationToken ct,
         ILogger? logger = null)
     {
@@ -199,6 +200,13 @@ public static class OfflineQueue
                 continue;
             }
 
+            if (ReadBodyBadId(item.Body) is { } bodyId
+                && !string.Equals(bodyId, currentBadId ?? "", StringComparison.Ordinal))
+            {
+                QuietFiles.TryDelete(file);
+                continue;
+            }
+
             try
             {
                 if (string.Equals(item.Kind, "inventory", StringComparison.OrdinalIgnoreCase))
@@ -229,6 +237,13 @@ public static class OfflineQueue
             {
                 return OfflineFlushResult.CreateBoardChanged();
             }
+            catch (AgentApiException ex) when (
+                ex.IsAuthFailure
+                && ex.Message.Contains("bad_id mismatch", StringComparison.Ordinal))
+            {
+                QuietFiles.TryDelete(file);
+                continue;
+            }
             catch (AgentApiException ex) when (ex.IsAuthFailure)
             {
                 item.Attempts++;
@@ -257,6 +272,36 @@ public static class OfflineQueue
         return OfflineFlushResult.CreateOk(sent);
     }
 
+    public static void Drop(string kind)
+    {
+        if (!Directory.Exists(QueueDir) || string.IsNullOrWhiteSpace(kind))
+        {
+            return;
+        }
+
+        foreach (var file in Directory.GetFiles(QueueDir, "*.json"))
+        {
+            if (string.Equals(Path.GetFileName(file), "meta.json", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            try
+            {
+                var item = JsonSerializer.Deserialize<QueueItem>(File.ReadAllText(file));
+                if (item is not null
+                    && string.Equals(item.Kind, kind, StringComparison.OrdinalIgnoreCase))
+                {
+                    QuietFiles.TryDelete(file);
+                }
+            }
+            catch (Exception)
+            {
+                // Битый или занятый файл оставляет FlushAsync.
+            }
+        }
+    }
+
     public static int CountPending()
     {
         if (!Directory.Exists(QueueDir))
@@ -273,6 +318,25 @@ public static class OfflineQueue
         // 1m, 2m, 4m … cap 6h
         var minutes = Math.Min(360.0, Math.Pow(2, Math.Min(failures, 10)));
         return TimeSpan.FromMinutes(Math.Max(1.0, minutes));
+    }
+
+    private static string? ReadBodyBadId(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.TryGetProperty("bad_id", out var el)
+                && el.ValueKind == JsonValueKind.String)
+            {
+                return el.GetString() ?? "";
+            }
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        return null;
     }
 
     private static bool IsTooOld(QueueItem item)
@@ -412,6 +476,10 @@ public sealed class HeartbeatQueuePayload
     /// <summary>Provenance: manual / agent_local keys (+ optional settings / server_url).</summary>
     [JsonPropertyName("config_local")]
     public ConfigLocalPayload? ConfigLocal { get; set; }
+
+    /// <summary>Только подтверждающий heartbeat после запуска удаления. В очередь не пишется.</summary>
+    [JsonIgnore]
+    public bool UninstallStarted { get; set; }
 }
 
 public sealed class OfflineFlushResult

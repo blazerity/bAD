@@ -400,6 +400,7 @@ public sealed class AgentUpdater
 
     private const string BinDir = @"C:\Program Files\blazerity\bADagent\bin";
     private const string LinkExe = @"C:\Program Files\blazerity\bADagent\bADagent.exe";
+    private static readonly object BinReplaceLock = new();
 
     private static string CoreVersion(string version)
     {
@@ -423,58 +424,82 @@ public sealed class AgentUpdater
 
     private static void ReplaceBin(string stage)
     {
-        Directory.CreateDirectory(BinDir);
-        var exe = Path.Combine(BinDir, "BadAgent.exe");
-        var old = Path.Combine(BinDir, "BadAgent.exe.old");
-        if (File.Exists(exe))
+        lock (BinReplaceLock)
         {
+            Directory.CreateDirectory(BinDir);
+            var exe = Path.Combine(BinDir, "BadAgent.exe");
+            var old = Path.Combine(BinDir, "BadAgent.exe.old");
+            var movedExe = false;
             try
             {
-                if (File.Exists(old))
+                if (File.Exists(exe))
                 {
-                    File.Delete(old);
+                    try
+                    {
+                        if (File.Exists(old))
+                        {
+                            File.Delete(old);
+                        }
+                    }
+                    catch
+                    {
+                        // занятый предыдущий файл не мешает переименованию текущего
+                    }
+
+                    File.Move(exe, old, overwrite: true);
+                    movedExe = true;
+                }
+
+                var root = Path.GetFullPath(BinDir);
+                if (!root.EndsWith(Path.DirectorySeparatorChar))
+                {
+                    root += Path.DirectorySeparatorChar;
+                }
+
+                foreach (var file in Directory.EnumerateFiles(stage, "*", SearchOption.AllDirectories))
+                {
+                    var rel = Path.GetRelativePath(stage, file);
+                    if (rel.Contains("..", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    if (string.Equals(Path.GetFileName(file), "bADagent.exe", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    var dest = Path.GetFullPath(Path.Combine(BinDir, rel));
+                    if (!dest.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    var parent = Path.GetDirectoryName(dest);
+                    if (!string.IsNullOrEmpty(parent))
+                    {
+                        Directory.CreateDirectory(parent);
+                    }
+
+                    File.Copy(file, dest, overwrite: true);
                 }
             }
             catch
             {
-                // занятый предыдущий файл не мешает переименованию текущего
+                if (movedExe && !File.Exists(exe) && File.Exists(old))
+                {
+                    try
+                    {
+                        File.Move(old, exe, overwrite: true);
+                    }
+                    catch
+                    {
+                        // наружу уходит исходный сбой копирования
+                    }
+                }
+
+                throw;
             }
-
-            File.Move(exe, old, overwrite: true);
-        }
-
-        var root = Path.GetFullPath(BinDir);
-        if (!root.EndsWith(Path.DirectorySeparatorChar))
-        {
-            root += Path.DirectorySeparatorChar;
-        }
-
-        foreach (var file in Directory.EnumerateFiles(stage, "*", SearchOption.AllDirectories))
-        {
-            var rel = Path.GetRelativePath(stage, file);
-            if (rel.Contains("..", StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            if (string.Equals(Path.GetFileName(file), "bADagent.exe", StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            var dest = Path.GetFullPath(Path.Combine(BinDir, rel));
-            if (!dest.StartsWith(root, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            var parent = Path.GetDirectoryName(dest);
-            if (!string.IsNullOrEmpty(parent))
-            {
-                Directory.CreateDirectory(parent);
-            }
-
-            File.Copy(file, dest, overwrite: true);
         }
     }
 
