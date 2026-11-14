@@ -6,7 +6,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from .bad_id import is_bad_id
+from .bad_id import is_bad_id, normalize_machine_guid
 from .db_backend import CompatConnection
 from .db import (
     PENDING_ENROLLMENT_CAP,
@@ -37,8 +37,8 @@ class DbDevicesMixin:
         now = utc_now()
         raw_kept = (bad_id or "").strip()
         kept_id = raw_kept if raw_kept and is_bad_id(raw_kept) else None
-        guid = machine_guid or ""
-        uuid = smbios_uuid or ""
+        guid = normalize_machine_guid(machine_guid)
+        uuid = self.normalize_smbios_uuid(smbios_uuid) or ""
         cutoff = _utc_cutoff(PENDING_ENROLLMENT_TTL)
         with self.connection() as conn:
             conn.execute(
@@ -49,7 +49,10 @@ class DbDevicesMixin:
                 (cutoff,),
             )
             row = conn.execute(
-                "SELECT status FROM enrollment_requests WHERE proof_sha256 = %s",
+                """
+                SELECT status, api_key_enc
+                FROM enrollment_requests WHERE proof_sha256 = %s
+                """,
                 (proof_sha256,),
             ).fetchone()
             if row:
@@ -60,14 +63,55 @@ class DbDevicesMixin:
                         UPDATE enrollment_requests
                         SET hostname = %s, ip = %s, serial = %s,
                             bad_id = COALESCE(%s, bad_id),
-                            machine_guid = %s,
-                            smbios_uuid = %s,
+                            machine_guid = CASE WHEN %s <> '' THEN %s ELSE machine_guid END,
+                            smbios_uuid = CASE WHEN %s <> '' THEN %s ELSE smbios_uuid END,
                             seen_at = %s
                         WHERE proof_sha256 = %s AND status = 'pending'
                         """,
-                        (hostname, ip, serial, kept_id, guid, uuid, now, proof_sha256),
+                        (
+                            hostname,
+                            ip,
+                            serial,
+                            kept_id,
+                            guid,
+                            guid,
+                            uuid,
+                            uuid,
+                            now,
+                            proof_sha256,
+                        ),
                     )
                     return status_name
+                if status_name == "installed" and not str(row["api_key_enc"] or "").strip():
+                    conn.execute(
+                        """
+                        UPDATE enrollment_requests
+                        SET status = 'pending',
+                            hostname = %s, ip = %s, serial = %s,
+                            bad_id = COALESCE(%s, bad_id),
+                            machine_guid = CASE WHEN %s <> '' THEN %s ELSE machine_guid END,
+                            smbios_uuid = CASE WHEN %s <> '' THEN %s ELSE smbios_uuid END,
+                            signing_key_enc = NULL,
+                            archive_password_enc = NULL,
+                            claimed_at = NULL,
+                            seen_at = %s
+                        WHERE proof_sha256 = %s AND status = 'installed'
+                          AND (api_key_enc IS NULL OR btrim(api_key_enc) = '')
+                        """,
+                        (
+                            hostname,
+                            ip,
+                            serial,
+                            kept_id,
+                            guid,
+                            guid,
+                            uuid,
+                            uuid,
+                            now,
+                            proof_sha256,
+                        ),
+                    )
+                    return "pending"
                 return status_name
             pending = conn.execute(
                 "SELECT COUNT(*) AS n FROM enrollment_requests WHERE status = 'pending'"
@@ -101,11 +145,28 @@ class DbDevicesMixin:
         with self.connection() as conn:
             rows = conn.execute(
                 """
-                SELECT id, hostname, ip, serial, created_at, seen_at
+                SELECT id, hostname, ip, serial, created_at, seen_at,
+                       machine_guid, smbios_uuid
                 FROM enrollment_requests
                 WHERE status = 'pending'
                 ORDER BY created_at
                 """
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+
+    def list_recent_installed_enrollment_requests(self) -> list[dict[str, Any]]:
+        cutoff = _utc_cutoff(timedelta(days=1))
+        with self.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, hostname, bad_id
+                FROM enrollment_requests
+                WHERE status = 'installed'
+                  AND COALESCE(claimed_at, created_at) >= %s
+                ORDER BY COALESCE(claimed_at, created_at) DESC
+                """,
+                (cutoff,),
             ).fetchall()
         return [dict(row) for row in rows]
 

@@ -347,6 +347,7 @@ def heartbeat(
 ) -> dict[str, Any]:
     if body.bad_id != device["bad_id"]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="bad_id mismatch")
+    db.clear_enrollment_secrets(body.bad_id)
     target_id = body.bad_id
     # Omit/null config_local → keep previous; present (incl. keys:[]) → sanitize + store/clear.
     config_local_provided = body.config_local is not None
@@ -406,7 +407,7 @@ def heartbeat(
         config_version=body.config_version,
         effective_version=effective["version"],
     )
-    if send_uninstall:
+    if body.uninstall_started and send_uninstall:
         ack_patch = {**(ack_patch or {}), **mark_uninstall_sent_patch()}
     if ack_patch:
         db.patch_device_meta(target_id, ack_patch)
@@ -609,8 +610,10 @@ def inventory(
     # Кэш сигналов дубля (не PK): serial/uuid/bios/board/disk — без auto-merge
     meta.update(db.identity_signals_for_meta(identity))
     new_uuid = _snapshot_smbios_uuid(payload)
-    previous = db.latest_snapshot_payload(str(device["bad_id"]))
-    old_uuid = _snapshot_smbios_uuid(previous)
+    old_uuid = db.last_nonempty_smbios_uuid(str(device["bad_id"]))
+    if not old_uuid:
+        previous = db.latest_snapshot_payload(str(device["bad_id"]))
+        old_uuid = _snapshot_smbios_uuid(previous)
     if new_uuid and old_uuid and new_uuid != old_uuid:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="board changed")
     target_id = str(device["bad_id"])
@@ -909,6 +912,7 @@ def agent_update_check(
     db: Database = Depends(get_db),
 ) -> dict[str, Any]:
     """Агенты спрашивают целевой архив (effective update_target)."""
+    db.clear_enrollment_secrets(str(device["bad_id"]))
     return check_update(
         db,
         current=current or "0.0.0",

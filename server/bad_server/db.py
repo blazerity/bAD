@@ -304,7 +304,7 @@ class Database(DbIngestMixin, DbDevicesMixin, DbEventsMixin, DbIdentityMixin, Db
 
 
     def take_enrollment_secrets(self, proof_sha256: str) -> Optional[dict[str, Any]]:
-        """Один раз отдать сохранённые секреты одобренной заявки."""
+        """Отдать шифротекст одобренной заявки. Обнуление делает clear_enrollment_secrets."""
         with self.connection() as conn:
             row = conn.execute(
                 """
@@ -314,19 +314,10 @@ class Database(DbIngestMixin, DbDevicesMixin, DbEventsMixin, DbIdentityMixin, Db
                 """,
                 (proof_sha256,),
             ).fetchone()
-            if not row:
-                return None
-            if row["status"] != "approved" or not row["api_key_enc"]:
-                return {"status": row["status"], "bad_id": row["bad_id"]}
-            conn.execute(
-                """
-                UPDATE enrollment_requests
-                SET api_key_enc = NULL, signing_key_enc = NULL,
-                    archive_password_enc = NULL, claimed_at = %s
-                WHERE proof_sha256 = %s
-                """,
-                (utc_now(), proof_sha256),
-            )
+        if not row:
+            return None
+        if row["status"] != "approved" or not row["api_key_enc"]:
+            return {"status": row["status"], "bad_id": row["bad_id"]}
         return {
             "status": "approved",
             "bad_id": row["bad_id"],
@@ -334,6 +325,104 @@ class Database(DbIngestMixin, DbDevicesMixin, DbEventsMixin, DbIdentityMixin, Db
             "signing_key_enc": row["signing_key_enc"],
             "archive_password_enc": row["archive_password_enc"],
         }
+
+
+    def clear_enrollment_secrets(self, bad_id: str) -> None:
+        """Стереть шифротекст, когда клиент уже пришёл со своим ключом."""
+        with self.connection() as conn:
+            conn.execute(
+                """
+                UPDATE enrollment_requests
+                SET api_key_enc = NULL, signing_key_enc = NULL,
+                    archive_password_enc = NULL, claimed_at = %s
+                WHERE bad_id = %s AND status = 'approved'
+                  AND api_key_enc IS NOT NULL AND btrim(api_key_enc) <> ''
+                """,
+                (utc_now(), bad_id),
+            )
+
+
+    def last_nonempty_smbios_uuid(self, bad_id: str) -> Optional[str]:
+        """Первый непустой hardware.smbios_uuid среди снимков карточки, с нового."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT payload_json FROM inventory_snapshots
+                WHERE bad_id = %s
+                ORDER BY received_at DESC, id DESC
+                """,
+                (bad_id,),
+            ).fetchall()
+        for row in rows:
+            payload = self._snapshot_payload(row["payload_json"])
+            if not isinstance(payload, dict):
+                continue
+            hardware = payload.get("hardware")
+            if not isinstance(hardware, dict):
+                continue
+            found = self.normalize_smbios_uuid(hardware.get("smbios_uuid"))
+            if found:
+                return found
+        return None
+
+
+    def reissue_existing_device_for_request(
+        self,
+        bad_id: str,
+        api_key_hash: str,
+        api_key_lookup: Optional[str],
+        signing_pubkey: str,
+        signing_key_fingerprint: str,
+        request_id: str,
+        api_key_enc: str,
+        signing_key_enc: str,
+        archive_password_enc: str,
+    ) -> bool:
+        """Новый ключ уже лежащей карточки и шифротекст заявки одним commit."""
+        with self.connection() as conn:
+            existing = conn.execute(
+                """
+                SELECT bad_id, revoked FROM devices WHERE bad_id = %s
+                FOR UPDATE
+                """,
+                (bad_id,),
+            ).fetchone()
+            if not existing or existing["revoked"]:
+                return False
+            conn.execute(
+                """
+                UPDATE devices
+                SET api_key_hash = %s, api_key_lookup = %s,
+                    signing_pubkey = %s, signing_key_fingerprint = %s
+                WHERE bad_id = %s AND COALESCE(revoked, 0) = 0
+                """,
+                (
+                    api_key_hash,
+                    api_key_lookup,
+                    signing_pubkey,
+                    signing_key_fingerprint,
+                    bad_id,
+                ),
+            )
+            updated = conn.execute(
+                """
+                UPDATE enrollment_requests
+                SET status = 'approved', bad_id = %s,
+                    api_key_enc = %s, signing_key_enc = %s,
+                    archive_password_enc = %s
+                WHERE id = %s AND status = 'pending'
+                """,
+                (
+                    bad_id,
+                    api_key_enc,
+                    signing_key_enc,
+                    archive_password_enc or "",
+                    request_id,
+                ),
+            )
+            if updated.rowcount != 1:
+                raise ValueError("request_not_pending")
+        return True
 
 
     def get_device_auth_row(self, bad_id: str) -> Optional[dict[str, Any]]:

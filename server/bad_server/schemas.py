@@ -75,6 +75,8 @@ class HeartbeatRequest(BaseModel):
     system_drive_free_bytes: Optional[int] = Field(default=None, ge=0)
     # Provenance: omit/null → keep previous meta.config_local; keys=[] → clear.
     config_local: Optional[ConfigLocalPayload] = None
+    # Агент ставит истину, когда начал снятие. Обычный heartbeat поле не шлёт.
+    uninstall_started: bool = False
 
 
 class InventoryRequest(BaseModel):
