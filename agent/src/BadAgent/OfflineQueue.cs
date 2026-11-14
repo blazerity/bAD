@@ -150,6 +150,40 @@ public static class OfflineQueue
         && string.IsNullOrWhiteSpace(item.CreatedAtUtc)
         && item.Attempts == 0;
 
+    private static void DeleteStaleQueueTemps()
+    {
+        if (!Directory.Exists(QueueDir))
+        {
+            return;
+        }
+
+        var cutoff = DateTime.UtcNow.AddMinutes(-1);
+        foreach (var path in Directory.GetFiles(QueueDir, "*.tmp"))
+        {
+            var name = Path.GetFileName(path);
+            if (!name.EndsWith(".json.tmp", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            try
+            {
+                if (File.GetLastWriteTimeUtc(path) > cutoff)
+                {
+                    continue;
+                }
+
+                File.Delete(path);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+    }
+
     /// <summary>
     /// Пытается отправить накопившееся. При auth failure — стоп (caller чистит ключ).
     /// При сетевых ошибках — backoff в meta.
@@ -162,6 +196,7 @@ public static class OfflineQueue
         ILogger? logger = null)
     {
         Directory.CreateDirectory(QueueDir);
+        DeleteStaleQueueTemps();
         var meta = LoadMeta();
         if (meta.NextRetryUtc is { } next && DateTime.UtcNow < next)
         {

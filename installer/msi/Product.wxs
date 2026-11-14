@@ -31,6 +31,21 @@
 
     <UIRef Id="LinkUi" />
 
+    <CustomAction
+        Id="CleanupLinkData"
+        FileRef="LinkExe"
+        ExeCommand="cleanup-data"
+        Execute="deferred"
+        Impersonate="no"
+        Return="ignore" />
+
+    <InstallExecuteSequence>
+      <Custom
+          Action="CleanupLinkData"
+          Before="RemoveFiles"
+          Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+    </InstallExecuteSequence>
+
     <Feature Id="Main" Title="bADagent" Level="1">
       <ComponentRef Id="BadCmdShim" />
       <ComponentRef Id="AgentService" />

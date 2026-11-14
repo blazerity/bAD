@@ -155,60 +155,67 @@ public sealed class AgentUpdater
         DeleteStaleDownloads(_logger);
         var tempDir = Path.Combine(Path.GetTempPath(), "bADagent-update", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
-        string msiPath;
         try
         {
-            msiPath = UpdatePathUtil.ResolveSafeMsiPath(tempDir, null, plan.TargetVersion);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Refusing unsafe archive name from update check");
-            WindowsEventLog.WriteError("bAD: отказ — небезопасное имя архива в ответе update/check", ex);
-            return false;
-        }
-
-        var expectedSha = string.IsNullOrWhiteSpace(check.ArchiveSha256) ? plan.Sha256 : check.ArchiveSha256;
-        if (string.IsNullOrWhiteSpace(check.ArchivePassword) || string.IsNullOrWhiteSpace(expectedSha))
-        {
-            _logger.LogError("Update archive is missing sha256 or password for {Version}", plan.TargetVersion);
-            return false;
-        }
-
-        try
-        {
-            _logger.LogInformation(
-                "Downloading agent package for {Action}: {From} → {To}",
-                plan.Action,
-                _agentVersion,
-                plan.TargetVersion);
-            await client.DownloadUpdateMsiAsync(config.ApiKey!, plan.Url!, msiPath, ct);
-
-            if (!VersionUtil.VerifySha256File(msiPath, expectedSha))
+            string msiPath;
+            try
             {
-                _logger.LogError(
-                    "Update archive sha256 mismatch for {Version}; refusing to install",
-                    plan.TargetVersion);
-                WindowsEventLog.WriteError(
-                    $"bAD: sha256 архива {plan.TargetVersion} не совпал — установка отменена.");
+                msiPath = UpdatePathUtil.ResolveSafeMsiPath(tempDir, null, plan.TargetVersion);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Refusing unsafe archive name from update check");
+                WindowsEventLog.WriteError("bAD: отказ — небезопасное имя архива в ответе update/check", ex);
                 return false;
             }
 
-            var stage = Path.Combine(tempDir, "stage");
-            AgentArchive.DecryptToDirectory(msiPath, check.ArchivePassword, stage);
-            ReplaceBin(stage);
-            SetProgramsVersion(CoreVersion(plan.TargetVersion!));
-            MarkPending(config, plan.TargetVersion!);
-            RestartServiceHidden();
-            return true;
+            var expectedSha = string.IsNullOrWhiteSpace(check.ArchiveSha256) ? plan.Sha256 : check.ArchiveSha256;
+            if (string.IsNullOrWhiteSpace(check.ArchivePassword) || string.IsNullOrWhiteSpace(expectedSha))
+            {
+                _logger.LogError("Update archive is missing sha256 or password for {Version}", plan.TargetVersion);
+                return false;
+            }
+
+            try
+            {
+                _logger.LogInformation(
+                    "Downloading agent package for {Action}: {From} → {To}",
+                    plan.Action,
+                    _agentVersion,
+                    plan.TargetVersion);
+                await client.DownloadUpdateMsiAsync(config.ApiKey!, plan.Url!, msiPath, ct);
+
+                if (!VersionUtil.VerifySha256File(msiPath, expectedSha))
+                {
+                    _logger.LogError(
+                        "Update archive sha256 mismatch for {Version}; refusing to install",
+                        plan.TargetVersion);
+                    WindowsEventLog.WriteError(
+                        $"bAD: sha256 архива {plan.TargetVersion} не совпал — установка отменена.");
+                    return false;
+                }
+
+                var stage = Path.Combine(tempDir, "stage");
+                AgentArchive.DecryptToDirectory(msiPath, check.ArchivePassword, stage);
+                ReplaceBin(stage);
+                SetProgramsVersion(CoreVersion(plan.TargetVersion!));
+                MarkPending(config, plan.TargetVersion!);
+                RestartServiceHidden();
+                return true;
+            }
+            catch (AgentApiException ex) when (ex.IsAuthFailure)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to download/apply {Action} to {Version}", plan.Action, plan.TargetVersion);
+                WindowsEventLog.WriteError($"bAD: сбой {plan.Action} → {plan.TargetVersion}", ex);
+                return false;
+            }
         }
-        catch (AgentApiException ex) when (ex.IsAuthFailure)
+        finally
         {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to download/apply {Action} to {Version}", plan.Action, plan.TargetVersion);
-            WindowsEventLog.WriteError($"bAD: сбой {plan.Action} → {plan.TargetVersion}", ex);
             try
             {
                 if (Directory.Exists(tempDir))
@@ -216,12 +223,10 @@ public sealed class AgentUpdater
                     Directory.Delete(tempDir, recursive: true);
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // best-effort очистка
+                _logger.LogDebug(ex, "Skip locked update temp {Path}", tempDir);
             }
-
-            return false;
         }
     }
 
