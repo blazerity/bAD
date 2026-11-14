@@ -15,8 +15,6 @@ from .db import (
     logger,
     utc_now,
 )
-from .device_refresh import _utc_iso_ge
-
 class DbIngestMixin:
 
     def update_heartbeat(
@@ -43,7 +41,9 @@ class DbIngestMixin:
                 meta = self._lock_device_meta(conn, bad_id)
                 stale_inventory_ack = bool(
                     last_inventory_at
-                    and _utc_iso_ge(meta.get("last_inventory_at"), last_inventory_at)
+                    and self._last_inventory_ack_superseded(
+                        meta.get("last_inventory_at"), last_inventory_at
+                    )
                 )
                 if last_inventory_at and not stale_inventory_ack:
                     meta["last_inventory_at"] = last_inventory_at
@@ -181,6 +181,23 @@ class DbIngestMixin:
             """,
             (bad_id,),
         ).fetchone()
+
+    @staticmethod
+    def _last_inventory_ack_superseded(
+        recorded: Any, incoming: Optional[str]
+    ) -> bool:
+        """True if stored last_inventory_at is strictly newer than the heartbeat ack."""
+        if not incoming:
+            return False
+        from .device_health import parse_utc
+
+        recorded_at = (
+            parse_utc(str(recorded)) if recorded not in (None, "") else None
+        )
+        incoming_at = parse_utc(incoming)
+        if recorded_at is None or incoming_at is None:
+            return False
+        return recorded_at > incoming_at
 
     @staticmethod
     def _inventory_payload_superseded(
