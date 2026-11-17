@@ -227,22 +227,24 @@ jobs:
           $msi = "installer/msi/${{ steps.ver.outputs.msi_name }}"
           $arc = "installer/msi/${{ steps.ver.outputs.arc_name }}"
           $json = "installer/msi/agent-release.json"
-          $title = "bAD agent $version"
+          $title = "bAD agent $version, Link 1.0.0"
           $notes = @"
-          ## bAD agent $version
+          ## Агент $version и Link 1.0.0
 
-          - MSI: ``${{ steps.ver.outputs.msi_name }}``
-          - Archive: ``${{ steps.ver.outputs.arc_name }}``
-          - Manifest: ``agent-release.json`` (version, msi_name, sha256)
+          - ``${{ steps.ver.outputs.msi_name }}`` — установщик bADagent Link 1.0.0. Маленький файл, его раздают на компьютеры. Полного агента внутри нет.
+          - ``${{ steps.ver.outputs.arc_name }}`` — полный агент $version. Его забирает сервер и отдаёт Link после установки.
+          - ``agent-release.json`` — версия агента, имя архива и sha256. Поле ``msi_name`` указывает на архив ``.arc``.
 
-          Install (elevated):
+          Установка Link от администратора:
+
           ``````powershell
           msiexec /i ${{ steps.ver.outputs.msi_name }} SERVERURL=https://bad.example.com /qn
           ``````
 
-          The on-prem server mirrors these assets; agents download updates from the server, not from GitHub.
+          Сервер зеркалирует архив агента. Компьютер забирает агент с вашего сервера, не с GitHub.
           "@
           if (gh release view $tag 2>$null) {
+            gh release edit $tag --title $title --notes $notes
             gh release upload $tag $msi $arc $json --clobber
           } else {
             gh release create $tag $msi $arc $json --title $title --notes $notes
