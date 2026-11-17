@@ -1,0 +1,46 @@
+{% extends "settings_base.html" %}
+{% from "macros/icons.html" import icon %}
+{% set settings_section = 'retire' %}
+{% block title %}Снятие — bAD{% endblock %}
+{% block settings_content %}
+<section class="settings">
+  <h1 class="with-icon">{{ icon('retention') }}Снятие</h1>
+  <p class="muted">
+    Сначала приказ уходит всем живым карточкам. Агент забирает его при следующем опросе и снимает себя один раз.
+    Потом эта же страница снимает сервер. Отозванная карточка приказ не получает: сервер уже не принимает её опрос.
+  </p>
+  {% if message %}<p class="ok">{{ message }}</p>{% endif %}
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+  <dl class="meta">
+    <div><dt>Ещё не забрали приказ</dt><dd class="mono">{{ summary.not_delivered }}</dd></div>
+    <div><dt>Приказ уже ушёл</dt><dd class="mono">{{ summary.sent }}</dd></div>
+    <div><dt>Отозваны</dt><dd class="mono">{{ summary.revoked }}</dd></div>
+  </dl>
+
+  <h2>Приказ агентам</h2>
+  <p class="muted">
+    Сервер после этой кнопки продолжает работать. Повторное нажатие не ставит приказ тем, кому он уже ушёл или ещё висит.
+  </p>
+  <form method="post" action="/settings/retire/order" class="form-actions">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit">Поставить приказ всем</button>
+  </form>
+
+  <h2>Снять сервер</h2>
+  <p class="muted">
+    Кнопка доступна сразу. Число выше показывает, сколько карточек приказ ещё не забрали: эти агенты останутся на ПК.
+    Снос останавливает службы bAD, удаляет <span class="mono">/opt/bad</span>, <span class="mono">/var/lib/bad</span>,
+    <span class="mono">/etc/bad</span>, сайт nginx и данные кластера Postgres, затем создаёт пустой кластер.
+    Пакеты Postgres, nginx и Python остаются. Сертификаты вне <span class="mono">/etc/bad</span> не трогаются.
+  </p>
+  <form method="post" action="/settings/retire/server" class="settings-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="confirm">Введите {{ confirm_word }}</label>
+    <input id="confirm" name="confirm" type="text" autocomplete="off" required>
+    <div class="form-actions">
+      <button type="submit">Снять сервер</button>
+    </div>
+  </form>
+</section>
+{% endblock %}

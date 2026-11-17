@@ -516,6 +516,18 @@ def request_apply(
     return payload
 
 
+def request_server_retire(*, directory: Optional[Path] = None) -> dict[str, Any]:
+    """apply.request action=retire. Root helper снимает сервер и чистит данные."""
+    root = ensure_releases_layout(directory)
+    payload = {
+        "requested_at": utc_now(),
+        "action": "retire",
+    }
+    _write_json(apply_request_path(root), payload)
+    logger.info("server retire requested")
+    return payload
+
+
 def request_set_github_token(
     token: str,
     *,

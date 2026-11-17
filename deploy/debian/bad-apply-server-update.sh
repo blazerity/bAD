@@ -379,6 +379,57 @@ restart_api() {
   systemctl try-restart bad-api.service || systemctl restart bad-api.service || true
 }
 
+retire_postgres() {
+  systemctl stop postgresql || true
+  if ! command -v pg_lsclusters >/dev/null 2>&1; then
+    echo "bad-apply-server-update: retire: нет pg_lsclusters" >&2
+    return 0
+  fi
+  local ver name
+  while read -r ver name _; do
+    [[ -n "${ver}" && -n "${name}" ]] || continue
+    pg_dropcluster --stop "${ver}" "${name}" \
+      || echo "bad-apply-server-update: retire: не снял кластер ${ver}/${name}" >&2
+  done < <(pg_lsclusters --no-header 2>/dev/null || true)
+  ver="$(ls /usr/lib/postgresql 2>/dev/null | sort -V | tail -n 1 || true)"
+  if [[ -n "${ver}" ]]; then
+    pg_createcluster "${ver}" main \
+      || echo "bad-apply-server-update: retire: не создал пустой кластер ${ver}/main" >&2
+    systemctl enable postgresql >/dev/null 2>&1 || true
+    systemctl start postgresql || true
+  fi
+}
+
+retire_machine() {
+  # Запрос уже прочитан. Удалить его, чтобы path unit не запустил снос второй раз.
+  rm -f "${REQUEST}"
+  systemctl disable --now bad-api.service \
+    bad-tls-apply.path bad-tls-apply.service \
+    bad-server-update-apply.path \
+    >/dev/null 2>&1 || true
+  systemctl stop bad-api.service >/dev/null 2>&1 || true
+  rm -f /etc/nginx/sites-enabled/bad /etc/nginx/sites-available/bad
+  if command -v nginx >/dev/null 2>&1; then
+    nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1 || true
+  fi
+  retire_postgres
+  rm -f /usr/local/sbin/bad-apply-tls /usr/local/sbin/bad-restore-site-bundle
+  rm -rf /opt/bad /var/lib/bad /etc/bad /var/log/bad
+  rm -f /tmp/bad-server-update-pip.log
+  if id bad >/dev/null 2>&1; then
+    userdel -f bad >/dev/null 2>&1 || true
+  fi
+  rm -f \
+    /etc/systemd/system/bad-api.service \
+    /etc/systemd/system/bad-tls-apply.service \
+    /etc/systemd/system/bad-tls-apply.path \
+    /etc/systemd/system/bad-server-update-apply.service \
+    /etc/systemd/system/bad-server-update-apply.path
+  rm -f /usr/local/sbin/bad-apply-server-update
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  echo "bad-apply-server-update: retire ok"
+}
+
 # ---- main ----
 ensure_dirs
 
@@ -428,6 +479,9 @@ case "${ACTION}" in
     prune_slots
     write_status true "Откат на слот ${SLOT_ID}; bad-api restart" "rollback"
     restart_api
+    ;;
+  retire)
+    retire_machine
     ;;
   *)
     fail "неизвестное action=${ACTION}" "unknown"

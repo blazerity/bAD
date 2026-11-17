@@ -113,7 +113,9 @@ from .wave_21_migration import resolve_device_ref
 from .device_uninstall import (
     cancel_device_uninstall,
     device_uninstall_confirm_value,
+    fleet_uninstall_summary,
     request_device_uninstall,
+    request_fleet_uninstall,
     uninstall_confirm_matches,
     uninstall_ui_context,
 )
@@ -147,6 +149,7 @@ from .server_update import (
     read_current as server_read_current,
     releases_dir,
     request_apply as server_request_apply,
+    request_server_retire,
     request_set_github_token,
     set_preferred_branch,
     status_panel as server_status_panel,
@@ -5371,3 +5374,94 @@ def server_update_msi_poll(
         message = None
         error = str(exc)
     return _see_other(request, "/settings/server-update", message=message, error=error)
+
+
+RETIRE_CONFIRM = "УДАЛИТЬ"
+
+
+def _retire_page(
+    request: Request,
+    user: WebUser,
+    db: Database,
+    *,
+    message: Optional[str] = None,
+    error: Optional[str] = None,
+) -> HTMLResponse:
+    summary = fleet_uninstall_summary(db)
+    return _html(
+        request,
+        "retire_settings.html",
+        {
+            "user": user,
+            "settings_section": "retire",
+            "summary": summary,
+            "confirm_word": RETIRE_CONFIRM,
+            "message": message,
+            "error": error,
+        },
+    )
+
+
+@router.get("/settings/retire", response_class=HTMLResponse)
+def retire_settings_page(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+):
+    flashed = _take_flash(request)
+    return _retire_page(
+        request,
+        user,
+        db,
+        message=flashed.get("message"),
+        error=flashed.get("error"),
+    )
+
+
+@router.post("/settings/retire/order")
+def retire_order_fleet(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+):
+    summary = request_fleet_uninstall(db)
+    message = (
+        f"Приказ поставлен {summary['ordered_now']} карточкам. "
+        f"Ещё не забрали: {summary['not_delivered']}."
+    )
+    return _see_other(request, "/settings/retire", message=message)
+
+
+@router.post("/settings/retire/server")
+def retire_server(
+    request: Request,
+    user: WebUser = Depends(require_web_admin),
+    db: Database = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    confirm: str = Form(""),
+):
+    if (confirm or "").strip() != RETIRE_CONFIRM:
+        return _see_other(
+            request,
+            "/settings/retire",
+            error=f"Чтобы снять сервер, введите {RETIRE_CONFIRM}.",
+        )
+    summary = fleet_uninstall_summary(db)
+    try:
+        request_server_retire(directory=releases_dir(settings))
+    except OSError as exc:
+        return _see_other(
+            request,
+            "/settings/retire",
+            error=f"Не удалось записать запрос на снятие: {exc}",
+        )
+    return _retire_page(
+        request,
+        user,
+        db,
+        message=(
+            "Запрос на снятие записан. Root-служба останавливает панель и чистит данные. "
+            f"Приказ ещё не забрали {summary['not_delivered']} карточек — "
+            "они останутся с агентом."
+        ),
+    )

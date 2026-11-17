@@ -53,6 +53,10 @@
         <span class="settings-nav-icon">{{ icon('updates') }}</span>
         <span class="settings-nav-label">Обновление сервера</span>
       </a>
+      <a class="settings-nav-item {% if settings_section == 'retire' %}active{% endif %}" href="/settings/retire">
+        <span class="settings-nav-icon">{{ icon('retention') }}</span>
+        <span class="settings-nav-label">Снятие</span>
+      </a>
       <a class="settings-nav-item {% if settings_section == 'integrations' %}active{% endif %}" href="/settings/integrations">
         <span class="settings-nav-icon">{{ icon('link') }}</span>
         <span class="settings-nav-label">Интеграции</span>

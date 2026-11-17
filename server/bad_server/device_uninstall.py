@@ -167,3 +167,55 @@ def uninstall_confirm_matches(detail: dict[str, Any], typed: str) -> bool:
         if candidate and text == candidate:
             return True
     return False
+
+
+def classify_uninstall_card(meta: dict[str, Any], *, revoked: bool) -> str:
+    """revoked | waiting | sent | idle. waiting — приказ ещё не ушёл в heartbeat."""
+    if revoked:
+        return "revoked"
+    if not isinstance(meta, dict):
+        meta = {}
+    if uninstall_request_active(meta):
+        return "waiting"
+    sent = meta.get("uninstall_sent_at")
+    if sent and str(sent).strip():
+        return "sent"
+    return "idle"
+
+
+def summarize_uninstall_cards(rows: list[dict[str, Any]]) -> dict[str, int]:
+    counts = {"waiting": 0, "sent": 0, "idle": 0, "revoked": 0}
+    for row in rows:
+        meta = row.get("meta") if isinstance(row, dict) else None
+        if not isinstance(meta, dict):
+            meta = {}
+        kind = classify_uninstall_card(meta, revoked=bool(row.get("revoked")))
+        counts[kind] += 1
+    counts["not_delivered"] = counts["waiting"] + counts["idle"]
+    return counts
+
+
+def fleet_uninstall_summary(db: Database) -> dict[str, int]:
+    rows = db.list_devices(archived=None)
+    return summarize_uninstall_cards(rows)
+
+
+def request_fleet_uninstall(db: Database) -> dict[str, int]:
+    """Разовый приказ живым карточкам. Уже отправленный и уже висящий не трогает."""
+    ordered = 0
+    for device in db.list_devices(archived=None):
+        if device.get("revoked"):
+            continue
+        meta = device.get("meta") or {}
+        if not isinstance(meta, dict):
+            meta = {}
+        if uninstall_request_active(meta):
+            continue
+        if meta.get("uninstall_sent_at") and str(meta.get("uninstall_sent_at")).strip():
+            continue
+        _ok, reason = request_device_uninstall(db, str(device["device_id"]))
+        if reason == "ok":
+            ordered += 1
+    summary = fleet_uninstall_summary(db)
+    summary["ordered_now"] = ordered
+    return summary
