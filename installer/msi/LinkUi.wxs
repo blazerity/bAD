@@ -26,6 +26,7 @@
               Modeless="yes"
               Width="0"
               Height="0">
+        <Control Id="ProgressText" Type="Text" X="0" Y="0" Width="0" Height="0" TabSkip="no" Text=" " />
         <Control Id="ProgressBar"
                  Type="ProgressBar"
                  X="0"
