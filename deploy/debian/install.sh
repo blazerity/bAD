@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# Однострочный установщик bAD для Debian 12 (Postgres only)
-# Использование (сразу HTTPS):
-#   BAD_DOMAIN=bad.example.com BAD_TLS_CERT=/path/fullchain.pem BAD_TLS_KEY=/path/privkey.pem \
-#     sudo -E bash install.sh
-# HTTP bootstrap (сертификат позже из UI /settings/tls):
-#   BAD_DOMAIN=bad.example.com sudo -E bash install.sh
-# Или:
-#   curl -fsSL https://<distribution-host>/bad/install.sh | sudo bash
+# Установщик bAD для Debian 12 (Postgres only).
+# BAD_DOMAIN — только DNS-имя. Без https://, без пути и без порта.
+# Верно: bad.stepcon.ru
+# Неверно: https://bad.stepcon.ru/
+#
+# Без сертификата (его потом загружают в панели):
+#   sudo -E BAD_DOMAIN=bad.stepcon.ru bash install.sh
+#
+# Сразу с сертификатом:
+#   sudo -E BAD_DOMAIN=bad.stepcon.ru \
+#     BAD_TLS_CERT=/path/fullchain.pem BAD_TLS_KEY=/path/privkey.pem \
+#     bash install.sh
 set -euo pipefail
 
 TOTAL_STEPS=6
@@ -48,19 +52,32 @@ prompt() {
   fi
 }
 
-prompt BAD_DOMAIN "Public DNS name for this bAD server (cert SAN/CN)"
+prompt BAD_DOMAIN "DNS-имя сервера, без https:// и без пути. Пример: bad.stepcon.ru"
+BAD_DOMAIN="${BAD_DOMAIN#http://}"
+BAD_DOMAIN="${BAD_DOMAIN#https://}"
+BAD_DOMAIN="${BAD_DOMAIN%%/*}"
+BAD_DOMAIN="${BAD_DOMAIN%/}"
+if [[ -z "${BAD_DOMAIN}" || "${BAD_DOMAIN}" == *"/"* || "${BAD_DOMAIN}" == *" "* || "${BAD_DOMAIN}" == *"://"* ]]; then
+  echo "error: нужно только DNS-имя, например bad.stepcon.ru" >&2
+  exit 1
+fi
+echo "DNS-имя: ${BAD_DOMAIN}"
 
 if [[ -z "${BAD_TLS_CERT:-}" && -z "${BAD_TLS_KEY:-}" ]]; then
   if [[ -t 0 ]]; then
-    read -r -p "TLS fullchain path [Enter = upload later via /settings/tls]: " BAD_TLS_CERT || true
+    echo
+    echo "Сертификат сейчас можно не указывать."
+    echo "Нажмите Enter, чтобы открыть панель по HTTP и загрузить сертификат позже в параметрах."
+    echo "Если файл уже есть на диске, введите абсолютный путь к fullchain."
+    read -r -p "Путь к fullchain [Enter — пропустить]: " BAD_TLS_CERT || true
     export BAD_TLS_CERT="${BAD_TLS_CERT:-}"
   fi
 fi
 
 HAS_TLS=0
 if [[ -n "${BAD_TLS_CERT:-}" || -n "${BAD_TLS_KEY:-}" ]]; then
-  prompt BAD_TLS_CERT "Absolute path to TLS certificate (fullchain)"
-  prompt BAD_TLS_KEY "Absolute path to TLS private key"
+  prompt BAD_TLS_CERT "Абсолютный путь к сертификату (fullchain)"
+  prompt BAD_TLS_KEY "Абсолютный путь к закрытому ключу"
   if [[ ! -f "${BAD_TLS_CERT}" ]]; then
     echo "error: cert not found: ${BAD_TLS_CERT}" >&2
     exit 1

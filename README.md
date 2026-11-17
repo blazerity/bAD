@@ -14,8 +14,10 @@ bAD смотрит компьютеры Windows и показывает их в 
 
 Debian 12, каталог `deploy/debian`:
 
+`BAD_DOMAIN` — только DNS-имя, без `https://`.
+
 ```bash
-BAD_DOMAIN=panel.example.com sudo -E bash install.sh
+sudo -E BAD_DOMAIN=panel.example.com bash install.sh
 ```
 
 Скрипт ставит PostgreSQL, nginx и службу. Панель сначала открывается по HTTP. Сертификат — в **Параметры → Сертификат**. Первый вход `admin` / `admin`, пароль нужно сменить сразу.
