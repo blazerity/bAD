@@ -47,7 +47,7 @@ def ensure_bad_id_key(db: Any) -> str:
     fresh = secrets.token_hex(32)
     with db.connection() as conn:
         conn.execute(
-            "INSERT INTO site_secrets(key, value) VALUES(?, ?) "
+            "INSERT INTO site_secrets(key, value) VALUES(%s, %s) "
             "ON CONFLICT(key) DO NOTHING",
             (_KEY_NAME, fresh),
         )
