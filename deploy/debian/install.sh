@@ -119,6 +119,7 @@ chown bad:bad /var/lib/bad/server-releases/staging
 chmod 770 /var/lib/bad/server-releases/staging
 chown root:bad /var/lib/bad/server-releases/slots
 chmod 750 /var/lib/bad/server-releases/slots
+chown root:bad /etc/bad
 chmod 750 /etc/bad
 chown root:bad /etc/bad/tls
 chmod 770 /etc/bad/tls
