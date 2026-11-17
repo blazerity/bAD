@@ -6,7 +6,8 @@
 #   1) inputs.version (strip agent-v / v)
 #   2) git tag agent-vX.Y.Z or transitional vX.Y.Z
 #   3) agent/VERSION (Agent Lead) else BadAgent.csproj Version
-# MSI ProductVersion is always 1.0.0. The archive is bad-agent-<major.minor.patch>.arc.
+# Link MSI file is bad-link-1.0.0.msi (ProductVersion 1.0.0).
+# The agent archive is bad-agent-<major.minor.patch>.arc.
 #
 # Required permissions: contents: write (create/update Release + upload assets).
 # Secrets: GITHUB_TOKEN is sufficient for a public repo.
@@ -111,12 +112,14 @@ jobs:
             throw "Agent version must look like major.minor.patch, got: $version"
           }
           $productVersion = $Matches.core
+          $linkVersion = "1.0.0"
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "product_version=$productVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "link_version=$linkVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "tag=$releaseTag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          "msi_name=bad-agent-$productVersion.msi" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "msi_name=bad-link-$linkVersion.msi" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "arc_name=bad-agent-$productVersion.arc" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          Write-Host "Resolved agent version=$version release_tag=$releaseTag"
+          Write-Host "Resolved agent version=$version link=$linkVersion release_tag=$releaseTag"
 
       - name: Build link service
         run: |
@@ -161,7 +164,7 @@ jobs:
           wix build Product.wxs LinkUi.wxs `
             -ext WixToolset.Util.wixext `
             -arch x64 `
-            -d ProductVersion=1.0.0 `
+            -d ProductVersion=${{ steps.ver.outputs.link_version }} `
             -o $msi
           if (-not (Test-Path $msi)) { throw "MSI not produced: $msi" }
 
@@ -227,16 +230,29 @@ jobs:
           $msi = "installer/msi/${{ steps.ver.outputs.msi_name }}"
           $arc = "installer/msi/${{ steps.ver.outputs.arc_name }}"
           $json = "installer/msi/agent-release.json"
-          $title = "bAD agent $version, Link 1.0.0"
+          $title = "bAD agent $version"
+          $linkVersion = "${{ steps.ver.outputs.link_version }}"
           $notes = @"
-          ## Агент $version и Link 1.0.0
+          ## bAD agent $version
 
-          - ``${{ steps.ver.outputs.msi_name }}`` — установщик bADagent Link 1.0.0. Маленький файл, его раздают на компьютеры. Полного агента внутри нет.
-          - ``${{ steps.ver.outputs.arc_name }}`` — полный агент $version. Его забирает сервер и отдаёт Link после установки.
-          - ``agent-release.json`` — версия агента, имя архива и sha256. Поле ``msi_name`` указывает на архив ``.arc``.
+          - Link MSI: ``${{ steps.ver.outputs.msi_name }}`` (bADagent Link $linkVersion, the small installer for PCs; the full agent is not inside)
+          - Agent archive: ``${{ steps.ver.outputs.arc_name }}`` (full agent $version)
+          - Manifest: ``agent-release.json`` (version, msi_name, sha256). ``msi_name`` is the agent archive, not the Link MSI.
+
+          Install Link (elevated):
+          ``````powershell
+          msiexec /i ${{ steps.ver.outputs.msi_name }} SERVERURL=https://bad.example.com /qn
+          ``````
+
+          The on-prem server mirrors the agent archive. Computers download the agent from your server, not from GitHub.
+
+          ## Агент $version
+
+          - Link MSI: ``${{ steps.ver.outputs.msi_name }}`` — установщик bADagent Link $linkVersion. Его раздают на компьютеры. Полного агента внутри нет.
+          - Архив агента: ``${{ steps.ver.outputs.arc_name }}`` — полный агент $version.
+          - Манифест: ``agent-release.json`` (version, msi_name, sha256). ``msi_name`` — это архив агента, не MSI Link.
 
           Установка Link от администратора:
-
           ``````powershell
           msiexec /i ${{ steps.ver.outputs.msi_name }} SERVERURL=https://bad.example.com /qn
           ``````
@@ -245,6 +261,11 @@ jobs:
           "@
           if (gh release view $tag 2>$null) {
             gh release edit $tag --title $title --notes $notes
+            $oldMsi = "bad-agent-${{ steps.ver.outputs.product_version }}.msi"
+            $assetNames = @(gh release view $tag --json assets --jq ".assets[].name")
+            if ($assetNames -contains $oldMsi -and $oldMsi -ne "${{ steps.ver.outputs.msi_name }}") {
+              gh release delete-asset $tag $oldMsi --yes
+            }
             gh release upload $tag $msi $arc $json --clobber
           } else {
             gh release create $tag $msi $arc $json --title $title --notes $notes
